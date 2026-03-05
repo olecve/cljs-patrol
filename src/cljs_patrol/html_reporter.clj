@@ -1,7 +1,9 @@
 (ns cljs-patrol.html-reporter
   "Generates a self-contained HTML report from cljs-patrol analysis results."
   (:require
-   [clojure.string :as str]))
+   [clojure.string :as str]
+   [hiccup.page :refer [html5]]
+   [hiccup.util :refer [raw-string]]))
 
 (def ^:private css
   (str
@@ -67,13 +69,6 @@
    "return asc?av.localeCompare(bv):bv.localeCompare(av);});"
    "rows.forEach(function(r){tbody.appendChild(r);});});});"))
 
-(defn- escape-html [s]
-  (-> (str s)
-      (str/replace "&" "&amp;")
-      (str/replace "<" "&lt;")
-      (str/replace ">" "&gt;")
-      (str/replace "\"" "&quot;")))
-
 (defn- cell-value [col item]
   (case col
     :keyword (str (:kw item))
@@ -89,25 +84,17 @@
     :form "Form"))
 
 (defn- render-details [{:keys [title description columns items]}]
-  (let [cnt (count items)
-        open-attr (if (pos? cnt) " open" "")]
-    (str "<details" open-attr ">\n"
-         "<summary>" (escape-html title) " (" cnt ")"
-         (when description (str " <span class=\"desc\">" (escape-html description) "</span>"))
-         "</summary>\n"
-         "<table class=\"issues\">\n"
-         "<thead><tr>"
-         (str/join "" (map #(str "<th data-sort>" (escape-html (col-header %)) "</th>") columns))
-         "</tr></thead>\n"
-         "<tbody>\n"
-         (str/join "\n" (map (fn [item]
-                               (str "<tr>"
-                                    (str/join "" (map #(str "<td>" (escape-html (cell-value % item)) "</td>") columns))
-                                    "</tr>"))
-                             items))
-         "\n</tbody>\n"
-         "</table>\n"
-         "</details>\n")))
+  (let [cnt (count items)]
+    [:details (if (pos? cnt) {:open true} {})
+     [:summary title " (" cnt ")"
+      (when description [:span.desc description])]
+     [:table.issues
+      [:thead
+       [:tr (map #(vector :th {:data-sort ""} (col-header %)) columns)]]
+      [:tbody
+       (map (fn [item]
+              [:tr (map #(vector :td (cell-value % item)) columns)])
+            items)]]]))
 
 (defn- aggregate-sections [g g-idx run-results]
   (mapv (fn [section]
@@ -136,43 +123,35 @@
                            (aggregate-summary g g-idx run-results))
                          enabled-groups
                          (range))]
-    (str "<table class=\"summary\">\n"
-         "<thead><tr><th>Check</th><th>Count</th></tr></thead>\n"
-         "<tbody>\n"
-         (str/join "\n" (map (fn [[label cnt]]
-                               (let [cls (if (zero? cnt) "ok" "warn")]
-                                 (str "<tr class=\"" cls "\"><td>" (escape-html (str label))
-                                      "</td><td>" cnt "</td></tr>")))
-                             all-rows))
-         "\n</tbody>\n"
-         "</table>\n")))
+    [:table.summary
+     [:thead [:tr [:th "Check"] [:th "Count"]]]
+     [:tbody
+      (map (fn [[label cnt]]
+             [:tr {:class (if (zero? cnt) "ok" "warn")}
+              [:td (str label)]
+              [:td cnt]])
+           all-rows)]]))
 
 (defn- render-group-section [g g-idx run-results]
-  (let [sections (aggregate-sections g g-idx run-results)]
-    (str "<section>\n"
-         "<h2>" (escape-html (:name g)) "</h2>\n"
-         (str/join "\n" (map render-details sections))
-         "</section>\n")))
+  [:section
+   [:h2 (:name g)]
+   (map render-details (aggregate-sections g g-idx run-results))])
 
 (defn- render-html [enabled-groups run-results]
   (let [dirs (str/join ", " (map :source-dir run-results))
         timestamp (str (java.time.LocalDateTime/now))]
-    (str "<!DOCTYPE html>\n"
-         "<html lang=\"en\">\n"
-         "<head>\n"
-         "<meta charset=\"UTF-8\">\n"
-         "<title>cljs-patrol report</title>\n"
-         "<style>" css "</style>\n"
-         "</head>\n"
-         "<body>\n"
-         "<h1>cljs-patrol report</h1>\n"
-         "<p>Generated: " (escape-html timestamp) " | Analyzed: " (escape-html dirs) "</p>\n"
-         "<h2>Summary</h2>\n"
-         (render-summary-table enabled-groups run-results)
-         (str/join "\n" (map-indexed (fn [i g] (render-group-section g i run-results)) enabled-groups))
-         "<script>" js "</script>\n"
-         "</body>\n"
-         "</html>\n")))
+    (html5 {:lang "en"}
+           [:head
+            [:meta {:charset "UTF-8"}]
+            [:title "cljs-patrol report"]
+            [:style (raw-string css)]]
+           [:body
+            [:h1 "cljs-patrol report"]
+            [:p "Generated: " timestamp " | Analyzed: " dirs]
+            [:h2 "Summary"]
+            (render-summary-table enabled-groups run-results)
+            (map-indexed (fn [i g] (render-group-section g i run-results)) enabled-groups)
+            [:script (raw-string js)]])))
 
 (defn write-report
   "Write a self-contained HTML report to output-path."
