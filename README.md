@@ -74,6 +74,21 @@ Spade declarations: `defclass`, `defattrs`
 
 Spade usages: direct function calls, both qualified (`styles/container-style`) and unqualified (`container-style`) within the same namespace
 
+## EDN output
+
+Print structured EDN to stdout for programmatic or AI-assisted analysis:
+
+```bash
+clojure -M:run --output edn src/cljs/myapp
+```
+
+File paths in the output are absolute, making it easy to read files directly.
+Combinable with other flags:
+
+```bash
+clojure -M:run --only re-frame --output edn src/cljs/myapp
+```
+
 ## Build
 
 Build a standalone uberjar:

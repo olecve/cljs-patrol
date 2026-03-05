@@ -2,7 +2,7 @@
   "Re-frame rule group: detects unused and phantom subscriptions and events."
   (:require
    [cljs-patrol.parser :as parser]
-   [cljs-patrol.reporter :as reporter]
+   [cljs-patrol.reporters.console :as reporter]
    [rewrite-clj.zip :as z]))
 
 (def ^:private decl-fn->type

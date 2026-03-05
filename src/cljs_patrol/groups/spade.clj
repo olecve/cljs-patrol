@@ -2,7 +2,7 @@
   "Spade rule group: detects unused CSS-in-CLJS style declarations."
   (:require
    [cljs-patrol.parser :as parser]
-   [cljs-patrol.reporter :as reporter]
+   [cljs-patrol.reporters.console :as reporter]
    [rewrite-clj.zip :as z]))
 
 (def ^:private style-decl-fns #{"defclass" "defattrs"})

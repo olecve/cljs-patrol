@@ -8,8 +8,9 @@
   (:require
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.spade :as spade]
-   [cljs-patrol.html-reporter :as html-reporter]
    [cljs-patrol.parser :as parser]
+   [cljs-patrol.reporters.edn :as edn-reporter]
+   [cljs-patrol.reporters.html :as html-reporter]
    [clojure.string :as str]))
 
 (def ^:private all-groups [re-frame/group spade/group])
@@ -77,6 +78,7 @@
     (println "  --only g1,g2    Enable only the specified groups")
     (println "  --disable g1,g2 Disable the specified groups")
     (println "  --output html   Write report.html instead of console output")
+    (println "  --output edn    Print EDN data to stdout (for programmatic/AI use)")
     (println)
     (println "Example:")
     (println "  clojure -M:run src/cljs/myapp")
@@ -93,12 +95,13 @@
                               (some (fn [[g r]] ((:failed? g) r))
                                     (map vector enabled-groups group-results)))
                             run-results)]
-      (if (= :html (:output opts))
-        (do
-          (html-reporter/write-report enabled-groups run-results "report.html")
-          (println "Report written to report.html")
-          (doseq [{:keys [group-results]} run-results]
-            (print-summary enabled-groups group-results)))
+      (case (:output opts)
+        :html (do
+                (html-reporter/write-report enabled-groups run-results "report.html")
+                (println "Report written to report.html")
+                (doseq [{:keys [group-results]} run-results]
+                  (print-summary enabled-groups group-results)))
+        :edn  (edn-reporter/print-report enabled-groups dirs run-results)
         (doseq [{:keys [group-results]} run-results]
           (doseq [[g r] (map vector enabled-groups group-results)]
             ((:report g) r))

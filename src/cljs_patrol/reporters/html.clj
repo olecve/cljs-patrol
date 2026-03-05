@@ -1,4 +1,4 @@
-(ns cljs-patrol.html-reporter
+(ns cljs-patrol.reporters.html
   "Generates a self-contained HTML report from cljs-patrol analysis results."
   (:require
    [clojure.string :as str]

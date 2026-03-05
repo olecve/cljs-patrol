@@ -1,5 +1,5 @@
-(ns cljs-patrol.reporter
-  "Shared formatting utilities for cljs-patrol analysis output."
+(ns cljs-patrol.reporters.console
+  "Console output formatting for cljs-patrol analysis results."
   (:require
    [clojure.string :as str]))
 
