@@ -184,10 +184,16 @@
 (def group
   "Re-frame rule group map."
   {:id :re-frame
+   :name "Re-frame"
    :parse {:handle-list handle-list
            :handle-vector handle-vector
            :handle-token handle-token}
    :analyze analyze
    :report report
    :summary-lines summary-lines
-   :failed? failed?})
+   :failed? failed?
+   :html-sections [{:title "Unused Subscriptions" :data-fn :unused-subs :columns [:keyword :file :line]}
+                   {:title "Unused Events" :data-fn :unused-events :columns [:keyword :file :line]}
+                   {:title "Phantom Subscriptions" :data-fn :phantom-subs :columns [:keyword :file :line]}
+                   {:title "Phantom Events" :data-fn :phantom-events :columns [:keyword :file :line]}
+                   {:title "Dynamic Sites" :data-fn :dynamic-sites :columns [:form :file :line]}]})

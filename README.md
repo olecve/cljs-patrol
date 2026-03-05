@@ -38,6 +38,21 @@ Disable specific groups:
 clojure -M:run --disable spade src/cljs/myapp
 ```
 
+## HTML report
+
+Generate a self-contained HTML report instead of console output:
+
+```bash
+clojure -M:run --output html src/cljs/myapp
+```
+
+Writes `report.html` in the current directory and prints the summary counts to stdout.
+Combinable with other flags:
+
+```bash
+clojure -M:run --only re-frame --output html src/cljs/myapp
+```
+
 ## What it detects
 
 - **Unused subscriptions** — registered with `reg-sub` but never subscribed to

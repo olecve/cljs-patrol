@@ -59,8 +59,10 @@
 (def group
   "Spade rule group map."
   {:id :spade
+   :name "Spade"
    :parse {:handle-list handle-list}
    :analyze analyze
    :report report
    :summary-lines summary-lines
-   :failed? failed?})
+   :failed? failed?
+   :html-sections [{:title "Unused Styles" :data-fn :unused-styles :columns [:keyword :file :line]}]})
