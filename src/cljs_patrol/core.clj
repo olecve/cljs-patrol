@@ -30,5 +30,5 @@
     (println "  clojure -M:run src/cljs/myapp")
     (System/exit 0))
   (let [results (mapv run args)
-        any-unused? (some #(or (seq (:unused-subs %)) (seq (:unused-events %))) results)]
+        any-unused? (some #(or (seq (:unused-subs %)) (seq (:unused-events %)) (seq (:unused-styles %))) results)]
     (System/exit (if any-unused? 1 0))))

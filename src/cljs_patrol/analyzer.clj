@@ -28,8 +28,13 @@
         phantom-subs (remove #(contains? declared-sub-kws (:kw %))
                              (filter #(= :sub (:type %)) usages))
         phantom-events (remove #(contains? declared-event-kws (:kw %))
-                               (filter #(= :event (:type %)) usages))]
-    {:unused-subs (distinct-by :kw unused-subs)
-     :unused-events (distinct-by :kw unused-events)
+                               (filter #(= :event (:type %)) usages))
+
+        style-decls (filter #(contains? #{:defclass :defattrs} (:type %)) declarations)
+        style-call-kws (set (map :kw (filter #(= :style-call (:type %)) usages)))
+        unused-styles (remove #(contains? style-call-kws (:kw %)) style-decls)]
+    {:phantom-events (distinct-by :kw phantom-events)
      :phantom-subs (distinct-by :kw phantom-subs)
-     :phantom-events (distinct-by :kw phantom-events)}))
+     :unused-events (distinct-by :kw unused-events)
+     :unused-styles (distinct-by :kw unused-styles)
+     :unused-subs (distinct-by :kw unused-subs)}))

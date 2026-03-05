@@ -22,15 +22,17 @@
 
 (defn print-report
   "Prints a human-readable report of unused subs/events, phantom refs, and dynamic sites."
-  [{:keys [unused-subs unused-events phantom-subs phantom-events]} dynamic-sites]
+  [{:keys [phantom-events phantom-subs unused-events unused-styles unused-subs]} dynamic-sites]
   (print-section "UNUSED SUBSCRIPTIONS" unused-subs)
   (print-section "UNUSED EVENTS" unused-events)
+  (print-section "UNUSED STYLES (defclass/defattrs)" unused-styles)
   (print-section "PHANTOM SUBSCRIPTIONS (subscribed but never declared)" phantom-subs)
   (print-section "PHANTOM EVENTS (dispatched but never declared)" phantom-events)
   (print-dynamic-section "DYNAMIC DISPATCH/SUBSCRIBE SITES (manual review needed)" dynamic-sites)
   (println "\n=== SUMMARY ===")
   (println (format "  %-30s %d" "Unused subscriptions:" (count unused-subs)))
   (println (format "  %-30s %d" "Unused events:" (count unused-events)))
+  (println (format "  %-30s %d" "Unused styles:" (count unused-styles)))
   (println (format "  %-30s %d" "Phantom subscriptions:" (count phantom-subs)))
   (println (format "  %-30s %d" "Phantom events:" (count phantom-events)))
   (println (format "  %-30s %d" "Dynamic sites:" (count dynamic-sites))))

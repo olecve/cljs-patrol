@@ -15,6 +15,8 @@
    "reg-fx" :fx
    "reg-cofx" :cofx})
 
+(def ^:private style-decl-fns #{"defclass" "defattrs"})
+
 (def ^:private dispatch-fns #{"dispatch" "dispatch-sync"})
 
 (def ^:private http-callback-keys #{":on-success" ":on-failure" ":on-error"})
@@ -104,6 +106,19 @@
     :else
     (keyword (subs kw-str 1))))
 
+(defn- resolve-sym
+  "Resolve a raw symbol string to a fully-qualified keyword.
+  - alias/name -> :full.ns/name (via require alias map)
+  - name -> :current.ns/name"
+  [sym-str ns-name aliases]
+  (if (str/includes? sym-str "/")
+    (let [slash (str/index-of sym-str "/")
+          alias-part (subs sym-str 0 slash)
+          name-part (subs sym-str (inc slash))
+          full-ns (get aliases alias-part)]
+      (when full-ns (keyword full-ns name-part)))
+    (keyword ns-name sym-str)))
+
 (defn- extract-kw-from-vector
   "Return {:kw resolved-kw :dynamic? bool} based on the first element of vec-zloc.
   Sets :dynamic? true when the first element is not a literal keyword."
@@ -118,7 +133,9 @@
   "Detect declarations and usages from list and anonymous-fn nodes.
   Handles: reg-sub, reg-event-*, reg-fx, reg-cofx, subscribe, dispatch, dispatch-sync."
   [loc ns-name aliases file]
-  (let [operator (sym-name (z/down loc))
+  (let [op-token (z/down loc)
+        operator (sym-name op-token)
+        op-raw (when (and op-token (= :token (z/tag op-token))) (raw op-token))
         row (position-row loc)]
     (cond
       (contains? decl-fn->type operator)
@@ -127,6 +144,13 @@
         (when (kw-node? kw-loc)
           (when-let [resolved (resolve-kw (raw kw-loc) ns-name aliases)]
             {:decls [{:kw resolved :type decl-type :file file :row (position-row kw-loc)}]
+             :usages [] :dynamics []})))
+
+      (contains? style-decl-fns operator)
+      (let [name-loc (z/right (z/down loc))]
+        (when (and name-loc (= :token (z/tag name-loc)))
+          (when-let [style-name (sym-name name-loc)]
+            {:decls [{:kw (keyword ns-name style-name) :type (keyword operator) :file file :row (position-row name-loc)}]
              :usages [] :dynamics []})))
 
       (= "subscribe" operator)
@@ -146,6 +170,11 @@
               {:decls [] :usages [] :dynamics [{:form (raw loc) :file file :row row}]}
               {:decls [] :dynamics []
                :usages (when kw [{:kw kw :type :event :file file :row row}])}))))
+
+      operator
+      (when-let [resolved (resolve-sym op-raw ns-name aliases)]
+        {:decls [] :dynamics []
+         :usages [{:kw resolved :type :style-call :file file :row row}]})
 
       :else nil)))
 
