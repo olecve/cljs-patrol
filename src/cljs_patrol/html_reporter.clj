@@ -44,8 +44,7 @@
    "transition:transform .15s;flex-shrink:0}"
    "details[open]>summary::before{transform:rotate(90deg)}"
    "details>table{border-radius:0;box-shadow:none}"
-   "details>.desc{padding:8px 16px 10px;color:#555;font-size:13px;"
-   "border-bottom:1px solid #e8e8e8;background:#fff}"))
+   "details>summary .desc{font-weight:400;font-size:12px;color:#888;margin-left:4px}"))
 
 (def ^:private js
   (str
@@ -93,8 +92,9 @@
   (let [cnt (count items)
         open-attr (if (pos? cnt) " open" "")]
     (str "<details" open-attr ">\n"
-         "<summary>" (escape-html title) " (" cnt ")</summary>\n"
-         (when description (str "<p class=\"desc\">" (escape-html description) "</p>\n"))
+         "<summary>" (escape-html title) " (" cnt ")"
+         (when description (str " <span class=\"desc\">" (escape-html description) "</span>"))
+         "</summary>\n"
          "<table class=\"issues\">\n"
          "<thead><tr>"
          (str/join "" (map #(str "<th data-sort>" (escape-html (col-header %)) "</th>") columns))
