@@ -69,10 +69,13 @@
    "return asc?av.localeCompare(bv):bv.localeCompare(av);});"
    "rows.forEach(function(r){tbody.appendChild(r);});});});"))
 
+(defn- vscode-link [file row]
+  (format "vscode://file/%s:%d" (-> file java.io.File. .getAbsolutePath) row))
+
 (defn- cell-value [col item]
   (case col
     :keyword (str (:kw item))
-    :file (:file item)
+    :file [:a {:href (vscode-link (:file item) (:row item))} (:file item)]
     :line (str (:row item))
     :form (str/trim (str (:form item)))))
 

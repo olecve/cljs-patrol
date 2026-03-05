@@ -47,6 +47,7 @@ clojure -M:run --output html src/cljs/myapp
 ```
 
 Writes `report.html` in the current directory and prints the summary counts to stdout.
+File entries in the report are clickable VS Code links (`vscode://file/...`) that open the file at the exact line.
 Combinable with other flags:
 
 ```bash
