@@ -35,4 +35,12 @@
 
     (testing "does not flag used style as unused"
       (is (not (contains? (set (map :kw (:unused-styles spade-result)))
-                          :webapp.styles/container-style))))))
+                          :webapp.styles/container-style))))
+
+    (testing "detects deprecated :dispatch-n effect"
+      (is (= 1 (count (:deprecated-effects rf-result)))))
+
+    (testing "deprecated effect has correct metadata"
+      (let [dep (first (:deprecated-effects rf-result))]
+        (is (= :deprecated (:type dep)))
+        (is (= ":dispatch-n" (:effect dep)))))))

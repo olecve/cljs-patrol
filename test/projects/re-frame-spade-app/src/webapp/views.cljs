@@ -1,8 +1,8 @@
 (ns webapp.views
   (:require
+   [re-frame.core :as rf]
    [webapp.styles :as styles]
-   [webapp.subs :as subs]
-   [re-frame.core :as rf]))
+   [webapp.subs :as subs]))
 
 (defn main-view []
   (let [data @(rf/subscribe [::subs/used-sub])]

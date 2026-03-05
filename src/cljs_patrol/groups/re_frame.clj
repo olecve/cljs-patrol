@@ -122,6 +122,11 @@
                 {:decls [] :dynamics []
                  :usages [{:kw kw :type :sub :file file :row row}]}))))
 
+        ;; :dispatch-n — deprecated effect, use :fx instead
+        (= ":dispatch-n" raw-str)
+        {:decls [] :usages []
+         :dynamics [{:type :deprecated :effect ":dispatch-n" :form raw-str :file file :row row}]}
+
         ;; :on-success / :on-failure / :on-error [::event-kw] — http effect callbacks
         (contains? http-callback-keys raw-str)
         (when-let [vec-loc (z/right loc)]
@@ -151,8 +156,12 @@
         phantom-subs (remove #(contains? declared-sub-kws (:kw %))
                              (filter #(= :sub (:type %)) usages))
         phantom-events (remove #(contains? declared-event-kws (:kw %))
-                               (filter #(= :event (:type %)) usages))]
-    {:dynamic-sites dynamic-sites
+                               (filter #(= :event (:type %)) usages))
+
+        deprecated-effects (filter #(= :deprecated (:type %)) dynamic-sites)
+        dynamic-dispatch (remove #(= :deprecated (:type %)) dynamic-sites)]
+    {:deprecated-effects deprecated-effects
+     :dynamic-sites dynamic-dispatch
      :phantom-events (parser/distinct-by :kw phantom-events)
      :phantom-subs (parser/distinct-by :kw phantom-subs)
      :unused-events (parser/distinct-by :kw unused-events)
@@ -160,26 +169,28 @@
 
 (defn report
   "Print the re-frame analysis report sections."
-  [{:keys [dynamic-sites phantom-events phantom-subs unused-events unused-subs]}]
+  [{:keys [deprecated-effects dynamic-sites phantom-events phantom-subs unused-events unused-subs]}]
   (reporter/print-section "UNUSED SUBSCRIPTIONS" unused-subs)
   (reporter/print-section "UNUSED EVENTS" unused-events)
   (reporter/print-section "PHANTOM SUBSCRIPTIONS (subscribed but never declared)" phantom-subs)
   (reporter/print-section "PHANTOM EVENTS (dispatched but never declared)" phantom-events)
+  (reporter/print-dynamic-section "DEPRECATED EFFECTS (use :fx instead)" deprecated-effects)
   (reporter/print-dynamic-section "DYNAMIC DISPATCH/SUBSCRIBE SITES (manual review needed)" dynamic-sites))
 
 (defn summary-lines
   "Return [[label count] ...] for the summary section."
-  [{:keys [dynamic-sites phantom-events phantom-subs unused-events unused-subs]}]
+  [{:keys [deprecated-effects dynamic-sites phantom-events phantom-subs unused-events unused-subs]}]
   [["Unused subscriptions:" (count unused-subs)]
    ["Unused events:" (count unused-events)]
    ["Phantom subscriptions:" (count phantom-subs)]
    ["Phantom events:" (count phantom-events)]
+   ["Deprecated effects:" (count deprecated-effects)]
    ["Dynamic sites:" (count dynamic-sites)]])
 
 (defn failed?
-  "Return true if there are unused subscriptions or events."
-  [{:keys [unused-events unused-subs]}]
-  (or (seq unused-subs) (seq unused-events)))
+  "Return true if there are unused subscriptions, events, or deprecated effects."
+  [{:keys [deprecated-effects unused-events unused-subs]}]
+  (or (seq unused-subs) (seq unused-events) (seq deprecated-effects)))
 
 (def group
   "Re-frame rule group map."
@@ -208,6 +219,10 @@
                     :description "Dispatched via dispatch/dispatch-sync but never declared with reg-event-*. Likely a bug or missing import."
                     :data-fn :phantom-events
                     :columns [:keyword :file :line]}
+                   {:title "Deprecated Effects"
+                    :description "Usage of :dispatch-n, which is deprecated. Use :fx instead."
+                    :data-fn :deprecated-effects
+                    :columns [:form :file :line]}
                    {:title "Dynamic Sites"
                     :description "Dispatch or subscribe calls where the keyword is not a literal — the actual handler cannot be statically determined. Requires manual review."
                     :data-fn :dynamic-sites

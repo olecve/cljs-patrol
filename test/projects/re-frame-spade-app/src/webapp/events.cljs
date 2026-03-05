@@ -9,3 +9,9 @@
                  (fn [db _] db))
 
 (rf/dispatch [::used-event])
+
+(rf/reg-event-fx ::multi-event
+                 (fn [_ _]
+                   {:dispatch-n [[::used-event] [::used-event]]}))
+
+(rf/dispatch [::multi-event])
