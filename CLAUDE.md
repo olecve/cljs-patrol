@@ -42,10 +42,19 @@ clojure -T:build uber          # produces target/cljs-patrol-0.1.0.jar
 java -jar target/cljs-patrol-0.1.0.jar <src-dir>
 ```
 
+## Testing
+
+```bash
+clojure -M:test          # run all tests
+```
+
+Tests live in `test/`, mirroring the `src/` structure. Fixture CLJS files for
+integration tests are in `test/fixtures/myapp/`.
+
 ## Formatting
 
 ```bash
-clojure -M:cljstyle fix src/
+clojure -M:cljstyle fix src/ test/
 ```
 
 Max line width: **129 characters**. Format before marking work complete.
