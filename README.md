@@ -1,6 +1,6 @@
 # cljs-patrol
 
-Static analysis tool for ClojureScript UI codebases. Currently detects unused and phantom re-frame subscriptions and events.
+Static analysis tool for ClojureScript UI codebases. Detects unused and phantom re-frame subscriptions and events, and unused Spade CSS styles.
 
 ## Usage
 
@@ -20,16 +20,21 @@ Exits with code `1` when issues are found, making it suitable for CI pipelines.
 
 - **Unused subscriptions** — registered with `reg-sub` but never subscribed to
 - **Unused events** — registered with `reg-event-*` but never dispatched
+- **Unused styles** — declared with `defclass`/`defattrs` but never called
 - **Phantom subscriptions** — subscribed to but never declared
 - **Phantom events** — dispatched but never declared
 - **Dynamic dispatch/subscribe sites** — dispatch or subscribe calls with a non-literal keyword (manual review needed)
 
 ## Supported patterns
 
-Declarations: `reg-sub`, `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-fx`, `reg-cofx`
+Re-frame declarations: `reg-sub`, `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-fx`, `reg-cofx`
 
-Usages: `subscribe`, `dispatch`, `dispatch-sync`, `:<-` signal inputs, `:fx` vector tuples
+Re-frame usages: `subscribe`, `dispatch`, `dispatch-sync`, `:<-` signal inputs, `:fx` vector tuples
 (`:dispatch`, `:dispatch-n`, `:dispatch-later`), `:on-success` / `:on-failure` / `:on-error` http callbacks
+
+Spade declarations: `defclass`, `defattrs`
+
+Spade usages: direct function calls, both qualified (`styles/container-style`) and unqualified (`container-style`) within the same namespace
 
 ## Build
 
