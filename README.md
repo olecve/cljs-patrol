@@ -16,6 +16,28 @@ clojure -M:run src/cljs/myapp
 
 Exits with code `1` when issues are found, making it suitable for CI pipelines.
 
+## Rule groups
+
+Analysis is split into independent rule groups. By default all groups run.
+
+| Group     | Detects                                         |
+| --------- | ----------------------------------------------- |
+| `re-frame` | Unused/phantom re-frame subscriptions and events |
+| `spade`   | Unused Spade style declarations                 |
+
+Run only specific groups:
+
+```bash
+clojure -M:run --only re-frame src/cljs/myapp
+clojure -M:run --only re-frame,spade src/cljs/myapp
+```
+
+Disable specific groups:
+
+```bash
+clojure -M:run --disable spade src/cljs/myapp
+```
+
 ## What it detects
 
 - **Unused subscriptions** — registered with `reg-sub` but never subscribed to
