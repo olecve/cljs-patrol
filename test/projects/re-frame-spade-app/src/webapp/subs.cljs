@@ -7,3 +7,7 @@
 
 (rf/reg-sub ::unused-sub
             (fn [db _] (:other db)))
+
+;; Intentional duplicate to exercise duplicate detection
+(rf/reg-sub ::used-sub
+            (fn [db _] (:data-v2 db)))

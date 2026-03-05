@@ -138,6 +138,13 @@
 
         :else nil))))
 
+(defn- find-duplicates [decls]
+  (->> decls
+       (group-by :kw)
+       (filter #(> (count (val %)) 1))
+       (mapcat val)
+       vec))
+
 (defn analyze
   "Compute re-frame dead code from parsed declarations, usages, and dynamic-sites."
   [{:keys [declarations dynamic-sites usages]}]
@@ -161,6 +168,8 @@
         deprecated-effects (filter #(= :deprecated (:type %)) dynamic-sites)
         dynamic-dispatch (remove #(= :deprecated (:type %)) dynamic-sites)]
     {:deprecated-effects deprecated-effects
+     :duplicate-subs (find-duplicates sub-decls)
+     :duplicate-events (find-duplicates event-decls)
      :dynamic-sites dynamic-dispatch
      :phantom-events (parser/distinct-by :kw phantom-events)
      :phantom-subs (parser/distinct-by :kw phantom-subs)
@@ -169,7 +178,10 @@
 
 (defn report
   "Print the re-frame analysis report sections."
-  [{:keys [deprecated-effects dynamic-sites phantom-events phantom-subs unused-events unused-subs]}]
+  [{:keys [deprecated-effects duplicate-events duplicate-subs dynamic-sites
+           phantom-events phantom-subs unused-events unused-subs]}]
+  (reporter/print-section "DUPLICATE SUBSCRIPTIONS" duplicate-subs)
+  (reporter/print-section "DUPLICATE EVENTS" duplicate-events)
   (reporter/print-section "UNUSED SUBSCRIPTIONS" unused-subs)
   (reporter/print-section "UNUSED EVENTS" unused-events)
   (reporter/print-section "PHANTOM SUBSCRIPTIONS (subscribed but never declared)" phantom-subs)
@@ -179,8 +191,11 @@
 
 (defn summary-lines
   "Return [[label count] ...] for the summary section."
-  [{:keys [deprecated-effects dynamic-sites phantom-events phantom-subs unused-events unused-subs]}]
-  [["Unused subscriptions:" (count unused-subs)]
+  [{:keys [deprecated-effects duplicate-events duplicate-subs dynamic-sites
+           phantom-events phantom-subs unused-events unused-subs]}]
+  [["Duplicate subscriptions:" (count duplicate-subs)]
+   ["Duplicate events:" (count duplicate-events)]
+   ["Unused subscriptions:" (count unused-subs)]
    ["Unused events:" (count unused-events)]
    ["Phantom subscriptions:" (count phantom-subs)]
    ["Phantom events:" (count phantom-events)]
@@ -188,9 +203,11 @@
    ["Dynamic sites:" (count dynamic-sites)]])
 
 (defn failed?
-  "Return true if there are unused subscriptions, events, or deprecated effects."
-  [{:keys [deprecated-effects unused-events unused-subs]}]
-  (or (seq unused-subs) (seq unused-events) (seq deprecated-effects)))
+  "Return true if there are duplicate registrations, unused subscriptions, events, or deprecated effects."
+  [{:keys [deprecated-effects duplicate-events duplicate-subs unused-events unused-subs]}]
+  (or (seq duplicate-subs) (seq duplicate-events)
+      (seq unused-subs) (seq unused-events)
+      (seq deprecated-effects)))
 
 (def group
   "Re-frame rule group map."
@@ -203,7 +220,15 @@
    :report report
    :summary-lines summary-lines
    :failed? failed?
-   :html-sections [{:title "Unused Subscriptions"
+   :html-sections [{:title "Duplicate Subscriptions"
+                    :description "Registered more than once with reg-sub — the second registration silently overwrites the first."
+                    :data-fn :duplicate-subs
+                    :columns [:keyword :file :line]}
+                   {:title "Duplicate Events"
+                    :description "Registered more than once with reg-event-* — the second registration silently overwrites the first."
+                    :data-fn :duplicate-events
+                    :columns [:keyword :file :line]}
+                   {:title "Unused Subscriptions"
                     :description "Registered with reg-sub but never subscribed to via subscribe."
                     :data-fn :unused-subs
                     :columns [:keyword :file :line]}

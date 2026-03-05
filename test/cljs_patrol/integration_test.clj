@@ -37,6 +37,10 @@
       (is (not (contains? (set (map :kw (:unused-styles spade-result)))
                           :webapp.styles/container-style))))
 
+    (testing "detects duplicate subscription registration"
+      (is (= 2 (count (:duplicate-subs rf-result))))
+      (is (= #{:webapp.subs/used-sub} (set (map :kw (:duplicate-subs rf-result))))))
+
     (testing "detects deprecated :dispatch-n effect"
       (is (= 1 (count (:deprecated-effects rf-result)))))
 
