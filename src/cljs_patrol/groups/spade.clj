@@ -65,4 +65,7 @@
    :report report
    :summary-lines summary-lines
    :failed? failed?
-   :html-sections [{:title "Unused Styles" :data-fn :unused-styles :columns [:keyword :file :line]}]})
+   :html-sections [{:title "Unused Styles"
+                    :description "Declared with defclass or defattrs but never called."
+                    :data-fn :unused-styles
+                    :columns [:keyword :file :line]}]})

@@ -192,8 +192,23 @@
    :report report
    :summary-lines summary-lines
    :failed? failed?
-   :html-sections [{:title "Unused Subscriptions" :data-fn :unused-subs :columns [:keyword :file :line]}
-                   {:title "Unused Events" :data-fn :unused-events :columns [:keyword :file :line]}
-                   {:title "Phantom Subscriptions" :data-fn :phantom-subs :columns [:keyword :file :line]}
-                   {:title "Phantom Events" :data-fn :phantom-events :columns [:keyword :file :line]}
-                   {:title "Dynamic Sites" :data-fn :dynamic-sites :columns [:form :file :line]}]})
+   :html-sections [{:title "Unused Subscriptions"
+                    :description "Registered with reg-sub but never subscribed to via subscribe."
+                    :data-fn :unused-subs
+                    :columns [:keyword :file :line]}
+                   {:title "Unused Events"
+                    :description "Registered with reg-event-* but never dispatched via dispatch or dispatch-sync."
+                    :data-fn :unused-events
+                    :columns [:keyword :file :line]}
+                   {:title "Phantom Subscriptions"
+                    :description "Used via subscribe but never declared with reg-sub. Likely a bug or missing import."
+                    :data-fn :phantom-subs
+                    :columns [:keyword :file :line]}
+                   {:title "Phantom Events"
+                    :description "Dispatched via dispatch/dispatch-sync but never declared with reg-event-*. Likely a bug or missing import."
+                    :data-fn :phantom-events
+                    :columns [:keyword :file :line]}
+                   {:title "Dynamic Sites"
+                    :description "Dispatch or subscribe calls where the keyword is not a literal — the actual handler cannot be statically determined. Requires manual review."
+                    :data-fn :dynamic-sites
+                    :columns [:form :file :line]}]})
