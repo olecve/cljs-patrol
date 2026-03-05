@@ -28,10 +28,9 @@
   (print-section "PHANTOM SUBSCRIPTIONS (subscribed but never declared)" phantom-subs)
   (print-section "PHANTOM EVENTS (dispatched but never declared)" phantom-events)
   (print-dynamic-section "DYNAMIC DISPATCH/SUBSCRIBE SITES (manual review needed)" dynamic-sites)
-  (println)
-  (println (str "Summary: "
-                (count unused-subs) " unused subs, "
-                (count unused-events) " unused events, "
-                (count phantom-subs) " phantom subs, "
-                (count phantom-events) " phantom events, "
-                (count dynamic-sites) " dynamic sites")))
+  (println "\n=== SUMMARY ===")
+  (println (format "  %-30s %d" "Unused subscriptions:" (count unused-subs)))
+  (println (format "  %-30s %d" "Unused events:" (count unused-events)))
+  (println (format "  %-30s %d" "Phantom subscriptions:" (count phantom-subs)))
+  (println (format "  %-30s %d" "Phantom events:" (count phantom-events)))
+  (println (format "  %-30s %d" "Dynamic sites:" (count dynamic-sites))))
