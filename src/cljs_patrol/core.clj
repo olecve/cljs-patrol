@@ -14,13 +14,13 @@
    [clojure.string :as str]
    [clojure.tools.cli :as cli]))
 
-(def ^:private all-groups [re-frame/group spade/group])
+(def ^:private builtin-groups [re-frame/group spade/group])
 
-(defn- filter-groups [{:keys [disable only]}]
+(defn- filter-groups [{:keys [disable only]} groups]
   (cond
-    only (filter #(contains? only (:id %)) all-groups)
-    (seq disable) (remove #(contains? disable (:id %)) all-groups)
-    :else all-groups))
+    only (filter #(contains? only (:id %)) groups)
+    (seq disable) (remove #(contains? disable (:id %)) groups)
+    :else groups))
 
 (def ^:private cli-options
   [[nil "--only GROUPS" "Enable only these groups (comma-separated)"
@@ -31,7 +31,21 @@
     :parse-fn keyword]
    [nil "--files FILES" "Limit results to these files (comma-separated)"
     :parse-fn #(str/split % #",")]
+   [nil "--extra-groups VARS" "Extra group vars to load (comma-separated qualified symbols)"
+    :parse-fn #(str/split % #",")]
    ["-h" "--help"]])
+
+(defn- load-extra-groups [qualified-syms]
+  (mapv (fn [sym-str]
+          (let [sym (symbol sym-str)]
+            (when-not (namespace sym)
+              (throw (ex-info (str "--extra-groups requires qualified symbols, got: " sym-str) {})))
+            (require (symbol (namespace sym)))
+            (let [v (resolve sym)]
+              (when-not v
+                (throw (ex-info (str "Could not resolve extra group var: " sym-str) {})))
+              (var-get v))))
+        qualified-syms))
 
 (defn- abspath [path]
   (.getAbsolutePath (java.io.File. path)))
@@ -81,9 +95,12 @@
     (when errors
       (doseq [e errors] (println e))
       (System/exit 1))
-    (let [opts (select-keys options [:only :disable :output :files])
+    (let [opts (select-keys options [:only :disable :output :files :extra-groups])
+          extra-groups (when-let [eg (:extra-groups opts)]
+                         (load-extra-groups eg))
+          all-groups (concat builtin-groups extra-groups)
           dirs arguments
-          enabled-groups (filter-groups opts)]
+          enabled-groups (filter-groups opts all-groups)]
       (when (empty? dirs)
         (println "Error: no source directories specified")
         (System/exit 1))

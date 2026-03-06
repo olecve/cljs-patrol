@@ -109,6 +109,19 @@ Combinable with other flags:
 clojure -M:run --output edn --files src/app/subs.cljs src/cljs/myapp
 ```
 
+## Extra groups (plugins)
+
+Load project-specific rule groups alongside the built-ins by passing one or more qualified vars:
+
+```bash
+clojure -M:run --extra-groups myproject.rules/typography-group src/cljs/myapp
+clojure -M:run --extra-groups myproject.rules/typography-group,myproject.rules/other-group src/cljs/myapp
+```
+
+Each var must resolve to a group map with the same interface as the built-in groups (`:id`, `:name`, `:parse`, `:analyze`, `:report`, `:summary-lines`, `:failed?`, `:suggestions`). See `src/cljs_patrol/groups/spade.clj` for a minimal example.
+
+The namespace must be on the classpath when cljs-patrol runs. With `clojure -M:run`, add it via `:extra-paths` or `:extra-deps` in your project's `deps.edn`.
+
 ## Claude Code skill
 
 Add a `/cljs-patrol` skill to your project at `.claude/commands/cljs-patrol.md`. The skill should:
