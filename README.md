@@ -109,6 +109,15 @@ Combinable with other flags:
 clojure -M:run --output edn --files src/app/subs.cljs src/cljs/myapp
 ```
 
+## Claude Code skill
+
+Add a `/cljs-patrol` skill to your project at `.claude/commands/cljs-patrol.md`. The skill should:
+
+1. Find changed ClojureScript files via `git diff main...HEAD --name-only`, prepend the repo root to make paths absolute.
+2. Run `clojure -M:run --output edn --files <absolute-files> <source-dirs>` — full context is used but only issues in the changed files are returned.
+3. Fix each issue using the `:suggestions` in the EDN output. Flag anything requiring manual review.
+4. Re-run cljs-patrol to confirm clean, then run project tests.
+
 ## Build
 
 Build a standalone uberjar:
