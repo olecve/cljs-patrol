@@ -220,6 +220,23 @@
    :report report
    :summary-lines summary-lines
    :failed? failed?
+   :suggestions
+   {:duplicate-subs
+    "Two reg-sub calls share the same keyword - the second silently overwrites the first at runtime. Remove the duplicate declaration."
+    :duplicate-events
+    "Two reg-event-* calls share the same keyword - the second silently overwrites the first at runtime. Remove the duplicate declaration."
+    :unused-subs
+    "Registered with reg-sub but never subscribed to. Remove the reg-sub declaration, or add a (rf/subscribe [::kw]) call where the value is needed."
+    :unused-events
+    "Registered with reg-event-* but never dispatched. Remove the declaration, or add a (rf/dispatch [::kw]) call where the event should be triggered."
+    :phantom-subs
+    "Subscribed to via (rf/subscribe [::kw]) but never declared with reg-sub. Usually a keyword typo or wrong namespace alias. Fix the keyword at the subscribe call site."
+    :phantom-events
+    "Dispatched via (rf/dispatch [::kw]) but never declared with reg-event-*. Fix the keyword at the dispatch call site, or add the missing reg-event-* declaration."
+    :deprecated-effects
+    "Usage of :dispatch-n, which is deprecated. Replace with :fx. Example: {:dispatch-n [[::event-a arg] [::event-b]]} becomes {:fx [[:dispatch [::event-a arg]] [:dispatch [::event-b]]]}."
+    :dynamic-sites
+    "Dispatch or subscribe call with a non-literal keyword - cannot be statically resolved. Requires manual review to confirm the correct handler is being used."}
    :html-sections [{:title "Duplicate Subscriptions"
                     :description "Registered more than once with reg-sub — the second registration silently overwrites the first."
                     :data-fn :duplicate-subs

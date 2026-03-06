@@ -23,6 +23,8 @@
                                     [(:id g) (absolutize-result
                                               (merge-results
                                                (map #(nth (:group-results %) g-idx) run-results)))])
-                                  enabled-groups))]
+                                  enabled-groups))
+        suggestions (into {} (map (fn [g] [(:id g) (:suggestions g)]) enabled-groups))]
     (println (pr-str {:source-dirs (mapv #(.getAbsolutePath (java.io.File. %)) dirs)
-                      :results merged}))))
+                      :results merged
+                      :suggestions suggestions}))))

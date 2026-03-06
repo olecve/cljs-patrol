@@ -65,6 +65,9 @@
    :report report
    :summary-lines summary-lines
    :failed? failed?
+   :suggestions
+   {:unused-styles
+    "Declared with defclass or defattrs but never called. Remove the declaration, or add a call site where the style should be applied."}
    :html-sections [{:title "Unused Styles"
                     :description "Declared with defclass or defattrs but never called."
                     :data-fn :unused-styles
