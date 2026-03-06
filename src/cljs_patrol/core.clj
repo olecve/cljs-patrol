@@ -11,6 +11,7 @@
    [cljs-patrol.groups.spade :as spade]
    [cljs-patrol.groups.typography :as typography]
    [cljs-patrol.parser :as parser]
+   [cljs-patrol.reporters.console :as console]
    [cljs-patrol.reporters.edn :as edn-reporter]
    [cljs-patrol.reporters.html :as html-reporter]
    [clojure.string :as str]
@@ -103,7 +104,7 @@
                     (print-summary enabled-groups group-results)))
           :edn  (edn-reporter/print-report enabled-groups dirs run-results)
           (doseq [{:keys [group-results]} run-results]
-            (doseq [[g r] (map vector enabled-groups group-results)]
-              (group/report g r))
+            (doseq [r group-results]
+              (console/report r))
             (print-summary enabled-groups group-results)))
         (System/exit (if any-failed? 1 0))))))

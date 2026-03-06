@@ -100,15 +100,27 @@
               [:tr (map #(vector :td (cell-value % item)) columns)])
             items)]]]))
 
+(defn- key->title [k]
+  (-> (name k)
+      (str/replace #"-" " ")
+      str/capitalize))
+
+(defn- infer-columns [item]
+  (if (contains? item :form)
+    [:form :file :line]
+    [:keyword :file :line]))
+
 (defn- aggregate-sections [g g-idx run-results]
-  (mapv (fn [section]
-          {:title (:title section)
-           :description (:description section)
-           :columns (:columns section)
-           :items (vec (mapcat (fn [rr]
-                                 ((:data-fn section) (nth (:group-results rr) g-idx)))
-                               run-results))})
-        (group/html-sections g)))
+  (let [suggs (group/suggestions g)
+        first-result (nth (:group-results (first run-results)) g-idx)
+        display-keys (keep (fn [[k v]] (when (sequential? v) k)) first-result)]
+    (mapv (fn [k]
+            (let [all-items (vec (mapcat #(get (nth (:group-results %) g-idx) k) run-results))]
+              {:title (key->title k)
+               :description (get suggs k "")
+               :columns (infer-columns (first all-items))
+               :items all-items}))
+          display-keys)))
 
 (defn- aggregate-summary [g g-idx run-results]
   (let [per-dir-lines (mapv (fn [rr]
