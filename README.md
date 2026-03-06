@@ -83,10 +83,27 @@ clojure -M:run --output edn src/cljs/myapp
 ```
 
 File paths in the output are absolute, making it easy to read files directly.
+The output includes a `:suggestions` map with fix guidance for each issue type, useful for AI-assisted remediation.
 Combinable with other flags:
 
 ```bash
 clojure -M:run --only re-frame --output edn src/cljs/myapp
+```
+
+## Filtering results to specific files
+
+Limit results to a subset of files while still using the full codebase for context:
+
+```bash
+clojure -M:run --files src/app/subs.cljs src/cljs/myapp
+clojure -M:run --files src/app/subs.cljs,src/app/events.cljs src/cljs/myapp
+```
+
+This is useful in CI to surface only issues in files changed by a pull request, while phantom/duplicate detection still considers the whole codebase.
+Combinable with other flags:
+
+```bash
+clojure -M:run --output edn --files src/app/subs.cljs src/cljs/myapp
 ```
 
 ## Build

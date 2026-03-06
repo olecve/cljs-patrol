@@ -23,10 +23,11 @@
 
 (defn- parse-args
   "Parse CLI args, returning [opts dirs].
-  Supports --only group1,group2, --disable group1,group2, and --output <format> flags."
+  Supports --only group1,group2, --disable group1,group2, --output <format>,
+  and --files file1,file2 flags."
   [args]
   (loop [remaining args
-         opts {:only nil :disabled nil :output nil}
+         opts {:only nil :disabled nil :output nil :files nil}
          dirs []]
     (cond
       (empty? remaining)
@@ -44,8 +45,28 @@
       (let [fmt (keyword (second remaining))]
         (recur (drop 2 remaining) (assoc opts :output fmt) dirs))
 
+      (= "--files" (first remaining))
+      (let [files (str/split (second remaining) #",")]
+        (recur (drop 2 remaining) (assoc opts :files files) dirs))
+
       :else
       (recur (rest remaining) opts (conj dirs (first remaining))))))
+
+(defn- abspath [path]
+  (.getAbsolutePath (java.io.File. path)))
+
+(defn- filter-result [result files-set]
+  (into {} (map (fn [[k v]]
+                  [k (if (sequential? v)
+                       (filterv #(contains? files-set (abspath (:file %))) v)
+                       v)])
+                result)))
+
+(defn- filter-run-results [run-results files]
+  (let [files-set (set (map abspath files))]
+    (mapv (fn [rr]
+            (update rr :group-results #(mapv (fn [r] (filter-result r files-set)) %)))
+          run-results)))
 
 (defn- print-summary [enabled-groups group-results]
   (println "\n=== SUMMARY ===")
@@ -79,6 +100,7 @@
     (println "  --disable g1,g2 Disable the specified groups")
     (println "  --output html   Write report.html instead of console output")
     (println "  --output edn    Print EDN data to stdout (for programmatic/AI use)")
+    (println "  --files f1,f2   Limit results to these files (full context is still used)")
     (println)
     (println "Example:")
     (println "  clojure -M:run src/cljs/myapp")
@@ -90,7 +112,8 @@
     (when (empty? dirs)
       (println "Error: no source directories specified")
       (System/exit 1))
-    (let [run-results (mapv #(run % enabled-groups) dirs)
+    (let [run-results (cond-> (mapv #(run % enabled-groups) dirs)
+                        (:files opts) (filter-run-results (:files opts)))
           any-failed? (some (fn [{:keys [group-results]}]
                               (some (fn [[g r]] ((:failed? g) r))
                                     (map vector enabled-groups group-results)))
