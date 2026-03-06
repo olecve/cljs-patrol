@@ -8,13 +8,14 @@
   (:require
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.spade :as spade]
+   [cljs-patrol.groups.typography :as typography]
    [cljs-patrol.parser :as parser]
    [cljs-patrol.reporters.edn :as edn-reporter]
    [cljs-patrol.reporters.html :as html-reporter]
    [clojure.string :as str]
    [clojure.tools.cli :as cli]))
 
-(def ^:private all-groups [re-frame/group spade/group])
+(def ^:private all-groups [re-frame/group spade/group typography/group])
 
 (defn- filter-groups [{:keys [disable only]}]
   (cond
