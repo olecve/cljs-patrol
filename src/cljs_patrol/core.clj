@@ -8,19 +8,26 @@
   (:require
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.spade :as spade]
+   [cljs-patrol.groups.typography :as typography]
    [cljs-patrol.parser :as parser]
    [cljs-patrol.reporters.edn :as edn-reporter]
    [cljs-patrol.reporters.html :as html-reporter]
+   [clojure.edn :as edn]
    [clojure.string :as str]
    [clojure.tools.cli :as cli]))
 
-(def ^:private all-groups [re-frame/group spade/group])
+;; Default groups run when no --only flag and no config file is present.
+(def ^:private default-groups [re-frame/group spade/group])
+
+;; All groups known to the tool. Extra groups (e.g. typography) are only
+;; enabled when explicitly requested via --only or :groups in config.
+(def ^:private all-known-groups [re-frame/group spade/group typography/group])
 
 (defn- filter-groups [{:keys [disable only]}]
   (cond
-    only (filter #(contains? only (:id %)) all-groups)
-    (seq disable) (remove #(contains? disable (:id %)) all-groups)
-    :else all-groups))
+    only (filter #(contains? only (:id %)) all-known-groups)
+    (seq disable) (remove #(contains? disable (:id %)) default-groups)
+    :else default-groups))
 
 (def ^:private cli-options
   [[nil "--only GROUPS" "Enable only these groups (comma-separated)"
@@ -32,6 +39,23 @@
    [nil "--files FILES" "Limit results to these files (comma-separated)"
     :parse-fn #(str/split % #",")]
    ["-h" "--help"]])
+
+(defn- read-config
+  "Read cljs-patrol.edn from the current directory, or nil if not found."
+  []
+  (let [f (java.io.File. "cljs-patrol.edn")]
+    (when (.exists f)
+      (edn/read-string (slurp f)))))
+
+(defn- merge-config
+  "Merge config file settings into CLI opts. CLI options take precedence."
+  [cli-opts config]
+  (cond-> cli-opts
+    (and (nil? (:only cli-opts)) (seq (:groups config)))
+    (assoc :only (set (:groups config)))
+
+    (and (nil? (:output cli-opts)) (:output config))
+    (assoc :output (:output config))))
 
 (defn- abspath [path]
   (.getAbsolutePath (java.io.File. path)))
@@ -81,7 +105,9 @@
     (when errors
       (doseq [e errors] (println e))
       (System/exit 1))
-    (let [opts (select-keys options [:only :disable :output :files])
+    (let [config (read-config)
+          opts (-> (select-keys options [:only :disable :output :files])
+                   (merge-config config))
           dirs arguments
           enabled-groups (filter-groups opts)]
       (when (empty? dirs)

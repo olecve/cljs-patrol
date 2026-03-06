@@ -109,6 +109,20 @@ Combinable with other flags:
 clojure -M:run --output edn --files src/app/subs.cljs src/cljs/myapp
 ```
 
+## Config file
+
+Place a `cljs-patrol.edn` in the directory you run the tool from to set persistent defaults:
+
+```edn
+{:groups [:re-frame :spade :typography]
+ :output :edn}
+```
+
+- `:groups` — list of group IDs to enable. Equivalent to `--only`. Useful for enabling non-default groups like `:typography` without passing `--only` every time.
+- `:output` — default output format (`:edn` or `:html`).
+
+CLI flags take precedence over the config file.
+
 ## Claude Code skill
 
 Add a `/cljs-patrol` skill to your project at `.claude/commands/cljs-patrol.md`. The skill should:
