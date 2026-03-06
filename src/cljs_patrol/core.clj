@@ -33,12 +33,6 @@
     :parse-fn #(str/split % #",")]
    ["-h" "--help"]])
 
-(defn- parse-args
-  "Parse CLI args using tools.cli, returning [opts dirs]."
-  [args]
-  (let [{:keys [options arguments]} (cli/parse-opts args cli-options)]
-    [(select-keys options [:only :disable :output :files]) arguments]))
-
 (defn- abspath [path]
   (.getAbsolutePath (java.io.File. path)))
 
