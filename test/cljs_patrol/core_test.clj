@@ -9,11 +9,11 @@
 
 (deftest parse-args-test
   (testing "empty args"
-    (is (= [{:only nil :disabled nil :output nil :files nil} []]
+    (is (= [{} []]
            (parse-args []))))
 
   (testing "single source dir"
-    (is (= [{:only nil :disabled nil :output nil :files nil} ["src/cljs"]]
+    (is (= [{} ["src/cljs"]]
            (parse-args ["src/cljs"]))))
 
   (testing "multiple source dirs"
@@ -30,7 +30,7 @@
 
   (testing "--disable flag"
     (let [[opts _] (parse-args ["--disable" "spade" "src"])]
-      (is (= #{:spade} (:disabled opts)))))
+      (is (= #{:spade} (:disable opts)))))
 
   (testing "--output html"
     (let [[opts _] (parse-args ["--output" "html" "src"])]
@@ -72,19 +72,19 @@
 
 (deftest filter-groups-test
   (testing "no filters returns all groups"
-    (is (= 2 (count (filter-groups {:only nil :disabled nil})))))
+    (is (= 2 (count (filter-groups {})))))
 
   (testing "--only selects specific group"
-    (let [groups (filter-groups {:only #{:re-frame} :disabled nil})]
+    (let [groups (filter-groups {:only #{:re-frame}})]
       (is (= 1 (count groups)))
       (is (= :re-frame (:id (first groups))))))
 
   (testing "--disable removes specific group"
-    (let [groups (filter-groups {:only nil :disabled #{:spade}})]
+    (let [groups (filter-groups {:disable #{:spade}})]
       (is (= 1 (count groups)))
       (is (= :re-frame (:id (first groups))))))
 
   (testing "--only takes precedence over --disable"
-    (let [groups (filter-groups {:only #{:re-frame} :disabled #{:re-frame}})]
+    (let [groups (filter-groups {:only #{:re-frame} :disable #{:re-frame}})]
       (is (= 1 (count groups)))
       (is (= :re-frame (:id (first groups)))))))

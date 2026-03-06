@@ -11,46 +11,33 @@
    [cljs-patrol.parser :as parser]
    [cljs-patrol.reporters.edn :as edn-reporter]
    [cljs-patrol.reporters.html :as html-reporter]
-   [clojure.string :as str]))
+   [clojure.string :as str]
+   [clojure.tools.cli :as cli]))
 
 (def ^:private all-groups [re-frame/group spade/group])
 
-(defn- filter-groups [{:keys [disabled only]}]
+(defn- filter-groups [{:keys [disable only]}]
   (cond
     only (filter #(contains? only (:id %)) all-groups)
-    (seq disabled) (remove #(contains? disabled (:id %)) all-groups)
+    (seq disable) (remove #(contains? disable (:id %)) all-groups)
     :else all-groups))
 
+(def ^:private cli-options
+  [[nil "--only GROUPS" "Enable only these groups (comma-separated)"
+    :parse-fn #(set (map keyword (str/split % #",")))]
+   [nil "--disable GROUPS" "Disable these groups (comma-separated)"
+    :parse-fn #(set (map keyword (str/split % #",")))]
+   [nil "--output FORMAT" "Output format: html or edn"
+    :parse-fn keyword]
+   [nil "--files FILES" "Limit results to these files (comma-separated)"
+    :parse-fn #(str/split % #",")]
+   ["-h" "--help"]])
+
 (defn- parse-args
-  "Parse CLI args, returning [opts dirs].
-  Supports --only group1,group2, --disable group1,group2, --output <format>,
-  and --files file1,file2 flags."
+  "Parse CLI args using tools.cli, returning [opts dirs]."
   [args]
-  (loop [remaining args
-         opts {:only nil :disabled nil :output nil :files nil}
-         dirs []]
-    (cond
-      (empty? remaining)
-      [opts dirs]
-
-      (= "--only" (first remaining))
-      (let [groups (set (map keyword (str/split (second remaining) #",")))]
-        (recur (drop 2 remaining) (assoc opts :only groups) dirs))
-
-      (= "--disable" (first remaining))
-      (let [groups (set (map keyword (str/split (second remaining) #",")))]
-        (recur (drop 2 remaining) (assoc opts :disabled groups) dirs))
-
-      (= "--output" (first remaining))
-      (let [fmt (keyword (second remaining))]
-        (recur (drop 2 remaining) (assoc opts :output fmt) dirs))
-
-      (= "--files" (first remaining))
-      (let [files (str/split (second remaining) #",")]
-        (recur (drop 2 remaining) (assoc opts :files files) dirs))
-
-      :else
-      (recur (rest remaining) opts (conj dirs (first remaining))))))
+  (let [{:keys [options arguments]} (cli/parse-opts args cli-options)]
+    [(select-keys options [:only :disable :output :files]) arguments]))
 
 (defn- abspath [path]
   (.getAbsolutePath (java.io.File. path)))
@@ -87,46 +74,40 @@
 
 (defn -main
   [& args]
-  (when (empty? args)
-    (println "Usage: cljs-patrol [--only g1,g2] [--disable g1,g2] [--output html] <source-dir> [<source-dir> ...]")
-    (println)
-    (println "  Detects unused re-frame subscriptions, events, and Spade style declarations.")
-    (println "  Exits with code 1 when unused code is found.")
-    (println)
-    (println "Groups: reframe, spade")
-    (println)
-    (println "Options:")
-    (println "  --only g1,g2    Enable only the specified groups")
-    (println "  --disable g1,g2 Disable the specified groups")
-    (println "  --output html   Write report.html instead of console output")
-    (println "  --output edn    Print EDN data to stdout (for programmatic/AI use)")
-    (println "  --files f1,f2   Limit results to these files (full context is still used)")
-    (println)
-    (println "Example:")
-    (println "  clojure -M:run src/cljs/myapp")
-    (println "  clojure -M:run --only reframe src/cljs/myapp")
-    (println "  clojure -M:run --output html src/cljs/myapp")
-    (System/exit 0))
-  (let [[opts dirs] (parse-args args)
-        enabled-groups (filter-groups opts)]
-    (when (empty? dirs)
-      (println "Error: no source directories specified")
+  (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)]
+    (when (or (:help options) (empty? args))
+      (println "Usage: cljs-patrol [options] <source-dir> [<source-dir> ...]")
+      (println)
+      (println "  Detects unused re-frame subscriptions, events, and Spade style declarations.")
+      (println "  Exits with code 1 when unused code is found.")
+      (println)
+      (println "Options:")
+      (println summary)
+      (System/exit 0))
+    (when errors
+      (doseq [e errors] (println e))
       (System/exit 1))
-    (let [run-results (cond-> (mapv #(run % enabled-groups) dirs)
-                        (:files opts) (filter-run-results (:files opts)))
-          any-failed? (some (fn [{:keys [group-results]}]
-                              (some (fn [[g r]] ((:failed? g) r))
-                                    (map vector enabled-groups group-results)))
-                            run-results)]
-      (case (:output opts)
-        :html (do
-                (html-reporter/write-report enabled-groups run-results "report.html")
-                (println "Report written to report.html")
-                (doseq [{:keys [group-results]} run-results]
-                  (print-summary enabled-groups group-results)))
-        :edn  (edn-reporter/print-report enabled-groups dirs run-results)
-        (doseq [{:keys [group-results]} run-results]
-          (doseq [[g r] (map vector enabled-groups group-results)]
-            ((:report g) r))
-          (print-summary enabled-groups group-results)))
-      (System/exit (if any-failed? 1 0)))))
+    (let [opts (select-keys options [:only :disable :output :files])
+          dirs arguments
+          enabled-groups (filter-groups opts)]
+      (when (empty? dirs)
+        (println "Error: no source directories specified")
+        (System/exit 1))
+      (let [run-results (cond-> (mapv #(run % enabled-groups) dirs)
+                          (:files opts) (filter-run-results (:files opts)))
+            any-failed? (some (fn [{:keys [group-results]}]
+                                (some (fn [[g r]] ((:failed? g) r))
+                                      (map vector enabled-groups group-results)))
+                              run-results)]
+        (case (:output opts)
+          :html (do
+                  (html-reporter/write-report enabled-groups run-results "report.html")
+                  (println "Report written to report.html")
+                  (doseq [{:keys [group-results]} run-results]
+                    (print-summary enabled-groups group-results)))
+          :edn  (edn-reporter/print-report enabled-groups dirs run-results)
+          (doseq [{:keys [group-results]} run-results]
+            (doseq [[g r] (map vector enabled-groups group-results)]
+              ((:report g) r))
+            (print-summary enabled-groups group-results)))
+        (System/exit (if any-failed? 1 0))))))
