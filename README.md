@@ -5,7 +5,8 @@ Static analysis tool for ClojureScript UI codebases. Detects unused and phantom 
 ## Usage
 
 ```bash
-clojure -M:run <source-dir> [<source-dir> ...]
+clojure -M:run [options] <source-dir> [<source-dir> ...]
+clojure -M:run --help
 ```
 
 Example:
@@ -61,6 +62,8 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **Unused styles** — declared with `defclass`/`defattrs` but never called
 - **Phantom subscriptions** — subscribed to but never declared
 - **Phantom events** — dispatched but never declared
+- **Duplicate registrations** — two `reg-sub` or `reg-event-*` calls with the same keyword (second silently overwrites the first)
+- **Deprecated effects** — use of `:dispatch-n` (replaced by `:fx`)
 - **Dynamic dispatch/subscribe sites** — dispatch or subscribe calls with a non-literal keyword (manual review needed)
 
 ## Supported patterns
