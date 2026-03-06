@@ -1,6 +1,7 @@
 (ns cljs-patrol.reporters.html
   "Generates a self-contained HTML report from cljs-patrol analysis results."
   (:require
+   [cljs-patrol.group :as group]
    [clojure.string :as str]
    [hiccup.page :refer [html5]]
    [hiccup.util :refer [raw-string]]))
@@ -107,11 +108,11 @@
            :items (vec (mapcat (fn [rr]
                                  ((:data-fn section) (nth (:group-results rr) g-idx)))
                                run-results))})
-        (:html-sections g)))
+        (group/html-sections g)))
 
 (defn- aggregate-summary [g g-idx run-results]
   (let [per-dir-lines (mapv (fn [rr]
-                              ((:summary-lines g) (nth (:group-results rr) g-idx)))
+                              (group/summary-lines g (nth (:group-results rr) g-idx)))
                             run-results)
         first-lines (first per-dir-lines)
         n (count first-lines)]
@@ -137,7 +138,7 @@
 
 (defn- render-group-section [g g-idx run-results]
   [:section
-   [:h2 (:name g)]
+   [:h2 (group/group-name g)]
    (map render-details (aggregate-sections g g-idx run-results))])
 
 (defn- render-html [enabled-groups run-results]

@@ -7,6 +7,7 @@
   referenced via a 'system-theme' alias. Projects with a different token system
   should not enable this group."
   (:require
+   [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [rewrite-clj.zip :as z]))
@@ -64,9 +65,7 @@
         (when (seq tokens)
           {:decls [] :usages tokens :dynamics []})))))
 
-(defn analyze
-  "Detect style declarations that mix tokens from different typography groups."
-  [{:keys [usages]}]
+(defn- analyze* [{:keys [usages]}]
   (let [token-refs (filter #(= :style-token-ref (:type %)) usages)
         by-decl (group-by :decl-kw token-refs)
         mixed-groups
@@ -80,38 +79,42 @@
                 :row (:row (first refs))}))]
     {:mixed-token-groups mixed-groups}))
 
-(defn report [{:keys [mixed-token-groups]}]
+(defn- report* [{:keys [mixed-token-groups]}]
   (when (seq mixed-token-groups)
     (println "\n--- MIXED TYPOGRAPHY TOKEN GROUPS ---")
     (doseq [{:keys [decl-kw prefixes file row]} mixed-token-groups]
       (println (format "  %s  [%s]" decl-kw (str/join ", " prefixes)))
       (println (str "    at " file ":" row)))))
 
-(defn summary-lines [{:keys [mixed-token-groups]}]
+(defn- summary-lines* [{:keys [mixed-token-groups]}]
   [["Mixed typography token groups:" (count mixed-token-groups)]])
 
-(defn failed? [{:keys [mixed-token-groups]}]
+(defn- failed?* [{:keys [mixed-token-groups]}]
   (seq mixed-token-groups))
 
-(def group
-  {:id :typography
-   :name "Typography"
-   :parse {:handle-list handle-list}
-   :analyze analyze
-   :report report
-   :summary-lines summary-lines
-   :failed? failed?
-   :suggestions
-   {:mixed-token-groups
-    (str "A style declaration uses typography tokens from more than one group. "
-         "Each declaration must use tokens from a single group (same prefix). "
-         "Example: action-small-font + action-small-letter-spacing + action-small-text-case. "
-         "Available groups: caption-{small,medium,large,xlarge}, "
-         "body-short-{small,medium,large}, body-long-{small,medium,large}, "
-         "subhead-{small,medium,large}, heading-reg-{small,medium,large,xlarge}, "
-         "heading-bold-{small,medium,large,xlarge}, action-{small,medium,large}, "
-         "code-compact-{small,medium,large}, code-reg-{small,medium,large}.")}
-   :html-sections [{:title "Mixed Typography Token Groups"
-                    :description "Style declarations mixing tokens from different groups."
-                    :data-fn :mixed-token-groups
-                    :columns [:keyword :file :line]}]})
+(defrecord TypographyGroup []
+  group/RuleGroup
+  (group-id [_] :typography)
+  (group-name [_] "Typography")
+  (parse-handlers [_] {:handle-list handle-list})
+  (analyze [_ data] (analyze* data))
+  (report [_ result] (report* result))
+  (summary-lines [_ result] (summary-lines* result))
+  (failed? [_ result] (failed?* result))
+  (suggestions [_]
+    {:mixed-token-groups
+     (str "A style declaration uses typography tokens from more than one group. "
+          "Each declaration must use tokens from a single group (same prefix). "
+          "Example: action-small-font + action-small-letter-spacing + action-small-text-case. "
+          "Available groups: caption-{small,medium,large,xlarge}, "
+          "body-short-{small,medium,large}, body-long-{small,medium,large}, "
+          "subhead-{small,medium,large}, heading-reg-{small,medium,large,xlarge}, "
+          "heading-bold-{small,medium,large,xlarge}, action-{small,medium,large}, "
+          "code-compact-{small,medium,large}, code-reg-{small,medium,large}.")})
+  (html-sections [_]
+    [{:title "Mixed Typography Token Groups"
+      :description "Style declarations mixing tokens from different groups."
+      :data-fn :mixed-token-groups
+      :columns [:keyword :file :line]}]))
+
+(def group (->TypographyGroup))

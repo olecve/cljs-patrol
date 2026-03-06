@@ -1,5 +1,7 @@
 (ns cljs-patrol.reporters.edn
-  "EDN output for cljs-patrol analysis results, suitable for programmatic and AI-assisted use.")
+  "EDN output for cljs-patrol analysis results, suitable for programmatic and AI-assisted use."
+  (:require
+   [cljs-patrol.group :as group]))
 
 (defn- absolutize-item [item]
   (if (:file item)
@@ -20,11 +22,11 @@
   [enabled-groups dirs run-results]
   (let [merged (into {}
                      (map-indexed (fn [g-idx g]
-                                    [(:id g) (absolutize-result
-                                              (merge-results
-                                               (map #(nth (:group-results %) g-idx) run-results)))])
+                                    [(group/group-id g) (absolutize-result
+                                                         (merge-results
+                                                          (map #(nth (:group-results %) g-idx) run-results)))])
                                   enabled-groups))
-        suggestions (into {} (map (fn [g] [(:id g) (:suggestions g)]) enabled-groups))]
+        suggestions (into {} (map (fn [g] [(group/group-id g) (group/suggestions g)]) enabled-groups))]
     (println (pr-str {:source-dirs (mapv #(.getAbsolutePath (java.io.File. %)) dirs)
                       :results merged
                       :suggestions suggestions}))))

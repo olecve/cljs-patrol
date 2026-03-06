@@ -1,6 +1,7 @@
 (ns cljs-patrol.groups.re-frame
   "Re-frame rule group: detects unused and phantom subscriptions and events."
   (:require
+   [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
    [cljs-patrol.reporters.console :as reporter]
    [rewrite-clj.zip :as z]))
@@ -145,8 +146,7 @@
        (mapcat val)
        vec))
 
-(defn analyze
-  "Compute re-frame dead code from parsed declarations, usages, and dynamic-sites."
+(defn- analyze*
   [{:keys [declarations dynamic-sites usages]}]
   (let [sub-decls (filter #(= :sub (:type %)) declarations)
         event-decls (filter #(= :event (:type %)) declarations)
@@ -176,8 +176,7 @@
      :unused-events (parser/distinct-by :kw unused-events)
      :unused-subs (parser/distinct-by :kw unused-subs)}))
 
-(defn report
-  "Print the re-frame analysis report sections."
+(defn- report*
   [{:keys [deprecated-effects duplicate-events duplicate-subs dynamic-sites
            phantom-events phantom-subs unused-events unused-subs]}]
   (reporter/print-section "DUPLICATE SUBSCRIPTIONS" duplicate-subs)
@@ -189,8 +188,7 @@
   (reporter/print-dynamic-section "DEPRECATED EFFECTS (use :fx instead)" deprecated-effects)
   (reporter/print-dynamic-section "DYNAMIC DISPATCH/SUBSCRIBE SITES (manual review needed)" dynamic-sites))
 
-(defn summary-lines
-  "Return [[label count] ...] for the summary section."
+(defn- summary-lines*
   [{:keys [deprecated-effects duplicate-events duplicate-subs dynamic-sites
            phantom-events phantom-subs unused-events unused-subs]}]
   [["Duplicate subscriptions:" (count duplicate-subs)]
@@ -202,70 +200,73 @@
    ["Deprecated effects:" (count deprecated-effects)]
    ["Dynamic sites:" (count dynamic-sites)]])
 
-(defn failed?
-  "Return true if there are duplicate registrations, unused subscriptions, events, or deprecated effects."
+(defn- failed?*
   [{:keys [deprecated-effects duplicate-events duplicate-subs unused-events unused-subs]}]
   (or (seq duplicate-subs) (seq duplicate-events)
       (seq unused-subs) (seq unused-events)
       (seq deprecated-effects)))
 
-(def group
-  "Re-frame rule group map."
-  {:id :re-frame
-   :name "Re-frame"
-   :parse {:handle-list handle-list
-           :handle-vector handle-vector
-           :handle-token handle-token}
-   :analyze analyze
-   :report report
-   :summary-lines summary-lines
-   :failed? failed?
-   :suggestions
-   {:duplicate-subs
-    "Two reg-sub calls share the same keyword - the second silently overwrites the first at runtime. Remove the duplicate declaration."
-    :duplicate-events
-    "Two reg-event-* calls share the same keyword - the second silently overwrites the first at runtime. Remove the duplicate declaration."
-    :unused-subs
-    "Registered with reg-sub but never subscribed to. Remove the reg-sub declaration, or add a (rf/subscribe [::kw]) call where the value is needed."
-    :unused-events
-    "Registered with reg-event-* but never dispatched. Remove the declaration, or add a (rf/dispatch [::kw]) call where the event should be triggered."
-    :phantom-subs
-    "Subscribed to via (rf/subscribe [::kw]) but never declared with reg-sub. Usually a keyword typo or wrong namespace alias. Fix the keyword at the subscribe call site."
-    :phantom-events
-    "Dispatched via (rf/dispatch [::kw]) but never declared with reg-event-*. Fix the keyword at the dispatch call site, or add the missing reg-event-* declaration."
-    :deprecated-effects
-    "Usage of :dispatch-n, which is deprecated. Replace with :fx. Example: {:dispatch-n [[::event-a arg] [::event-b]]} becomes {:fx [[:dispatch [::event-a arg]] [:dispatch [::event-b]]]}."
-    :dynamic-sites
-    "Dispatch or subscribe call with a non-literal keyword - cannot be statically resolved. Requires manual review to confirm the correct handler is being used."}
-   :html-sections [{:title "Duplicate Subscriptions"
-                    :description "Registered more than once with reg-sub — the second registration silently overwrites the first."
-                    :data-fn :duplicate-subs
-                    :columns [:keyword :file :line]}
-                   {:title "Duplicate Events"
-                    :description "Registered more than once with reg-event-* — the second registration silently overwrites the first."
-                    :data-fn :duplicate-events
-                    :columns [:keyword :file :line]}
-                   {:title "Unused Subscriptions"
-                    :description "Registered with reg-sub but never subscribed to via subscribe."
-                    :data-fn :unused-subs
-                    :columns [:keyword :file :line]}
-                   {:title "Unused Events"
-                    :description "Registered with reg-event-* but never dispatched via dispatch or dispatch-sync."
-                    :data-fn :unused-events
-                    :columns [:keyword :file :line]}
-                   {:title "Phantom Subscriptions"
-                    :description "Used via subscribe but never declared with reg-sub. Likely a bug or missing import."
-                    :data-fn :phantom-subs
-                    :columns [:keyword :file :line]}
-                   {:title "Phantom Events"
-                    :description "Dispatched via dispatch/dispatch-sync but never declared with reg-event-*. Likely a bug or missing import."
-                    :data-fn :phantom-events
-                    :columns [:keyword :file :line]}
-                   {:title "Deprecated Effects"
-                    :description "Usage of :dispatch-n, which is deprecated. Use :fx instead."
-                    :data-fn :deprecated-effects
-                    :columns [:form :file :line]}
-                   {:title "Dynamic Sites"
-                    :description "Dispatch or subscribe calls where the keyword is not a literal — the actual handler cannot be statically determined. Requires manual review."
-                    :data-fn :dynamic-sites
-                    :columns [:form :file :line]}]})
+(defrecord ReFrameGroup []
+  group/RuleGroup
+  (group-id [_] :re-frame)
+  (group-name [_] "Re-frame")
+  (parse-handlers [_]
+    {:handle-list handle-list
+     :handle-vector handle-vector
+     :handle-token handle-token})
+  (analyze [_ data] (analyze* data))
+  (report [_ result] (report* result))
+  (summary-lines [_ result] (summary-lines* result))
+  (failed? [_ result] (failed?* result))
+  (suggestions [_]
+    {:duplicate-subs
+     "Two reg-sub calls share the same keyword - the second silently overwrites the first at runtime. Remove the duplicate declaration."
+     :duplicate-events
+     "Two reg-event-* calls share the same keyword - the second silently overwrites the first at runtime. Remove the duplicate declaration."
+     :unused-subs
+     "Registered with reg-sub but never subscribed to. Remove the reg-sub declaration, or add a (rf/subscribe [::kw]) call where the value is needed."
+     :unused-events
+     "Registered with reg-event-* but never dispatched. Remove the declaration, or add a (rf/dispatch [::kw]) call where the event should be triggered."
+     :phantom-subs
+     "Subscribed to via (rf/subscribe [::kw]) but never declared with reg-sub. Usually a keyword typo or wrong namespace alias. Fix the keyword at the subscribe call site."
+     :phantom-events
+     "Dispatched via (rf/dispatch [::kw]) but never declared with reg-event-*. Fix the keyword at the dispatch call site, or add the missing reg-event-* declaration."
+     :deprecated-effects
+     "Usage of :dispatch-n, which is deprecated. Replace with :fx. Example: {:dispatch-n [[::event-a arg] [::event-b]]} becomes {:fx [[:dispatch [::event-a arg]] [:dispatch [::event-b]]]}."
+     :dynamic-sites
+     "Dispatch or subscribe call with a non-literal keyword - cannot be statically resolved. Requires manual review to confirm the correct handler is being used."})
+  (html-sections [_]
+    [{:title "Duplicate Subscriptions"
+      :description "Registered more than once with reg-sub — the second registration silently overwrites the first."
+      :data-fn :duplicate-subs
+      :columns [:keyword :file :line]}
+     {:title "Duplicate Events"
+      :description "Registered more than once with reg-event-* — the second registration silently overwrites the first."
+      :data-fn :duplicate-events
+      :columns [:keyword :file :line]}
+     {:title "Unused Subscriptions"
+      :description "Registered with reg-sub but never subscribed to via subscribe."
+      :data-fn :unused-subs
+      :columns [:keyword :file :line]}
+     {:title "Unused Events"
+      :description "Registered with reg-event-* but never dispatched via dispatch or dispatch-sync."
+      :data-fn :unused-events
+      :columns [:keyword :file :line]}
+     {:title "Phantom Subscriptions"
+      :description "Used via subscribe but never declared with reg-sub. Likely a bug or missing import."
+      :data-fn :phantom-subs
+      :columns [:keyword :file :line]}
+     {:title "Phantom Events"
+      :description "Dispatched via dispatch/dispatch-sync but never declared with reg-event-*. Likely a bug or missing import."
+      :data-fn :phantom-events
+      :columns [:keyword :file :line]}
+     {:title "Deprecated Effects"
+      :description "Usage of :dispatch-n, which is deprecated. Use :fx instead."
+      :data-fn :deprecated-effects
+      :columns [:form :file :line]}
+     {:title "Dynamic Sites"
+      :description "Dispatch or subscribe calls where the keyword is not a literal — the actual handler cannot be statically determined. Requires manual review."
+      :data-fn :dynamic-sites
+      :columns [:form :file :line]}]))
+
+(def group (->ReFrameGroup))

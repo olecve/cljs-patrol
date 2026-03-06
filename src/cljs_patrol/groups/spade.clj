@@ -1,6 +1,7 @@
 (ns cljs-patrol.groups.spade
   "Spade rule group: detects unused CSS-in-CLJS style declarations."
   (:require
+   [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
    [cljs-patrol.reporters.console :as reporter]
    [rewrite-clj.zip :as z]))
@@ -33,42 +34,37 @@
 
       :else nil)))
 
-(defn analyze
-  "Compute spade dead code from parsed declarations and usages."
-  [{:keys [declarations usages]}]
+(defn- analyze* [{:keys [declarations usages]}]
   (let [style-decls (filter #(contains? #{:defclass :defattrs} (:type %)) declarations)
         style-call-kws (set (map :kw (filter #(= :style-call (:type %)) usages)))
         unused-styles (remove #(contains? style-call-kws (:kw %)) style-decls)]
     {:unused-styles (parser/distinct-by :kw unused-styles)}))
 
-(defn report
-  "Print the spade analysis report sections."
-  [{:keys [unused-styles]}]
+(defn- report* [{:keys [unused-styles]}]
   (reporter/print-section "UNUSED STYLES (defclass/defattrs)" unused-styles))
 
-(defn summary-lines
-  "Return [[label count] ...] for the summary section."
-  [{:keys [unused-styles]}]
+(defn- summary-lines* [{:keys [unused-styles]}]
   [["Unused styles:" (count unused-styles)]])
 
-(defn failed?
-  "Return true if there are unused style declarations."
-  [{:keys [unused-styles]}]
+(defn- failed?* [{:keys [unused-styles]}]
   (seq unused-styles))
 
-(def group
-  "Spade rule group map."
-  {:id :spade
-   :name "Spade"
-   :parse {:handle-list handle-list}
-   :analyze analyze
-   :report report
-   :summary-lines summary-lines
-   :failed? failed?
-   :suggestions
-   {:unused-styles
-    "Declared with defclass or defattrs but never called. Remove the declaration, or add a call site where the style should be applied."}
-   :html-sections [{:title "Unused Styles"
-                    :description "Declared with defclass or defattrs but never called."
-                    :data-fn :unused-styles
-                    :columns [:keyword :file :line]}]})
+(defrecord SpadeGroup []
+  group/RuleGroup
+  (group-id [_] :spade)
+  (group-name [_] "Spade")
+  (parse-handlers [_] {:handle-list handle-list})
+  (analyze [_ data] (analyze* data))
+  (report [_ result] (report* result))
+  (summary-lines [_ result] (summary-lines* result))
+  (failed? [_ result] (failed?* result))
+  (suggestions [_]
+    {:unused-styles
+     "Declared with defclass or defattrs but never called. Remove the declaration, or add a call site where the style should be applied."})
+  (html-sections [_]
+    [{:title "Unused Styles"
+      :description "Declared with defclass or defattrs but never called."
+      :data-fn :unused-styles
+      :columns [:keyword :file :line]}]))
+
+(def group (->SpadeGroup))

@@ -6,6 +6,7 @@
   code is found, making it suitable for use in CI pipelines."
   (:gen-class)
   (:require
+   [cljs-patrol.group :as group]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.spade :as spade]
    [cljs-patrol.groups.typography :as typography]
@@ -19,8 +20,8 @@
 
 (defn- filter-groups [{:keys [disable only]}]
   (cond
-    only (filter #(contains? only (:id %)) all-groups)
-    (seq disable) (remove #(contains? disable (:id %)) all-groups)
+    only (filter #(contains? only (group/group-id %)) all-groups)
+    (seq disable) (remove #(contains? disable (group/group-id %)) all-groups)
     :else all-groups))
 
 (def ^:private cli-options
@@ -53,7 +54,7 @@
 (defn- print-summary [enabled-groups group-results]
   (println "\n=== SUMMARY ===")
   (doseq [[g r] (map vector enabled-groups group-results)]
-    (doseq [[label cnt] ((:summary-lines g) r)]
+    (doseq [[label cnt] (group/summary-lines g r)]
       (println (format "  %-30s %d" label cnt)))))
 
 (defn run
@@ -61,9 +62,9 @@
   [source-dir enabled-groups]
   (let [{:keys [declarations dynamic-sites usages]} (parser/analyze-project source-dir enabled-groups)
         group-results (mapv (fn [g]
-                              ((:analyze g) {:declarations declarations
-                                             :dynamic-sites dynamic-sites
-                                             :usages usages}))
+                              (group/analyze g {:declarations declarations
+                                                :dynamic-sites dynamic-sites
+                                                :usages usages}))
                             enabled-groups)]
     {:source-dir source-dir :group-results group-results}))
 
@@ -91,7 +92,7 @@
       (let [run-results (cond-> (mapv #(run % enabled-groups) dirs)
                           (:files opts) (filter-run-results (:files opts)))
             any-failed? (some (fn [{:keys [group-results]}]
-                                (some (fn [[g r]] ((:failed? g) r))
+                                (some (fn [[g r]] (group/failed? g r))
                                       (map vector enabled-groups group-results)))
                               run-results)]
         (case (:output opts)
@@ -103,6 +104,6 @@
           :edn  (edn-reporter/print-report enabled-groups dirs run-results)
           (doseq [{:keys [group-results]} run-results]
             (doseq [[g r] (map vector enabled-groups group-results)]
-              ((:report g) r))
+              (group/report g r))
             (print-summary enabled-groups group-results)))
         (System/exit (if any-failed? 1 0))))))

@@ -1,6 +1,7 @@
 (ns cljs-patrol.parser
   "Shared AST utilities and generic walker for ClojureScript static analysis."
   (:require
+   [cljs-patrol.group :as group]
    [clojure.java.io :as io]
    [clojure.string :as str]
    [rewrite-clj.node :as n]
@@ -130,8 +131,8 @@
      :dynamics (into (:dynamics acc) (:dynamics node-result))}
     acc))
 
-(defn- call-group-handler [{:keys [parse]} tag loc ns-name aliases file]
-  (let [{:keys [handle-list handle-vector handle-token]} parse]
+(defn- call-group-handler [g tag loc ns-name aliases file]
+  (let [{:keys [handle-list handle-vector handle-token]} (group/parse-handlers g)]
     (cond
       (#{:list :fn} tag) (when handle-list (handle-list loc ns-name aliases file))
       (= :vector tag) (when handle-vector (handle-vector loc ns-name aliases file))

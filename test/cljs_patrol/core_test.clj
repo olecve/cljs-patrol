@@ -1,6 +1,7 @@
 (ns cljs-patrol.core-test
   (:require
    [cljs-patrol.core]
+   [cljs-patrol.group :as group]
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private filter-groups #'cljs-patrol.core/filter-groups)
@@ -31,14 +32,14 @@
   (testing "--only selects specific group"
     (let [groups (filter-groups {:only #{:re-frame}})]
       (is (= 1 (count groups)))
-      (is (= :re-frame (:id (first groups))))))
+      (is (= :re-frame (group/group-id (first groups))))))
 
   (testing "--disable removes specific group"
     (let [groups (filter-groups {:disable #{:spade}})]
       (is (= 2 (count groups)))
-      (is (= #{:re-frame :typography} (set (map :id groups))))))
+      (is (= #{:re-frame :typography} (set (map group/group-id groups))))))
 
   (testing "--only takes precedence over --disable"
     (let [groups (filter-groups {:only #{:re-frame} :disable #{:re-frame}})]
       (is (= 1 (count groups)))
-      (is (= :re-frame (:id (first groups)))))))
+      (is (= :re-frame (group/group-id (first groups)))))))
