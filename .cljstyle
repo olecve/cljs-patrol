@@ -3,8 +3,7 @@
                        :indents {defrecord [[:inner 2]]
                                  deftype [[:inner 2]]
                                  parse-handlers [[:block 1]]
-                                 suggestions [[:block 1]]
-                                 html-sections [[:block 1]]}}
+                                 suggestions [[:block 1]]}}
          :functions {:enabled? false}
          :types {:enabled? false}
          :whitespace {:remove-surrounding? true

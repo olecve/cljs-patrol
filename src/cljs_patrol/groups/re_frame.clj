@@ -3,7 +3,6 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
-   [cljs-patrol.reporters.console :as reporter]
    [rewrite-clj.zip :as z]))
 
 (def ^:private decl-fn->type
@@ -167,26 +166,14 @@
 
         deprecated-effects (filter #(= :deprecated (:type %)) dynamic-sites)
         dynamic-dispatch (remove #(= :deprecated (:type %)) dynamic-sites)]
-    {:deprecated-effects deprecated-effects
-     :duplicate-subs (find-duplicates sub-decls)
+    {:duplicate-subs (find-duplicates sub-decls)
      :duplicate-events (find-duplicates event-decls)
-     :dynamic-sites dynamic-dispatch
-     :phantom-events (parser/distinct-by :kw phantom-events)
-     :phantom-subs (parser/distinct-by :kw phantom-subs)
+     :unused-subs (parser/distinct-by :kw unused-subs)
      :unused-events (parser/distinct-by :kw unused-events)
-     :unused-subs (parser/distinct-by :kw unused-subs)}))
-
-(defn- report*
-  [{:keys [deprecated-effects duplicate-events duplicate-subs dynamic-sites
-           phantom-events phantom-subs unused-events unused-subs]}]
-  (reporter/print-section "DUPLICATE SUBSCRIPTIONS" duplicate-subs)
-  (reporter/print-section "DUPLICATE EVENTS" duplicate-events)
-  (reporter/print-section "UNUSED SUBSCRIPTIONS" unused-subs)
-  (reporter/print-section "UNUSED EVENTS" unused-events)
-  (reporter/print-section "PHANTOM SUBSCRIPTIONS (subscribed but never declared)" phantom-subs)
-  (reporter/print-section "PHANTOM EVENTS (dispatched but never declared)" phantom-events)
-  (reporter/print-dynamic-section "DEPRECATED EFFECTS (use :fx instead)" deprecated-effects)
-  (reporter/print-dynamic-section "DYNAMIC DISPATCH/SUBSCRIBE SITES (manual review needed)" dynamic-sites))
+     :phantom-subs (parser/distinct-by :kw phantom-subs)
+     :phantom-events (parser/distinct-by :kw phantom-events)
+     :deprecated-effects deprecated-effects
+     :dynamic-sites dynamic-dispatch}))
 
 (defn- summary-lines*
   [{:keys [deprecated-effects duplicate-events duplicate-subs dynamic-sites
@@ -215,7 +202,6 @@
      :handle-vector handle-vector
      :handle-token handle-token})
   (analyze [_ data] (analyze* data))
-  (report [_ result] (report* result))
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ result] (failed?* result))
   (suggestions [_]
@@ -234,39 +220,6 @@
      :deprecated-effects
      "Usage of :dispatch-n, which is deprecated. Replace with :fx. Example: {:dispatch-n [[::event-a arg] [::event-b]]} becomes {:fx [[:dispatch [::event-a arg]] [:dispatch [::event-b]]]}."
      :dynamic-sites
-     "Dispatch or subscribe call with a non-literal keyword - cannot be statically resolved. Requires manual review to confirm the correct handler is being used."})
-  (html-sections [_]
-    [{:title "Duplicate Subscriptions"
-      :description "Registered more than once with reg-sub — the second registration silently overwrites the first."
-      :data-fn :duplicate-subs
-      :columns [:keyword :file :line]}
-     {:title "Duplicate Events"
-      :description "Registered more than once with reg-event-* — the second registration silently overwrites the first."
-      :data-fn :duplicate-events
-      :columns [:keyword :file :line]}
-     {:title "Unused Subscriptions"
-      :description "Registered with reg-sub but never subscribed to via subscribe."
-      :data-fn :unused-subs
-      :columns [:keyword :file :line]}
-     {:title "Unused Events"
-      :description "Registered with reg-event-* but never dispatched via dispatch or dispatch-sync."
-      :data-fn :unused-events
-      :columns [:keyword :file :line]}
-     {:title "Phantom Subscriptions"
-      :description "Used via subscribe but never declared with reg-sub. Likely a bug or missing import."
-      :data-fn :phantom-subs
-      :columns [:keyword :file :line]}
-     {:title "Phantom Events"
-      :description "Dispatched via dispatch/dispatch-sync but never declared with reg-event-*. Likely a bug or missing import."
-      :data-fn :phantom-events
-      :columns [:keyword :file :line]}
-     {:title "Deprecated Effects"
-      :description "Usage of :dispatch-n, which is deprecated. Use :fx instead."
-      :data-fn :deprecated-effects
-      :columns [:form :file :line]}
-     {:title "Dynamic Sites"
-      :description "Dispatch or subscribe calls where the keyword is not a literal — the actual handler cannot be statically determined. Requires manual review."
-      :data-fn :dynamic-sites
-      :columns [:form :file :line]}]))
+     "Dispatch or subscribe call with a non-literal keyword - cannot be statically resolved. Requires manual review to confirm the correct handler is being used."}))
 
 (def group (->ReFrameGroup))

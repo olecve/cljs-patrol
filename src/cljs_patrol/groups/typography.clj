@@ -79,13 +79,6 @@
                 :row (:row (first refs))}))]
     {:mixed-token-groups mixed-groups}))
 
-(defn- report* [{:keys [mixed-token-groups]}]
-  (when (seq mixed-token-groups)
-    (println "\n--- MIXED TYPOGRAPHY TOKEN GROUPS ---")
-    (doseq [{:keys [decl-kw prefixes file row]} mixed-token-groups]
-      (println (format "  %s  [%s]" decl-kw (str/join ", " prefixes)))
-      (println (str "    at " file ":" row)))))
-
 (defn- summary-lines* [{:keys [mixed-token-groups]}]
   [["Mixed typography token groups:" (count mixed-token-groups)]])
 
@@ -98,7 +91,6 @@
   (group-name [_] "Typography")
   (parse-handlers [_] {:handle-list handle-list})
   (analyze [_ data] (analyze* data))
-  (report [_ result] (report* result))
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ result] (failed?* result))
   (suggestions [_]
@@ -110,11 +102,6 @@
           "body-short-{small,medium,large}, body-long-{small,medium,large}, "
           "subhead-{small,medium,large}, heading-reg-{small,medium,large,xlarge}, "
           "heading-bold-{small,medium,large,xlarge}, action-{small,medium,large}, "
-          "code-compact-{small,medium,large}, code-reg-{small,medium,large}.")})
-  (html-sections [_]
-    [{:title "Mixed Typography Token Groups"
-      :description "Style declarations mixing tokens from different groups."
-      :data-fn :mixed-token-groups
-      :columns [:keyword :file :line]}]))
+          "code-compact-{small,medium,large}, code-reg-{small,medium,large}.")}))
 
 (def group (->TypographyGroup))

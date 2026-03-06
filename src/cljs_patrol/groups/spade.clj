@@ -3,7 +3,6 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
-   [cljs-patrol.reporters.console :as reporter]
    [rewrite-clj.zip :as z]))
 
 (def ^:private style-decl-fns #{"defclass" "defattrs"})
@@ -40,9 +39,6 @@
         unused-styles (remove #(contains? style-call-kws (:kw %)) style-decls)]
     {:unused-styles (parser/distinct-by :kw unused-styles)}))
 
-(defn- report* [{:keys [unused-styles]}]
-  (reporter/print-section "UNUSED STYLES (defclass/defattrs)" unused-styles))
-
 (defn- summary-lines* [{:keys [unused-styles]}]
   [["Unused styles:" (count unused-styles)]])
 
@@ -55,16 +51,10 @@
   (group-name [_] "Spade")
   (parse-handlers [_] {:handle-list handle-list})
   (analyze [_ data] (analyze* data))
-  (report [_ result] (report* result))
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ result] (failed?* result))
   (suggestions [_]
     {:unused-styles
-     "Declared with defclass or defattrs but never called. Remove the declaration, or add a call site where the style should be applied."})
-  (html-sections [_]
-    [{:title "Unused Styles"
-      :description "Declared with defclass or defattrs but never called."
-      :data-fn :unused-styles
-      :columns [:keyword :file :line]}]))
+     "Declared with defclass or defattrs but never called. Remove the declaration, or add a call site where the style should be applied."}))
 
 (def group (->SpadeGroup))
