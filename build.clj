@@ -3,7 +3,7 @@
    [clojure.tools.build.api :as b]))
 
 (def lib 'cljs-patrol/cljs-patrol)
-(def version "0.1.0")
+(def version (or (System/getProperty "cljs-patrol.version") "dev"))
 (def main-ns 'cljs-patrol.core)
 (def class-dir "target/classes")
 (def uber-file (format "target/%s-%s.jar" (name lib) version))
@@ -14,7 +14,7 @@
 (defn uber
   "Builds a standalone executable jar.
   Run with: clojure -T:build uber
-  Then run with: java -jar target/cljs-patrol-0.1.0.jar <source-dir>"
+  Then run with: java -jar target/cljs-patrol-<version>.jar <source-dir>"
   [_]
   (clean nil)
   (let [basis (b/create-basis {:project "deps.edn"})]
