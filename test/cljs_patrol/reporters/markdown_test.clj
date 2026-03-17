@@ -72,10 +72,10 @@
 
 (deftest multiple-groups-test
   (let [output (run-report
-                 [re-frame/group spade/group]
-                 [{:source-dir "src"
-                   :group-results [(rf-result {:unused-subs [kw-item]})
-                                   {:unused-styles [style-item]}]}])]
+                [re-frame/group spade/group]
+                [{:source-dir "src"
+                  :group-results [(rf-result {:unused-subs [kw-item]})
+                                  {:unused-styles [style-item]}]}])]
     (testing "renders sections from both groups"
       (is (str/includes? output "## Unused subs (1)"))
       (is (str/includes? output "## Unused styles (1)")))
