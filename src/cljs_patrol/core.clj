@@ -14,6 +14,7 @@
    [cljs-patrol.reporters.console :as console]
    [cljs-patrol.reporters.edn :as edn-reporter]
    [cljs-patrol.reporters.html :as html-reporter]
+   [cljs-patrol.reporters.markdown :as md-reporter]
    [clojure.string :as str]
    [clojure.tools.cli :as cli]))
 
@@ -30,7 +31,7 @@
     :parse-fn #(set (map keyword (str/split % #",")))]
    [nil "--disable GROUPS" "Disable these groups (comma-separated)"
     :parse-fn #(set (map keyword (str/split % #",")))]
-   [nil "--output FORMAT" "Output format: html or edn"
+   [nil "--output FORMAT" "Output format: html, edn, or markdown"
     :parse-fn keyword]
    [nil "--files FILES" "Limit results to these files (comma-separated)"
     :parse-fn #(str/split % #",")]
@@ -103,6 +104,7 @@
                   (doseq [{:keys [group-results]} run-results]
                     (print-summary enabled-groups group-results)))
           :edn  (edn-reporter/print-report enabled-groups dirs run-results)
+          :markdown (md-reporter/print-report enabled-groups dirs run-results)
           (doseq [{:keys [group-results]} run-results]
             (doseq [r group-results]
               (console/report r))

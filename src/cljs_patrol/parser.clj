@@ -178,7 +178,8 @@
   Returns {:declarations :usages :dynamic-sites} across all files."
   [root-dir enabled-groups]
   (let [files (find-source-files root-dir)]
-    (println (str "Analyzing " (count files) " files under " root-dir " ..."))
+    (binding [*out* *err*]
+      (println (str "Analyzing " (count files) " files under " root-dir " ...")))
     (let [results (keep #(analyze-file % enabled-groups) files)]
       {:declarations (mapcat :declarations results)
        :usages (mapcat :usages results)
