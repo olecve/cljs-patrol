@@ -27,20 +27,20 @@
 (defn print-report
   "Print analysis results as Markdown to stdout."
   [enabled-groups _dirs run-results]
-  (let [sections (for [g-idx (range (count enabled-groups))
-                       :let [g (nth enabled-groups g-idx)
-                             merged (merge-results (map #(nth (:group-results %) g-idx) run-results))
-                             suggestions (group/suggestions g)]
+  (let [sections (for [group-idx (range (count enabled-groups))
+                       :let [group (nth enabled-groups group-idx)
+                             merged (merge-results (map #(nth (:group-results %) group-idx) run-results))
+                             suggestions (group/suggestions group)]
                        [issue-key items] (sort-by key merged)
                        :when (and (sequential? items) (seq items))
                        :let [title (-> (name issue-key) (str/replace #"-" " ") str/capitalize)
                              suggestion (get suggestions issue-key "")]]
                    (section title suggestion items))
-        summary  (for [g-idx (range (count enabled-groups))
-                       :let [g (nth enabled-groups g-idx)
-                             merged (merge-results (map #(nth (:group-results %) g-idx) run-results))]
-                       [label cnt] (group/summary-lines g merged)]
-                   (str "| " label " | " cnt " |"))
+        summary  (for [group-idx (range (count enabled-groups))
+                       :let [group (nth enabled-groups group-idx)
+                             merged (merge-results (map #(nth (:group-results %) group-idx) run-results))]
+                       [label count] (group/summary-lines group merged)]
+                   (str "| " label " | " count " |"))
         output   (str "# cljs-patrol report\n\n"
                       (str/join "\n" (remove nil? sections))
                       "\n## Summary\n\n"
