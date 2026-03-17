@@ -17,6 +17,15 @@ clojure -M:run src/cljs/myapp
 
 Exits with code `1` when issues are found, making it suitable for CI pipelines.
 
+### Standalone jar
+
+Download a pre-built jar from [GitHub Releases](https://github.com/olecve/cljs-patrol/releases):
+
+```bash
+curl -sL https://github.com/olecve/cljs-patrol/releases/download/v0.1.0/cljs-patrol-0.1.0.jar -o cljs-patrol.jar
+java -jar cljs-patrol.jar <source-dir>
+```
+
 ## Rule groups
 
 Analysis is split into independent rule groups. By default all groups run.
@@ -109,23 +118,32 @@ Combinable with other flags:
 clojure -M:run --output edn --files src/app/subs.cljs src/cljs/myapp
 ```
 
-## Claude Code skill
-
-Add a `/cljs-patrol` skill to your project at `.claude/commands/cljs-patrol.md`. The skill should:
-
-1. Find changed ClojureScript files via `git diff main...HEAD --name-only`, prepend the repo root to make paths absolute.
-2. Run `clojure -M:run --output edn --files <absolute-files> <source-dirs>` — full context is used but only issues in the changed files are returned.
-3. Fix each issue using the `:suggestions` in the EDN output. Flag anything requiring manual review.
-4. Re-run cljs-patrol to confirm clean, then run project tests.
-
 ## Build
 
 Build a standalone uberjar:
 
 ```bash
 clojure -T:build uber
-java -jar target/cljs-patrol-0.1.0.jar <source-dir>
 ```
+
+This produces `target/cljs-patrol-dev.jar`. To set a specific version:
+
+```bash
+clojure -J-Dcljs-patrol.version=0.2.0 -T:build uber
+```
+
+This produces `target/cljs-patrol-0.2.0.jar`.
+
+### Releasing
+
+Releases are automated via GitHub Actions. Push a version tag to build and publish:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+This runs tests, builds the jar as `cljs-patrol-0.2.0.jar` (version derived from the tag), and creates a [GitHub Release](https://github.com/olecve/cljs-patrol/releases) with the jar attached.
 
 ## Formatting
 
