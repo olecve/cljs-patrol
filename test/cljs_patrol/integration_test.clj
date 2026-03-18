@@ -2,16 +2,18 @@
   (:require
    [cljs-patrol.core :as core]
    [cljs-patrol.groups.re-frame :as re-frame]
+   [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private fixture-dir "test/projects/re-frame-spade-app/src/webapp")
-(def ^:private all-groups [re-frame/group spade/group])
+(def ^:private all-groups [re-frame/group spade/group reagent/group])
 
 (deftest full-analysis-test
   (let [{:keys [group-results]} (core/run fixture-dir all-groups)
         rf-result (nth group-results 0)
-        spade-result (nth group-results 1)]
+        spade-result (nth group-results 1)
+        reagent-result (nth group-results 2)]
 
     (testing "detects unused re-frame subscription"
       (is (= #{:webapp.subs/unused-sub}
@@ -42,8 +44,12 @@
              (set (map :kw (:defattrs-in-merge spade-result))))))
 
     (testing "detects defclass used as sole attr"
-      (is (= #{:webapp.styles/sole-attr-style}
-             (set (map :kw (:defclass-as-sole-attr spade-result))))))
+      (is (= #{:webapp.styles/sole-attr-style :webapp.styles/vector-sole-attr-style}
+             (set (map :kw (:defclass-as-sole-attr reagent-result))))))
+
+    (testing "does not flag defclass in multi-element :class vector"
+      (is (not (contains? (set (map :kw (:defclass-as-sole-attr reagent-result)))
+                          :webapp.styles/vector-multi-class-style))))
 
     (testing "detects duplicate subscription registration"
       (is (= 2 (count (:duplicate-subs rf-result))))

@@ -7,6 +7,18 @@
 
 (def ^:private style-decl-fns #{"defclass" "defattrs"})
 
+(defn- class-only-map?
+  "True if `value-loc` is the value of `:class` in a map with no other keys."
+  [value-loc]
+  (let [left (z/left value-loc)
+        parent (z/up value-loc)]
+    (and left
+         (= :token (z/tag left))
+         (= ":class" (parser/raw left))
+         parent
+         (= :map (z/tag parent))
+         (= 2 (count (z/child-sexprs parent))))))
+
 (defn- handle-list
   "Detect style declarations and usages from list nodes.
   Handles: defclass/defattrs declarations, and catch-all style function calls."
@@ -35,13 +47,13 @@
                         (= "merge" parent-op)
                         :in-merge
 
-                        (let [left (z/left loc)]
-                          (and left
-                               (= :token (z/tag left))
-                               (= ":class" (parser/raw left))
-                               parent
-                               (= :map (z/tag parent))
-                               (= 2 (count (z/child-sexprs parent)))))
+                        (class-only-map? loc)
+                        :class-only-map
+
+                        (and parent
+                             (= :vector (z/tag parent))
+                             (= 1 (count (z/child-sexprs parent)))
+                             (class-only-map? parent))
                         :class-only-map
 
                         :else nil)]
@@ -61,21 +73,13 @@
                                 :when (= :defattrs (:type decl))
                                 :when (some #(= :in-merge (:context %))
                                             (get usages-by-kw (:kw decl)))]
-                            decl)
-        defclass-as-sole-attr (for [decl style-decls
-                                    :when (= :defclass (:type decl))
-                                    :let [uses (get usages-by-kw (:kw decl))]
-                                    :when (seq uses)
-                                    :when (every? #(= :class-only-map (:context %)) uses)]
-                                decl)]
+                            decl)]
     {:unused-styles (parser/distinct-by :kw unused-styles)
-     :defattrs-in-merge (vec defattrs-in-merge)
-     :defclass-as-sole-attr (vec defclass-as-sole-attr)}))
+     :defattrs-in-merge (vec defattrs-in-merge)}))
 
-(defn- summary-lines* [{:keys [unused-styles defattrs-in-merge defclass-as-sole-attr]}]
+(defn- summary-lines* [{:keys [unused-styles defattrs-in-merge]}]
   [["Unused styles:" (count unused-styles)]
-   ["defattrs in merge:" (count defattrs-in-merge)]
-   ["defclass as sole attr:" (count defclass-as-sole-attr)]])
+   ["defattrs in merge:" (count defattrs-in-merge)]])
 
 (defn- failed?* [{:keys [unused-styles]}]
   (seq unused-styles))
@@ -92,8 +96,6 @@
     {:unused-styles
      "Declared with defclass or defattrs but never called. Remove the declaration, or add a call site where the style should be applied."
      :defattrs-in-merge
-     "Declared with defattrs but used inside merge. Use defclass instead so callers can pass it via :class without merge."
-     :defclass-as-sole-attr
-     "Declared with defclass but every usage is {:class (style-fn)}. Use defattrs instead to avoid the :class wrapper."}))
+     "Declared with defattrs but used inside merge. Use defclass instead so callers can pass it via :class without merge."}))
 
 (def group (->SpadeGroup))

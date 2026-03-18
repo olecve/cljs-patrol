@@ -27,7 +27,7 @@
 
 (deftest filter-groups-test
   (testing "no filters returns all groups"
-    (is (= 3 (count (filter-groups {})))))
+    (is (= 4 (count (filter-groups {})))))
 
   (testing "--only selects specific group"
     (let [groups (filter-groups {:only #{:re-frame}})]
@@ -36,8 +36,8 @@
 
   (testing "--disable removes specific group"
     (let [groups (filter-groups {:disable #{:spade}})]
-      (is (= 2 (count groups)))
-      (is (= #{:re-frame :typography} (set (map group/group-id groups))))))
+      (is (= 3 (count groups)))
+      (is (= #{:re-frame :reagent :typography} (set (map group/group-id groups))))))
 
   (testing "--only takes precedence over --disable"
     (let [groups (filter-groups {:only #{:re-frame} :disable #{:re-frame}})]
