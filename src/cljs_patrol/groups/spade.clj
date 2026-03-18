@@ -28,19 +28,54 @@
 
       operator
       (when-let [resolved (parser/resolve-sym op-raw ns-name aliases)]
-        {:decls [] :dynamics []
-         :usages [{:kw resolved :type :style-call :file file :row row}]})
+        (let [parent (z/up loc)
+              parent-first (when parent (z/down parent))
+              parent-op (when parent-first (parser/sym-name parent-first))
+              context (cond
+                        (= "merge" parent-op)
+                        :in-merge
+
+                        (let [left (z/left loc)]
+                          (and left
+                               (= :token (z/tag left))
+                               (= ":class" (parser/raw left))
+                               parent
+                               (= :map (z/tag parent))
+                               (= 2 (count (z/child-sexprs parent)))))
+                        :class-only-map
+
+                        :else nil)]
+          {:decls [] :dynamics []
+           :usages [{:kw resolved :type :style-call :file file :row row
+                     :context context}]}))
 
       :else nil)))
 
 (defn- analyze* [{:keys [declarations usages]}]
   (let [style-decls (filter #(contains? #{:defclass :defattrs} (:type %)) declarations)
-        style-call-kws (set (map :kw (filter #(= :style-call (:type %)) usages)))
-        unused-styles (remove #(contains? style-call-kws (:kw %)) style-decls)]
-    {:unused-styles (parser/distinct-by :kw unused-styles)}))
+        style-calls (filter #(= :style-call (:type %)) usages)
+        style-call-kws (set (map :kw style-calls))
+        unused-styles (remove #(contains? style-call-kws (:kw %)) style-decls)
+        usages-by-kw (group-by :kw style-calls)
+        defattrs-in-merge (for [decl style-decls
+                                :when (= :defattrs (:type decl))
+                                :when (some #(= :in-merge (:context %))
+                                            (get usages-by-kw (:kw decl)))]
+                            decl)
+        defclass-as-sole-attr (for [decl style-decls
+                                    :when (= :defclass (:type decl))
+                                    :let [uses (get usages-by-kw (:kw decl))]
+                                    :when (seq uses)
+                                    :when (every? #(= :class-only-map (:context %)) uses)]
+                                decl)]
+    {:unused-styles (parser/distinct-by :kw unused-styles)
+     :defattrs-in-merge (vec defattrs-in-merge)
+     :defclass-as-sole-attr (vec defclass-as-sole-attr)}))
 
-(defn- summary-lines* [{:keys [unused-styles]}]
-  [["Unused styles:" (count unused-styles)]])
+(defn- summary-lines* [{:keys [unused-styles defattrs-in-merge defclass-as-sole-attr]}]
+  [["Unused styles:" (count unused-styles)]
+   ["defattrs in merge:" (count defattrs-in-merge)]
+   ["defclass as sole attr:" (count defclass-as-sole-attr)]])
 
 (defn- failed?* [{:keys [unused-styles]}]
   (seq unused-styles))
@@ -55,6 +90,10 @@
   (failed? [_ result] (failed?* result))
   (suggestions [_]
     {:unused-styles
-     "Declared with defclass or defattrs but never called. Remove the declaration, or add a call site where the style should be applied."}))
+     "Declared with defclass or defattrs but never called. Remove the declaration, or add a call site where the style should be applied."
+     :defattrs-in-merge
+     "Declared with defattrs but used inside merge. Use defclass instead so callers can pass it via :class without merge."
+     :defclass-as-sole-attr
+     "Declared with defclass but every usage is {:class (style-fn)}. Use defattrs instead to avoid the :class wrapper."}))
 
 (def group (->SpadeGroup))
