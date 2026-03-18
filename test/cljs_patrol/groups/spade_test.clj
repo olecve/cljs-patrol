@@ -9,8 +9,6 @@
 (def ^:private style-usage {:kw :webapp.styles/container :type :style-call :file "views.cljs" :row 10})
 (def ^:private defattrs-merged {:kw :webapp.styles/merged-attrs :type :defattrs :file "styles.cljs" :row 7})
 (def ^:private merge-usage {:kw :webapp.styles/merged-attrs :type :style-call :file "views.cljs" :row 12 :context :in-merge})
-(def ^:private defclass-sole {:kw :webapp.styles/sole-style :type :defclass :file "styles.cljs" :row 9})
-(def ^:private class-only-usage {:kw :webapp.styles/sole-style :type :style-call :file "views.cljs" :row 14 :context :class-only-map})
 
 (deftest analyze-test
   (testing "no styles declared — nothing unused"
@@ -41,27 +39,7 @@
           result (group/analyze spade/group
                                 {:declarations [defattrs-decl]
                                  :usages [plain-usage]})]
-      (is (empty? (:defattrs-in-merge result)))))
-
-  (testing "defclass-as-sole-attr: flags defclass used only in class-only-map"
-    (let [result (group/analyze spade/group
-                                {:declarations [defclass-sole]
-                                 :usages [class-only-usage]})]
-      (is (= 1 (count (:defclass-as-sole-attr result))))
-      (is (= :webapp.styles/sole-style (:kw (first (:defclass-as-sole-attr result)))))))
-
-  (testing "defclass-as-sole-attr: not flagged when any usage is not class-only-map"
-    (let [mixed-usage {:kw :webapp.styles/sole-style :type :style-call :file "v.cljs" :row 20 :context nil}
-          result (group/analyze spade/group
-                                {:declarations [defclass-sole]
-                                 :usages [class-only-usage mixed-usage]})]
-      (is (empty? (:defclass-as-sole-attr result)))))
-
-  (testing "defclass-as-sole-attr: not flagged when defclass has no usages"
-    (let [result (group/analyze spade/group
-                                {:declarations [defclass-sole]
-                                 :usages []})]
-      (is (empty? (:defclass-as-sole-attr result))))))
+      (is (empty? (:defattrs-in-merge result))))))
 
 (deftest failed?-test
   (testing "fails when unused styles exist"
@@ -72,19 +50,11 @@
 
   (testing "does not fail for defattrs-in-merge (warning only)"
     (is (not (group/failed? spade/group {:unused-styles []
-                                         :defattrs-in-merge [defattrs-merged]
-                                         :defclass-as-sole-attr []}))))
-
-  (testing "does not fail for defclass-as-sole-attr (warning only)"
-    (is (not (group/failed? spade/group {:unused-styles []
-                                         :defattrs-in-merge []
-                                         :defclass-as-sole-attr [defclass-sole]})))))
+                                         :defattrs-in-merge [defattrs-merged]})))))
 
 (deftest summary-lines-test
   (let [lines (group/summary-lines spade/group {:unused-styles [defclass-decl defattrs-decl]
-                                                :defattrs-in-merge [defattrs-merged]
-                                                :defclass-as-sole-attr []})]
-    (is (= 3 (count lines)))
+                                                :defattrs-in-merge [defattrs-merged]})]
+    (is (= 2 (count lines)))
     (is (= 2 (second (first lines))))
-    (is (= 1 (second (second lines))))
-    (is (= 0 (second (nth lines 2))))))
+    (is (= 1 (second (second lines))))))
