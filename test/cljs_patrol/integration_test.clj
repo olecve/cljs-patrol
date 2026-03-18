@@ -42,8 +42,12 @@
              (set (map :kw (:defattrs-in-merge spade-result))))))
 
     (testing "detects defclass used as sole attr"
-      (is (= #{:webapp.styles/sole-attr-style}
+      (is (= #{:webapp.styles/sole-attr-style :webapp.styles/vector-sole-attr-style}
              (set (map :kw (:defclass-as-sole-attr spade-result))))))
+
+    (testing "does not flag defclass in multi-element :class vector"
+      (is (not (contains? (set (map :kw (:defclass-as-sole-attr spade-result)))
+                          :webapp.styles/vector-multi-class-style))))
 
     (testing "detects duplicate subscription registration"
       (is (= 2 (count (:duplicate-subs rf-result))))
