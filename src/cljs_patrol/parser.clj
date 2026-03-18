@@ -131,13 +131,23 @@
      :dynamics (into (:dynamics acc) (:dynamics node-result))}
     acc))
 
-(defn- call-group-handler [g tag loc ns-name aliases file]
-  (let [{:keys [handle-list handle-vector handle-token]} (group/parse-handlers g)]
-    (cond
-      (#{:list :fn} tag) (when handle-list (handle-list loc ns-name aliases file))
-      (= :vector tag) (when handle-vector (handle-vector loc ns-name aliases file))
-      (= :token tag) (when handle-token (handle-token loc ns-name aliases file))
-      :else nil)))
+(defn- collect-handlers
+  "Collect unique handler functions from all enabled groups, keyed by handler type."
+  [enabled-groups]
+  (let [all-handlers (map group/parse-handlers enabled-groups)]
+    {:handle-list (distinct (keep :handle-list all-handlers))
+     :handle-vector (distinct (keep :handle-vector all-handlers))
+     :handle-token (distinct (keep :handle-token all-handlers))}))
+
+(defn- call-handlers [handlers tag loc ns-name aliases file]
+  (let [fns (cond
+              (#{:list :fn} tag) (:handle-list handlers)
+              (= :vector tag) (:handle-vector handlers)
+              (= :token tag) (:handle-token handlers))]
+    (reduce (fn [acc handler]
+              (merge-result acc (handler loc ns-name aliases file)))
+            empty-result
+            fns)))
 
 (defn analyze-file
   "Parse a single .cljs/.cljc file and return {:declarations :usages :dynamic-sites}."
@@ -150,19 +160,17 @@
                     nil))]
     (when zloc
       (let [{:keys [aliases ns-name] :or {ns-name "unknown" aliases {}}}
-            (or (find-ns-info zloc) {:ns-name "unknown" :aliases {}})]
+            (or (find-ns-info zloc) {:ns-name "unknown" :aliases {}})
+            handlers (collect-handlers enabled-groups)]
         (loop [loc zloc
                result empty-result]
           (if (z/end? loc)
             {:declarations (:decls result)
              :usages (:usages result)
              :dynamic-sites (:dynamics result)}
-            (let [tag (z/tag loc)
-                  combined (reduce (fn [acc group]
-                                     (merge-result acc (call-group-handler group tag loc ns-name aliases file-path)))
-                                   result
-                                   enabled-groups)]
-              (recur (z/next loc) combined))))))))
+            (let [tag (z/tag loc)]
+              (recur (z/next loc)
+                     (merge-result result (call-handlers handlers tag loc ns-name aliases file-path))))))))))
 
 (defn find-source-files
   "Recursively find all .cljs and .cljc files under root-dir."
