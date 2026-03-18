@@ -6,8 +6,16 @@
 
 (defn main-view []
   (let [data @(rf/subscribe [::subs/used-sub])]
-    [:div {:class (styles/container-style)} data]))
+    [:div {:class (styles/container-style) :id "main"} data]))
 
 ;; Subscribes to a sub that is never declared (phantom)
 (defn other-view []
   @(rf/subscribe [:webapp.phantom/ghost-sub]))
+
+;; defattrs used inside merge — should be defclass
+(defn merged-view []
+  [:div (merge (styles/merged-attrs) {:on-click #(js/alert "hi")})])
+
+;; defclass used as sole attr in map — could be defattrs
+(defn sole-attr-view []
+  [:div {:class (styles/sole-attr-style)}])

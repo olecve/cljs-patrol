@@ -10,3 +10,9 @@
 
 (defattrs unused-attrs []
   {:data-foo "bar"})
+
+(defattrs merged-attrs []
+  {:font-size "14px"})
+
+(defclass sole-attr-style []
+  {:background :blue})

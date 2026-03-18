@@ -37,6 +37,14 @@
       (is (not (contains? (set (map :kw (:unused-styles spade-result)))
                           :webapp.styles/container-style))))
 
+    (testing "detects defattrs used in merge"
+      (is (= #{:webapp.styles/merged-attrs}
+             (set (map :kw (:defattrs-in-merge spade-result))))))
+
+    (testing "detects defclass used as sole attr"
+      (is (= #{:webapp.styles/sole-attr-style}
+             (set (map :kw (:defclass-as-sole-attr spade-result))))))
+
     (testing "detects duplicate subscription registration"
       (is (= 2 (count (:duplicate-subs rf-result))))
       (is (= #{:webapp.subs/used-sub} (set (map :kw (:duplicate-subs rf-result))))))
