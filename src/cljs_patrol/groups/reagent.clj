@@ -1,7 +1,8 @@
 (ns cljs-patrol.groups.reagent
   "Reagent rule group: detects suboptimal patterns in Reagent hiccup templates."
   (:require
-   [cljs-patrol.group :as group]))
+   [cljs-patrol.group :as group]
+   [cljs-patrol.groups.spade :as spade]))
 
 (defn- analyze* [{:keys [declarations usages]}]
   (let [style-decls (filter #(= :defclass (:type %)) declarations)
@@ -23,7 +24,7 @@
   group/RuleGroup
   (group-id [_] :reagent)
   (group-name [_] "Reagent")
-  (parse-handlers [_] {})
+  (parse-handlers [_] (group/parse-handlers spade/group))
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ result] (failed?* result))
