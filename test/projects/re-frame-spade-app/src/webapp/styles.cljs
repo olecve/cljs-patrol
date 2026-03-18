@@ -16,3 +16,9 @@
 
 (defclass sole-attr-style []
   {:background :blue})
+
+(defclass vector-sole-attr-style []
+  {:margin "10px"})
+
+(defclass vector-multi-class-style []
+  {:padding "5px"})
