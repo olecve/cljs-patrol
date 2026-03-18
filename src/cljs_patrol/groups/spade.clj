@@ -7,6 +7,18 @@
 
 (def ^:private style-decl-fns #{"defclass" "defattrs"})
 
+(defn- class-only-map?
+  "True if `value-loc` is the value of `:class` in a map with no other keys."
+  [value-loc]
+  (let [left (z/left value-loc)
+        parent (z/up value-loc)]
+    (and left
+         (= :token (z/tag left))
+         (= ":class" (parser/raw left))
+         parent
+         (= :map (z/tag parent))
+         (= 2 (count (z/child-sexprs parent))))))
+
 (defn- handle-list
   "Detect style declarations and usages from list nodes.
   Handles: defclass/defattrs declarations, and catch-all style function calls."
@@ -35,13 +47,13 @@
                         (= "merge" parent-op)
                         :in-merge
 
-                        (let [left (z/left loc)]
-                          (and left
-                               (= :token (z/tag left))
-                               (= ":class" (parser/raw left))
-                               parent
-                               (= :map (z/tag parent))
-                               (= 2 (count (z/child-sexprs parent)))))
+                        (class-only-map? loc)
+                        :class-only-map
+
+                        (and parent
+                             (= :vector (z/tag parent))
+                             (= 1 (count (z/child-sexprs parent)))
+                             (class-only-map? parent))
                         :class-only-map
 
                         :else nil)]
