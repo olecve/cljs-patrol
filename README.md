@@ -30,10 +30,12 @@ java -jar cljs-patrol.jar <source-dir>
 
 Analysis is split into independent rule groups. By default all groups run.
 
-| Group     | Detects                                         |
-| --------- | ----------------------------------------------- |
-| `re-frame` | Unused/phantom re-frame subscriptions and events |
-| `spade`   | Unused Spade style declarations                 |
+| Group        | Detects                                              |
+| ------------ | ---------------------------------------------------- |
+| `re-frame`   | Unused/phantom re-frame subscriptions and events     |
+| `spade`      | Unused Spade style declarations, defattrs in merge   |
+| `reagent`    | defclass used as sole attr (should be defattrs)      |
+| `typography` | Mixed Figma typography token groups in a single style |
 
 Run only specific groups:
 
@@ -73,6 +75,9 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **Phantom events** — dispatched but never declared
 - **Duplicate registrations** — two `reg-sub` or `reg-event-*` calls with the same keyword (second silently overwrites the first)
 - **Deprecated effects** — use of `:dispatch-n` (replaced by `:fx`)
+- **defclass as sole attr** — `defclass` where every usage is `{:class (style-fn)}` with no other props; should be `defattrs` instead
+- **defattrs in merge** — `defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class` without merge
+- **Mixed typography token groups** — typography tokens from different Figma token groups mixed in a single style definition
 - **Dynamic dispatch/subscribe sites** — dispatch or subscribe calls with a non-literal keyword (manual review needed)
 
 ## Supported patterns
@@ -104,12 +109,13 @@ clojure -M:run --only re-frame --output edn src/cljs/myapp
 
 ## Filtering results to specific files
 
-Limit results to a subset of files while still using the full codebase for context:
+Limit results to a subset of files while still analyzing the full codebase for cross-reference context:
 
 ```bash
-clojure -M:run --files src/app/subs.cljs src/cljs/myapp
 clojure -M:run --files src/app/subs.cljs,src/app/events.cljs src/cljs/myapp
 ```
+
+`--files` takes a **single comma-separated string** of file paths. The positional arguments after it are always the source directories to analyze. Do not pass file paths as positional source-dir arguments.
 
 This is useful in CI to surface only issues in files changed by a pull request, while phantom/duplicate detection still considers the whole codebase.
 Combinable with other flags:
