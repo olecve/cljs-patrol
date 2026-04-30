@@ -17,14 +17,23 @@
 (deftest infer-columns-test
   (testing "form items use form/file/line columns"
     (is (= [:form :file :line]
-           (infer-columns {:form "(rf/dispatch [::ev])" :file "f.cljs" :row 1}))))
+           (infer-columns {:form "(rf/dispatch [::ev])"
+                           :file "f.cljs"
+                           :row 1}))))
 
   (testing "kw items use keyword/file/line columns"
     (is (= [:keyword :file :line]
-           (infer-columns {:kw :my/sub :file "f.cljs" :row 1})))))
+           (infer-columns {:kw :my/sub
+                           :file "f.cljs"
+                           :row 1})))))
 
-(def ^:private kw-item {:kw :my-ns/sub :file "src/subs.cljs" :row 3 :type :sub})
-(def ^:private form-item {:form "(rf/dispatch [::ev])" :file "src/views.cljs" :row 7})
+(def ^:private kw-item {:kw :my-ns/sub
+                        :file "src/subs.cljs"
+                        :row 3
+                        :type :sub})
+(def ^:private form-item {:form "(rf/dispatch [::ev])"
+                          :file "src/views.cljs"
+                          :row 7})
 
 (deftest aggregate-sections-test
   (let [run-results [{:source-dir "src"

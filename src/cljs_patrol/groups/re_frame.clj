@@ -30,26 +30,46 @@
             decl-type (get decl-fn->type operator)]
         (when (parser/kw-node? kw-loc)
           (when-let [resolved (parser/resolve-kw (parser/raw kw-loc) ns-name aliases)]
-            {:decls [{:kw resolved :type decl-type :file file :row (parser/position-row kw-loc)}]
-             :usages [] :dynamics []})))
+            {:decls [{:kw resolved
+                      :type decl-type
+                      :file file
+                      :row (parser/position-row kw-loc)}]
+             :usages []
+             :dynamics []})))
 
       (= "subscribe" operator)
       (let [vec-loc (z/right (z/down loc))]
         (when (= :vector (z/tag vec-loc))
           (let [{:keys [dynamic? kw]} (parser/extract-kw-from-vector vec-loc ns-name aliases)]
             (if dynamic?
-              {:decls [] :usages [] :dynamics [{:form (parser/raw loc) :file file :row row}]}
-              {:decls [] :dynamics []
-               :usages (when kw [{:kw kw :type :sub :file file :row row}])}))))
+              {:decls []
+               :usages []
+               :dynamics [{:form (parser/raw loc)
+                           :file file
+                           :row row}]}
+              {:decls []
+               :dynamics []
+               :usages (when kw [{:kw kw
+                                  :type :sub
+                                  :file file
+                                  :row row}])}))))
 
       (contains? dispatch-fns operator)
       (let [vec-loc (z/right (z/down loc))]
         (when (= :vector (z/tag vec-loc))
           (let [{:keys [dynamic? kw]} (parser/extract-kw-from-vector vec-loc ns-name aliases)]
             (if dynamic?
-              {:decls [] :usages [] :dynamics [{:form (parser/raw loc) :file file :row row}]}
-              {:decls [] :dynamics []
-               :usages (when kw [{:kw kw :type :event :file file :row row}])}))))
+              {:decls []
+               :usages []
+               :dynamics [{:form (parser/raw loc)
+                           :file file
+                           :row row}]}
+              {:decls []
+               :dynamics []
+               :usages (when kw [{:kw kw
+                                  :type :event
+                                  :file file
+                                  :row row}])}))))
 
       :else nil)))
 
@@ -68,9 +88,17 @@
             (when (= :vector (z/tag vec-loc))
               (let [{:keys [dynamic? kw]} (parser/extract-kw-from-vector vec-loc ns-name aliases)]
                 (if dynamic?
-                  {:decls [] :usages [] :dynamics [{:form (parser/raw loc) :file file :row row}]}
-                  (when kw {:decls [] :dynamics []
-                            :usages [{:kw kw :type :event :file file :row row}]})))))
+                  {:decls []
+                   :usages []
+                   :dynamics [{:form (parser/raw loc)
+                               :file file
+                               :row row}]}
+                  (when kw {:decls []
+                            :dynamics []
+                            :usages [{:kw kw
+                                      :type :event
+                                      :file file
+                                      :row row}]})))))
 
           ;; [:dispatch-n [[::kw1] [::kw2] ...]]
           (= ":dispatch-n" first-raw)
@@ -83,9 +111,14 @@
                                               (parser/extract-kw-from-vector ev-loc ns-name aliases))]
                                  (if (and result (not (:dynamic? result)) (:kw result))
                                    (recur (z/right ev-loc)
-                                          (conj acc {:kw (:kw result) :type :event :file file :row row}))
+                                          (conj acc {:kw (:kw result)
+                                                     :type :event
+                                                     :file file
+                                                     :row row}))
                                    (recur (z/right ev-loc) acc)))))]
-                {:decls [] :dynamics [] :usages usages})))
+                {:decls []
+                 :dynamics []
+                 :usages usages})))
 
           ;; [:dispatch-later {:ms N :dispatch [::kw]}]
           (= ":dispatch-later" first-raw)
@@ -98,9 +131,17 @@
                       (when (= :vector (z/tag v-loc))
                         (let [{:keys [dynamic? kw]} (parser/extract-kw-from-vector v-loc ns-name aliases)]
                           (if dynamic?
-                            {:decls [] :usages [] :dynamics [{:form (parser/raw loc) :file file :row row}]}
-                            (when kw {:decls [] :dynamics []
-                                      :usages [{:kw kw :type :event :file file :row row}]})))))
+                            {:decls []
+                             :usages []
+                             :dynamics [{:form (parser/raw loc)
+                                         :file file
+                                         :row row}]}
+                            (when kw {:decls []
+                                      :dynamics []
+                                      :usages [{:kw kw
+                                                :type :event
+                                                :file file
+                                                :row row}]})))))
                     (recur (z/right kv-loc)))))))
 
           :else nil)))))
@@ -119,13 +160,22 @@
           (when (= :vector (z/tag vec-loc))
             (let [{:keys [dynamic? kw]} (parser/extract-kw-from-vector vec-loc ns-name aliases)]
               (when (and (not dynamic?) kw)
-                {:decls [] :dynamics []
-                 :usages [{:kw kw :type :sub :file file :row row}]}))))
+                {:decls []
+                 :dynamics []
+                 :usages [{:kw kw
+                           :type :sub
+                           :file file
+                           :row row}]}))))
 
         ;; :dispatch-n — deprecated effect, use :fx instead
         (= ":dispatch-n" raw-str)
-        {:decls [] :usages []
-         :dynamics [{:type :deprecated :effect ":dispatch-n" :form raw-str :file file :row row}]}
+        {:decls []
+         :usages []
+         :dynamics [{:type :deprecated
+                     :effect ":dispatch-n"
+                     :form raw-str
+                     :file file
+                     :row row}]}
 
         ;; :on-success / :on-failure / :on-error [::event-kw] — http effect callbacks
         (contains? http-callback-keys raw-str)
@@ -133,8 +183,12 @@
           (when (= :vector (z/tag vec-loc))
             (let [{:keys [dynamic? kw]} (parser/extract-kw-from-vector vec-loc ns-name aliases)]
               (when (and (not dynamic?) kw)
-                {:decls [] :dynamics []
-                 :usages [{:kw kw :type :event :file file :row row}]}))))
+                {:decls []
+                 :dynamics []
+                 :usages [{:kw kw
+                           :type :event
+                           :file file
+                           :row row}]}))))
 
         :else nil))))
 

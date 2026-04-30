@@ -63,7 +63,9 @@
             decl-kw (when style-name (keyword ns-name style-name))
             tokens (collect-style-token-refs loc file decl-kw)]
         (when (seq tokens)
-          {:decls [] :usages tokens :dynamics []})))))
+          {:decls []
+           :usages tokens
+           :dynamics []})))))
 
 (defn- analyze* [{:keys [usages]}]
   (let [token-refs (filter #(= :style-token-ref (:type %)) usages)

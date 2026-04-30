@@ -9,8 +9,12 @@
 
 (deftest filter-run-results-test
   (let [abs #(.getAbsolutePath (java.io.File. %))
-        item-a {:kw :a/sub :file "src/a.cljs" :row 1}
-        item-b {:kw :b/sub :file "src/b.cljs" :row 1}
+        item-a {:kw :a/sub
+                :file "src/a.cljs"
+                :row 1}
+        item-b {:kw :b/sub
+                :file "src/b.cljs"
+                :row 1}
         run-results [{:source-dir "src"
                       :group-results [{:unused-subs [item-a item-b]
                                        :unused-events []}]}]]
@@ -40,6 +44,7 @@
       (is (= #{:re-frame :reagent :typography} (set (map group/group-id groups))))))
 
   (testing "--only takes precedence over --disable"
-    (let [groups (filter-groups {:only #{:re-frame} :disable #{:re-frame}})]
+    (let [groups (filter-groups {:only #{:re-frame}
+                                 :disable #{:re-frame}})]
       (is (= 1 (count groups)))
       (is (= :re-frame (group/group-id (first groups)))))))

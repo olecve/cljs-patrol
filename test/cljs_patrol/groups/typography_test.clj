@@ -18,7 +18,10 @@
     (is (empty? (:mixed-token-groups (group/analyze typography/group {:usages []})))))
 
   (testing "ignores non-typography usages"
-    (let [other {:type :style-call :kw kw :file "f.cljs" :row 1}
+    (let [other {:type :style-call
+                 :kw kw
+                 :file "f.cljs"
+                 :row 1}
           result (group/analyze typography/group {:usages [other]})]
       (is (empty? (:mixed-token-groups result)))))
 
