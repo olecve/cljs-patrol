@@ -51,16 +51,20 @@
         new-ids #{{:rule :unused-subs :key :app/new-sub}}
         result {:unused-subs [new-item old-item]}
         out (with-out-str (console/report-with-baseline result new-ids))]
-    (is (str/includes? out "[NEW]") "tags new issues")
-    (is (str/includes? out "[BASE]") "tags baseline issues")
+    (is (str/includes? out "[NEW]")
+        "tags new issues")
+    (is (str/includes? out "[BASE]")
+        "tags baseline issues")
     (is (str/includes? out ":app/new-sub"))
     (is (str/includes? out ":app/old-sub"))))
 
 (deftest report-with-baseline-when-dynamic-test
-  (let [new-dyn {:form "(rf/dispatch [x])" :file "a.cljs" :row 1}
-        old-dyn {:form "(rf/subscribe [y])" :file "b.cljs" :row 2}
+  (let [new-dynamic {:form "(rf/dispatch [x])" :file "a.cljs" :row 1}
+        old-dynamic {:form "(rf/subscribe [y])" :file "b.cljs" :row 2}
         new-ids #{{:rule :dynamic-sites :form "(rf/dispatch [x])" :file "a.cljs" :line 1}}
-        result {:dynamic-sites [new-dyn old-dyn]}
+        result {:dynamic-sites [new-dynamic old-dynamic]}
         out (with-out-str (console/report-with-baseline result new-ids))]
-    (is (str/includes? out "[NEW]") "tags new dynamic site")
-    (is (str/includes? out "[BASE]") "tags baseline dynamic site")))
+    (is (str/includes? out "[NEW]")
+        "tags new dynamic site")
+    (is (str/includes? out "[BASE]")
+        "tags baseline dynamic site")))

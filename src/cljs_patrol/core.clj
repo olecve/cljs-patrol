@@ -39,6 +39,7 @@
     :parse-fn #(str/split % #",")]
    [nil "--baseline-write" "Write current issues to baseline file and exit 0"]
    [nil "--baseline" "Compare against baseline; exit 1 only on new issues"]
+   [nil "--strict-baseline" "Also fail if baseline issues are no longer present"]
    ["-h" "--help"]])
 
 (defn- abspath [path]
@@ -62,6 +63,13 @@
   (doseq [[g r] (map vector enabled-groups group-results)]
     (doseq [[label cnt] (group/summary-lines g r)]
       (println (format "  %-30s %d" label cnt)))))
+
+(defn baseline-failed?
+  "Return truthy if baseline comparison should cause a non-zero exit.
+  Fails on new issues always; fails on fixed issues only in strict mode."
+  [opts new-issues fixed-issues]
+  (or (seq new-issues)
+      (and (:strict-baseline opts) (seq fixed-issues))))
 
 (defn run
   "Analyze source-dir with enabled-groups, return {:source-dir source-dir :group-results [...]}."
@@ -93,7 +101,7 @@
       (println "Error: --baseline-write and --baseline are mutually exclusive.")
       (System/exit 1))
     (let [opts (select-keys options [:only :disable :output :files
-                                     :baseline-write :baseline])
+                                     :baseline-write :baseline :strict-baseline])
           dirs arguments
           enabled-groups (filter-groups opts)]
       (when (empty? dirs)
@@ -127,23 +135,23 @@
               (when (seq fixed)
                 (println (format "%d baseline issues no longer present - consider running --baseline-write to refresh."
                                  (count fixed))))
-              (System/exit (if (seq new) 1 0))))
+              (System/exit (if (baseline-failed? opts new fixed) 1 0)))))
 
-          :else
-          (let [any-failed? (some (fn [{:keys [group-results]}]
-                                    (some (fn [[g r]] (group/failed? g r))
-                                          (map vector enabled-groups group-results)))
-                                  run-results)]
-            (case (:output opts)
-              :html (do
-                      (html-reporter/write-report enabled-groups run-results "report.html")
-                      (println "Report written to report.html")
-                      (doseq [{:keys [group-results]} run-results]
-                        (print-summary enabled-groups group-results)))
-              :edn  (edn-reporter/print-report enabled-groups dirs run-results)
-              :markdown (md-reporter/print-report enabled-groups dirs run-results)
-              (doseq [{:keys [group-results]} run-results]
-                (doseq [r group-results]
-                  (console/report r))
-                (print-summary enabled-groups group-results)))
-            (System/exit (if any-failed? 1 0))))))))
+        :else
+        (let [any-failed? (some (fn [{:keys [group-results]}]
+                                  (some (fn [[g r]] (group/failed? g r))
+                                        (map vector enabled-groups group-results)))
+                                run-results)]
+          (case (:output opts)
+            :html (do
+                    (html-reporter/write-report enabled-groups run-results "report.html")
+                    (println "Report written to report.html")
+                    (doseq [{:keys [group-results]} run-results]
+                      (print-summary enabled-groups group-results)))
+            :edn  (edn-reporter/print-report enabled-groups dirs run-results)
+            :markdown (md-reporter/print-report enabled-groups dirs run-results)
+            (doseq [{:keys [group-results]} run-results]
+              (doseq [r group-results]
+                (console/report r))
+              (print-summary enabled-groups group-results)))
+          (System/exit (if any-failed? 1 0)))))))

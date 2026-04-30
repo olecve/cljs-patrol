@@ -90,12 +90,14 @@
                                         {:kw :app/foo :type :sub :file "a.cljs" :row 1})
           id2 (baseline/issue->identity :unused-subs
                                         {:kw :app/foo :type :sub :file "a.cljs" :row 99})]
-      (is (= id1 id2) "line number change"))
+      (is (= id1 id2)
+          "line number change"))
     (let [id1 (baseline/issue->identity :unused-subs
                                         {:kw :app/foo :type :sub :file "old.cljs" :row 1})
           id2 (baseline/issue->identity :unused-subs
                                         {:kw :app/foo :type :sub :file "new.cljs" :row 1})]
-      (is (= id1 id2) "file change"))))
+      (is (= id1 id2)
+          "file change"))))
 
 (deftest result->identities-test
   (let [result {:unused-subs [{:kw :app/a :type :sub :file "a.cljs" :row 1}
@@ -157,7 +159,8 @@
   (testing "missing file"
     (let [{:keys [error]} (baseline/read-baseline "/nonexistent/baseline.edn")]
       (is (some? error))
-      (is (re-find #"--baseline-write" error) "hints to run --baseline-write")))
+      (is (re-find #"--baseline-write" error)
+          "hints to run --baseline-write")))
 
   (testing "version mismatch"
     (let [path (tmp-baseline-path)]

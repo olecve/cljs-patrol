@@ -59,11 +59,15 @@
         path (str (.getAbsolutePath dir) "/baseline.edn")]
     (try
       (baseline/write-baseline path identities)
-      (is (.exists (io/file path)) "baseline file created")
+      (is (.exists (io/file path))
+          "baseline file created")
       (let [{:keys [ok]} (baseline/read-baseline path)]
-        (is (set? ok) "reads back as a set")
-        (is (pos? (count ok)) "contains issues from fixture project")
-        (is (every? :rule ok) "every identity has a :rule"))
+        (is (set? ok)
+            "reads back as a set")
+        (is (pos? (count ok))
+            "contains issues from fixture project")
+        (is (every? :rule ok)
+            "every identity has a :rule"))
       (finally
         (run! #(.delete %) (reverse (file-seq dir)))))))
 
@@ -91,3 +95,17 @@
         (is (empty? new))
         (is (= found present))
         (is (= #{extra} fixed))))))
+
+(deftest baseline-failed?-test
+  (is (not (core/baseline-failed? {} #{} #{}))
+      "no new, no fixed")
+  (is (core/baseline-failed? {} #{{:rule :unused-subs :key :app/a}} #{})
+      "new issues always fail")
+  (is (not (core/baseline-failed? {} #{} #{{:rule :unused-subs :key :app/a}}))
+      "fixed issues don't fail without strict")
+  (is (core/baseline-failed? {:strict-baseline true} #{} #{{:rule :unused-subs :key :app/a}})
+      "fixed issues fail with strict")
+  (is (core/baseline-failed? {:strict-baseline true}
+                             #{{:rule :unused-subs :key :app/a}}
+                             #{{:rule :unused-subs :key :app/b}})
+      "both new and fixed fail with strict"))
