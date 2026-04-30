@@ -124,7 +124,8 @@
               {:title (key->title k)
                :description (get suggs k "")
                :columns (infer-columns (first all-items))
-               :items all-items}))
+               :items all-items
+               :rule-key k}))
           display-keys)))
 
 (defn- aggregate-summary [g g-idx run-results]
@@ -194,19 +195,6 @@
                 [:tr {:class row-class} (map #(vector :td (cell-value % item)) columns)]))
             items)]]]))
 
-(defn- aggregate-baseline-sections [g g-idx run-results]
-  (let [suggs (group/suggestions g)
-        first-result (nth (:group-results (first run-results)) g-idx)
-        display-keys (keep (fn [[k v]] (when (sequential? v) k)) first-result)]
-    (mapv (fn [k]
-            (let [all-items (vec (mapcat #(get (nth (:group-results %) g-idx) k) run-results))]
-              {:title (key->title k)
-               :description (get suggs k "")
-               :columns (infer-columns (first all-items))
-               :items all-items
-               :rule-key k}))
-          display-keys)))
-
 (defn- render-baseline-html [enabled-groups run-results new-identities fixed-count]
   (let [dirs (str/join ", " (map :source-dir run-results))
         timestamp (str (java.time.LocalDateTime/now))]
@@ -228,7 +216,7 @@
                [:section
                 [:h2 (group/group-name g)]
                 (map #(render-baseline-details % new-identities)
-                     (aggregate-baseline-sections g i run-results))])
+                     (aggregate-sections g i run-results))])
              enabled-groups)
             [:script (raw-string js)]])))
 
