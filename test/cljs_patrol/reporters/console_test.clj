@@ -48,3 +48,69 @@
       (is (str/includes? out "Dynamic sites"))
       (is (str/includes? out "src/views.cljs"))
       (is (str/includes? out "(rf/dispatch [::my-event])")))))
+
+(deftest report-with-baseline-test
+  (let [new-item {:kw :app/new-sub
+                  :type :sub
+                  :file "src/new.cljs"
+                  :row 1}
+        old-item {:kw :app/old-sub
+                  :type :sub
+                  :file "src/old.cljs"
+                  :row 2}
+        new-ids #{{:rule :unused-subs
+                   :key :app/new-sub}}
+        result {:unused-subs [new-item old-item]}
+        out (with-out-str (console/report-with-baseline result new-ids))]
+    (is (str/includes? out "[NEW]")
+        "tags new issues")
+    (is (str/includes? out "[BASE]")
+        "tags baseline issues")
+    (is (str/includes? out ":app/new-sub"))
+    (is (str/includes? out ":app/old-sub"))))
+
+(deftest report-with-baseline-when-dynamic-test
+  (let [new-dynamic {:form "(rf/dispatch [x])"
+                     :file "a.cljs"
+                     :row 1}
+        old-dynamic {:form "(rf/subscribe [y])"
+                     :file "b.cljs"
+                     :row 2}
+        new-ids #{{:rule :dynamic-sites
+                   :form "(rf/dispatch [x])"
+                   :file "a.cljs"
+                   :line 1}}
+        result {:dynamic-sites [new-dynamic old-dynamic]}
+        out (with-out-str (console/report-with-baseline result new-ids))]
+    (is (str/includes? out "[NEW]")
+        "tags new dynamic site")
+    (is (str/includes? out "[BASE]")
+        "tags baseline dynamic site")))
+
+(deftest report-with-baseline-when-quiet-test
+  (let [new-item {:kw :app/new-sub
+                  :type :sub
+                  :file "src/new.cljs"
+                  :row 1}
+        old-item {:kw :app/old-sub
+                  :type :sub
+                  :file "src/old.cljs"
+                  :row 2}
+        new-ids #{{:rule :unused-subs
+                   :key :app/new-sub}}
+        result {:unused-subs [new-item old-item]}
+        out (with-out-str (console/report-with-baseline result new-ids true))]
+    (is (str/includes? out ":app/new-sub")
+        "shows new issues")
+    (is (not (str/includes? out ":app/old-sub"))
+        "suppresses baseline issues")))
+
+(deftest report-with-baseline-when-quiet-all-baseline-test
+  (let [old-item {:kw :app/old-sub
+                  :type :sub
+                  :file "src/old.cljs"
+                  :row 2}
+        result {:unused-subs [old-item]}
+        out (with-out-str (console/report-with-baseline result #{} true))]
+    (is (= "" out)
+        "no output when all issues are baseline and quiet")))

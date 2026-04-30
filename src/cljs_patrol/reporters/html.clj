@@ -1,6 +1,7 @@
 (ns cljs-patrol.reporters.html
   "Generates a self-contained HTML report from cljs-patrol analysis results."
   (:require
+   [cljs-patrol.baseline :as baseline]
    [cljs-patrol.group :as group]
    [clojure.string :as str]
    [hiccup.page :refer [html5]]
@@ -47,7 +48,11 @@
    "transition:transform .15s;flex-shrink:0}"
    "details[open]>summary::before{transform:rotate(90deg)}"
    "details>table{border-radius:0;box-shadow:none}"
-   "details>summary .desc{font-weight:400;font-size:12px;color:#888;margin-left:4px}"))
+   "details>summary .desc{font-weight:400;font-size:12px;color:#888;margin-left:4px}"
+   "tr.new-issue td:first-child::before{content:'[NEW] ';color:#d32f2f;font-weight:700;font-size:11px}"
+   "tr.baseline-issue{opacity:.6}"
+   ".baseline-banner{background:#fff3cd;border:1px solid #ffc107;"
+   "border-radius:6px;padding:12px 16px;margin-bottom:20px;font-size:13px}"))
 
 (def ^:private js
   (str
@@ -119,7 +124,8 @@
               {:title (key->title k)
                :description (get suggs k "")
                :columns (infer-columns (first all-items))
-               :items all-items}))
+               :items all-items
+               :rule-key k}))
           display-keys)))
 
 (defn- aggregate-summary [g g-idx run-results]
@@ -173,3 +179,51 @@
   "Write a self-contained HTML report to output-path."
   [enabled-groups run-results output-path]
   (spit output-path (render-html enabled-groups run-results)))
+
+(defn- render-baseline-details [{:keys [title description columns items rule-key]} new-identities source-dir]
+  (let [cnt (count items)]
+    [:details (if (pos? cnt) {:open true} {})
+     [:summary title " (" cnt ")"
+      (when description [:span.desc description])]
+     [:table.issues
+      [:thead
+       [:tr (map #(vector :th {:data-sort ""} (col-header %)) columns)]]
+      [:tbody
+       (map (fn [item]
+              (let [id (baseline/issue->identity rule-key item source-dir)
+                    row-class (if (contains? new-identities id)
+                                "new-issue" "baseline-issue")]
+                [:tr {:class row-class}
+                 (map #(vector :td (cell-value % item)) columns)]))
+            items)]]]))
+
+(defn- render-baseline-html [enabled-groups run-results new-identities fixed-count]
+  (let [dirs (str/join ", " (map :source-dir run-results))
+        timestamp (str (java.time.LocalDateTime/now))
+        source-dir (:source-dir (first run-results))]
+    (html5 {:lang "en"}
+           [:head
+            [:meta {:charset "UTF-8"}]
+            [:title "cljs-patrol report (baseline)"]
+            [:style (raw-string css)]]
+           [:body
+            [:h1 "cljs-patrol report (baseline)"]
+            [:p "Generated: " timestamp " | Analyzed: " dirs]
+            (when (pos? fixed-count)
+              [:div.baseline-banner
+               (str fixed-count " baseline issues no longer present - consider running --baseline-write to refresh.")])
+            [:h2 "Summary"]
+            (render-summary-table enabled-groups run-results)
+            (map-indexed
+             (fn [i g]
+               [:section
+                [:h2 (group/group-name g)]
+                (map #(render-baseline-details % new-identities source-dir)
+                     (aggregate-sections g i run-results))])
+             enabled-groups)
+            [:script (raw-string js)]])))
+
+(defn write-baseline-report
+  "Write a baseline-aware HTML report to output-path."
+  [enabled-groups run-results output-path new-identities fixed-count]
+  (spit output-path (render-baseline-html enabled-groups run-results new-identities fixed-count)))

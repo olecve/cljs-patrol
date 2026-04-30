@@ -1,7 +1,11 @@
 (ns cljs-patrol.core-test
   (:require
-   [cljs-patrol.core]
+   [cljs-patrol.baseline :as baseline]
+   [cljs-patrol.core :as core]
    [cljs-patrol.group :as group]
+   [cljs-patrol.groups.re-frame :as re-frame]
+   [cljs-patrol.groups.spade :as spade]
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private filter-groups #'cljs-patrol.core/filter-groups)
@@ -48,3 +52,84 @@
                                  :disable #{:re-frame}})]
       (is (= 1 (count groups)))
       (is (= :re-frame (group/group-id (first groups)))))))
+
+(def ^:private fixture-dir "test/projects/re-frame-spade-app/src/webapp")
+
+(deftest baseline-write-integration-test
+  (let [enabled-groups [re-frame/group spade/group]
+        run-results [(core/run fixture-dir enabled-groups)]
+        identities (baseline/collect-identities run-results)
+        dir (io/file (System/getProperty "java.io.tmpdir")
+                     (str "cljs-patrol-bw-" (System/nanoTime)))
+        path (str (.getAbsolutePath dir) "/baseline.edn")]
+    (try
+      (baseline/write-baseline path identities)
+      (is (.exists (io/file path))
+          "baseline file created")
+      (let [{:keys [ok]} (baseline/read-baseline path)]
+        (is (set? ok)
+            "reads back as a set")
+        (is (pos? (count ok))
+            "contains issues from fixture project")
+        (is (every? :rule ok)
+            "every identity has a :rule"))
+      (finally
+        (run! #(.delete %) (reverse (file-seq dir)))))))
+
+(deftest baseline-compare-integration-test
+  (let [enabled-groups [re-frame/group spade/group]
+        run-results [(core/run fixture-dir enabled-groups)]
+        found (baseline/collect-identities run-results)]
+
+    (testing "all issues in baseline — nothing new"
+      (let [{:keys [new present fixed]} (baseline/diff-baseline found found)]
+        (is (empty? new))
+        (is (= found present))
+        (is (empty? fixed))))
+
+    (testing "empty baseline — everything is new"
+      (let [{:keys [new present fixed]} (baseline/diff-baseline #{} found)]
+        (is (= found new))
+        (is (empty? present))
+        (is (empty? fixed))))
+
+    (testing "extra baseline issue — shows as fixed"
+      (let [extra {:rule :unused-subs
+                   :key :app/gone}
+            baseline-with-extra (conj found extra)
+            {:keys [new present fixed]} (baseline/diff-baseline baseline-with-extra found)]
+        (is (empty? new))
+        (is (= found present))
+        (is (= #{extra} fixed))))))
+
+(deftest baseline-failed?-test
+  (is (not (core/baseline-failed? {} #{} #{}))
+      "no new, no fixed")
+  (is (core/baseline-failed? {} #{{:rule :unused-subs
+                                   :key :app/a}} #{})
+      "new issues always fail")
+  (is (not (core/baseline-failed? {} #{} #{{:rule :unused-subs
+                                            :key :app/a}}))
+      "fixed issues don't fail without strict")
+  (is (core/baseline-failed? {:strict-baseline true} #{} #{{:rule :unused-subs
+                                                            :key :app/a}})
+      "fixed issues fail with strict")
+  (is (core/baseline-failed? {:strict-baseline true}
+                             #{{:rule :unused-subs
+                                :key :app/a}}
+                             #{{:rule :unused-subs
+                                :key :app/b}})
+      "both new and fixed fail with strict"))
+
+(deftest baseline-with-files-filter-test
+  (let [enabled-groups [re-frame/group spade/group]
+        run-results [(core/run fixture-dir enabled-groups)]
+        all-ids (baseline/collect-identities run-results)
+        filtered-results (#'cljs-patrol.core/filter-run-results
+                          run-results
+                          [(.getAbsolutePath (java.io.File. (str fixture-dir "/subs.cljs")))])
+        filtered-ids (baseline/collect-identities filtered-results)]
+    (is (< (count filtered-ids) (count all-ids))
+        "filtering reduces issue count")
+    (is (every? #(contains? all-ids %) filtered-ids)
+        "filtered ids are a subset of all ids")))

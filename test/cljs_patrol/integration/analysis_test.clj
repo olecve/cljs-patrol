@@ -1,4 +1,4 @@
-(ns cljs-patrol.integration-test
+(ns cljs-patrol.integration.analysis-test
   (:require
    [cljs-patrol.core :as core]
    [cljs-patrol.groups.re-frame :as re-frame]

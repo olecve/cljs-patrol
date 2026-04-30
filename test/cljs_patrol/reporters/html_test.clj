@@ -82,3 +82,38 @@
           (is (str/includes? content ":my-ns/sub"))))
       (finally
         (.delete tmp-file)))))
+
+(deftest write-baseline-report-test
+  (let [new-item {:kw :app/new-sub
+                  :type :sub
+                  :file "src/new.cljs"
+                  :row 1}
+        old-item {:kw :app/old-sub
+                  :type :sub
+                  :file "src/old.cljs"
+                  :row 2}
+        run-results [{:source-dir "src"
+                      :group-results [{:unused-subs [new-item old-item]
+                                       :unused-events []
+                                       :phantom-subs []
+                                       :phantom-events []
+                                       :duplicate-subs []
+                                       :duplicate-events []
+                                       :deprecated-effects []
+                                       :dynamic-sites []}]}]
+        new-ids #{{:rule :unused-subs
+                   :key :app/new-sub}}
+        tmp-file (java.io.File/createTempFile "cljs-patrol-baseline-test" ".html")]
+    (try
+      (html/write-baseline-report [re-frame/group] run-results (.getPath tmp-file) new-ids 3)
+      (let [content (slurp tmp-file)]
+        (is (str/includes? content "new-issue")
+            "marks new issues with CSS class")
+        (is (str/includes? content "baseline-issue")
+            "marks baseline issues with CSS class")
+        (is (str/includes? content "baseline")
+            "includes baseline in title")
+        (is (str/includes? content "3 baseline issues no longer present")
+            "shows fixed count banner"))
+      (finally
+        (.delete tmp-file)))))

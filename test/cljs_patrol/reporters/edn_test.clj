@@ -81,3 +81,20 @@
     (testing "merges unused-subs from multiple source dirs"
       (let [items (get-in parsed [:results :re-frame :unused-subs])]
         (is (= 2 (count items)))))))
+
+(deftest print-baseline-report-test
+  (let [new-issues #{{:rule :unused-subs
+                      :key :app/new}}
+        baseline-issues #{{:rule :unused-subs
+                           :key :app/old}}
+        fixed-issues #{{:rule :unused-subs
+                        :key :app/gone}}
+        output (with-out-str
+                 (edn-reporter/print-baseline-report ["src"] new-issues baseline-issues
+                                                     fixed-issues 1))
+        parsed (edn/read-string output)]
+    (is (= 1 (:exit-code parsed)))
+    (is (= 1 (count (:new-issues parsed))))
+    (is (= 1 (count (:baseline-issues parsed))))
+    (is (= 1 (count (:fixed-issues parsed))))
+    (is (vector? (:source-dirs parsed)))))
