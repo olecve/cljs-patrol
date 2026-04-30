@@ -12,8 +12,12 @@
   (is (= "Dynamic sites" (key->title :dynamic-sites)))
   (is (= "Duplicate subs" (key->title :duplicate-subs))))
 
-(def ^:private kw-item {:kw :my-ns/my-sub :file "src/subs.cljs" :row 5})
-(def ^:private form-item {:form "(rf/dispatch [::my-event])" :file "src/views.cljs" :row 12})
+(def ^:private kw-item {:kw :my-ns/my-sub
+                        :file "src/subs.cljs"
+                        :row 5})
+(def ^:private form-item {:form "(rf/dispatch [::my-event])"
+                          :file "src/views.cljs"
+                          :row 12})
 
 (deftest report-kw-sections-test
   (testing "prints kw-based sections using keyword format"

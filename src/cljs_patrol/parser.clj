@@ -79,8 +79,10 @@
   (when (= :vector (z/tag vec-zloc))
     (when-let [first-elem (z/down vec-zloc)]
       (if (kw-node? first-elem)
-        {:kw (resolve-kw (raw first-elem) ns-name aliases) :dynamic? false}
-        {:kw nil :dynamic? true}))))
+        {:kw (resolve-kw (raw first-elem) ns-name aliases)
+         :dynamic? false}
+        {:kw nil
+         :dynamic? true}))))
 
 (defn- parse-require-alias
   "Extract [alias-str full-ns-str] from a require vector like [full.ns :as alias], or nil."
@@ -102,11 +104,12 @@
         aliases (into {}
                       (for [clause (rest ns-sexpr)
                             :when (and (seq? clause) (= :require (first clause)))
-                            req   (rest clause)
-                            :let  [pair (parse-require-alias req)]
+                            req (rest clause)
+                            :let [pair (parse-require-alias req)]
                             :when pair]
                         pair))]
-    {:ns-name ns-name :aliases aliases}))
+    {:ns-name ns-name
+     :aliases aliases}))
 
 (defn- find-ns-info
   "Find and parse the ns form from a rewrite-clj zip.
@@ -118,10 +121,13 @@
       (if (and (= :list (z/tag loc))
                (= "ns" (sym-name (z/down loc))))
         (try (parse-ns-form (z/sexpr loc))
-             (catch Exception _ {:ns-name "unknown" :aliases {}}))
+             (catch Exception _ {:ns-name "unknown"
+                                 :aliases {}}))
         (recur (z/right loc))))))
 
-(def ^:private empty-result {:decls [] :usages [] :dynamics []})
+(def ^:private empty-result {:decls []
+                             :usages []
+                             :dynamics []})
 
 (defn- merge-result
   [acc node-result]
@@ -159,8 +165,11 @@
                       (println "WARN: could not parse" file-path ":" (.getMessage e)))
                     nil))]
     (when zloc
-      (let [{:keys [aliases ns-name] :or {ns-name "unknown" aliases {}}}
-            (or (find-ns-info zloc) {:ns-name "unknown" :aliases {}})
+      (let [{:keys [aliases ns-name]
+             :or {ns-name "unknown"
+                  aliases {}}}
+            (or (find-ns-info zloc) {:ns-name "unknown"
+                                     :aliases {}})
             handlers (collect-handlers enabled-groups)]
         (loop [loc zloc
                result empty-result]

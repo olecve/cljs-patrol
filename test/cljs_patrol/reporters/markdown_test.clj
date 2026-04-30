@@ -6,10 +6,21 @@
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
 
-(def ^:private kw-item {:kw :my-ns/sub :file "src/subs.cljs" :row 3 :type :sub})
-(def ^:private event-item {:kw :my-ns/event :file "src/events.cljs" :row 10 :type :event})
-(def ^:private style-item {:kw :my-ns/container :file "src/styles.cljs" :row 5 :type :defclass})
-(def ^:private dynamic-item {:form "(rf/dispatch [event-kw])" :file "src/views.cljs" :row 8})
+(def ^:private kw-item {:kw :my-ns/sub
+                        :file "src/subs.cljs"
+                        :row 3
+                        :type :sub})
+(def ^:private event-item {:kw :my-ns/event
+                           :file "src/events.cljs"
+                           :row 10
+                           :type :event})
+(def ^:private style-item {:kw :my-ns/container
+                           :file "src/styles.cljs"
+                           :row 5
+                           :type :defclass})
+(def ^:private dynamic-item {:form "(rf/dispatch [event-kw])"
+                             :file "src/views.cljs"
+                             :row 8})
 
 (defn- rf-result [overrides]
   (merge {:unused-subs []
@@ -30,7 +41,8 @@
    (run-report [re-frame/group] run-results)))
 
 (deftest report-header-test
-  (let [output (run-report [{:source-dir "src" :group-results [(rf-result {})]}])]
+  (let [output (run-report [{:source-dir "src"
+                             :group-results [(rf-result {})]}])]
     (testing "starts with report header"
       (is (str/starts-with? output "# cljs-patrol report")))))
 
@@ -83,8 +95,14 @@
       (is (str/includes? output "| Unused styles: | 1 |")))))
 
 (deftest multiple-source-dirs-test
-  (let [item-a {:kw :a/sub :file "src/a.cljs" :row 1 :type :sub}
-        item-b {:kw :b/sub :file "other/b.cljs" :row 2 :type :sub}
+  (let [item-a {:kw :a/sub
+                :file "src/a.cljs"
+                :row 1
+                :type :sub}
+        item-b {:kw :b/sub
+                :file "other/b.cljs"
+                :row 2
+                :type :sub}
         output (run-report [{:source-dir "src"
                              :group-results [(rf-result {:unused-subs [item-a]})]}
                             {:source-dir "other"

@@ -36,7 +36,8 @@
                       :type (keyword operator)
                       :file file
                       :row (parser/position-row name-loc)}]
-             :usages [] :dynamics []})))
+             :usages []
+             :dynamics []})))
 
       operator
       (when-let [resolved (parser/resolve-sym op-raw ns-name aliases)]
@@ -57,8 +58,12 @@
                         :class-only-map
 
                         :else nil)]
-          {:decls [] :dynamics []
-           :usages [{:kw resolved :type :style-call :file file :row row
+          {:decls []
+           :dynamics []
+           :usages [{:kw resolved
+                     :type :style-call
+                     :file file
+                     :row row
                      :context context}]}))
 
       :else nil)))

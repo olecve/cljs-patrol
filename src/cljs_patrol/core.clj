@@ -69,7 +69,8 @@
                                                 :dynamic-sites dynamic-sites
                                                 :usages usages}))
                             enabled-groups)]
-    {:source-dir source-dir :group-results group-results}))
+    {:source-dir source-dir
+     :group-results group-results}))
 
 (defn -main
   [& args]
@@ -104,7 +105,7 @@
                   (println "Report written to report.html")
                   (doseq [{:keys [group-results]} run-results]
                     (print-summary enabled-groups group-results)))
-          :edn  (edn-reporter/print-report enabled-groups dirs run-results)
+          :edn (edn-reporter/print-report enabled-groups dirs run-results)
           :markdown (md-reporter/print-report enabled-groups dirs run-results)
           (doseq [{:keys [group-results]} run-results]
             (doseq [r group-results]

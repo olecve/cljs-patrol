@@ -54,7 +54,7 @@ integration tests are in `test/fixtures/myapp/`.
 ## Formatting
 
 ```bash
-clojure -M:cljstyle fix src/ test/
+clojure -M:cljfmt fix src/ test/
 ```
 
 Max line width: **129 characters**. Format before marking work complete.
