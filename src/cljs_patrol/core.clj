@@ -101,13 +101,32 @@
         (System/exit 1))
       (let [run-results (cond-> (mapv #(run % enabled-groups) dirs)
                           (:files opts) (filter-run-results (:files opts)))]
-        (if (:baseline-write opts)
+        (cond
+          (:baseline-write opts)
           (let [identities (baseline/collect-identities enabled-groups run-results)
                 path baseline/default-baseline-path]
             (baseline/write-baseline path identities)
             (println (str "Wrote baseline with " (count identities)
                           " issues to " path))
             (System/exit 0))
+
+          (:baseline opts)
+          (let [path baseline/default-baseline-path
+                {:keys [ok error]} (baseline/read-baseline path)]
+            (when error
+              (println (str "Error: " error))
+              (System/exit 1))
+            (let [found (baseline/collect-identities enabled-groups run-results)
+                  {:keys [new present fixed]} (baseline/diff-baseline ok found)]
+              (println (format "Found %d issues: %d new, %d in baseline, %d fixed."
+                               (+ (count new) (count present))
+                               (count new) (count present) (count fixed)))
+              (when (seq fixed)
+                (println (format "%d baseline issues no longer present - consider running --baseline-write to refresh."
+                                 (count fixed))))
+              (System/exit (if (seq new) 1 0))))
+
+          :else
           (let [any-failed? (some (fn [{:keys [group-results]}]
                                     (some (fn [[g r]] (group/failed? g r))
                                           (map vector enabled-groups group-results)))

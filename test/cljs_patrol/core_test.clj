@@ -66,3 +66,28 @@
         (is (every? :rule ok) "every identity has a :rule"))
       (finally
         (run! #(.delete %) (reverse (file-seq dir)))))))
+
+(deftest baseline-compare-integration-test
+  (let [enabled-groups [re-frame/group spade/group]
+        run-results [(core/run fixture-dir enabled-groups)]
+        found (baseline/collect-identities enabled-groups run-results)]
+
+    (testing "all issues in baseline — nothing new"
+      (let [{:keys [new present fixed]} (baseline/diff-baseline found found)]
+        (is (empty? new))
+        (is (= found present))
+        (is (empty? fixed))))
+
+    (testing "empty baseline — everything is new"
+      (let [{:keys [new present fixed]} (baseline/diff-baseline #{} found)]
+        (is (= found new))
+        (is (empty? present))
+        (is (empty? fixed))))
+
+    (testing "extra baseline issue — shows as fixed"
+      (let [extra {:rule :unused-subs :key :app/gone}
+            baseline-with-extra (conj found extra)
+            {:keys [new present fixed]} (baseline/diff-baseline baseline-with-extra found)]
+        (is (empty? new))
+        (is (= found present))
+        (is (= #{extra} fixed))))))
