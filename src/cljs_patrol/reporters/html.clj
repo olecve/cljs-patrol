@@ -180,8 +180,7 @@
   [enabled-groups run-results output-path]
   (spit output-path (render-html enabled-groups run-results)))
 
-(defn- render-baseline-details
-  [{:keys [title description columns items rule-key]} new-identities]
+(defn- render-baseline-details [{:keys [title description columns items rule-key]} new-identities]
   (let [cnt (count items)]
     [:details (if (pos? cnt) {:open true} {})
      [:summary title " (" cnt ")"
