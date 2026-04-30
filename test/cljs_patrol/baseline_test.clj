@@ -76,7 +76,13 @@
            (baseline/issue->identity :dynamic-sites
                                      {:form "(rf/dispatch [ev])"
                                       :file "src/app/handlers.cljs" :row 55}))
-        "dynamic-sites"))
+        "dynamic-sites")
+    (is (= {:rule :dynamic-sites :form "(dispatch [on-change {:tab tab :sort sort}])"
+            :file "src/views.cljs" :line 10}
+           (baseline/issue->identity :dynamic-sites
+                                     {:form "(dispatch [on-change {:tab tab\n                            :sort sort}])"
+                                      :file "src/views.cljs" :row 10}))
+        "multiline form collapses to single line"))
 
   (testing "unknown rule throws"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown rule"
