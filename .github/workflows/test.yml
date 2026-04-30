@@ -24,4 +24,5 @@ jobs:
           key: deps-${{ hashFiles('deps.edn') }}
           restore-keys: deps-
 
+      - run: clojure -M:cljfmt check src/ test/
       - run: clojure -M:test
