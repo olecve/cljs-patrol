@@ -28,13 +28,13 @@
                                       :file "src/app/handlers.cljs" :row 30}))
         "phantom-events"))
 
-  (testing "duplicate rules use rule + key + file"
-    (is (= {:rule :duplicate-subs :key :app.subs/users :file "src/app/subs.cljs"}
+  (testing "duplicate rules use rule + key (file not included)"
+    (is (= {:rule :duplicate-subs :key :app.subs/users}
            (baseline/issue->identity :duplicate-subs
                                      {:kw :app.subs/users :type :sub
                                       :file "src/app/subs.cljs" :row 10}))
         "duplicate-subs")
-    (is (= {:rule :duplicate-events :key :app.events/init :file "src/app/events.cljs"}
+    (is (= {:rule :duplicate-events :key :app.events/init}
            (baseline/issue->identity :duplicate-events
                                      {:kw :app.events/init :type :event
                                       :file "src/app/events.cljs" :row 5}))
@@ -94,7 +94,23 @@
           id2 (baseline/issue->identity :unused-subs
                                         {:kw :app/foo :type :sub :file "new.cljs" :row 1})]
       (is (= id1 id2)
-          "file change"))))
+          "file change")))
+
+  (testing "relativizes absolute file paths"
+    (let [cwd (System/getProperty "user.dir")
+          absolute-path (str cwd "/src/app/events.cljs")
+          id (baseline/issue->identity :deprecated-effects
+                                       {:type :deprecated :effect ":dispatch-n"
+                                        :form ":dispatch-n"
+                                        :file absolute-path :row 42})]
+      (is (= "src/app/events.cljs" (:file id))
+          "absolute path becomes relative to cwd"))
+    (let [id (baseline/issue->identity :deprecated-effects
+                                       {:type :deprecated :effect ":dispatch-n"
+                                        :form ":dispatch-n"
+                                        :file "src/app/events.cljs" :row 42})]
+      (is (= "src/app/events.cljs" (:file id))
+          "relative path stays unchanged"))))
 
 (deftest result->identities-test
   (let [result {:unused-subs [{:kw :app/a :type :sub :file "a.cljs" :row 1}

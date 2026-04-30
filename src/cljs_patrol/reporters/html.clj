@@ -180,7 +180,8 @@
   [enabled-groups run-results output-path]
   (spit output-path (render-html enabled-groups run-results)))
 
-(defn- render-baseline-details [{:keys [title description columns items rule-key]} new-identities]
+(defn- render-baseline-details
+  [{:keys [title description columns items rule-key]} new-identities]
   (let [cnt (count items)]
     [:details (if (pos? cnt) {:open true} {})
      [:summary title " (" cnt ")"
@@ -191,8 +192,10 @@
       [:tbody
        (map (fn [item]
               (let [id (baseline/issue->identity rule-key item)
-                    row-class (if (contains? new-identities id) "new-issue" "baseline-issue")]
-                [:tr {:class row-class} (map #(vector :td (cell-value % item)) columns)]))
+                    row-class (if (contains? new-identities id)
+                                "new-issue" "baseline-issue")]
+                [:tr {:class row-class}
+                 (map #(vector :td (cell-value % item)) columns)]))
             items)]]]))
 
 (defn- render-baseline-html [enabled-groups run-results new-identities fixed-count]

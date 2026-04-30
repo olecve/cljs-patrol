@@ -10,37 +10,43 @@
 
 (def ^:private keyword-keyed-rules
   "Rules where the issue is uniquely identified by its keyword."
-  #{:unused-subs :unused-events :phantom-subs :phantom-events})
-
-(def ^:private keyword-plus-file-rules
-  "Rules where duplicates of the same keyword exist in different files."
-  #{:duplicate-subs :duplicate-events})
+  #{:unused-subs :unused-events :phantom-subs :phantom-events
+    :duplicate-subs :duplicate-events})
 
 (def ^:private var-keyed-rules
   "Rules where the issue is identified by namespace + var name (from a namespaced keyword)."
   #{:unused-styles :defattrs-in-merge :defclass-as-sole-attr :mixed-token-groups})
 
+(defn- relativize-path
+  "Make an absolute file path relative to the current working directory."
+  [path]
+  (let [f (io/file path)]
+    (if (.isAbsolute f)
+      (str (.relativize (.toPath (io/file (System/getProperty "user.dir")))
+                        (.toPath f)))
+      path)))
+
 (defn issue->identity
   "Extract the stable identity of an issue for baseline comparison.
   Returns a map with :rule and the minimum fields needed to uniquely identify
-  the issue without depending on line numbers where possible."
+  the issue without depending on line numbers where possible.
+  File paths are relativized to the current working directory."
   [rule issue]
   (cond
     (contains? keyword-keyed-rules rule)
     {:rule rule :key (:kw issue)}
-
-    (contains? keyword-plus-file-rules rule)
-    {:rule rule :key (:kw issue) :file (:file issue)}
 
     (contains? var-keyed-rules rule)
     (let [kw (or (:kw issue) (:decl-kw issue))]
       {:rule rule :ns (namespace kw) :var (name kw)})
 
     (= :deprecated-effects rule)
-    {:rule rule :effect (:effect issue) :file (:file issue) :line (:row issue)}
+    {:rule rule :effect (:effect issue)
+     :file (relativize-path (:file issue)) :line (:row issue)}
 
     (= :dynamic-sites rule)
-    {:rule rule :form (:form issue) :file (:file issue) :line (:row issue)}
+    {:rule rule :form (:form issue)
+     :file (relativize-path (:file issue)) :line (:row issue)}
 
     :else
     (throw (ex-info (str "Unknown rule for identity extraction: " rule)
