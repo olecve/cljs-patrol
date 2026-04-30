@@ -170,7 +170,14 @@
     (let [path (tmp-baseline-path)]
       (spit path "[1 2 3]")
       (let [{:keys [error]} (baseline/read-baseline path)]
-        (is (some? error))))))
+        (is (some? error)))))
+
+  (testing "unparseable EDN"
+    (let [path (tmp-baseline-path)]
+      (spit path "{:version 1 :issues [unclosed")
+      (let [{:keys [error]} (baseline/read-baseline path)]
+        (is (some? error)
+            "returns error instead of throwing")))))
 
 (def ^:private id-a {:rule :unused-subs :key :app/a})
 (def ^:private id-b {:rule :unused-subs :key :app/b})
