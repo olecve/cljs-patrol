@@ -30,3 +30,14 @@
     (println (pr-str {:source-dirs (mapv #(.getAbsolutePath (java.io.File. %)) dirs)
                       :results merged
                       :suggestions suggestions}))))
+
+(defn print-baseline-report
+  "Print baseline-aware analysis results as EDN to stdout.
+  Includes :new-issues, :baseline-issues, :fixed-issues, and :exit-code."
+  [dirs new-issues baseline-issues fixed-issues exit-code]
+  (let [abs-dirs (mapv #(.getAbsolutePath (java.io.File. %)) dirs)]
+    (println (pr-str {:source-dirs abs-dirs
+                      :new-issues (vec (sort-by str new-issues))
+                      :baseline-issues (vec (sort-by str baseline-issues))
+                      :fixed-issues (vec (sort-by str fixed-issues))
+                      :exit-code exit-code}))))

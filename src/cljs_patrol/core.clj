@@ -127,17 +127,21 @@
               (println (str "Error: " error))
               (System/exit 1))
             (let [found (baseline/collect-identities enabled-groups run-results)
-                  {:keys [new present fixed]} (baseline/diff-baseline ok found)]
-              (doseq [{:keys [group-results]} run-results]
-                (doseq [result group-results]
-                  (console/report-with-baseline result new (:quiet-baseline opts))))
-              (println (format "\nFound %d issues: %d new, %d in baseline, %d fixed."
-                               (+ (count new) (count present))
-                               (count new) (count present) (count fixed)))
-              (when (seq fixed)
-                (println (format "%d baseline issues no longer present - consider running --baseline-write to refresh."
-                                 (count fixed))))
-              (System/exit (if (baseline-failed? opts new fixed) 1 0)))))
+                  {:keys [new present fixed]} (baseline/diff-baseline ok found)
+                  exit-code (if (baseline-failed? opts new fixed) 1 0)]
+              (case (:output opts)
+                :edn (edn-reporter/print-baseline-report dirs new present fixed exit-code)
+                (do
+                  (doseq [{:keys [group-results]} run-results]
+                    (doseq [result group-results]
+                      (console/report-with-baseline result new (:quiet-baseline opts))))
+                  (println (format "\nFound %d issues: %d new, %d in baseline, %d fixed."
+                                   (+ (count new) (count present))
+                                   (count new) (count present) (count fixed)))
+                  (when (seq fixed)
+                    (println (format "%d baseline issues no longer present - consider running --baseline-write to refresh."
+                                     (count fixed))))))
+              (System/exit exit-code))))
 
         :else
         (let [any-failed? (some (fn [{:keys [group-results]}]
