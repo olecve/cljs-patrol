@@ -84,8 +84,14 @@
         (.delete tmp-file)))))
 
 (deftest write-baseline-report-test
-  (let [new-item {:kw :app/new-sub :type :sub :file "src/new.cljs" :row 1}
-        old-item {:kw :app/old-sub :type :sub :file "src/old.cljs" :row 2}
+  (let [new-item {:kw :app/new-sub
+                  :type :sub
+                  :file "src/new.cljs"
+                  :row 1}
+        old-item {:kw :app/old-sub
+                  :type :sub
+                  :file "src/old.cljs"
+                  :row 2}
         run-results [{:source-dir "src"
                       :group-results [{:unused-subs [new-item old-item]
                                        :unused-events []
@@ -95,7 +101,8 @@
                                        :duplicate-events []
                                        :deprecated-effects []
                                        :dynamic-sites []}]}]
-        new-ids #{{:rule :unused-subs :key :app/new-sub}}
+        new-ids #{{:rule :unused-subs
+                   :key :app/new-sub}}
         tmp-file (java.io.File/createTempFile "cljs-patrol-baseline-test" ".html")]
     (try
       (html/write-baseline-report [re-frame/group] run-results (.getPath tmp-file) new-ids 3)

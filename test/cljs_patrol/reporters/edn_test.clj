@@ -83,9 +83,12 @@
         (is (= 2 (count items)))))))
 
 (deftest print-baseline-report-test
-  (let [new-issues #{{:rule :unused-subs :key :app/new}}
-        baseline-issues #{{:rule :unused-subs :key :app/old}}
-        fixed-issues #{{:rule :unused-subs :key :app/gone}}
+  (let [new-issues #{{:rule :unused-subs
+                      :key :app/new}}
+        baseline-issues #{{:rule :unused-subs
+                           :key :app/old}}
+        fixed-issues #{{:rule :unused-subs
+                        :key :app/gone}}
         output (with-out-str
                  (edn-reporter/print-baseline-report ["src"] new-issues baseline-issues
                                                      fixed-issues 1))

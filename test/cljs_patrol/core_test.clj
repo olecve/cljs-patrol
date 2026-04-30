@@ -94,7 +94,8 @@
         (is (empty? fixed))))
 
     (testing "extra baseline issue — shows as fixed"
-      (let [extra {:rule :unused-subs :key :app/gone}
+      (let [extra {:rule :unused-subs
+                   :key :app/gone}
             baseline-with-extra (conj found extra)
             {:keys [new present fixed]} (baseline/diff-baseline baseline-with-extra found)]
         (is (empty? new))
@@ -104,15 +105,20 @@
 (deftest baseline-failed?-test
   (is (not (core/baseline-failed? {} #{} #{}))
       "no new, no fixed")
-  (is (core/baseline-failed? {} #{{:rule :unused-subs :key :app/a}} #{})
+  (is (core/baseline-failed? {} #{{:rule :unused-subs
+                                   :key :app/a}} #{})
       "new issues always fail")
-  (is (not (core/baseline-failed? {} #{} #{{:rule :unused-subs :key :app/a}}))
+  (is (not (core/baseline-failed? {} #{} #{{:rule :unused-subs
+                                            :key :app/a}}))
       "fixed issues don't fail without strict")
-  (is (core/baseline-failed? {:strict-baseline true} #{} #{{:rule :unused-subs :key :app/a}})
+  (is (core/baseline-failed? {:strict-baseline true} #{} #{{:rule :unused-subs
+                                                            :key :app/a}})
       "fixed issues fail with strict")
   (is (core/baseline-failed? {:strict-baseline true}
-                             #{{:rule :unused-subs :key :app/a}}
-                             #{{:rule :unused-subs :key :app/b}})
+                             #{{:rule :unused-subs
+                                :key :app/a}}
+                             #{{:rule :unused-subs
+                                :key :app/b}})
       "both new and fixed fail with strict"))
 
 (deftest baseline-with-files-filter-test

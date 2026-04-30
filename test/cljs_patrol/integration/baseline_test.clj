@@ -62,7 +62,8 @@
 
 (deftest baseline-detects-fixed-issues-test
   (let [{:keys [identities]} (run-analysis)
-        extra {:rule :unused-subs :key :baseline-app.subs/removed-thing}
+        extra {:rule :unused-subs
+               :key :baseline-app.subs/removed-thing}
         baseline-with-extra (conj identities extra)
         {:keys [new present fixed]} (baseline/diff-baseline baseline-with-extra identities)]
     (is (empty? new))
@@ -75,15 +76,22 @@
 
 (deftest baseline-expected-identities-test
   (let [{:keys [identities]} (run-analysis)]
-    (is (contains? identities {:rule :unused-subs :key :baseline-app.subs/old-dashboard})
+    (is (contains? identities {:rule :unused-subs
+                               :key :baseline-app.subs/old-dashboard})
         "unused sub")
-    (is (contains? identities {:rule :unused-events :key :baseline-app.events/legacy-reset})
+    (is (contains? identities {:rule :unused-events
+                               :key :baseline-app.events/legacy-reset})
         "unused event")
-    (is (contains? identities {:rule :phantom-subs :key :baseline-app.subs/deleted-feature})
+    (is (contains? identities {:rule :phantom-subs
+                               :key :baseline-app.subs/deleted-feature})
         "phantom sub")
-    (is (contains? identities {:rule :unused-styles :ns "baseline-app.styles" :var "legacy-panel"})
+    (is (contains? identities {:rule :unused-styles
+                               :ns "baseline-app.styles"
+                               :var "legacy-panel"})
         "unused style")
-    (is (contains? identities {:rule :defclass-as-sole-attr :ns "baseline-app.styles" :var "container"})
+    (is (contains? identities {:rule :defclass-as-sole-attr
+                               :ns "baseline-app.styles"
+                               :var "container"})
         "defclass-as-sole-attr")))
 
 (deftest baseline-console-output-test

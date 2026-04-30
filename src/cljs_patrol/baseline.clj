@@ -40,23 +40,31 @@
    (let [rel #(relativize-path source-dir %)]
      (cond
        (contains? keyword-keyed-rules rule)
-       {:rule rule :key (:kw issue)}
+       {:rule rule
+        :key (:kw issue)}
 
        (contains? var-keyed-rules rule)
        (let [kw (or (:kw issue) (:decl-kw issue))]
-         {:rule rule :ns (namespace kw) :var (name kw)})
+         {:rule rule
+          :ns (namespace kw)
+          :var (name kw)})
 
        (= :deprecated-effects rule)
-       {:rule rule :effect (:effect issue)
-        :file (rel (:file issue)) :line (:row issue)}
+       {:rule rule
+        :effect (:effect issue)
+        :file (rel (:file issue))
+        :line (:row issue)}
 
        (= :dynamic-sites rule)
-       {:rule rule :form (str/replace (str/trim (:form issue)) #"\s+" " ")
-        :file (rel (:file issue)) :line (:row issue)}
+       {:rule rule
+        :form (str/replace (str/trim (:form issue)) #"\s+" " ")
+        :file (rel (:file issue))
+        :line (:row issue)}
 
        :else
        (throw (ex-info (str "Unknown rule for identity extraction: " rule)
-                       {:rule rule :issue issue}))))))
+                       {:rule rule
+                        :issue issue}))))))
 
 (defn result->identities
   "Extract identity maps for all issues in a single group's analysis result map."
