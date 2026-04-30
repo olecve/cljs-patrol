@@ -135,3 +135,25 @@
                             (result->identities (group/group-id g) result))
                           enabled-groups group-results)))
         run-results))
+
+(def default-config-path ".cljs-patrol/config.edn")
+
+(defn read-config
+  "Read baseline config from `.cljs-patrol/config.edn`.
+  Returns a map of baseline settings, or empty map if file doesn't exist."
+  []
+  (let [f (io/file default-config-path)]
+    (if (.exists f)
+      (let [data (edn/read-string (slurp f))]
+        (get data :baseline {}))
+      {})))
+
+(defn merge-config
+  "Merge config file settings with CLI opts. CLI flags take precedence.
+  Config keys: :path, :strict, :quiet."
+  [config cli-opts]
+  (merge (cond-> {}
+           (:path config) (assoc :baseline-path (:path config))
+           (:strict config) (assoc :strict-baseline true)
+           (:quiet config) (assoc :quiet-baseline true))
+         cli-opts))

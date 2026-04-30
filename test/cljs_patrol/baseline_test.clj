@@ -212,3 +212,20 @@
                       :group-results [{:unused-subs [] :phantom-events []}
                                       {:unused-styles []}]}]]
     (is (= #{} (baseline/collect-identities [re-frame/group spade/group] run-results)))))
+
+(deftest merge-config-test
+  (is (= {:strict-baseline true}
+         (baseline/merge-config {:strict true} {}))
+      "config sets strict")
+  (is (= {:quiet-baseline true}
+         (baseline/merge-config {:quiet true} {}))
+      "config sets quiet")
+  (is (= {:baseline-path "custom/path.edn"}
+         (baseline/merge-config {:path "custom/path.edn"} {}))
+      "config sets path")
+  (is (= {}
+         (baseline/merge-config {} {}))
+      "empty config and empty cli")
+  (is (= {:baseline-path "cli.edn" :strict-baseline true}
+         (baseline/merge-config {:path "config.edn" :strict true} {:baseline-path "cli.edn"}))
+      "cli path overrides config path"))

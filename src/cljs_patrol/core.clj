@@ -104,9 +104,12 @@
     (when (and (:baseline-write options) (:files options))
       (println "Error: --baseline-write cannot be used with --files (would write a partial baseline).")
       (System/exit 1))
-    (let [opts (select-keys options [:only :disable :output :files
-                                     :baseline-write :baseline :strict-baseline
-                                     :quiet-baseline])
+    (let [config (baseline/read-config)
+          opts (baseline/merge-config
+                config
+                (select-keys options [:only :disable :output :files
+                                      :baseline-write :baseline :strict-baseline
+                                      :quiet-baseline]))
           dirs arguments
           enabled-groups (filter-groups opts)]
       (when (empty? dirs)
@@ -117,14 +120,14 @@
         (cond
           (:baseline-write opts)
           (let [identities (baseline/collect-identities enabled-groups run-results)
-                path baseline/default-baseline-path]
+                path (or (:baseline-path opts) baseline/default-baseline-path)]
             (baseline/write-baseline path identities)
             (println (str "Wrote baseline with " (count identities)
                           " issues to " path))
             (System/exit 0))
 
           (:baseline opts)
-          (let [path baseline/default-baseline-path
+          (let [path (or (:baseline-path opts) baseline/default-baseline-path)
                 {:keys [ok error]} (baseline/read-baseline path)]
             (when error
               (println (str "Error: " error))
