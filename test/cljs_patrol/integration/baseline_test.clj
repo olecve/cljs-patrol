@@ -1,4 +1,4 @@
-(ns cljs-patrol.baseline-integration-test
+(ns cljs-patrol.integration.baseline-test
   "Integration tests exercising the full baseline workflow against a fixture project."
   (:require
    [cljs-patrol.baseline :as baseline]
