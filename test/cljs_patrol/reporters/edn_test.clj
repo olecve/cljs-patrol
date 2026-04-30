@@ -5,7 +5,10 @@
    [clojure.edn :as edn]
    [clojure.test :refer [deftest is testing]]))
 
-(def ^:private kw-item {:kw :my-ns/sub :file "src/subs.cljs" :row 3 :type :sub})
+(def ^:private kw-item {:kw :my-ns/sub
+                        :file "src/subs.cljs"
+                        :row 3
+                        :type :sub})
 
 (deftest print-report-test
   (let [run-results [{:source-dir "src"
@@ -45,8 +48,14 @@
         (is (contains? suggs :phantom-events))))))
 
 (deftest print-report-merges-multiple-dirs-test
-  (let [item-a {:kw :a/sub :file "src/a.cljs" :row 1 :type :sub}
-        item-b {:kw :b/sub :file "src/b.cljs" :row 2 :type :sub}
+  (let [item-a {:kw :a/sub
+                :file "src/a.cljs"
+                :row 1
+                :type :sub}
+        item-b {:kw :b/sub
+                :file "src/b.cljs"
+                :row 2
+                :type :sub}
         run-results [{:source-dir "src"
                       :group-results [{:unused-subs [item-a]
                                        :unused-events []

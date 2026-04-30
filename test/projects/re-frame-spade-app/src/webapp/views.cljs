@@ -6,7 +6,8 @@
 
 (defn main-view []
   (let [data @(rf/subscribe [::subs/used-sub])]
-    [:div {:class (styles/container-style) :id "main"} data]))
+    [:div {:class (styles/container-style)
+           :id "main"} data]))
 
 ;; Subscribes to a sub that is never declared (phantom)
 (defn other-view []

@@ -81,7 +81,8 @@
                                                 :dynamic-sites dynamic-sites
                                                 :usages usages}))
                             enabled-groups)]
-    {:source-dir source-dir :group-results group-results}))
+    {:source-dir source-dir
+     :group-results group-results}))
 
 (defn -main
   [& args]

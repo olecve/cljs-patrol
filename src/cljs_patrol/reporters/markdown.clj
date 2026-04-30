@@ -36,15 +36,15 @@
                        :let [title (-> (name issue-key) (str/replace #"-" " ") str/capitalize)
                              suggestion (get suggestions issue-key "")]]
                    (section title suggestion items))
-        summary  (for [group-idx (range (count enabled-groups))
-                       :let [group (nth enabled-groups group-idx)
-                             merged (merge-results (map #(nth (:group-results %) group-idx) run-results))]
-                       [label count] (group/summary-lines group merged)]
-                   (str "| " label " | " count " |"))
-        output   (str "# cljs-patrol report\n\n"
-                      (str/join "\n" (remove nil? sections))
-                      "\n## Summary\n\n"
-                      "| Category | Count |\n| --- | --- |\n"
-                      (str/join "\n" summary) "\n")]
+        summary (for [group-idx (range (count enabled-groups))
+                      :let [group (nth enabled-groups group-idx)
+                            merged (merge-results (map #(nth (:group-results %) group-idx) run-results))]
+                      [label count] (group/summary-lines group merged)]
+                  (str "| " label " | " count " |"))
+        output (str "# cljs-patrol report\n\n"
+                    (str/join "\n" (remove nil? sections))
+                    "\n## Summary\n\n"
+                    "| Category | Count |\n| --- | --- |\n"
+                    (str/join "\n" summary) "\n")]
     (print output)
     (flush)))

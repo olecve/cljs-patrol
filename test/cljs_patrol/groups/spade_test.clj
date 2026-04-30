@@ -4,27 +4,50 @@
    [cljs-patrol.groups.spade :as spade]
    [clojure.test :refer [deftest is testing]]))
 
-(def ^:private defclass-decl {:kw :webapp.styles/container :type :defclass :file "styles.cljs" :row 1})
-(def ^:private defattrs-decl {:kw :webapp.styles/btn-attrs :type :defattrs :file "styles.cljs" :row 5})
-(def ^:private style-usage {:kw :webapp.styles/container :type :style-call :file "views.cljs" :row 10})
-(def ^:private defattrs-merged {:kw :webapp.styles/merged-attrs :type :defattrs :file "styles.cljs" :row 7})
-(def ^:private merge-usage {:kw :webapp.styles/merged-attrs :type :style-call :file "views.cljs" :row 12 :context :in-merge})
+(def ^:private defclass-decl {:kw :webapp.styles/container
+                              :type :defclass
+                              :file "styles.cljs"
+                              :row 1})
+(def ^:private defattrs-decl {:kw :webapp.styles/btn-attrs
+                              :type :defattrs
+                              :file "styles.cljs"
+                              :row 5})
+(def ^:private style-usage {:kw :webapp.styles/container
+                            :type :style-call
+                            :file "views.cljs"
+                            :row 10})
+(def ^:private defattrs-merged {:kw :webapp.styles/merged-attrs
+                                :type :defattrs
+                                :file "styles.cljs"
+                                :row 7})
+(def ^:private merge-usage {:kw :webapp.styles/merged-attrs
+                            :type :style-call
+                            :file "views.cljs"
+                            :row 12
+                            :context :in-merge})
 
 (deftest analyze-test
   (testing "no styles declared — nothing unused"
-    (is (empty? (:unused-styles (group/analyze spade/group {:declarations [] :usages []})))))
+    (is (empty? (:unused-styles (group/analyze spade/group {:declarations []
+                                                            :usages []})))))
 
   (testing "declared and used — not unused"
-    (let [result (group/analyze spade/group {:declarations [defclass-decl] :usages [style-usage]})]
+    (let [result (group/analyze spade/group {:declarations [defclass-decl]
+                                             :usages [style-usage]})]
       (is (empty? (:unused-styles result)))))
 
   (testing "declared but not used — unused"
-    (let [result (group/analyze spade/group {:declarations [defclass-decl defattrs-decl] :usages []})]
+    (let [result (group/analyze spade/group {:declarations [defclass-decl defattrs-decl]
+                                             :usages []})]
       (is (= 2 (count (:unused-styles result))))))
 
   (testing "ignores non-spade declaration types"
-    (let [other {:kw :webapp/sub :type :sub :file "f.cljs" :row 1}
-          result (group/analyze spade/group {:declarations [defclass-decl other] :usages []})]
+    (let [other {:kw :webapp/sub
+                 :type :sub
+                 :file "f.cljs"
+                 :row 1}
+          result (group/analyze spade/group {:declarations [defclass-decl other]
+                                             :usages []})]
       (is (= 1 (count (:unused-styles result))))))
 
   (testing "defattrs-in-merge: flags defattrs used in merge"
@@ -35,7 +58,11 @@
       (is (= :webapp.styles/merged-attrs (:kw (first (:defattrs-in-merge result)))))))
 
   (testing "defattrs-in-merge: does not flag defattrs without merge usage"
-    (let [plain-usage {:kw :webapp.styles/btn-attrs :type :style-call :file "v.cljs" :row 3 :context nil}
+    (let [plain-usage {:kw :webapp.styles/btn-attrs
+                       :type :style-call
+                       :file "v.cljs"
+                       :row 3
+                       :context nil}
           result (group/analyze spade/group
                                 {:declarations [defattrs-decl]
                                  :usages [plain-usage]})]
