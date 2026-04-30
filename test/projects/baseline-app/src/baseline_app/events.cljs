@@ -17,4 +17,4 @@
 (rf/reg-event-fx ::batch-notify
                  (fn [{:keys [db]} [_ items]]
                    {:db db
-                    :dispatch-n (mapv (fn [i] [::initialize]) items)}))
+                    :dispatch-n (mapv (fn [_] [::initialize]) items)}))

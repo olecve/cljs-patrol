@@ -79,6 +79,15 @@
 
 (def default-baseline-path ".cljs-patrol/baseline.edn")
 
+(defn resolve-baseline-path
+  "Resolve the baseline file path. If an explicit path is configured, use it as-is.
+  Otherwise, place the default path relative to the first source directory."
+  [configured-path source-dirs]
+  (if configured-path
+    configured-path
+    (let [root (first source-dirs)]
+      (str (io/file root default-baseline-path)))))
+
 (defn- sort-key
   "Produce a vector sort key for deterministic ordering of identity maps."
   [identity]

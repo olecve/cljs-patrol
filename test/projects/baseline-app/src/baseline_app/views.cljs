@@ -16,10 +16,11 @@
      [:p "Settings: " (pr-str settings)]]))
 
 (defn actions []
-  [:button {:on-click #(rf/dispatch [::events/initialize])}
-   "Init"]
-  [:button {:on-click #(rf/dispatch [::events/fetch-data])}
-   "Fetch"])
+  [:<>
+   [:button {:on-click #(rf/dispatch [::events/initialize])}
+    "Init"]
+   [:button {:on-click #(rf/dispatch [::events/fetch-data])}
+    "Fetch"]])
 
 ;; Phantom - subscribes to something never declared
 (defn ghost-widget []

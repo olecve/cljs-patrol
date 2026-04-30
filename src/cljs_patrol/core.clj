@@ -121,14 +121,14 @@
         (cond
           (:baseline-write opts)
           (let [identities (baseline/collect-identities run-results)
-                path (or (:baseline-path opts) baseline/default-baseline-path)]
+                path (baseline/resolve-baseline-path (:baseline-path opts) dirs)]
             (baseline/write-baseline path identities)
             (println (str "Wrote baseline with " (count identities)
                           " issues to " path))
             (System/exit 0))
 
           (:baseline opts)
-          (let [path (or (:baseline-path opts) baseline/default-baseline-path)
+          (let [path (baseline/resolve-baseline-path (:baseline-path opts) dirs)
                 {:keys [ok error]} (baseline/read-baseline path)]
             (when error
               (println (str "Error: " error))

@@ -31,7 +31,8 @@
   (run! #(.delete %) (reverse (file-seq dir))))
 
 (deftest baseline-write-and-read-test
-  (let [{:keys [identities]} (run-analysis)
+  (let [completed (atom false)
+        {:keys [identities]} (run-analysis)
         dir (tmp-dir)
         path (str (.getAbsolutePath dir) "/baseline.edn")]
     (try
@@ -39,8 +40,11 @@
       (let [{:keys [ok error]} (baseline/read-baseline path)]
         (is (nil? error))
         (is (= identities ok)))
+      (reset! completed true)
       (finally
-        (cleanup dir)))))
+        (cleanup dir)
+        (is @completed
+            "test completed")))))
 
 (deftest baseline-all-present-test
   (let [{:keys [identities]} (run-analysis)
@@ -139,7 +143,8 @@
           (str "path should not contain .., got: " (:file id))))))
 
 (deftest baseline-round-trip-with-absolute-source-dir-test
-  (let [absolute-dir (.getAbsolutePath (io/file fixture-dir))
+  (let [completed (atom false)
+        absolute-dir (.getAbsolutePath (io/file fixture-dir))
         run-results [(core/run absolute-dir enabled-groups)]
         identities (baseline/collect-identities run-results)
         dir (tmp-dir)
@@ -154,11 +159,15 @@
             "no new issues on re-analysis with absolute path")
         (is (empty? fixed)
             "no fixed issues on re-analysis with absolute path"))
+      (reset! completed true)
       (finally
-        (cleanup dir)))))
+        (cleanup dir)
+        (is @completed
+            "test completed")))))
 
 (deftest baseline-round-trip-survives-reanalysis-test
-  (let [{:keys [identities]} (run-analysis)
+  (let [completed (atom false)
+        {:keys [identities]} (run-analysis)
         dir (tmp-dir)
         path (str (.getAbsolutePath dir) "/baseline.edn")]
     (try
@@ -170,5 +179,27 @@
             "re-analysis produces no new issues")
         (is (= reanalyzed present))
         (is (empty? fixed)))
+      (reset! completed true)
       (finally
-        (cleanup dir)))))
+        (cleanup dir)
+        (is @completed
+            "test completed")))))
+
+(deftest baseline-snapshot-test
+  (let [completed (atom false)
+        dir (tmp-dir)
+        path (str (.getAbsolutePath dir) "/baseline.edn")]
+    (try
+      (let [{:keys [identities]} (run-analysis)
+            expected (edn/read-string (slurp "test/projects/baseline-app/expected-baseline.edn"))]
+        (baseline/write-baseline path identities)
+        (let [data (edn/read-string (slurp path))]
+          (is (= 1 (:version data)))
+          (is (string? (:generated-at data)))
+          (is (= expected (:issues data))
+              "baseline issues match snapshot"))
+        (reset! completed true))
+      (finally
+        (cleanup dir)
+        (is @completed
+            "test completed")))))

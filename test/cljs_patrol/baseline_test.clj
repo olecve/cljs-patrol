@@ -371,3 +371,14 @@
          (baseline/merge-config {:path "config.edn"
                                  :strict true} {:baseline-path "cli.edn"}))
       "cli path overrides config path"))
+
+(deftest resolve-baseline-path-test
+  (is (= "/projects/myapp/.cljs-patrol/baseline.edn"
+         (baseline/resolve-baseline-path nil ["/projects/myapp"]))
+      "defaults to source-dir/.cljs-patrol/baseline.edn")
+  (is (= "custom/baseline.edn"
+         (baseline/resolve-baseline-path "custom/baseline.edn" ["/projects/myapp"]))
+      "explicit path overrides default")
+  (is (= "src/myapp/.cljs-patrol/baseline.edn"
+         (baseline/resolve-baseline-path nil ["src/myapp"]))
+      "works with relative source dirs"))

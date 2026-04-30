@@ -136,7 +136,7 @@ Existing codebases often have many issues. The baseline feature lets you snapsho
 clojure -M:run --baseline-write src/cljs/myapp
 ```
 
-This creates `.cljs-patrol/baseline.edn` with all current issues. Commit this file.
+This creates `src/cljs/myapp/.cljs-patrol/baseline.edn` with all current issues. The baseline file is placed inside the source directory by default. Commit this file.
 
 2. Use `--baseline` in CI:
 
