@@ -119,7 +119,7 @@
                           (:files opts) (filter-run-results (:files opts)))]
         (cond
           (:baseline-write opts)
-          (let [identities (baseline/collect-identities enabled-groups run-results)
+          (let [identities (baseline/collect-identities run-results)
                 path (or (:baseline-path opts) baseline/default-baseline-path)]
             (baseline/write-baseline path identities)
             (println (str "Wrote baseline with " (count identities)
@@ -132,7 +132,7 @@
             (when error
               (println (str "Error: " error))
               (System/exit 1))
-            (let [found (baseline/collect-identities enabled-groups run-results)
+            (let [found (baseline/collect-identities run-results)
                   {:keys [new present fixed]} (baseline/diff-baseline ok found)
                   exit-code (if (baseline-failed? opts new fixed) 1 0)]
               (case (:output opts)

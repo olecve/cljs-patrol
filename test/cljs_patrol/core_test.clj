@@ -53,7 +53,7 @@
 (deftest baseline-write-integration-test
   (let [enabled-groups [re-frame/group spade/group]
         run-results [(core/run fixture-dir enabled-groups)]
-        identities (baseline/collect-identities enabled-groups run-results)
+        identities (baseline/collect-identities run-results)
         dir (io/file (System/getProperty "java.io.tmpdir")
                      (str "cljs-patrol-bw-" (System/nanoTime)))
         path (str (.getAbsolutePath dir) "/baseline.edn")]
@@ -74,7 +74,7 @@
 (deftest baseline-compare-integration-test
   (let [enabled-groups [re-frame/group spade/group]
         run-results [(core/run fixture-dir enabled-groups)]
-        found (baseline/collect-identities enabled-groups run-results)]
+        found (baseline/collect-identities run-results)]
 
     (testing "all issues in baseline — nothing new"
       (let [{:keys [new present fixed]} (baseline/diff-baseline found found)]
@@ -113,11 +113,11 @@
 (deftest baseline-with-files-filter-test
   (let [enabled-groups [re-frame/group spade/group]
         run-results [(core/run fixture-dir enabled-groups)]
-        all-ids (baseline/collect-identities enabled-groups run-results)
+        all-ids (baseline/collect-identities run-results)
         filtered-results (#'cljs-patrol.core/filter-run-results
                           run-results
                           [(.getAbsolutePath (java.io.File. (str fixture-dir "/subs.cljs")))])
-        filtered-ids (baseline/collect-identities enabled-groups filtered-results)]
+        filtered-ids (baseline/collect-identities filtered-results)]
     (is (< (count filtered-ids) (count all-ids))
         "filtering reduces issue count")
     (is (every? #(contains? all-ids %) filtered-ids)

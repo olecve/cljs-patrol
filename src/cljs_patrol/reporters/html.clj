@@ -51,7 +51,8 @@
    "details>summary .desc{font-weight:400;font-size:12px;color:#888;margin-left:4px}"
    "tr.new-issue td:first-child::before{content:'[NEW] ';color:#d32f2f;font-weight:700;font-size:11px}"
    "tr.baseline-issue{opacity:.6}"
-   ".baseline-banner{background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:12px 16px;margin-bottom:20px;font-size:13px}"))
+   ".baseline-banner{background:#fff3cd;border:1px solid #ffc107;"
+   "border-radius:6px;padding:12px 16px;margin-bottom:20px;font-size:13px}"))
 
 (def ^:private js
   (str

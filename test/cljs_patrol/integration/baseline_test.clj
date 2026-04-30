@@ -19,7 +19,7 @@
 (defn- run-analysis []
   (let [run-results [(core/run fixture-dir enabled-groups)]]
     {:run-results run-results
-     :identities (baseline/collect-identities enabled-groups run-results)}))
+     :identities (baseline/collect-identities run-results)}))
 
 (defn- tmp-dir []
   (let [dir (io/file (System/getProperty "java.io.tmpdir")

@@ -1,11 +1,9 @@
 (ns cljs-patrol.baseline
   "Baseline support for cljs-patrol: identity extraction, file I/O, and diff logic."
   (:require
-   [cljs-patrol.group :as group]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
-   [clojure.pprint :as pprint]
-   [clojure.string :as str])
+   [clojure.pprint :as pprint])
   (:import
    (java.time
     Instant)))
@@ -21,10 +19,6 @@
 (def ^:private var-keyed-rules
   "Rules where the issue is identified by namespace + var name (from a namespaced keyword)."
   #{:unused-styles :defattrs-in-merge :defclass-as-sole-attr :mixed-token-groups})
-
-(def ^:private site-rules
-  "Per-call-site rules that require file + line for identity."
-  #{:deprecated-effects :dynamic-sites})
 
 (defn issue->identity
   "Extract the stable identity of an issue for baseline comparison.
@@ -53,9 +47,8 @@
                     {:rule rule :issue issue}))))
 
 (defn result->identities
-  "Given a group-id keyword and a single group's analysis result map,
-  return a set of identity maps for all issues in the result."
-  [group-id result]
+  "Extract identity maps for all issues in a single group's analysis result map."
+  [result]
   (into #{}
         (mapcat (fn [[rule-key items]]
                   (when (sequential? items)
@@ -102,18 +95,21 @@
     (if-not (.exists f)
       {:error (str "Baseline file not found: " path
                    "\nRun --baseline-write first to create one.")}
-      (let [data (edn/read-string (slurp f))]
-        (cond
-          (not (map? data))
-          {:error (str "Malformed baseline file: " path " (expected a map)")}
+      (try
+        (let [data (edn/read-string (slurp f))]
+          (cond
+            (not (map? data))
+            {:error (str "Malformed baseline file: " path " (expected a map)")}
 
-          (not= baseline-version (:version data))
-          {:error (str "Baseline version mismatch in " path ": found version "
-                       (:version data) ", expected " baseline-version "."
-                       "\nRe-run --baseline-write to regenerate.")}
+            (not= baseline-version (:version data))
+            {:error (str "Baseline version mismatch in " path ": found version "
+                         (:version data) ", expected " baseline-version "."
+                         "\nRe-run --baseline-write to regenerate.")}
 
-          :else
-          {:ok (set (:issues data))})))))
+            :else
+            {:ok (set (:issues data))}))
+        (catch Exception e
+          {:error (str "Failed to parse baseline file: " path "\n" (.getMessage e))})))))
 
 (defn diff-baseline
   "Compare found issues against a baseline.
@@ -126,14 +122,11 @@
 
 (defn collect-identities
   "Collect all issue identities from run-results across all groups.
-  `enabled-groups` is a seq of group instances, `run-results` is a seq of
-  {:source-dir ... :group-results [...]}."
-  [enabled-groups run-results]
+  `run-results` is a seq of {:source-dir ... :group-results [...]}."
+  [run-results]
   (into #{}
         (mapcat (fn [{:keys [group-results]}]
-                  (mapcat (fn [g result]
-                            (result->identities (group/group-id g) result))
-                          enabled-groups group-results)))
+                  (mapcat result->identities group-results)))
         run-results))
 
 (def default-config-path ".cljs-patrol/config.edn")
@@ -144,8 +137,11 @@
   []
   (let [f (io/file default-config-path)]
     (if (.exists f)
-      (let [data (edn/read-string (slurp f))]
-        (get data :baseline {}))
+      (try
+        (let [data (edn/read-string (slurp f))]
+          (get data :baseline {}))
+        (catch Exception _
+          {}))
       {})))
 
 (defn merge-config

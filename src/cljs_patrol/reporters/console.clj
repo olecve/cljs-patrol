@@ -4,11 +4,8 @@
    [cljs-patrol.baseline :as baseline]
    [clojure.string :as str]))
 
-(defn format-entry
-  ([item] (format-entry item nil))
-  ([{:keys [file kw row]} tag]
-   (let [prefix (if tag (str tag " ") "")]
-     (format "  %s%-60s %s:%d" prefix (str kw) file row))))
+(defn format-entry [{:keys [file kw row]}]
+  (format "  %-60s %s:%d" (str kw) file row))
 
 (defn print-section [title items]
   (println (str "\n=== " title " (" (count items) ") ==="))

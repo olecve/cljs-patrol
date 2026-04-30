@@ -1,9 +1,6 @@
 (ns cljs-patrol.baseline-test
   (:require
    [cljs-patrol.baseline :as baseline]
-   [cljs-patrol.group :as group]
-   [cljs-patrol.groups.re-frame :as re-frame]
-   [cljs-patrol.groups.spade :as spade]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]))
@@ -108,8 +105,8 @@
              {:rule :unused-subs :key :app/b}
              {:rule :phantom-events :key :app/c}
              {:rule :dynamic-sites :form "(rf/dispatch [x])" :file "d.cljs" :line 4}}
-           (baseline/result->identities :re-frame result))))
-  (is (= #{} (baseline/result->identities :re-frame {:unused-subs [] :phantom-events []}))
+           (baseline/result->identities result))))
+  (is (= #{} (baseline/result->identities {:unused-subs [] :phantom-events []}))
       "empty result returns empty set"))
 
 (def ^:private test-issues
@@ -202,7 +199,7 @@
                                        :phantom-events []}
                                       {:unused-styles [{:kw :app.ui/s :type :defclass
                                                         :file "s.cljs" :row 2}]}]}]
-        ids (baseline/collect-identities [re-frame/group spade/group] run-results)]
+        ids (baseline/collect-identities run-results)]
     (is (= #{{:rule :unused-subs :key :app/a}
              {:rule :unused-styles :ns "app.ui" :var "s"}}
            ids))))
@@ -211,7 +208,7 @@
   (let [run-results [{:source-dir "src"
                       :group-results [{:unused-subs [] :phantom-events []}
                                       {:unused-styles []}]}]]
-    (is (= #{} (baseline/collect-identities [re-frame/group spade/group] run-results)))))
+    (is (= #{} (baseline/collect-identities run-results)))))
 
 (deftest merge-config-test
   (is (= {:strict-baseline true}
