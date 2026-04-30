@@ -12,3 +12,9 @@
 ;; Unused - should appear in baseline
 (rf/reg-event-db ::legacy-reset
                  (fn [_ _] {}))
+
+;; Deprecated effect - should appear in baseline with file path
+(rf/reg-event-fx ::batch-notify
+                 (fn [{:keys [db]} [_ items]]
+                   {:db db
+                    :dispatch-n (mapv (fn [i] [::initialize]) items)}))

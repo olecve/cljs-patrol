@@ -180,7 +180,7 @@
   [enabled-groups run-results output-path]
   (spit output-path (render-html enabled-groups run-results)))
 
-(defn- render-baseline-details [{:keys [title description columns items rule-key]} new-identities]
+(defn- render-baseline-details [{:keys [title description columns items rule-key]} new-identities source-dir]
   (let [cnt (count items)]
     [:details (if (pos? cnt) {:open true} {})
      [:summary title " (" cnt ")"
@@ -190,7 +190,7 @@
        [:tr (map #(vector :th {:data-sort ""} (col-header %)) columns)]]
       [:tbody
        (map (fn [item]
-              (let [id (baseline/issue->identity rule-key item)
+              (let [id (baseline/issue->identity rule-key item source-dir)
                     row-class (if (contains? new-identities id)
                                 "new-issue" "baseline-issue")]
                 [:tr {:class row-class}
@@ -199,7 +199,8 @@
 
 (defn- render-baseline-html [enabled-groups run-results new-identities fixed-count]
   (let [dirs (str/join ", " (map :source-dir run-results))
-        timestamp (str (java.time.LocalDateTime/now))]
+        timestamp (str (java.time.LocalDateTime/now))
+        source-dir (:source-dir (first run-results))]
     (html5 {:lang "en"}
            [:head
             [:meta {:charset "UTF-8"}]
@@ -217,7 +218,7 @@
              (fn [i g]
                [:section
                 [:h2 (group/group-name g)]
-                (map #(render-baseline-details % new-identities)
+                (map #(render-baseline-details % new-identities source-dir)
                      (aggregate-sections g i run-results))])
              enabled-groups)
             [:script (raw-string js)]])))

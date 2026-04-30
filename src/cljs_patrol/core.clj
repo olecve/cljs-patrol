@@ -142,9 +142,10 @@
                          enabled-groups run-results "report.html" new (count fixed))
                         (println "Report written to report.html"))
                 (do
-                  (doseq [{:keys [group-results]} run-results]
+                  (doseq [{:keys [source-dir group-results]} run-results]
                     (doseq [result group-results]
-                      (console/report-with-baseline result new (:quiet-baseline opts))))
+                      (console/report-with-baseline
+                       result new (:quiet-baseline opts) source-dir)))
                   (println (format "\nFound %d issues: %d new, %d in baseline, %d fixed."
                                    (+ (count new) (count present))
                                    (count new) (count present) (count fixed)))

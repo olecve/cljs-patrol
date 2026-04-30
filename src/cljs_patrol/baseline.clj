@@ -18,48 +18,54 @@
   #{:unused-styles :defattrs-in-merge :defclass-as-sole-attr :mixed-token-groups})
 
 (defn- relativize-path
-  "Make an absolute file path relative to the current working directory."
-  [path]
-  (let [f (io/file path)]
-    (if (.isAbsolute f)
-      (str (.relativize (.toPath (io/file (System/getProperty "user.dir")))
-                        (.toPath f)))
-      path)))
+  "Strip source-dir prefix from path to produce a portable relative path.
+  Falls back to the original path if source-dir is nil or not a prefix."
+  [source-dir path]
+  (if source-dir
+    (let [base (.toPath (.getAbsoluteFile (io/file source-dir)))
+          target (.toPath (.getAbsoluteFile (io/file path)))]
+      (if (.startsWith target base)
+        (str (.relativize base target))
+        path))
+    path))
 
 (defn issue->identity
   "Extract the stable identity of an issue for baseline comparison.
   Returns a map with :rule and the minimum fields needed to uniquely identify
   the issue without depending on line numbers where possible.
-  File paths are relativized to the current working directory."
-  [rule issue]
-  (cond
-    (contains? keyword-keyed-rules rule)
-    {:rule rule :key (:kw issue)}
+  When source-dir is provided, file paths are made relative to it."
+  ([rule issue] (issue->identity rule issue nil))
+  ([rule issue source-dir]
+   (let [rel #(relativize-path source-dir %)]
+     (cond
+       (contains? keyword-keyed-rules rule)
+       {:rule rule :key (:kw issue)}
 
-    (contains? var-keyed-rules rule)
-    (let [kw (or (:kw issue) (:decl-kw issue))]
-      {:rule rule :ns (namespace kw) :var (name kw)})
+       (contains? var-keyed-rules rule)
+       (let [kw (or (:kw issue) (:decl-kw issue))]
+         {:rule rule :ns (namespace kw) :var (name kw)})
 
-    (= :deprecated-effects rule)
-    {:rule rule :effect (:effect issue)
-     :file (relativize-path (:file issue)) :line (:row issue)}
+       (= :deprecated-effects rule)
+       {:rule rule :effect (:effect issue)
+        :file (rel (:file issue)) :line (:row issue)}
 
-    (= :dynamic-sites rule)
-    {:rule rule :form (:form issue)
-     :file (relativize-path (:file issue)) :line (:row issue)}
+       (= :dynamic-sites rule)
+       {:rule rule :form (:form issue)
+        :file (rel (:file issue)) :line (:row issue)}
 
-    :else
-    (throw (ex-info (str "Unknown rule for identity extraction: " rule)
-                    {:rule rule :issue issue}))))
+       :else
+       (throw (ex-info (str "Unknown rule for identity extraction: " rule)
+                       {:rule rule :issue issue}))))))
 
 (defn result->identities
   "Extract identity maps for all issues in a single group's analysis result map."
-  [result]
-  (into #{}
-        (mapcat (fn [[rule-key items]]
-                  (when (sequential? items)
-                    (map #(issue->identity rule-key %) items))))
-        result))
+  ([result] (result->identities result nil))
+  ([result source-dir]
+   (into #{}
+         (mapcat (fn [[rule-key items]]
+                   (when (sequential? items)
+                     (map #(issue->identity rule-key % source-dir) items))))
+         result)))
 
 (def baseline-version 1)
 
@@ -131,8 +137,8 @@
   `run-results` is a seq of {:source-dir ... :group-results [...]}."
   [run-results]
   (into #{}
-        (mapcat (fn [{:keys [group-results]}]
-                  (mapcat result->identities group-results)))
+        (mapcat (fn [{:keys [source-dir group-results]}]
+                  (mapcat #(result->identities % source-dir) group-results)))
         run-results))
 
 (def default-config-path ".cljs-patrol/config.edn")

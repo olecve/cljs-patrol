@@ -117,6 +117,38 @@
     (is (seq (:baseline-issues parsed)))
     (is (empty? (:fixed-issues parsed)))))
 
+(deftest baseline-identities-use-relative-paths-test
+  (let [absolute-dir (.getAbsolutePath (io/file fixture-dir))
+        run-results [(core/run absolute-dir enabled-groups)]
+        identities (baseline/collect-identities run-results)
+        ids-with-file (filter :file identities)]
+    (is (seq ids-with-file)
+        "some identities have file paths")
+    (doseq [id ids-with-file]
+      (is (not (.isAbsolute (io/file (:file id))))
+          (str "path should not be absolute, got: " (:file id)))
+      (is (not (re-find #"\.\." (:file id)))
+          (str "path should not contain .., got: " (:file id))))))
+
+(deftest baseline-round-trip-with-absolute-source-dir-test
+  (let [absolute-dir (.getAbsolutePath (io/file fixture-dir))
+        run-results [(core/run absolute-dir enabled-groups)]
+        identities (baseline/collect-identities run-results)
+        dir (tmp-dir)
+        path (str (.getAbsolutePath dir) "/baseline.edn")]
+    (try
+      (baseline/write-baseline path identities)
+      (let [{:keys [ok]} (baseline/read-baseline path)
+            rerun-results [(core/run absolute-dir enabled-groups)]
+            rerun-identities (baseline/collect-identities rerun-results)
+            {:keys [new fixed]} (baseline/diff-baseline ok rerun-identities)]
+        (is (empty? new)
+            "no new issues on re-analysis with absolute path")
+        (is (empty? fixed)
+            "no fixed issues on re-analysis with absolute path"))
+      (finally
+        (cleanup dir)))))
+
 (deftest baseline-round-trip-survives-reanalysis-test
   (let [{:keys [identities]} (run-analysis)
         dir (tmp-dir)

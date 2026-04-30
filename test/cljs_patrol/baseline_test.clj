@@ -96,21 +96,27 @@
       (is (= id1 id2)
           "file change")))
 
-  (testing "relativizes absolute file paths"
-    (let [cwd (System/getProperty "user.dir")
-          absolute-path (str cwd "/src/app/events.cljs")
-          id (baseline/issue->identity :deprecated-effects
-                                       {:type :deprecated :effect ":dispatch-n"
-                                        :form ":dispatch-n"
-                                        :file absolute-path :row 42})]
-      (is (= "src/app/events.cljs" (:file id))
-          "absolute path becomes relative to cwd"))
+  (testing "relativizes file paths against source-dir"
     (let [id (baseline/issue->identity :deprecated-effects
                                        {:type :deprecated :effect ":dispatch-n"
                                         :form ":dispatch-n"
-                                        :file "src/app/events.cljs" :row 42})]
-      (is (= "src/app/events.cljs" (:file id))
-          "relative path stays unchanged"))))
+                                        :file "/projects/myapp/src/events.cljs" :row 42}
+                                       "/projects/myapp")]
+      (is (= "src/events.cljs" (:file id))
+          "absolute path becomes relative to source-dir"))
+    (let [id (baseline/issue->identity :deprecated-effects
+                                       {:type :deprecated :effect ":dispatch-n"
+                                        :form ":dispatch-n"
+                                        :file "src/events.cljs" :row 42})]
+      (is (= "src/events.cljs" (:file id))
+          "relative path without source-dir stays unchanged"))
+    (let [id (baseline/issue->identity :deprecated-effects
+                                       {:type :deprecated :effect ":dispatch-n"
+                                        :form ":dispatch-n"
+                                        :file "/other/project/src/events.cljs" :row 42}
+                                       "/projects/myapp")]
+      (is (= "/other/project/src/events.cljs" (:file id))
+          "path outside source-dir stays unchanged"))))
 
 (deftest result->identities-test
   (let [result {:unused-subs [{:kw :app/a :type :sub :file "a.cljs" :row 1}
