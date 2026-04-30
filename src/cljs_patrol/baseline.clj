@@ -3,7 +3,8 @@
   (:require
    [clojure.edn :as edn]
    [clojure.java.io :as io]
-   [clojure.pprint :as pprint])
+   [clojure.pprint :as pprint]
+   [clojure.string :as str])
   (:import
    (java.time
     Instant)))
@@ -50,7 +51,7 @@
         :file (rel (:file issue)) :line (:row issue)}
 
        (= :dynamic-sites rule)
-       {:rule rule :form (:form issue)
+       {:rule rule :form (str/replace (str/trim (:form issue)) #"\s+" " ")
         :file (rel (:file issue)) :line (:row issue)}
 
        :else
