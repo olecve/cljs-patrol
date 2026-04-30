@@ -131,6 +131,10 @@
                   exit-code (if (baseline-failed? opts new fixed) 1 0)]
               (case (:output opts)
                 :edn (edn-reporter/print-baseline-report dirs new present fixed exit-code)
+                :html (do
+                        (html-reporter/write-baseline-report
+                         enabled-groups run-results "report.html" new (count fixed))
+                        (println "Report written to report.html"))
                 (do
                   (doseq [{:keys [group-results]} run-results]
                     (doseq [result group-results]
