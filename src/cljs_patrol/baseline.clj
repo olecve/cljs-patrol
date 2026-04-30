@@ -1,7 +1,13 @@
 (ns cljs-patrol.baseline
   "Baseline support for cljs-patrol: identity extraction, file I/O, and diff logic."
   (:require
-   [clojure.string :as str]))
+   [clojure.edn :as edn]
+   [clojure.java.io :as io]
+   [clojure.pprint :as pprint]
+   [clojure.string :as str])
+  (:import
+   (java.time
+    Instant)))
 
 (def ^:private keyword-keyed-rules
   "Rules where the issue is uniquely identified by its keyword."
@@ -54,3 +60,56 @@
                   (when (sequential? items)
                     (map #(issue->identity rule-key %) items))))
         result))
+
+(def baseline-version 1)
+
+(def default-baseline-path ".cljs-patrol/baseline.edn")
+
+(defn- sort-key
+  "Produce a vector sort key for deterministic ordering of identity maps."
+  [identity]
+  [(str (:rule identity))
+   (str (:ns identity ""))
+   (str (:key identity ""))
+   (str (:var identity ""))
+   (str (:file identity ""))
+   (str (:line identity ""))])
+
+(defn- sort-issues [issues]
+  (vec (sort-by sort-key issues)))
+
+(defn- tool-version []
+  (or (System/getProperty "cljs-patrol.version") "dev"))
+
+(defn write-baseline
+  "Write a baseline file at `path` with the given set of identity maps."
+  [path issues]
+  (let [parent (.getParentFile (io/file path))
+        data {:version baseline-version
+              :generated-at (str (Instant/now))
+              :tool-version (tool-version)
+              :issues (sort-issues issues)}]
+    (when parent (.mkdirs parent))
+    (with-open [w (io/writer path)]
+      (pprint/pprint data w))))
+
+(defn read-baseline
+  "Read and validate a baseline file at `path`.
+  Returns {:ok issues} on success, {:error message} on failure."
+  [path]
+  (let [f (io/file path)]
+    (if-not (.exists f)
+      {:error (str "Baseline file not found: " path
+                   "\nRun --baseline-write first to create one.")}
+      (let [data (edn/read-string (slurp f))]
+        (cond
+          (not (map? data))
+          {:error (str "Malformed baseline file: " path " (expected a map)")}
+
+          (not= baseline-version (:version data))
+          {:error (str "Baseline version mismatch in " path ": found version "
+                       (:version data) ", expected " baseline-version "."
+                       "\nRe-run --baseline-write to regenerate.")}
+
+          :else
+          {:ok (set (:issues data))})))))
