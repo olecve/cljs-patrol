@@ -136,6 +136,9 @@
             (let [found (baseline/collect-identities run-results)
                   {:keys [new present fixed]} (baseline/diff-baseline ok found)
                   exit-code (if (baseline-failed? opts new fixed) 1 0)]
+              (when (= :markdown (:output opts))
+                (println "Error: --output markdown is not supported with --baseline.")
+                (System/exit 1))
               (case (:output opts)
                 :edn (edn-reporter/print-baseline-report dirs new present fixed exit-code)
                 :html (do
