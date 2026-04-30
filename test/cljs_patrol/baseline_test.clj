@@ -168,3 +168,24 @@
       (spit path "[1 2 3]")
       (let [{:keys [error]} (baseline/read-baseline path)]
         (is (some? error))))))
+
+(def ^:private id-a {:rule :unused-subs :key :app/a})
+(def ^:private id-b {:rule :unused-subs :key :app/b})
+(def ^:private id-c {:rule :unused-subs :key :app/c})
+
+(deftest diff-baseline-test
+  (is (= {:new #{id-a id-b} :present #{} :fixed #{}}
+         (baseline/diff-baseline #{} #{id-a id-b}))
+      "all new")
+  (is (= {:new #{} :present #{id-a id-b} :fixed #{}}
+         (baseline/diff-baseline #{id-a id-b} #{id-a id-b}))
+      "all present")
+  (is (= {:new #{} :present #{} :fixed #{id-a id-b}}
+         (baseline/diff-baseline #{id-a id-b} #{}))
+      "all fixed")
+  (is (= {:new #{id-c} :present #{id-a} :fixed #{id-b}}
+         (baseline/diff-baseline #{id-a id-b} #{id-a id-c}))
+      "mixed")
+  (is (= {:new #{} :present #{} :fixed #{}}
+         (baseline/diff-baseline #{} #{}))
+      "both empty"))

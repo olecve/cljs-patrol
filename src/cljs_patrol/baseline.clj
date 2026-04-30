@@ -113,3 +113,12 @@
 
           :else
           {:ok (set (:issues data))})))))
+
+(defn diff-baseline
+  "Compare found issues against a baseline.
+  `baseline` and `found` are both sets of identity maps.
+  Returns {:new #{...} :present #{...} :fixed #{...}}."
+  [baseline found]
+  {:new (into #{} (remove baseline) found)
+   :present (into #{} (filter baseline) found)
+   :fixed (into #{} (remove found) baseline)})
