@@ -118,7 +118,10 @@
               (System/exit 1))
             (let [found (baseline/collect-identities enabled-groups run-results)
                   {:keys [new present fixed]} (baseline/diff-baseline ok found)]
-              (println (format "Found %d issues: %d new, %d in baseline, %d fixed."
+              (doseq [{:keys [group-results]} run-results]
+                (doseq [result group-results]
+                  (console/report-with-baseline result new)))
+              (println (format "\nFound %d issues: %d new, %d in baseline, %d fixed."
                                (+ (count new) (count present))
                                (count new) (count present) (count fixed)))
               (when (seq fixed)
