@@ -44,15 +44,23 @@
 
 (defn report-with-baseline
   "Print analysis results with [NEW] / [BASE] tags.
-  `new-identities` is a set of identity maps for new issues."
-  [result new-identities]
-  (doseq [[rule-key items] result
-          :when (and (sequential? items) (seq items))]
-    (let [dynamic? (:form (first items))]
-      (println (str "\n=== " (key->title rule-key) " (" (count items) ") ==="))
-      (doseq [item (sort-by (if dynamic? :file (comp str :kw)) items)]
-        (let [id (baseline/issue->identity rule-key item)
-              tag (if (contains? new-identities id) "[NEW]" "[BASE]")]
-          (println (if dynamic?
-                     (format-tagged-dynamic item tag)
-                     (format-tagged-entry item tag))))))))
+  `new-identities` is a set of identity maps for new issues.
+  When `quiet?` is true, only new issues are printed."
+  ([result new-identities] (report-with-baseline result new-identities false))
+  ([result new-identities quiet?]
+   (doseq [[rule-key items] result
+           :when (and (sequential? items) (seq items))]
+     (let [dynamic? (:form (first items))
+           items-to-show (if quiet?
+                           (filter #(contains? new-identities
+                                               (baseline/issue->identity rule-key %))
+                                   items)
+                           items)]
+       (when (seq items-to-show)
+         (println (str "\n=== " (key->title rule-key) " (" (count items-to-show) ") ==="))
+         (doseq [item (sort-by (if dynamic? :file (comp str :kw)) items-to-show)]
+           (let [id (baseline/issue->identity rule-key item)
+                 tag (if (contains? new-identities id) "[NEW]" "[BASE]")]
+             (println (if dynamic?
+                        (format-tagged-dynamic item tag)
+                        (format-tagged-entry item tag))))))))))

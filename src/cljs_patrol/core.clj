@@ -40,6 +40,7 @@
    [nil "--baseline-write" "Write current issues to baseline file and exit 0"]
    [nil "--baseline" "Compare against baseline; exit 1 only on new issues"]
    [nil "--strict-baseline" "Also fail if baseline issues are no longer present"]
+   [nil "--quiet-baseline" "Only print new issues, suppress baseline issues"]
    ["-h" "--help"]])
 
 (defn- abspath [path]
@@ -101,7 +102,8 @@
       (println "Error: --baseline-write and --baseline are mutually exclusive.")
       (System/exit 1))
     (let [opts (select-keys options [:only :disable :output :files
-                                     :baseline-write :baseline :strict-baseline])
+                                     :baseline-write :baseline :strict-baseline
+                                     :quiet-baseline])
           dirs arguments
           enabled-groups (filter-groups opts)]
       (when (empty? dirs)
@@ -128,7 +130,7 @@
                   {:keys [new present fixed]} (baseline/diff-baseline ok found)]
               (doseq [{:keys [group-results]} run-results]
                 (doseq [result group-results]
-                  (console/report-with-baseline result new)))
+                  (console/report-with-baseline result new (:quiet-baseline opts))))
               (println (format "\nFound %d issues: %d new, %d in baseline, %d fixed."
                                (+ (count new) (count present))
                                (count new) (count present) (count fixed)))
