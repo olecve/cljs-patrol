@@ -101,6 +101,9 @@
     (when (and (:baseline-write options) (:baseline options))
       (println "Error: --baseline-write and --baseline are mutually exclusive.")
       (System/exit 1))
+    (when (and (:baseline-write options) (:files options))
+      (println "Error: --baseline-write cannot be used with --files (would write a partial baseline).")
+      (System/exit 1))
     (let [opts (select-keys options [:only :disable :output :files
                                      :baseline-write :baseline :strict-baseline
                                      :quiet-baseline])

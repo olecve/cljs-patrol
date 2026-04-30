@@ -109,3 +109,16 @@
                              #{{:rule :unused-subs :key :app/a}}
                              #{{:rule :unused-subs :key :app/b}})
       "both new and fixed fail with strict"))
+
+(deftest baseline-with-files-filter-test
+  (let [enabled-groups [re-frame/group spade/group]
+        run-results [(core/run fixture-dir enabled-groups)]
+        all-ids (baseline/collect-identities enabled-groups run-results)
+        filtered-results (#'cljs-patrol.core/filter-run-results
+                          run-results
+                          [(.getAbsolutePath (java.io.File. (str fixture-dir "/subs.cljs")))])
+        filtered-ids (baseline/collect-identities enabled-groups filtered-results)]
+    (is (< (count filtered-ids) (count all-ids))
+        "filtering reduces issue count")
+    (is (every? #(contains? all-ids %) filtered-ids)
+        "filtered ids are a subset of all ids")))
