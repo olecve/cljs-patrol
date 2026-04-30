@@ -3,7 +3,6 @@
   (:require
    [clojure.edn :as edn]
    [clojure.java.io :as io]
-   [clojure.pprint :as pprint]
    [clojure.string :as str])
   (:import
    (java.time
@@ -100,13 +99,21 @@
   "Write a baseline file at `path` with the given set of identity maps."
   [path issues]
   (let [parent (.getParentFile (io/file path))
-        data {:version baseline-version
-              :generated-at (str (Instant/now))
-              :tool-version (tool-version)
-              :issues (sort-issues issues)}]
+        sorted (sort-issues issues)]
     (when parent (.mkdirs parent))
     (with-open [w (io/writer path)]
-      (pprint/pprint data w))))
+      (.write w (str "{:version " baseline-version "\n"))
+      (.write w (str " :generated-at \"" (Instant/now) "\"\n"))
+      (.write w (str " :tool-version \"" (tool-version) "\"\n"))
+      (.write w " :issues\n [")
+      (doseq [[i issue] (map-indexed vector sorted)]
+        (when (pos? i) (.write w "\n\n  "))
+        (.write w "{")
+        (doseq [[j [k v]] (map-indexed vector issue)]
+          (when (pos? j) (.write w "\n   "))
+          (.write w (str (pr-str k) " " (pr-str v))))
+        (.write w "}"))
+      (.write w "]}\n"))))
 
 (defn read-baseline
   "Read and validate a baseline file at `path`.
