@@ -1,6 +1,7 @@
 (ns cljs-patrol.baseline
   "Baseline support for cljs-patrol: identity extraction, file I/O, and diff logic."
   (:require
+   [cljs-patrol.group :as group]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
    [clojure.pprint :as pprint]
@@ -122,3 +123,15 @@
   {:new (into #{} (remove baseline) found)
    :present (into #{} (filter baseline) found)
    :fixed (into #{} (remove found) baseline)})
+
+(defn collect-identities
+  "Collect all issue identities from run-results across all groups.
+  `enabled-groups` is a seq of group instances, `run-results` is a seq of
+  {:source-dir ... :group-results [...]}."
+  [enabled-groups run-results]
+  (into #{}
+        (mapcat (fn [{:keys [group-results]}]
+                  (mapcat (fn [g result]
+                            (result->identities (group/group-id g) result))
+                          enabled-groups group-results)))
+        run-results))

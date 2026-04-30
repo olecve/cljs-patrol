@@ -1,7 +1,11 @@
 (ns cljs-patrol.core-test
   (:require
-   [cljs-patrol.core]
+   [cljs-patrol.baseline :as baseline]
+   [cljs-patrol.core :as core]
    [cljs-patrol.group :as group]
+   [cljs-patrol.groups.re-frame :as re-frame]
+   [cljs-patrol.groups.spade :as spade]
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private filter-groups #'cljs-patrol.core/filter-groups)
@@ -43,3 +47,22 @@
     (let [groups (filter-groups {:only #{:re-frame} :disable #{:re-frame}})]
       (is (= 1 (count groups)))
       (is (= :re-frame (group/group-id (first groups)))))))
+
+(def ^:private fixture-dir "test/projects/re-frame-spade-app/src/webapp")
+
+(deftest baseline-write-integration-test
+  (let [enabled-groups [re-frame/group spade/group]
+        run-results [(core/run fixture-dir enabled-groups)]
+        identities (baseline/collect-identities enabled-groups run-results)
+        dir (io/file (System/getProperty "java.io.tmpdir")
+                     (str "cljs-patrol-bw-" (System/nanoTime)))
+        path (str (.getAbsolutePath dir) "/baseline.edn")]
+    (try
+      (baseline/write-baseline path identities)
+      (is (.exists (io/file path)) "baseline file created")
+      (let [{:keys [ok]} (baseline/read-baseline path)]
+        (is (set? ok) "reads back as a set")
+        (is (pos? (count ok)) "contains issues from fixture project")
+        (is (every? :rule ok) "every identity has a :rule"))
+      (finally
+        (run! #(.delete %) (reverse (file-seq dir)))))))

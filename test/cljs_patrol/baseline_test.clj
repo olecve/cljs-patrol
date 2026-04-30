@@ -1,6 +1,9 @@
 (ns cljs-patrol.baseline-test
   (:require
    [cljs-patrol.baseline :as baseline]
+   [cljs-patrol.group :as group]
+   [cljs-patrol.groups.re-frame :as re-frame]
+   [cljs-patrol.groups.spade :as spade]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]))
@@ -189,3 +192,20 @@
   (is (= {:new #{} :present #{} :fixed #{}}
          (baseline/diff-baseline #{} #{}))
       "both empty"))
+
+(deftest collect-identities-test
+  (let [run-results [{:source-dir "src"
+                      :group-results [{:unused-subs [{:kw :app/a :type :sub :file "a.cljs" :row 1}]
+                                       :phantom-events []}
+                                      {:unused-styles [{:kw :app.ui/s :type :defclass
+                                                        :file "s.cljs" :row 2}]}]}]
+        ids (baseline/collect-identities [re-frame/group spade/group] run-results)]
+    (is (= #{{:rule :unused-subs :key :app/a}
+             {:rule :unused-styles :ns "app.ui" :var "s"}}
+           ids))))
+
+(deftest collect-identities-when-empty-test
+  (let [run-results [{:source-dir "src"
+                      :group-results [{:unused-subs [] :phantom-events []}
+                                      {:unused-styles []}]}]]
+    (is (= #{} (baseline/collect-identities [re-frame/group spade/group] run-results)))))
