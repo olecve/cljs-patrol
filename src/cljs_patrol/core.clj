@@ -66,6 +66,33 @@
     (doseq [[label cnt] (group/summary-lines g r)]
       (println (format "  %-30s %d" label cnt)))))
 
+(defn- any-rule-issue?
+  "True if any group-result in run-results has a non-empty vector under a key
+  contained in rule-set."
+  [run-results rule-set]
+  (some (fn [{:keys [group-results]}]
+          (some (fn [result]
+                  (some (fn [[rule-key items]]
+                          (and (contains? rule-set rule-key)
+                               (sequential? items)
+                               (seq items)))
+                        result))
+                group-results))
+        run-results))
+
+(defn standalone-failed?
+  "Decide whether to exit non-zero when not using --baseline.
+  When fail-on-rules is empty/nil, falls back to each group's failed? method.
+  When fail-on-rules is non-empty, fails iff any issue's rule is in that set."
+  [enabled-groups run-results fail-on-rules]
+  (if (seq fail-on-rules)
+    (boolean (any-rule-issue? run-results fail-on-rules))
+    (boolean
+     (some (fn [{:keys [group-results]}]
+             (some (fn [[g r]] (group/failed? g r))
+                   (map vector enabled-groups group-results)))
+           run-results))))
+
 (defn baseline-failed?
   "Return truthy if baseline comparison should cause a non-zero exit.
   Fails on new issues always; fails on fixed issues only in strict mode."
@@ -163,10 +190,8 @@
               (System/exit exit-code))))
 
         :else
-        (let [any-failed? (some (fn [{:keys [group-results]}]
-                                  (some (fn [[g r]] (group/failed? g r))
-                                        (map vector enabled-groups group-results)))
-                                run-results)]
+        (let [any-failed? (standalone-failed? enabled-groups run-results
+                                              (:fail-on-rules opts))]
           (case (:output opts)
             :html (do
                     (html-reporter/write-report enabled-groups run-results "report.html")

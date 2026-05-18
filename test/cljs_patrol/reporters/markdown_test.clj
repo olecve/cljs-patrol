@@ -74,7 +74,7 @@
 (deftest summary-table-test
   (let [output (run-report [{:source-dir "src"
                              :group-results [(re-frame-result {:unused-subs [kw-item]
-                                                         :unused-events [event-item]})]}])]
+                                                               :unused-events [event-item]})]}])]
     (testing "summary table is present"
       (is (str/includes? output "## Summary"))
       (is (str/includes? output "| Category | Count |")))

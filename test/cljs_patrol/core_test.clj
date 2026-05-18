@@ -102,6 +102,46 @@
         (is (= found present))
         (is (= #{extra} fixed))))))
 
+(def ^:private blocking-issue
+  {:kw :app/a
+   :file "a.cljs"
+   :row 1
+   :tier :bugs})
+
+(def ^:private non-blocking-issue
+  {:kw :app/b
+   :file "b.cljs"
+   :row 2
+   :tier :cleanup})
+
+(deftest standalone-failed?-test
+  (testing "without --fail-on, falls back to group/failed?"
+    (let [run-results [{:source-dir "src"
+                        :group-results [{:unused-subs [blocking-issue]}]}]]
+      (is (true? (core/standalone-failed? [re-frame/group] run-results nil))
+          ":unused-subs causes group/failed? to return truthy"))
+    (let [run-results [{:source-dir "src"
+                        :group-results [{:unused-subs []
+                                         :phantom-subs [non-blocking-issue]}]}]]
+      (is (false? (core/standalone-failed? [re-frame/group] run-results nil))
+          "phantom-subs alone does not trigger group/failed?")))
+
+  (testing "with --fail-on rule set, only listed rules cause failure"
+    (let [run-results [{:source-dir "src"
+                        :group-results [{:unused-subs [non-blocking-issue]
+                                         :phantom-subs []}]}]]
+      (is (false? (core/standalone-failed? [re-frame/group] run-results #{:phantom-subs}))
+          "unused-subs issues don't fail when only phantom-subs is selected"))
+    (let [run-results [{:source-dir "src"
+                        :group-results [{:unused-subs []
+                                         :phantom-subs [non-blocking-issue]}]}]]
+      (is (true? (core/standalone-failed? [re-frame/group] run-results #{:phantom-subs}))
+          "phantom-subs issues fail when phantom-subs is in fail-on set")))
+
+  (testing "empty run-results never fails"
+    (is (false? (core/standalone-failed? [re-frame/group] [] nil)))
+    (is (false? (core/standalone-failed? [re-frame/group] [] #{:phantom-subs})))))
+
 (deftest baseline-failed?-test
   (is (not (core/baseline-failed? {} #{} #{}))
       "no new, no fixed")
