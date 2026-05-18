@@ -169,24 +169,25 @@
 (def default-config-path ".cljs-patrol/config.edn")
 
 (defn read-config
-  "Read baseline config from `.cljs-patrol/config.edn`.
-  Returns a map of baseline settings, or empty map if file doesn't exist."
+  "Read `.cljs-patrol/config.edn` and return the full map.
+  Returns {} if the file is missing, unreadable, or malformed."
   []
   (let [f (io/file default-config-path)]
     (if (.exists f)
       (try
-        (let [data (edn/read-string (slurp f))]
-          (get data :baseline {}))
+        (edn/read-string (slurp f))
         (catch Exception _
           {}))
       {})))
 
 (defn merge-config
-  "Merge config file settings with CLI opts. CLI flags take precedence.
-  Config keys: :path, :strict, :quiet."
+  "Apply :baseline config-file settings to CLI opts. CLI flags take precedence.
+  Always returns all baseline keys (:baseline-path, :strict-baseline, :quiet-baseline)
+  so callers don't have to handle missing keys.
+  Recognized :baseline keys: :path, :strict, :quiet."
   [config cli-opts]
-  (merge (cond-> {}
-           (:path config) (assoc :baseline-path (:path config))
-           (:strict config) (assoc :strict-baseline true)
-           (:quiet config) (assoc :quiet-baseline true))
-         cli-opts))
+  (let [baseline-config (or (:baseline config) {})]
+    (merge {:baseline-path (:path baseline-config)
+            :strict-baseline (boolean (:strict baseline-config))
+            :quiet-baseline (boolean (:quiet baseline-config))}
+           cli-opts)))

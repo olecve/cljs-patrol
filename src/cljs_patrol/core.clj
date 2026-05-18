@@ -42,6 +42,8 @@
    [nil "--baseline" "Compare against baseline; exit 1 only on new issues"]
    [nil "--strict-baseline" "Also fail if baseline issues are no longer present"]
    [nil "--quiet-baseline" "Only print new issues, suppress baseline issues"]
+   [nil "--fail-on TIERS_OR_RULES"
+    "Comma-separated list of tiers (bugs/deprecations/cleanup), rule keys, or 'all'"]
    ["-h" "--help"]])
 
 (defn- abspath [path]
@@ -144,13 +146,20 @@
       (println "Error: --baseline-write cannot be used with --files (would write a partial baseline).")
       (System/exit 1))
     (let [config (baseline/read-config)
-          opts (baseline/merge-config
-                config
-                (select-keys options [:only :disable :output :files
-                                      :baseline-write :baseline :strict-baseline
-                                      :quiet-baseline]))
+          base-opts (baseline/merge-config
+                     config
+                     (select-keys options [:only :disable :output :files
+                                           :baseline-write :baseline :strict-baseline
+                                           :quiet-baseline]))
           dirs arguments
-          enabled-groups (filter-groups opts)]
+          enabled-groups (filter-groups base-opts)
+          fail-on-input (or (:fail-on options) (:fail-on config))
+          rule->tier (severity/collect-rule->tier enabled-groups)
+          {:keys [ok error]} (severity/parse-fail-on fail-on-input rule->tier)
+          _ (when error
+              (println (str "Error: " error))
+              (System/exit 1))
+          opts (assoc base-opts :fail-on-rules (or ok #{}))]
       (when (empty? dirs)
         (println "Error: no source directories specified")
         (System/exit 1))

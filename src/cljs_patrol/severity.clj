@@ -32,36 +32,49 @@
        (map key)
        set))
 
+(defn- ->tokens
+  "Normalize the --fail-on input to a seq of string tokens.
+  Accepts a comma-separated string, a sequential of keywords/strings, or nil."
+  [input]
+  (cond
+    (nil? input) []
+    (sequential? input) (->> input (map name) (remove str/blank?))
+    (string? input) (->> (str/split input #",")
+                         (map str/trim)
+                         (remove str/blank?))
+    :else
+    (throw (ex-info "Unsupported --fail-on input"
+                    {:input input}))))
+
 (defn parse-fail-on
-  "Parse a comma-separated --fail-on string into a set of rule keys.
+  "Parse --fail-on input into a set of rule keys.
   Accepts tier names (bugs/deprecations/cleanup), individual rule keywords,
-  or the meta value 'all'. Validates against the given rule->tier map.
+  or the meta value 'all'. Input may be a comma-separated string or a vector
+  of keywords/strings. Validates against the given rule->tier map.
   Returns {:ok rules} on success, {:error msg} on unknown tokens."
-  [s rule->tier]
-  (if (str/blank? s)
-    {:ok #{}}
-    (let [tokens (->> (str/split s #",")
-                      (map str/trim)
-                      (remove str/blank?))
-          all-rules (set (keys rule->tier))
-          {:keys [rules unknown]}
-          (reduce
-           (fn [acc token]
-             (cond
-               (= token "all")
-               (update acc :rules into all-rules)
+  [input rule->tier]
+  (let [tokens (->tokens input)]
+    (if (empty? tokens)
+      {:ok #{}}
+      (let [all-rules (set (keys rule->tier))
+            {:keys [rules unknown]}
+            (reduce
+             (fn [acc token]
+               (cond
+                 (= token "all")
+                 (update acc :rules into all-rules)
 
-               (contains? tiers (keyword token))
-               (update acc :rules into (tier->rules rule->tier (keyword token)))
+                 (contains? tiers (keyword token))
+                 (update acc :rules into (tier->rules rule->tier (keyword token)))
 
-               (contains? all-rules (keyword token))
-               (update acc :rules conj (keyword token))
+                 (contains? all-rules (keyword token))
+                 (update acc :rules conj (keyword token))
 
-               :else
-               (update acc :unknown conj token)))
-           {:rules #{}
-            :unknown []}
-           tokens)]
-      (if (seq unknown)
-        {:error (str "Unknown --fail-on tokens: " (str/join ", " unknown))}
-        {:ok rules}))))
+                 :else
+                 (update acc :unknown conj token)))
+             {:rules #{}
+              :unknown []}
+             tokens)]
+        (if (seq unknown)
+          {:error (str "Unknown --fail-on tokens: " (str/join ", " unknown))}
+          {:ok rules})))))

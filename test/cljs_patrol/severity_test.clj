@@ -152,4 +152,12 @@
     (let [{:keys [error]} (severity/parse-fail-on "bad-one,bad-two" rule->tier)]
       (is (re-find #"bad-one" error))
       (is (re-find #"bad-two" error)
-          "both unknown tokens listed"))))
+          "both unknown tokens listed")))
+
+  (testing "accepts vector input (from config file)"
+    (is (= {:ok (severity/tier->rules rule->tier :bugs)}
+           (severity/parse-fail-on [:bugs] rule->tier))
+        "vector of keywords parsed as if comma-joined")
+    (is (= {:ok #{:phantom-subs :phantom-events}}
+           (severity/parse-fail-on [:phantom-subs :phantom-events] rule->tier))
+        "vector of rule keywords parsed")))
