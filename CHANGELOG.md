@@ -1,0 +1,48 @@
+# Changelog
+
+## [v0.0.5] - 2026-04-30
+
+## What's Changed
+
+* Switch formatting tool from cljstyle to cljfmt by @olecve in https://github.com/olecve/cljs-patrol/pull/6
+* Add baseline support for incremental adoption by @olecve in https://github.com/olecve/cljs-patrol/pull/7
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.4...v0.0.5
+
+## [v0.0.4] - 2026-03-18
+
+## What's Changed
+
+* Fix reagent group to reuse spade parse handlers by @olecve in https://github.com/olecve/cljs-patrol/pull/5
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.3...v0.0.4
+
+## [v0.0.3] - 2026-03-18
+
+## What's Changed
+
+* Add defclass/defattrs usage rules by @olecve in https://github.com/olecve/cljs-patrol/pull/3
+* Add :class vector detection and reagent rule group by @olecve in https://github.com/olecve/cljs-patrol/pull/4
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.2...v0.0.3
+
+## [v0.0.2] - 2026-03-17
+
+## What's Changed
+
+* Add markdown output format by @olecve in https://github.com/olecve/cljs-patrol/pull/2
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.1...v0.0.2
+
+## [v0.0.1] - 2026-03-17
+
+## What's Changed
+
+* Decouple reporter logic from rule groups by @olecve in https://github.com/olecve/cljs-patrol/pull/1
+
+## New Contributors
+
+* @olecve made their first contribution in https://github.com/olecve/cljs-patrol/pull/1
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/commits/v0.0.1
+

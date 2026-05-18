@@ -37,3 +37,38 @@ jobs:
         with:
           files: target/cljs-patrol-*.jar
           generate_release_notes: true
+
+      - name: Update CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          NOTES=$(gh release view "$VERSION" --json body --jq .body \
+                  | awk '/^## / { print; print ""; next } { print }' \
+                  | cat -s)
+          {
+            echo "# Changelog"
+            echo
+            echo "## [$VERSION] - $DATE"
+            echo
+            echo "$NOTES"
+            if [ -f CHANGELOG.md ]; then
+              echo
+              tail -n +2 CHANGELOG.md
+            fi
+          } > CHANGELOG.new.md
+          mv CHANGELOG.new.md CHANGELOG.md
+
+      - name: Commit CHANGELOG
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout main
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "No changelog changes"
+          else
+            git commit -m "Update CHANGELOG for ${GITHUB_REF_NAME}"
+            git push origin main
+          fi
