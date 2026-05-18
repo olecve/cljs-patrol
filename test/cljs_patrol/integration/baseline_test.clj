@@ -119,7 +119,7 @@
         out (with-out-str
               (doseq [{:keys [group-results]} run-results]
                 (doseq [result group-results]
-                  (console/report-with-baseline result #{} true))))]
+                  (console/report-with-baseline result #{} {:quiet? true}))))]
     (is (= "" out)
         "quiet mode suppresses all baseline issues")))
 

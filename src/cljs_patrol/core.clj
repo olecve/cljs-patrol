@@ -202,13 +202,25 @@
                   (doseq [{:keys [source-dir group-results]} run-results]
                     (doseq [result group-results]
                       (console/report-with-baseline
-                       result new-issues (:quiet-baseline opts) source-dir)))
-                  (println (format "\nFound %d issues: %d new, %d in baseline, %d fixed."
-                                   (+ (count new-issues) (count present))
-                                   (count new-issues) (count present) (count fixed)))
-                  (when (seq fixed)
-                    (println (format "%d baseline issues no longer present - consider running --baseline-write to refresh."
-                                     (count fixed))))))
+                       result new-issues
+                       {:quiet? (:quiet-baseline opts)
+                        :source-dir source-dir
+                        :fail-on-rules (:fail-on-rules opts)})))
+                  (let [fail-on-rules (:fail-on-rules opts)
+                        blocking-new (if (seq fail-on-rules)
+                                       (filter #(contains? fail-on-rules (:rule %)) new-issues)
+                                       new-issues)
+                        warning-new (when (seq fail-on-rules)
+                                      (remove #(contains? fail-on-rules (:rule %)) new-issues))]
+                    (println (format "\nFound %d issues: %d new, %d in baseline, %d fixed."
+                                     (+ (count new-issues) (count present))
+                                     (count new-issues) (count present) (count fixed)))
+                    (when (seq fail-on-rules)
+                      (println (format "New: %d blocking, %d warnings."
+                                       (count blocking-new) (count warning-new))))
+                    (when (seq fixed)
+                      (println (format "%d baseline issues no longer present - consider running --baseline-write to refresh."
+                                       (count fixed)))))))
               (System/exit exit-code))))
 
         :else
@@ -223,8 +235,29 @@
                       (print-summary enabled-groups group-results)))
             :edn (edn-reporter/print-report enabled-groups dirs run-results)
             :markdown (md-reporter/print-report enabled-groups dirs run-results)
-            (doseq [{:keys [group-results]} run-results]
-              (doseq [r group-results]
-                (console/report r))
-              (print-summary enabled-groups group-results)))
+            (do
+              (doseq [{:keys [group-results]} run-results]
+                (doseq [r group-results]
+                  (console/report r (:fail-on-rules opts)))
+                (print-summary enabled-groups group-results))
+              (when (seq (:fail-on-rules opts))
+                (let [fail-on-rules (:fail-on-rules opts)
+                      counts (reduce (fn [acc {:keys [group-results]}]
+                                       (reduce (fn [acc result]
+                                                 (reduce-kv
+                                                  (fn [acc rule-key items]
+                                                    (if (and (sequential? items) (seq items))
+                                                      (if (contains? fail-on-rules rule-key)
+                                                        (update acc :blocking + (count items))
+                                                        (update acc :warning + (count items)))
+                                                      acc))
+                                                  acc
+                                                  result))
+                                               acc
+                                               group-results))
+                                     {:blocking 0
+                                      :warning 0}
+                                     run-results)]
+                  (println (format "\n%d blocking, %d warnings."
+                                   (:blocking counts) (:warning counts)))))))
           (System/exit (if any-failed? 1 0)))))))
