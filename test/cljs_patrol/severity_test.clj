@@ -31,6 +31,64 @@
   (testing "info-only rules are absent from the map"
     (is (nil? (get rule->tier :dynamic-sites)))))
 
+(deftest annotate-tiers-test
+  (testing "attaches :tier to each issue based on its rule key"
+    (let [result {:duplicate-subs [{:kw :app/a
+                                    :file "a.cljs"
+                                    :row 1}]
+                  :unused-subs [{:kw :app/b
+                                 :file "b.cljs"
+                                 :row 2}]
+                  :phantom-subs [{:kw :app/c
+                                  :file "c.cljs"
+                                  :row 3}]
+                  :deprecated-effects [{:effect ":dispatch-n"
+                                        :file "d.cljs"
+                                        :row 4}]
+                  :dynamic-sites [{:form "(dispatch [x])"
+                                   :file "e.cljs"
+                                   :row 5}]}
+          annotated (severity/annotate-tiers re-frame/group result)]
+      (is (= :bugs (-> annotated :duplicate-subs first :tier)))
+      (is (= :cleanup (-> annotated :unused-subs first :tier)))
+      (is (= :cleanup (-> annotated :phantom-subs first :tier)))
+      (is (= :deprecations (-> annotated :deprecated-effects first :tier)))
+      (is (nil? (-> annotated :dynamic-sites first :tier))
+          "info-only rules get :tier nil")))
+
+  (testing "spade rules"
+    (let [result {:unused-styles [{:kw :app.ui/a
+                                   :file "a.cljs"
+                                   :row 1}]
+                  :defattrs-in-merge [{:kw :app.ui/b
+                                       :file "b.cljs"
+                                       :row 2}]}
+          annotated (severity/annotate-tiers spade/group result)]
+      (is (= :cleanup (-> annotated :unused-styles first :tier)))
+      (is (= :deprecations (-> annotated :defattrs-in-merge first :tier)))))
+
+  (testing "reagent rule"
+    (let [result {:defclass-as-sole-attr [{:kw :app.ui/a
+                                           :file "a.cljs"
+                                           :row 1}]}
+          annotated (severity/annotate-tiers reagent/group result)]
+      (is (= :deprecations (-> annotated :defclass-as-sole-attr first :tier)))))
+
+  (testing "typography rule"
+    (let [result {:mixed-token-groups [{:decl-kw :app.styles/a
+                                        :file "a.cljs"
+                                        :row 1}]}
+          annotated (severity/annotate-tiers typography/group result)]
+      (is (= :deprecations (-> annotated :mixed-token-groups first :tier)))))
+
+  (testing "empty rule vectors stay empty"
+    (let [annotated (severity/annotate-tiers re-frame/group {:unused-subs []})]
+      (is (= [] (:unused-subs annotated)))))
+
+  (testing "non-sequential values pass through unchanged"
+    (let [annotated (severity/annotate-tiers re-frame/group {:meta 42})]
+      (is (= 42 (:meta annotated))))))
+
 (deftest group-rule->tier-test
   (testing "each group exposes its own tier classification"
     (is (= :bugs (-> (group/rule->tier re-frame/group) :duplicate-subs)))

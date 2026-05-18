@@ -17,6 +17,7 @@
    [cljs-patrol.reporters.edn :as edn-reporter]
    [cljs-patrol.reporters.html :as html-reporter]
    [cljs-patrol.reporters.markdown :as md-reporter]
+   [cljs-patrol.severity :as severity]
    [clojure.string :as str]
    [clojure.tools.cli :as cli]))
 
@@ -76,10 +77,13 @@
   "Analyze source-dir with enabled-groups, return {:source-dir source-dir :group-results [...]}."
   [source-dir enabled-groups]
   (let [{:keys [declarations dynamic-sites usages]} (parser/analyze-project source-dir enabled-groups)
-        group-results (mapv (fn [g]
-                              (group/analyze g {:declarations declarations
-                                                :dynamic-sites dynamic-sites
-                                                :usages usages}))
+        parsed-data {:declarations declarations
+                     :dynamic-sites dynamic-sites
+                     :usages usages}
+        group-results (mapv (fn [group]
+                              (->> parsed-data
+                                   (group/analyze group)
+                                   (severity/annotate-tiers group)))
                             enabled-groups)]
     {:source-dir source-dir
      :group-results group-results}))

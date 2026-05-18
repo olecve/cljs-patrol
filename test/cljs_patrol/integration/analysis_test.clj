@@ -80,3 +80,22 @@
                :webapp.styles/vector-sole-attr-style
                :webapp.local-styles/local-panel-style}
              (set (map :kw (:defclass-as-sole-attr reagent-result))))))))
+
+(deftest issues-carry-tier-test
+  (let [{:keys [group-results]} (core/run fixture-dir all-groups)
+        rf-result (nth group-results 0)
+        spade-result (nth group-results 1)
+        reagent-result (nth group-results 2)]
+    (testing "re-frame issues get correct tier"
+      (is (every? #(= :bugs (:tier %)) (:duplicate-subs rf-result)))
+      (is (every? #(= :cleanup (:tier %)) (:unused-subs rf-result)))
+      (is (every? #(= :cleanup (:tier %)) (:phantom-subs rf-result)))
+      (is (every? #(= :deprecations (:tier %)) (:deprecated-effects rf-result))))
+
+    (testing "info-only rules get :tier nil"
+      (is (every? #(nil? (:tier %)) (:dynamic-sites rf-result))))
+
+    (testing "spade and reagent issues get correct tier"
+      (is (every? #(= :cleanup (:tier %)) (:unused-styles spade-result)))
+      (is (every? #(= :deprecations (:tier %)) (:defattrs-in-merge spade-result)))
+      (is (every? #(= :deprecations (:tier %)) (:defclass-as-sole-attr reagent-result))))))

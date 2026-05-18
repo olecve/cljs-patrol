@@ -12,6 +12,18 @@
   [groups]
   (into {} (mapcat group/rule->tier groups)))
 
+(defn annotate-tiers
+  "Attach :tier to each issue in a group result map, based on the group's rule->tier.
+  Issues for info-only rules (absent from the map) get :tier nil."
+  [group result]
+  (let [tier-map (group/rule->tier group)]
+    (->> result
+         (map (fn [[rule-key v]]
+                [rule-key (if (sequential? v)
+                            (mapv #(assoc % :tier (get tier-map rule-key)) v)
+                            v)]))
+         (into {}))))
+
 (defn tier->rules
   "Return the set of rules in the given rule->tier map that belong to `tier`."
   [rule->tier tier]
