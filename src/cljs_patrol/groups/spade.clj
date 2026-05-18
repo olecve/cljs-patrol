@@ -101,6 +101,9 @@
     {:unused-styles
      "Declared with defclass or defattrs but never called. Remove the declaration, or add a call site where the style should be applied."
      :defattrs-in-merge
-     "Declared with defattrs but used inside merge. Use defclass instead so callers can pass it via :class without merge."}))
+     "Declared with defattrs but used inside merge. Use defclass instead so callers can pass it via :class without merge."})
+  (tiers [_]
+    {:unused-styles :cleanup
+     :defattrs-in-merge :deprecations}))
 
 (def group (->SpadeGroup))

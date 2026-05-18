@@ -104,6 +104,8 @@
           "body-short-{small,medium,large}, body-long-{small,medium,large}, "
           "subhead-{small,medium,large}, heading-reg-{small,medium,large,xlarge}, "
           "heading-bold-{small,medium,large,xlarge}, action-{small,medium,large}, "
-          "code-compact-{small,medium,large}, code-reg-{small,medium,large}.")}))
+          "code-compact-{small,medium,large}, code-reg-{small,medium,large}.")})
+  (tiers [_]
+    {:mixed-token-groups :deprecations}))
 
 (def group (->TypographyGroup))
