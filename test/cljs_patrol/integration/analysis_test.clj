@@ -11,27 +11,27 @@
 
 (deftest full-analysis-test
   (let [{:keys [group-results]} (core/run fixture-dir all-groups)
-        rf-result (nth group-results 0)
+        re-frame-result (nth group-results 0)
         spade-result (nth group-results 1)
         reagent-result (nth group-results 2)]
 
     (testing "detects unused re-frame subscription"
-      (is (= 1 (count (:unused-subs rf-result))))
+      (is (= 1 (count (:unused-subs re-frame-result))))
       (is (= #{:webapp.subs/unused-sub}
-             (set (map :kw (:unused-subs rf-result))))))
+             (set (map :kw (:unused-subs re-frame-result))))))
 
     (testing "detects unused re-frame event"
-      (is (= 1 (count (:unused-events rf-result))))
+      (is (= 1 (count (:unused-events re-frame-result))))
       (is (= #{:webapp.events/unused-event}
-             (set (map :kw (:unused-events rf-result))))))
+             (set (map :kw (:unused-events re-frame-result))))))
 
     (testing "detects phantom subscription"
-      (is (= 1 (count (:phantom-subs rf-result))))
+      (is (= 1 (count (:phantom-subs re-frame-result))))
       (is (= #{:webapp.phantom/ghost-sub}
-             (set (map :kw (:phantom-subs rf-result))))))
+             (set (map :kw (:phantom-subs re-frame-result))))))
 
     (testing "does not flag used subscription as unused"
-      (is (not (contains? (set (map :kw (:unused-subs rf-result)))
+      (is (not (contains? (set (map :kw (:unused-subs re-frame-result)))
                           :webapp.subs/used-sub))))
 
     (testing "detects unused Spade styles"
@@ -60,14 +60,14 @@
                           :webapp.styles/vector-multi-class-style))))
 
     (testing "detects duplicate subscription registration"
-      (is (= 2 (count (:duplicate-subs rf-result))))
-      (is (= #{:webapp.subs/used-sub} (set (map :kw (:duplicate-subs rf-result))))))
+      (is (= 2 (count (:duplicate-subs re-frame-result))))
+      (is (= #{:webapp.subs/used-sub} (set (map :kw (:duplicate-subs re-frame-result))))))
 
     (testing "detects deprecated :dispatch-n effect"
-      (is (= 1 (count (:deprecated-effects rf-result)))))
+      (is (= 1 (count (:deprecated-effects re-frame-result)))))
 
     (testing "deprecated effect has correct metadata"
-      (let [dep (first (:deprecated-effects rf-result))]
+      (let [dep (first (:deprecated-effects re-frame-result))]
         (is (= :deprecated (:type dep)))
         (is (= ":dispatch-n" (:effect dep)))))))
 
@@ -83,17 +83,17 @@
 
 (deftest issues-carry-tier-test
   (let [{:keys [group-results]} (core/run fixture-dir all-groups)
-        rf-result (nth group-results 0)
+        re-frame-result (nth group-results 0)
         spade-result (nth group-results 1)
         reagent-result (nth group-results 2)]
     (testing "re-frame issues get correct tier"
-      (is (every? #(= :bugs (:tier %)) (:duplicate-subs rf-result)))
-      (is (every? #(= :cleanup (:tier %)) (:unused-subs rf-result)))
-      (is (every? #(= :cleanup (:tier %)) (:phantom-subs rf-result)))
-      (is (every? #(= :deprecations (:tier %)) (:deprecated-effects rf-result))))
+      (is (every? #(= :bugs (:tier %)) (:duplicate-subs re-frame-result)))
+      (is (every? #(= :cleanup (:tier %)) (:unused-subs re-frame-result)))
+      (is (every? #(= :cleanup (:tier %)) (:phantom-subs re-frame-result)))
+      (is (every? #(= :deprecations (:tier %)) (:deprecated-effects re-frame-result))))
 
     (testing "info-only rules get :tier nil"
-      (is (every? #(nil? (:tier %)) (:dynamic-sites rf-result))))
+      (is (every? #(nil? (:tier %)) (:dynamic-sites re-frame-result))))
 
     (testing "spade and reagent issues get correct tier"
       (is (every? #(= :cleanup (:tier %)) (:unused-styles spade-result)))

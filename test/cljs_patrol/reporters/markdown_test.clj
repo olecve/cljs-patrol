@@ -22,7 +22,7 @@
                              :file "src/views.cljs"
                              :row 8})
 
-(defn- rf-result [overrides]
+(defn- re-frame-result [overrides]
   (merge {:unused-subs []
           :unused-events []
           :phantom-subs []
@@ -42,13 +42,13 @@
 
 (deftest report-header-test
   (let [output (run-report [{:source-dir "src"
-                             :group-results [(rf-result {})]}])]
+                             :group-results [(re-frame-result {})]}])]
     (testing "starts with report header"
       (is (str/starts-with? output "# cljs-patrol report")))))
 
 (deftest unused-subs-section-test
   (let [output (run-report [{:source-dir "src"
-                             :group-results [(rf-result {:unused-subs [kw-item]})]}])]
+                             :group-results [(re-frame-result {:unused-subs [kw-item]})]}])]
     (testing "renders section title with count"
       (is (str/includes? output "## Unused subs (1)")))
     (testing "renders keyword and absolute file path"
@@ -59,21 +59,21 @@
 
 (deftest dynamic-sites-section-test
   (let [output (run-report [{:source-dir "src"
-                             :group-results [(rf-result {:dynamic-sites [dynamic-item]})]}])]
+                             :group-results [(re-frame-result {:dynamic-sites [dynamic-item]})]}])]
     (testing "renders form-based entries"
       (is (str/includes? output "## Dynamic sites (1)"))
       (is (str/includes? output "(rf/dispatch [event-kw])")))))
 
 (deftest empty-sections-omitted-test
   (let [output (run-report [{:source-dir "src"
-                             :group-results [(rf-result {:unused-subs [kw-item]})]}])]
+                             :group-results [(re-frame-result {:unused-subs [kw-item]})]}])]
     (testing "empty sections are not rendered"
       (is (not (str/includes? output "## Unused events")))
       (is (not (str/includes? output "## Phantom subs"))))))
 
 (deftest summary-table-test
   (let [output (run-report [{:source-dir "src"
-                             :group-results [(rf-result {:unused-subs [kw-item]
+                             :group-results [(re-frame-result {:unused-subs [kw-item]
                                                          :unused-events [event-item]})]}])]
     (testing "summary table is present"
       (is (str/includes? output "## Summary"))
@@ -86,7 +86,7 @@
   (let [output (run-report
                 [re-frame/group spade/group]
                 [{:source-dir "src"
-                  :group-results [(rf-result {:unused-subs [kw-item]})
+                  :group-results [(re-frame-result {:unused-subs [kw-item]})
                                   {:unused-styles [style-item]}]}])]
     (testing "renders sections from both groups"
       (is (str/includes? output "## Unused subs (1)"))
@@ -104,9 +104,9 @@
                 :row 2
                 :type :sub}
         output (run-report [{:source-dir "src"
-                             :group-results [(rf-result {:unused-subs [item-a]})]}
+                             :group-results [(re-frame-result {:unused-subs [item-a]})]}
                             {:source-dir "other"
-                             :group-results [(rf-result {:unused-subs [item-b]})]}])]
+                             :group-results [(re-frame-result {:unused-subs [item-b]})]}])]
     (testing "merges results from multiple source dirs"
       (is (str/includes? output "## Unused subs (2)"))
       (is (str/includes? output "`:a/sub`"))
