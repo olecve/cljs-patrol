@@ -193,10 +193,17 @@
                 (println "Error: --output markdown is not supported with --baseline.")
                 (System/exit 1))
               (case (:output opts)
-                :edn (edn-reporter/print-baseline-report dirs new-issues present fixed exit-code)
-                :html (do
+                :edn (edn-reporter/print-baseline-report
+                      dirs new-issues present fixed exit-code
+                      (:fail-on-rules opts) rule->tier)
+                :html (let [fail-on-rules (:fail-on-rules opts)
+                            blocking-count (count (filter #(contains? fail-on-rules (:rule %))
+                                                          new-issues))
+                            warning-count (- (count new-issues) blocking-count)]
                         (html-reporter/write-baseline-report
-                         enabled-groups run-results "report.html" new-issues (count fixed))
+                         enabled-groups run-results "report.html"
+                         new-issues (count fixed)
+                         fail-on-rules blocking-count warning-count)
                         (println "Report written to report.html"))
                 (do
                   (doseq [{:keys [source-dir group-results]} run-results]
@@ -229,11 +236,13 @@
                                                :fail-on-rules (:fail-on-rules opts)})]
           (case (:output opts)
             :html (do
-                    (html-reporter/write-report enabled-groups run-results "report.html")
+                    (html-reporter/write-report enabled-groups run-results "report.html"
+                                                (:fail-on-rules opts))
                     (println "Report written to report.html")
                     (doseq [{:keys [group-results]} run-results]
                       (print-summary enabled-groups group-results)))
-            :edn (edn-reporter/print-report enabled-groups dirs run-results)
+            :edn (edn-reporter/print-report enabled-groups dirs run-results
+                                            (:fail-on-rules opts))
             :markdown (md-reporter/print-report enabled-groups dirs run-results)
             (do
               (doseq [{:keys [group-results]} run-results]

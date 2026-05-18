@@ -117,3 +117,51 @@
             "shows fixed count banner"))
       (finally
         (.delete tmp-file)))))
+
+(deftest write-report-marks-blocking-test
+  (let [run-results [{:source-dir "src"
+                      :group-results [{:unused-subs [kw-item]
+                                       :unused-events []
+                                       :phantom-subs []
+                                       :phantom-events []
+                                       :duplicate-subs []
+                                       :duplicate-events []
+                                       :deprecated-effects []
+                                       :dynamic-sites []}]}]
+        tmp-file (java.io.File/createTempFile "cljs-patrol-blocking-test" ".html")]
+    (try
+      (html/write-report [re-frame/group] run-results (.getPath tmp-file)
+                         #{:unused-subs})
+      (let [content (slurp tmp-file)]
+        (is (str/includes? content "BLOCKING")
+            "blocking badge present"))
+      (finally
+        (.delete tmp-file)))))
+
+(deftest write-baseline-report-with-fail-on-test
+  (let [run-results [{:source-dir "src"
+                      :group-results [{:unused-subs [{:kw :app/new-sub
+                                                      :type :sub
+                                                      :file "src/new.cljs"
+                                                      :row 1}]
+                                       :unused-events []
+                                       :phantom-subs []
+                                       :phantom-events []
+                                       :duplicate-subs []
+                                       :duplicate-events []
+                                       :deprecated-effects []
+                                       :dynamic-sites []}]}]
+        new-ids #{{:rule :unused-subs
+                   :key :app/new-sub}}
+        tmp-file (java.io.File/createTempFile "cljs-patrol-baseline-blocking" ".html")]
+    (try
+      (html/write-baseline-report [re-frame/group] run-results (.getPath tmp-file)
+                                  new-ids 0
+                                  #{:unused-subs} 1 0)
+      (let [content (slurp tmp-file)]
+        (is (str/includes? content "BLOCKING")
+            "blocking badge applied in baseline HTML")
+        (is (str/includes? content "1 blocking, 0 warnings")
+            "tier summary panel shown"))
+      (finally
+        (.delete tmp-file)))))
