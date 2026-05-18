@@ -10,4 +10,4 @@
   (summary-lines [g result] "Return [[label count] ...].")
   (failed? [g result] "Return truthy if the result warrants a non-zero exit code.")
   (suggestions [g] "Map of issue-key -> fix suggestion string.")
-  (tiers [g] "Map of rule->tier (:bugs, :deprecations, :cleanup). Rules absent are info-only."))
+  (rule->tier [g] "Map of rule->tier (:bugs, :deprecations, :cleanup). Rules absent are info-only."))

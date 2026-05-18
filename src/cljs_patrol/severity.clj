@@ -10,7 +10,7 @@
 (defn collect-rule->tier
   "Merge the rule->tier maps from each group into a single map."
   [groups]
-  (into {} (mapcat group/tiers groups)))
+  (into {} (mapcat group/rule->tier groups)))
 
 (defn tier->rules
   "Return the set of rules in the given rule->tier map that belong to `tier`."

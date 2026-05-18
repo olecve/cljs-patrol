@@ -31,7 +31,7 @@
   (suggestions [_]
     {:defclass-as-sole-attr
      "Declared with defclass but every usage is {:class (style-fn)}. Use defattrs instead to avoid the :class wrapper."})
-  (tiers [_]
+  (rule->tier [_]
     {:defclass-as-sole-attr :deprecations}))
 
 (def group (->ReagentGroup))

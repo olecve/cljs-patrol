@@ -31,12 +31,12 @@
   (testing "info-only rules are absent from the map"
     (is (nil? (get rule->tier :dynamic-sites)))))
 
-(deftest group-tiers-test
+(deftest group-rule->tier-test
   (testing "each group exposes its own tier classification"
-    (is (= :bugs (-> (group/tiers re-frame/group) :duplicate-subs)))
-    (is (= :cleanup (-> (group/tiers spade/group) :unused-styles)))
-    (is (= :deprecations (-> (group/tiers reagent/group) :defclass-as-sole-attr)))
-    (is (= :deprecations (-> (group/tiers typography/group) :mixed-token-groups)))))
+    (is (= :bugs (-> (group/rule->tier re-frame/group) :duplicate-subs)))
+    (is (= :cleanup (-> (group/rule->tier spade/group) :unused-styles)))
+    (is (= :deprecations (-> (group/rule->tier reagent/group) :defclass-as-sole-attr)))
+    (is (= :deprecations (-> (group/rule->tier typography/group) :mixed-token-groups)))))
 
 (deftest tier->rules-test
   (is (= #{:duplicate-subs :duplicate-events}

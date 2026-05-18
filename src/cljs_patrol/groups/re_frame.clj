@@ -275,7 +275,7 @@
      "Usage of :dispatch-n, which is deprecated. Replace with :fx. Example: {:dispatch-n [[::event-a arg] [::event-b]]} becomes {:fx [[:dispatch [::event-a arg]] [:dispatch [::event-b]]]}."
      :dynamic-sites
      "Dispatch or subscribe call with a non-literal keyword - cannot be statically resolved. Requires manual review to confirm the correct handler is being used."})
-  (tiers [_]
+  (rule->tier [_]
     {:duplicate-subs :bugs
      :duplicate-events :bugs
      :deprecated-effects :deprecations
