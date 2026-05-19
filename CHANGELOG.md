@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.0.6] - 2026-05-19
+
+## What's Changed
+
+* Add severity tiers and --fail-on flag by @olecve in https://github.com/olecve/cljs-patrol/pull/8
+* Remove leftover cljstyle config by @olecve in https://github.com/olecve/cljs-patrol/pull/9
+* Tidy docstrings and inline short defn signatures by @olecve in https://github.com/olecve/cljs-patrol/pull/10
+* Extract HTML report CSS to its own resource file by @olecve in https://github.com/olecve/cljs-patrol/pull/11
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.5...v0.0.6
+
 ## [v0.0.5] - 2026-04-30
 
 ## What's Changed
