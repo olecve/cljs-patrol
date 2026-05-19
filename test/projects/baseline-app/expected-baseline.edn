@@ -10,6 +10,9 @@
  {:rule :phantom-subs
   :key :baseline-app.subs/deleted-feature}
 
+ {:rule :reg-event-db-empty
+  :key :baseline-app.events/legacy-reset}
+
  {:rule :reg-event-fx-db-only
   :key :baseline-app.events/fetch-data}
 
