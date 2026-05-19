@@ -189,14 +189,12 @@
             [:script (raw-string js)]])))
 
 (defn write-report
-  "Write a self-contained HTML report to output-path."
   ([enabled-groups run-results output-path]
    (write-report enabled-groups run-results output-path nil))
   ([enabled-groups run-results output-path fail-on-rules]
    (spit output-path (render-html enabled-groups run-results fail-on-rules))))
 
-(defn- render-baseline-details
-  [{:keys [title description columns items rule-key]} new-identities source-dir fail-on-rules]
+(defn- render-baseline-details [{:keys [title description columns items rule-key]} new-identities source-dir fail-on-rules]
   (let [cnt (count items)
         blocking? (blocking-rule? fail-on-rules rule-key)]
     [:details (if (pos? cnt) {:open true} {})
@@ -247,7 +245,6 @@
             [:script (raw-string js)]])))
 
 (defn write-baseline-report
-  "Write a baseline-aware HTML report to output-path."
   ([enabled-groups run-results output-path new-identities fixed-count]
    (write-baseline-report enabled-groups run-results output-path
                           new-identities fixed-count nil 0 0))

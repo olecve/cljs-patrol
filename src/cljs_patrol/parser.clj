@@ -129,8 +129,7 @@
                              :usages []
                              :dynamics []})
 
-(defn- merge-result
-  [acc node-result]
+(defn- merge-result [acc node-result]
   (if node-result
     {:decls (into (:decls acc) (:decls node-result))
      :usages (into (:usages acc) (:usages node-result))

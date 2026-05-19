@@ -17,9 +17,9 @@
   (apply merge-with (fn [a b] (if (sequential? a) (into a b) b)) results))
 
 (defn- count-by-tier
-  "Walk a merged results map and count issues that are blocking vs. warning
-  per the given fail-on-rules. When fail-on-rules is empty, every issue is
-  counted as blocking (the default-fail-on-everything behavior)."
+  "Return {:blocking-count N :warning-count M} for issues in `merged`.
+  An empty `fail-on-rules` counts every issue as blocking (matches the
+  default-fail-on-everything behavior)."
   [merged fail-on-rules]
   (let [has-fail-on? (seq fail-on-rules)]
     (reduce-kv

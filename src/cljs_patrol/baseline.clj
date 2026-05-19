@@ -80,8 +80,9 @@
 (def default-baseline-path ".cljs-patrol/baseline.edn")
 
 (defn resolve-baseline-path
-  "Resolve the baseline file path. If an explicit path is configured, use it as-is.
-  Otherwise, place the default path relative to the first source directory."
+  "Resolve the baseline file path.
+  Uses `configured-path` as-is when supplied; otherwise places the default
+  path relative to the first source directory."
   [configured-path source-dirs]
   (if configured-path
     configured-path
@@ -181,7 +182,7 @@
       {})))
 
 (defn merge-config
-  "Apply :baseline config-file settings to CLI opts. CLI flags take precedence.
+  "Apply :baseline config-file settings to CLI opts, with CLI flags taking precedence.
   Always returns all baseline keys (:baseline-path, :strict-baseline, :quiet-baseline)
   so callers don't have to handle missing keys.
   Recognized :baseline keys: :path, :strict, :quiet."

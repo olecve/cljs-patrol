@@ -69,8 +69,7 @@
       (println (format "  %-30s %d" label cnt)))))
 
 (defn- any-rule-issue?
-  "True if any group-result in run-results has a non-empty vector under a key
-  contained in rule-set."
+  "True if `run-results` contains any non-empty items vector keyed by a rule in `rule-set`."
   [run-results rule-set]
   (some (fn [{:keys [group-results]}]
           (some (fn [result]
@@ -125,8 +124,9 @@
      :group-results group-results}))
 
 (defn- count-blocking-warning
-  "Walk run-results and count items per rule-key, partitioned into
-  :blocking (rule-key in fail-on-rules) and :warning (everything else)."
+  "Return {:blocking N :warning M} for issues across `run-results`.
+  Issues whose rule is in `fail-on-rules` count as :blocking; the rest
+  count as :warning."
   [run-results fail-on-rules]
   (reduce
    (fn [acc {:keys [group-results]}]
