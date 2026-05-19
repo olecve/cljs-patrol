@@ -78,3 +78,47 @@
         (if (seq unknown)
           {:error (str "Unknown --fail-on tokens: " (str/join ", " unknown))}
           {:ok rules})))))
+
+(def ^:private tier-order
+  "Display order for tiers in list-rules output."
+  [:bugs :deprecations :cleanup :info-only])
+
+(defn list-rules
+  "Return a map of tier -> sorted seq of {:rule :group :suggestion} entries.
+  Rules absent from a group's rule->tier go under :info-only."
+  [groups]
+  (let [entries (for [g groups
+                      :let [gid (group/group-id g)
+                            tier-map (group/rule->tier g)
+                            suggs (group/suggestions g)]
+                      [rule suggestion] suggs]
+                  {:rule rule
+                   :group gid
+                   :tier (get tier-map rule :info-only)
+                   :suggestion suggestion})]
+    (->> entries
+         (group-by :tier)
+         (map (fn [[tier es]]
+                [tier (sort-by (juxt :group :rule) es)]))
+         (into {}))))
+
+(defn- truncate [s n]
+  (if (<= (count s) n) s (str (subs s 0 n) "...")))
+
+(defn format-rules
+  "Render the result of `list-rules` as a human-readable string."
+  [tiered]
+  (str/join
+   "\n"
+   (for [tier tier-order
+         :let [entries (get tiered tier)]
+         :when (seq entries)
+         line (concat [(str "\n" (if (= tier :info-only)
+                                   "info-only (do not block CI):"
+                                   (str (name tier) ":")))]
+                      (for [{:keys [rule group suggestion]} entries]
+                        (format "  %-25s (%s)  %s"
+                                (str rule)
+                                (name group)
+                                (truncate suggestion 80))))]
+     line)))

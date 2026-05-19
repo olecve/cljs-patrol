@@ -249,6 +249,15 @@ Console output adds a `[BLOCKING]` marker to section headers for rules in the fa
 
 EDN output adds `:blocking-count`, `:warning-count`, and (for baseline mode) `:tier` on each issue. HTML output shows the same blocking badge and a tier-summary panel at the top.
 
+### Listing rules
+
+To see every rule and its tier (handy when picking what to put in `--fail-on`):
+
+```bash
+clojure -M:run --list-rules
+clojure -M:run --only re-frame --list-rules    # scope to one group
+```
+
 ### Composing with --baseline
 
 This is the headline combo. With both `--baseline` and `--fail-on`, an issue causes exit 1 only if it is **both new (not in baseline) and in a failing tier**:
