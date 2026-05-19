@@ -97,4 +97,51 @@
     (is (= 1 (count (:new-issues parsed))))
     (is (= 1 (count (:baseline-issues parsed))))
     (is (= 1 (count (:fixed-issues parsed))))
-    (is (vector? (:source-dirs parsed)))))
+    (is (vector? (:source-dirs parsed)))
+    (is (= 1 (:blocking-count parsed))
+        "without fail-on, all new issues count as blocking")
+    (is (= 0 (:warning-count parsed)))))
+
+(deftest print-baseline-report-with-fail-on-test
+  (let [new-issues #{{:rule :duplicate-subs
+                      :key :app/bug}
+                     {:rule :unused-subs
+                      :key :app/cleanup}}
+        rule->tier {:duplicate-subs :bugs
+                    :unused-subs :cleanup}
+        output (with-out-str
+                 (edn-reporter/print-baseline-report
+                  ["src"] new-issues #{} #{} 1
+                  #{:duplicate-subs} rule->tier))
+        parsed (edn/read-string output)]
+    (is (= 1 (:blocking-count parsed))
+        "one new issue is in fail-on")
+    (is (= 1 (:warning-count parsed))
+        "the other new issue is a warning")
+    (is (every? :tier (:new-issues parsed))
+        "issues are annotated with :tier")))
+
+(deftest print-report-with-fail-on-test
+  (let [run-results [{:source-dir "src"
+                      :group-results [{:duplicate-subs [{:kw :app/dup
+                                                         :type :sub
+                                                         :file "a.cljs"
+                                                         :row 1
+                                                         :tier :bugs}]
+                                       :unused-subs [{:kw :app/unused
+                                                      :type :sub
+                                                      :file "b.cljs"
+                                                      :row 2
+                                                      :tier :cleanup}]
+                                       :unused-events []
+                                       :phantom-subs []
+                                       :phantom-events []
+                                       :duplicate-events []
+                                       :deprecated-effects []
+                                       :dynamic-sites []}]}]
+        output (with-out-str
+                 (edn-reporter/print-report [re-frame/group] ["src"] run-results
+                                            #{:duplicate-subs}))
+        parsed (edn/read-string output)]
+    (is (= 1 (:blocking-count parsed)))
+    (is (= 1 (:warning-count parsed)))))

@@ -52,7 +52,11 @@
    "tr.new-issue td:first-child::before{content:'[NEW] ';color:#d32f2f;font-weight:700;font-size:11px}"
    "tr.baseline-issue{opacity:.6}"
    ".baseline-banner{background:#fff3cd;border:1px solid #ffc107;"
-   "border-radius:6px;padding:12px 16px;margin-bottom:20px;font-size:13px}"))
+   "border-radius:6px;padding:12px 16px;margin-bottom:20px;font-size:13px}"
+   ".blocking-badge{display:inline-block;background:#d32f2f;color:#fff;"
+   "border-radius:4px;padding:1px 8px;margin-left:8px;font-size:11px;font-weight:700;letter-spacing:.05em}"
+   ".tier-summary{background:#fff;border:1px solid #e8e8e8;border-radius:6px;"
+   "padding:10px 14px;margin-bottom:14px;font-size:13px;font-weight:600}"))
 
 (def ^:private js
   (str
@@ -92,18 +96,25 @@
     :line "Line"
     :form "Form"))
 
-(defn- render-details [{:keys [title description columns items]}]
-  (let [cnt (count items)]
-    [:details (if (pos? cnt) {:open true} {})
-     [:summary title " (" cnt ")"
-      (when description [:span.desc description])]
-     [:table.issues
-      [:thead
-       [:tr (map #(vector :th {:data-sort ""} (col-header %)) columns)]]
-      [:tbody
-       (map (fn [item]
-              [:tr (map #(vector :td (cell-value % item)) columns)])
-            items)]]]))
+(defn- blocking-rule? [fail-on-rules rule-key]
+  (and (seq fail-on-rules) (contains? fail-on-rules rule-key)))
+
+(defn- render-details
+  ([section] (render-details section nil))
+  ([{:keys [title description columns items rule-key]} fail-on-rules]
+   (let [cnt (count items)
+         blocking? (blocking-rule? fail-on-rules rule-key)]
+     [:details (if (pos? cnt) {:open true} {})
+      [:summary title " (" cnt ")"
+       (when blocking? [:span.blocking-badge "BLOCKING"])
+       (when description [:span.desc description])]
+      [:table.issues
+       [:thead
+        [:tr (map #(vector :th {:data-sort ""} (col-header %)) columns)]]
+       [:tbody
+        (map (fn [item]
+               [:tr (map #(vector :td (cell-value % item)) columns)])
+             items)]]])))
 
 (defn- key->title [k]
   (-> (name k)
@@ -154,12 +165,13 @@
               [:td cnt]])
            all-rows)]]))
 
-(defn- render-group-section [g g-idx run-results]
+(defn- render-group-section [g g-idx run-results fail-on-rules]
   [:section
    [:h2 (group/group-name g)]
-   (map render-details (aggregate-sections g g-idx run-results))])
+   (map #(render-details % fail-on-rules)
+        (aggregate-sections g g-idx run-results))])
 
-(defn- render-html [enabled-groups run-results]
+(defn- render-html [enabled-groups run-results fail-on-rules]
   (let [dirs (str/join ", " (map :source-dir run-results))
         timestamp (str (java.time.LocalDateTime/now))]
     (html5 {:lang "en"}
@@ -172,18 +184,24 @@
             [:p "Generated: " timestamp " | Analyzed: " dirs]
             [:h2 "Summary"]
             (render-summary-table enabled-groups run-results)
-            (map-indexed (fn [i g] (render-group-section g i run-results)) enabled-groups)
+            (map-indexed (fn [i g] (render-group-section g i run-results fail-on-rules))
+                         enabled-groups)
             [:script (raw-string js)]])))
 
 (defn write-report
   "Write a self-contained HTML report to output-path."
-  [enabled-groups run-results output-path]
-  (spit output-path (render-html enabled-groups run-results)))
+  ([enabled-groups run-results output-path]
+   (write-report enabled-groups run-results output-path nil))
+  ([enabled-groups run-results output-path fail-on-rules]
+   (spit output-path (render-html enabled-groups run-results fail-on-rules))))
 
-(defn- render-baseline-details [{:keys [title description columns items rule-key]} new-identities source-dir]
-  (let [cnt (count items)]
+(defn- render-baseline-details
+  [{:keys [title description columns items rule-key]} new-identities source-dir fail-on-rules]
+  (let [cnt (count items)
+        blocking? (blocking-rule? fail-on-rules rule-key)]
     [:details (if (pos? cnt) {:open true} {})
      [:summary title " (" cnt ")"
+      (when blocking? [:span.blocking-badge "BLOCKING"])
       (when description [:span.desc description])]
      [:table.issues
       [:thead
@@ -197,7 +215,9 @@
                  (map #(vector :td (cell-value % item)) columns)]))
             items)]]]))
 
-(defn- render-baseline-html [enabled-groups run-results new-identities fixed-count]
+(defn- render-baseline-html
+  [enabled-groups run-results new-identities fixed-count fail-on-rules
+   blocking-count warning-count]
   (let [dirs (str/join ", " (map :source-dir run-results))
         timestamp (str (java.time.LocalDateTime/now))
         source-dir (:source-dir (first run-results))]
@@ -209,6 +229,9 @@
            [:body
             [:h1 "cljs-patrol report (baseline)"]
             [:p "Generated: " timestamp " | Analyzed: " dirs]
+            (when (seq fail-on-rules)
+              [:div.tier-summary
+               (str "New: " blocking-count " blocking, " warning-count " warnings.")])
             (when (pos? fixed-count)
               [:div.baseline-banner
                (str fixed-count " baseline issues no longer present - consider running --baseline-write to refresh.")])
@@ -218,12 +241,18 @@
              (fn [i g]
                [:section
                 [:h2 (group/group-name g)]
-                (map #(render-baseline-details % new-identities source-dir)
+                (map #(render-baseline-details % new-identities source-dir fail-on-rules)
                      (aggregate-sections g i run-results))])
              enabled-groups)
             [:script (raw-string js)]])))
 
 (defn write-baseline-report
   "Write a baseline-aware HTML report to output-path."
-  [enabled-groups run-results output-path new-identities fixed-count]
-  (spit output-path (render-baseline-html enabled-groups run-results new-identities fixed-count)))
+  ([enabled-groups run-results output-path new-identities fixed-count]
+   (write-baseline-report enabled-groups run-results output-path
+                          new-identities fixed-count nil 0 0))
+  ([enabled-groups run-results output-path new-identities fixed-count
+    fail-on-rules blocking-count warning-count]
+   (spit output-path
+         (render-baseline-html enabled-groups run-results new-identities fixed-count
+                               fail-on-rules blocking-count warning-count))))

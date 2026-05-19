@@ -53,7 +53,8 @@
         "no new issues when all are baselined")
     (is (= identities present))
     (is (empty? fixed))
-    (is (not (core/baseline-failed? {} new fixed)))))
+    (is (not (core/baseline-failed? {:new-issues new
+                                     :fixed-issues fixed})))))
 
 (deftest baseline-empty-baseline-test
   (let [{:keys [identities]} (run-analysis)
@@ -62,7 +63,8 @@
         "everything is new against empty baseline")
     (is (empty? present))
     (is (empty? fixed))
-    (is (core/baseline-failed? {} new fixed))))
+    (is (core/baseline-failed? {:new-issues new
+                                :fixed-issues fixed}))))
 
 (deftest baseline-detects-fixed-issues-test
   (let [{:keys [identities]} (run-analysis)
@@ -73,9 +75,12 @@
     (is (empty? new))
     (is (= identities present))
     (is (= #{extra} fixed))
-    (is (not (core/baseline-failed? {} new fixed))
+    (is (not (core/baseline-failed? {:new-issues new
+                                     :fixed-issues fixed}))
         "non-strict does not fail on fixed")
-    (is (core/baseline-failed? {:strict-baseline true} new fixed)
+    (is (core/baseline-failed? {:new-issues new
+                                :fixed-issues fixed
+                                :strict-baseline true})
         "strict fails on fixed")))
 
 (deftest baseline-expected-identities-test
@@ -114,7 +119,7 @@
         out (with-out-str
               (doseq [{:keys [group-results]} run-results]
                 (doseq [result group-results]
-                  (console/report-with-baseline result #{} true))))]
+                  (console/report-with-baseline result #{} {:quiet? true}))))]
     (is (= "" out)
         "quiet mode suppresses all baseline issues")))
 

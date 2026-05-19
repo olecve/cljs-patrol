@@ -102,24 +102,116 @@
         (is (= found present))
         (is (= #{extra} fixed))))))
 
+(def ^:private blocking-issue
+  {:kw :app/a
+   :file "a.cljs"
+   :row 1
+   :tier :bugs})
+
+(def ^:private non-blocking-issue
+  {:kw :app/b
+   :file "b.cljs"
+   :row 2
+   :tier :cleanup})
+
+(deftest standalone-failed?-test
+  (testing "without --fail-on, falls back to group/failed?"
+    (let [run-results [{:source-dir "src"
+                        :group-results [{:unused-subs [blocking-issue]}]}]]
+      (is (true? (core/standalone-failed? {:enabled-groups [re-frame/group]
+                                           :run-results run-results}))
+          ":unused-subs causes group/failed? to return truthy"))
+    (let [run-results [{:source-dir "src"
+                        :group-results [{:unused-subs []
+                                         :phantom-subs [non-blocking-issue]}]}]]
+      (is (false? (core/standalone-failed? {:enabled-groups [re-frame/group]
+                                            :run-results run-results}))
+          "phantom-subs alone does not trigger group/failed?")))
+
+  (testing "with --fail-on rule set, only listed rules cause failure"
+    (let [run-results [{:source-dir "src"
+                        :group-results [{:unused-subs [non-blocking-issue]
+                                         :phantom-subs []}]}]]
+      (is (false? (core/standalone-failed? {:enabled-groups [re-frame/group]
+                                            :run-results run-results
+                                            :fail-on-rules #{:phantom-subs}}))
+          "unused-subs issues don't fail when only phantom-subs is selected"))
+    (let [run-results [{:source-dir "src"
+                        :group-results [{:unused-subs []
+                                         :phantom-subs [non-blocking-issue]}]}]]
+      (is (true? (core/standalone-failed? {:enabled-groups [re-frame/group]
+                                           :run-results run-results
+                                           :fail-on-rules #{:phantom-subs}}))
+          "phantom-subs issues fail when phantom-subs is in fail-on set")))
+
+  (testing "empty run-results never fails"
+    (is (false? (core/standalone-failed? {:enabled-groups [re-frame/group]
+                                          :run-results []})))
+    (is (false? (core/standalone-failed? {:enabled-groups [re-frame/group]
+                                          :run-results []
+                                          :fail-on-rules #{:phantom-subs}})))))
+
+(def ^:private new-bug
+  {:rule :duplicate-subs
+   :key :app/dup})
+
+(def ^:private new-cleanup
+  {:rule :unused-subs
+   :key :app/unused})
+
+(def ^:private fixed-issue
+  {:rule :unused-subs
+   :key :app/gone})
+
 (deftest baseline-failed?-test
-  (is (not (core/baseline-failed? {} #{} #{}))
-      "no new, no fixed")
-  (is (core/baseline-failed? {} #{{:rule :unused-subs
-                                   :key :app/a}} #{})
-      "new issues always fail")
-  (is (not (core/baseline-failed? {} #{} #{{:rule :unused-subs
-                                            :key :app/a}}))
-      "fixed issues don't fail without strict")
-  (is (core/baseline-failed? {:strict-baseline true} #{} #{{:rule :unused-subs
-                                                            :key :app/a}})
-      "fixed issues fail with strict")
-  (is (core/baseline-failed? {:strict-baseline true}
-                             #{{:rule :unused-subs
-                                :key :app/a}}
-                             #{{:rule :unused-subs
-                                :key :app/b}})
-      "both new and fixed fail with strict"))
+  (testing "without --fail-on (nil rules)"
+    (is (false? (core/baseline-failed? {:new-issues #{}
+                                        :fixed-issues #{}}))
+        "no new, no fixed -> pass")
+    (is (true? (core/baseline-failed? {:new-issues #{new-cleanup}
+                                       :fixed-issues #{}}))
+        "any new issue fails when fail-on is unset")
+    (is (false? (core/baseline-failed? {:new-issues #{}
+                                        :fixed-issues #{fixed-issue}}))
+        "fixed without strict -> pass")
+    (is (true? (core/baseline-failed? {:new-issues #{}
+                                       :fixed-issues #{fixed-issue}
+                                       :strict-baseline true}))
+        "fixed with strict -> fail"))
+
+  (testing "with --fail-on bugs"
+    (let [fail-on #{:duplicate-subs :duplicate-events}]
+      (is (true? (core/baseline-failed? {:new-issues #{new-bug}
+                                         :fixed-issues #{}
+                                         :fail-on-rules fail-on}))
+          "new bug fails")
+      (is (false? (core/baseline-failed? {:new-issues #{new-cleanup}
+                                          :fixed-issues #{}
+                                          :fail-on-rules fail-on}))
+          "new cleanup does not fail when only bugs selected")
+      (is (true? (core/baseline-failed? {:new-issues #{new-bug new-cleanup}
+                                         :fixed-issues #{}
+                                         :fail-on-rules fail-on}))
+          "mixed new issues: bug still fails")))
+
+  (testing "baseline issues never fail (that's the point)"
+    (is (false? (core/baseline-failed? {:new-issues #{}
+                                        :fixed-issues #{}
+                                        :fail-on-rules #{:duplicate-subs}}))
+        "no new issues, even with fail-on set"))
+
+  (testing "fixed issues with strict ignore fail-on tier"
+    (is (true? (core/baseline-failed? {:new-issues #{}
+                                       :fixed-issues #{fixed-issue}
+                                       :fail-on-rules #{:duplicate-subs}
+                                       :strict-baseline true}))
+        "strict fails on fixed regardless of tier"))
+
+  (testing "combined: new bug + fixed cleanup, with strict and fail-on bugs"
+    (is (true? (core/baseline-failed? {:new-issues #{new-bug}
+                                       :fixed-issues #{fixed-issue}
+                                       :fail-on-rules #{:duplicate-subs}
+                                       :strict-baseline true})))))
 
 (deftest baseline-with-files-filter-test
   (let [enabled-groups [re-frame/group spade/group]

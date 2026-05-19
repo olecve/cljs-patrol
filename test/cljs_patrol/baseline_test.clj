@@ -353,23 +353,30 @@
                                       {:unused-styles []}]}]]
     (is (= #{} (baseline/collect-identities run-results)))))
 
+(def ^:private defaults
+  {:baseline-path nil
+   :strict-baseline false
+   :quiet-baseline false})
+
 (deftest merge-config-test
-  (is (= {:strict-baseline true}
-         (baseline/merge-config {:strict true} {}))
+  (is (= (assoc defaults :strict-baseline true)
+         (baseline/merge-config {:baseline {:strict true}} {}))
       "config sets strict")
-  (is (= {:quiet-baseline true}
-         (baseline/merge-config {:quiet true} {}))
+  (is (= (assoc defaults :quiet-baseline true)
+         (baseline/merge-config {:baseline {:quiet true}} {}))
       "config sets quiet")
-  (is (= {:baseline-path "custom/path.edn"}
-         (baseline/merge-config {:path "custom/path.edn"} {}))
+  (is (= (assoc defaults :baseline-path "custom/path.edn")
+         (baseline/merge-config {:baseline {:path "custom/path.edn"}} {}))
       "config sets path")
-  (is (= {}
+  (is (= defaults
          (baseline/merge-config {} {}))
-      "empty config and empty cli")
-  (is (= {:baseline-path "cli.edn"
-          :strict-baseline true}
-         (baseline/merge-config {:path "config.edn"
-                                 :strict true} {:baseline-path "cli.edn"}))
+      "empty config and empty cli yields all defaults")
+  (is (= (-> defaults
+             (assoc :baseline-path "cli.edn")
+             (assoc :strict-baseline true))
+         (baseline/merge-config {:baseline {:path "config.edn"
+                                            :strict true}}
+                                {:baseline-path "cli.edn"}))
       "cli path overrides config path"))
 
 (deftest resolve-baseline-path-test

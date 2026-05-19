@@ -15,7 +15,7 @@ Example:
 clojure -M:run src/cljs/myapp
 ```
 
-Exits with code `1` when issues are found, making it suitable for CI pipelines.
+By default, exits with code `1` when any blocking issue is found, making it suitable for CI pipelines. The set of blocking issues can be narrowed with [`--fail-on`](#severity-tiers) and existing issues can be ignored with [`--baseline`](#baseline).
 
 ### Standalone jar
 
@@ -206,6 +206,88 @@ Baseline settings can be configured in `.cljs-patrol/config.edn`:
 ```
 
 CLI flags override config file settings.
+
+## Severity tiers
+
+By default, any issue causes CI to fail. For incremental adoption — or just to focus signal on what matters most — `--fail-on` controls which rules block CI. Every issue is still reported regardless; only the exit code is gated.
+
+### Tiers
+
+| Tier | Rules | Why |
+| ---- | ----- | --- |
+| `bugs` | `duplicate-subs`, `duplicate-events` | Silent runtime breakage — the second registration overwrites the first. |
+| `deprecations` | `deprecated-effects`, `defclass-as-sole-attr`, `defattrs-in-merge`, `mixed-token-groups` | Deprecated APIs and idiomatic violations that may break later. |
+| `cleanup` | `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events` | Dead code and suspicious references with no runtime impact. |
+
+`dynamic-sites` is info-only — it never affects the exit code.
+
+### Usage
+
+```bash
+clojure -M:run --fail-on bugs src/cljs/myapp
+clojure -M:run --fail-on bugs,deprecations src/cljs/myapp
+clojure -M:run --fail-on phantom-subs,duplicate-subs src/cljs/myapp
+clojure -M:run --fail-on all src/cljs/myapp     # every classified rule blocks
+```
+
+Tier names, individual rule keys, and the meta value `all` can be mixed. Unknown tokens error with a hint.
+
+### Output with --fail-on
+
+Console output adds a `[BLOCKING]` marker to section headers for rules in the failing set, and a summary line shows the breakdown:
+
+```
+=== Duplicate subs (1) [BLOCKING] ===
+  :app.subs/users   src/app/subs.cljs:5
+
+=== Unused subs (3) ===
+  :app.subs/old     src/app/subs.cljs:12
+  ...
+
+1 blocking, 3 warnings.
+```
+
+EDN output adds `:blocking-count`, `:warning-count`, and (for baseline mode) `:tier` on each issue. HTML output shows the same blocking badge and a tier-summary panel at the top.
+
+### Composing with --baseline
+
+This is the headline combo. With both `--baseline` and `--fail-on`, an issue causes exit 1 only if it is **both new (not in baseline) and in a failing tier**:
+
+```bash
+# Adopting on a messy codebase: snapshot once, then block only new bugs in CI.
+clojure -M:run --baseline-write src/cljs/myapp
+clojure -M:run --baseline --fail-on bugs src/cljs/myapp
+```
+
+What this means for CI:
+- Old issues already in the baseline: never block, regardless of tier.
+- New issues in failing tiers (here, `bugs`): block CI immediately.
+- New issues in non-failing tiers (deprecations, cleanup): printed with `[NEW]` but don't block.
+
+`--strict-baseline` still applies on top: fixed baseline issues always block when set, regardless of tier (forces baseline regeneration).
+
+### Greenfield project
+
+For a project starting fresh, no baseline is needed:
+
+```bash
+clojure -M:run --fail-on bugs,deprecations src/cljs/myapp
+```
+
+This blocks on real problems while leaving cleanup items as visible warnings.
+
+### Configuration file
+
+`--fail-on` can be set in `.cljs-patrol/config.edn` as a vector of keywords:
+
+```edn
+{:fail-on [:bugs :deprecated-effects]
+ :baseline {:path ".cljs-patrol/baseline.edn"
+            :strict false
+            :quiet false}}
+```
+
+CLI flag overrides config file setting.
 
 ## Build
 

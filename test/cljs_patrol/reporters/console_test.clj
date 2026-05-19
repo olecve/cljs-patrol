@@ -99,7 +99,7 @@
         new-ids #{{:rule :unused-subs
                    :key :app/new-sub}}
         result {:unused-subs [new-item old-item]}
-        out (with-out-str (console/report-with-baseline result new-ids true))]
+        out (with-out-str (console/report-with-baseline result new-ids {:quiet? true}))]
     (is (str/includes? out ":app/new-sub")
         "shows new issues")
     (is (not (str/includes? out ":app/old-sub"))
@@ -111,6 +111,42 @@
                   :file "src/old.cljs"
                   :row 2}
         result {:unused-subs [old-item]}
-        out (with-out-str (console/report-with-baseline result #{} true))]
+        out (with-out-str (console/report-with-baseline result #{} {:quiet? true}))]
     (is (= "" out)
         "no output when all issues are baseline and quiet")))
+
+(deftest report-marks-blocking-sections-test
+  (let [bug-item {:kw :app/dup
+                  :file "subs.cljs"
+                  :row 1}
+        cleanup-item {:kw :app/unused
+                      :file "subs.cljs"
+                      :row 2}
+        result {:duplicate-subs [bug-item]
+                :unused-subs [cleanup-item]}
+        fail-on-rules #{:duplicate-subs}
+        out (with-out-str (console/report result fail-on-rules))]
+    (is (str/includes? out "Duplicate subs (1) [BLOCKING]")
+        "blocking rule's section is marked")
+    (is (re-find #"Unused subs \(1\) ===" out)
+        "non-blocking rule's section is unmarked")))
+
+(deftest report-without-fail-on-omits-blocking-marker-test
+  (let [item {:kw :app/dup
+              :file "subs.cljs"
+              :row 1}
+        result {:duplicate-subs [item]}
+        out (with-out-str (console/report result))]
+    (is (not (str/includes? out "[BLOCKING]"))
+        "no [BLOCKING] marker when fail-on-rules is unset")))
+
+(deftest report-with-baseline-marks-blocking-test
+  (let [item {:kw :app/dup
+              :file "subs.cljs"
+              :row 1}
+        result {:duplicate-subs [item]}
+        out (with-out-str
+              (console/report-with-baseline result #{}
+                                            {:fail-on-rules #{:duplicate-subs}}))]
+    (is (str/includes? out "[BLOCKING]")
+        "blocking marker applied in baseline mode too")))
