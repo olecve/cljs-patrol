@@ -124,29 +124,10 @@
     {:source-dir source-dir
      :group-results group-results}))
 
-(defn- count-blocking-warning
-  "Return {:blocking N :warning M} for issues across `run-results`.
-  Issues whose rule is in `fail-on-rules` count as :blocking; the rest
-  count as :warning."
-  [run-results fail-on-rules]
-  (reduce
-   (fn [acc {:keys [group-results]}]
-     (reduce
-      (fn [acc result]
-        (reduce-kv
-         (fn [acc rule-key items]
-           (if (and (sequential? items) (seq items))
-             (if (contains? fail-on-rules rule-key)
-               (update acc :blocking + (count items))
-               (update acc :warning + (count items)))
-             acc))
-         acc
-         result))
-      acc
-      group-results))
-   {:blocking 0
-    :warning 0}
-   run-results))
+(defn- run-results->results
+  "Flatten run-results into a seq of group result maps."
+  [run-results]
+  (mapcat :group-results run-results))
 
 (defn- run-baseline-write! [run-results opts dirs]
   (let [identities (baseline/collect-identities run-results)
@@ -231,7 +212,9 @@
             (console/report r fail-on-rules))
           (print-summary enabled-groups group-results))
         (when (seq fail-on-rules)
-          (let [{:keys [blocking warning]} (count-blocking-warning run-results fail-on-rules)]
+          (let [{:keys [blocking warning]} (severity/count-by-fail-on
+                                            (run-results->results run-results)
+                                            fail-on-rules)]
             (println (format "\n%d blocking, %d warnings." blocking warning))))))
     (System/exit (if any-failed? 1 0))))
 
