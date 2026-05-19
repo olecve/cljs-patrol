@@ -79,6 +79,29 @@
           {:error (str "Unknown --fail-on tokens: " (str/join ", " unknown))}
           {:ok rules})))))
 
+(defn count-by-fail-on
+  "Return {:blocking N :warning M} for issues across the given `results`.
+  Each entry in `results` is a group result map (rule-key -> items vector).
+  Issues whose rule is in `fail-on-rules` count as blocking; the rest as warning.
+  An empty `fail-on-rules` counts every issue as blocking (matches the
+  default-fail-on-everything behavior)."
+  [results fail-on-rules]
+  (let [has-fail-on? (seq fail-on-rules)]
+    (reduce
+     (fn [acc result]
+       (reduce-kv
+        (fn [acc rule-key items]
+          (if (and (sequential? items) (seq items))
+            (if (or (not has-fail-on?) (contains? fail-on-rules rule-key))
+              (update acc :blocking + (count items))
+              (update acc :warning + (count items)))
+            acc))
+        acc
+        result))
+     {:blocking 0
+      :warning 0}
+     results)))
+
 (def ^:private tier-order
   "Display order for tiers in list-rules output."
   [:bugs :deprecations :cleanup :info-only])

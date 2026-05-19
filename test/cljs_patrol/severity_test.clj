@@ -197,3 +197,41 @@
     (is (re-find #"info-only" output))
     (is (re-find #":duplicate-subs" output))
     (is (re-find #":dynamic-sites" output))))
+
+(deftest count-by-fail-on-test
+  (let [results [{:duplicate-subs [{:kw :app/a}]
+                  :unused-subs [{:kw :app/b} {:kw :app/c}]
+                  :dynamic-sites []}]]
+    (testing "splits issues by rule-key membership in fail-on-rules"
+      (is (= {:blocking 1
+              :warning 2}
+             (severity/count-by-fail-on results #{:duplicate-subs}))))
+
+    (testing "empty fail-on-rules counts everything as blocking"
+      (is (= {:blocking 3
+              :warning 0}
+             (severity/count-by-fail-on results #{})))
+      (is (= {:blocking 3
+              :warning 0}
+             (severity/count-by-fail-on results nil))))
+
+    (testing "empty results returns zero counts"
+      (is (= {:blocking 0
+              :warning 0}
+             (severity/count-by-fail-on [] #{:duplicate-subs}))))
+
+    (testing "non-sequential values are skipped"
+      (is (= {:blocking 0
+              :warning 0}
+             (severity/count-by-fail-on [{:meta 42}] #{:meta})))))
+
+  (testing "sums counts across multiple result maps"
+    (let [results [{:duplicate-subs [{:kw :a/x}]
+                    :unused-subs [{:kw :a/y}]}
+                   {:duplicate-subs [{:kw :b/x} {:kw :b/y}]
+                    :unused-subs []}
+                   {:unused-styles [{:kw :c/z}]}]]
+      (is (= {:blocking 3
+              :warning 2}
+             (severity/count-by-fail-on results #{:duplicate-subs}))
+          "3 duplicate-subs across 2 maps block; 1 unused-sub + 1 unused-style warn"))))

@@ -1,7 +1,9 @@
 (ns cljs-patrol.reporters.edn
   "EDN output for cljs-patrol analysis results, suitable for programmatic and AI-assisted use."
   (:require
-   [cljs-patrol.group :as group]))
+   [cljs-patrol.group :as group]
+   [cljs-patrol.severity :as severity]
+   [clojure.set :as set]))
 
 (defn- absolutize-item [item]
   (if (:file item)
@@ -17,25 +19,12 @@
   (apply merge-with (fn [a b] (if (sequential? a) (into a b) b)) results))
 
 (defn- count-by-tier
-  "Return {:blocking-count N :warning-count M} for issues in `merged`.
-  An empty `fail-on-rules` counts every issue as blocking (matches the
-  default-fail-on-everything behavior)."
+  "Wraps severity/count-by-fail-on, renaming keys to the EDN schema."
   [merged fail-on-rules]
-  (let [has-fail-on? (seq fail-on-rules)]
-    (reduce-kv
-     (fn [acc _group-id rule-map]
-       (reduce-kv
-        (fn [acc rule-key items]
-          (if (sequential? items)
-            (if (or (not has-fail-on?) (contains? fail-on-rules rule-key))
-              (update acc :blocking-count + (count items))
-              (update acc :warning-count + (count items)))
-            acc))
-        acc
-        rule-map))
-     {:blocking-count 0
-      :warning-count 0}
-     merged)))
+  (set/rename-keys
+   (severity/count-by-fail-on (vals merged) fail-on-rules)
+   {:blocking :blocking-count
+    :warning :warning-count}))
 
 (defn print-report
   "Print analysis results as EDN to stdout.
