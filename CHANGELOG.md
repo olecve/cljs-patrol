@@ -1,5 +1,18 @@
 # Changelog
 
+## [v0.0.7] - 2026-05-19
+
+## What's Changed
+
+* Fix release workflow: fetch main before checkout by @olecve in https://github.com/olecve/cljs-patrol/pull/12
+* Add --list-rules flag by @olecve in https://github.com/olecve/cljs-patrol/pull/13
+* Unify blocking/warning count helpers in severity ns by @olecve in https://github.com/olecve/cljs-patrol/pull/14
+* Detect reg-sub :=> with 1-arity fn by @olecve in https://github.com/olecve/cljs-patrol/pull/15
+* Detect reg-event-fx with empty effects or only :db returned by @olecve in https://github.com/olecve/cljs-patrol/pull/16
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.6...v0.0.7
+
+
 ## [v0.0.6] - 2026-05-19
 
 ## What's Changed
