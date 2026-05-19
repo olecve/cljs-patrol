@@ -11,3 +11,9 @@
 ;; Unused - should appear in baseline
 (rf/reg-sub ::old-dashboard
             (fn [db _] (:dashboard db)))
+
+;; Wrong sugar: :=> passes (signal-value query-vector) but `last` is 1-arity.
+;; Should be :-> instead.
+(rf/reg-sub ::latest-active-user
+            :<- [::active-users]
+            :=> last)

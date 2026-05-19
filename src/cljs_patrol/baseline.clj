@@ -11,7 +11,8 @@
 (def ^:private keyword-keyed-rules
   "Rules where the issue is uniquely identified by its keyword."
   #{:unused-subs :unused-events :phantom-subs :phantom-events
-    :duplicate-subs :duplicate-events})
+    :duplicate-subs :duplicate-events
+    :reg-sub-=>-1-arity})
 
 (def ^:private var-keyed-rules
   "Rules where the issue is identified by namespace + var name (from a namespaced keyword)."

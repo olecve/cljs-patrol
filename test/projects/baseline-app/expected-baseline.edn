@@ -10,6 +10,9 @@
  {:rule :phantom-subs
   :key :baseline-app.subs/deleted-feature}
 
+ {:rule :reg-sub-=>-1-arity
+  :key :baseline-app.subs/latest-active-user}
+
  {:rule :unused-events
   :key :baseline-app.events/batch-notify}
 
@@ -19,6 +22,9 @@
  {:rule :unused-styles
   :ns "baseline-app.styles"
   :var "legacy-panel"}
+
+ {:rule :unused-subs
+  :key :baseline-app.subs/latest-active-user}
 
  {:rule :unused-subs
   :key :baseline-app.subs/old-dashboard}]

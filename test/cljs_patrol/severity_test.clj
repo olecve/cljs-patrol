@@ -103,7 +103,7 @@
            :defattrs-in-merge :mixed-token-groups}
          (severity/tier->rules rule->tier :deprecations)))
   (is (= #{:unused-subs :unused-events :unused-styles
-           :phantom-subs :phantom-events}
+           :phantom-subs :phantom-events :reg-sub-=>-1-arity}
          (severity/tier->rules rule->tier :cleanup)))
   (is (= #{} (severity/tier->rules rule->tier :unknown))
       "unknown tier returns empty set"))
@@ -171,7 +171,7 @@
                :defattrs-in-merge :mixed-token-groups}
              (set (map :rule (:deprecations tiered)))))
       (is (= #{:unused-subs :unused-events :unused-styles
-               :phantom-subs :phantom-events}
+               :phantom-subs :phantom-events :reg-sub-=>-1-arity}
              (set (map :rule (:cleanup tiered))))))
 
     (testing "info-only contains rules without a tier"
