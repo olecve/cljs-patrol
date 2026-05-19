@@ -319,5 +319,5 @@ This runs tests, builds the jar as `cljs-patrol-0.2.0.jar` (version derived from
 ## Formatting
 
 ```bash
-clojure -M:cljstyle fix src/
+clojure -M:cljfmt fix src/ test/
 ```
