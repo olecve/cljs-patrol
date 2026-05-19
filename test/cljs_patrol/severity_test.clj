@@ -97,20 +97,21 @@
     (is (= :deprecations (-> (group/rule->tier typography/group) :mixed-token-groups)))))
 
 (deftest tier->rules-test
-  (is (= #{:duplicate-subs :duplicate-events}
+  (is (= #{:duplicate-subs :duplicate-events :reg-event-fx-empty}
          (severity/tier->rules rule->tier :bugs)))
   (is (= #{:deprecated-effects :defclass-as-sole-attr
            :defattrs-in-merge :mixed-token-groups}
          (severity/tier->rules rule->tier :deprecations)))
   (is (= #{:unused-subs :unused-events :unused-styles
-           :phantom-subs :phantom-events :reg-sub-=>-1-arity}
+           :phantom-subs :phantom-events
+           :reg-sub-=>-1-arity :reg-event-fx-db-only}
          (severity/tier->rules rule->tier :cleanup)))
   (is (= #{} (severity/tier->rules rule->tier :unknown))
       "unknown tier returns empty set"))
 
 (deftest parse-fail-on-test
   (testing "tier names"
-    (is (= {:ok #{:duplicate-subs :duplicate-events}}
+    (is (= {:ok #{:duplicate-subs :duplicate-events :reg-event-fx-empty}}
            (severity/parse-fail-on "bugs" rule->tier)))
     (is (= {:ok (severity/tier->rules rule->tier :deprecations)}
            (severity/parse-fail-on "deprecations" rule->tier)))
@@ -165,13 +166,14 @@
 (deftest list-rules-test
   (let [tiered (severity/list-rules all-groups)]
     (testing "groups every rule by tier"
-      (is (= #{:duplicate-subs :duplicate-events}
+      (is (= #{:duplicate-subs :duplicate-events :reg-event-fx-empty}
              (set (map :rule (:bugs tiered)))))
       (is (= #{:deprecated-effects :defclass-as-sole-attr
                :defattrs-in-merge :mixed-token-groups}
              (set (map :rule (:deprecations tiered)))))
       (is (= #{:unused-subs :unused-events :unused-styles
-               :phantom-subs :phantom-events :reg-sub-=>-1-arity}
+               :phantom-subs :phantom-events
+               :reg-sub-=>-1-arity :reg-event-fx-db-only}
              (set (map :rule (:cleanup tiered))))))
 
     (testing "info-only contains rules without a tier"

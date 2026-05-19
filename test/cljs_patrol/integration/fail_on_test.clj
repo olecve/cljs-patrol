@@ -23,10 +23,10 @@
 
 (deftest standalone-fail-on-bugs-test
   (let [run-results (run-fixture)]
-    (is (false? (core/standalone-failed? {:enabled-groups enabled-groups
-                                          :run-results run-results
-                                          :fail-on-rules bugs}))
-        "no bug-tier issues in fixture -> exit 0")))
+    (is (true? (core/standalone-failed? {:enabled-groups enabled-groups
+                                         :run-results run-results
+                                         :fail-on-rules bugs}))
+        "fixture has :reg-event-fx-empty (::no-op) -> exit 1")))
 
 (deftest standalone-fail-on-deprecations-test
   (let [run-results (run-fixture)]
@@ -59,14 +59,14 @@
                                         :fail-on-rules bugs}))
         "all issues baselined, none new -> exit 0 even with --fail-on bugs")))
 
-(deftest baseline-empty-fail-on-bugs-passes-test
+(deftest baseline-empty-fail-on-bugs-fails-test
   (let [run-results (run-fixture)
         identities (baseline/collect-identities run-results)
         {:keys [new fixed]} (baseline/diff-baseline #{} identities)]
-    (is (false? (core/baseline-failed? {:new-issues new
-                                        :fixed-issues fixed
-                                        :fail-on-rules bugs}))
-        "fixture has no bug-tier issues -> exit 0 even with empty baseline")))
+    (is (true? (core/baseline-failed? {:new-issues new
+                                       :fixed-issues fixed
+                                       :fail-on-rules bugs}))
+        "fixture has bug-tier issues (::no-op empty handler) -> exit 1")))
 
 (deftest baseline-empty-fail-on-cleanup-fails-test
   (let [run-results (run-fixture)
