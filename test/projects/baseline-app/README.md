@@ -11,5 +11,7 @@ Contains a minimal ClojureScript app with a known, stable set of issues:
 - **defclass as sole attr** - `styles/container` used only as `{:class (styles/container)}`
 - **Deprecated effect** - `::events/batch-notify` uses `:dispatch-n`
 - **reg-sub `:=>` with 1-arity fn** - `::subs/latest-active-user` uses `:=> last`, should be `:->`
+- **reg-event-fx returns only :db** - `::events/fetch-data` should be `reg-event-db`
+- **reg-event-fx empty effects** - `::events/no-op` returns `{}`, the handler does nothing
 
 These issues are exercised by `cljs_patrol.baseline_integration_test` to verify the full baseline workflow: writing a baseline, reading it back, diffing against re-analysis, console/EDN output formatting, quiet and strict modes, and round-trip stability.

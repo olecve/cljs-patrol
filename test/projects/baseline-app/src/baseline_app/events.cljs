@@ -18,3 +18,7 @@
                  (fn [{:keys [db]} [_ items]]
                    {:db db
                     :dispatch-n (mapv (fn [_] [::initialize]) items)}))
+
+;; Empty effects map - the handler does nothing
+(rf/reg-event-fx ::no-op
+                 (fn [_ _] {}))
