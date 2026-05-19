@@ -18,28 +18,30 @@
 
 (defn- count-by-tier
   "Walk a merged results map and count issues that are blocking vs. warning
-  per the given fail-on-rules. When fail-on-rules is empty, all counts go to 0."
+  per the given fail-on-rules. When fail-on-rules is empty, every issue is
+  counted as blocking (the default-fail-on-everything behavior)."
   [merged fail-on-rules]
-  (reduce-kv
-   (fn [acc _group-id rule-map]
-     (reduce-kv
-      (fn [acc rule-key items]
-        (if (sequential? items)
-          (if (contains? fail-on-rules rule-key)
-            (update acc :blocking-count + (count items))
-            (update acc :warning-count + (count items)))
-          acc))
-      acc
-      rule-map))
-   {:blocking-count 0
-    :warning-count 0}
-   merged))
+  (let [has-fail-on? (seq fail-on-rules)]
+    (reduce-kv
+     (fn [acc _group-id rule-map]
+       (reduce-kv
+        (fn [acc rule-key items]
+          (if (sequential? items)
+            (if (or (not has-fail-on?) (contains? fail-on-rules rule-key))
+              (update acc :blocking-count + (count items))
+              (update acc :warning-count + (count items)))
+            acc))
+        acc
+        rule-map))
+     {:blocking-count 0
+      :warning-count 0}
+     merged)))
 
 (defn print-report
   "Print analysis results as EDN to stdout.
   File paths are absolute for direct use with editor/tooling integrations.
-  When fail-on-rules is provided (non-empty), the output includes
-  :blocking-count and :warning-count."
+  The output always includes :blocking-count and :warning-count. When
+  fail-on-rules is empty, all issues are counted as blocking."
   ([enabled-groups dirs run-results]
    (print-report enabled-groups dirs run-results nil))
   ([enabled-groups dirs run-results fail-on-rules]
@@ -50,12 +52,10 @@
                                                            (map #(nth (:group-results %) g-idx) run-results)))])
                                    enabled-groups))
          suggestions (into {} (map (fn [g] [(group/group-id g) (group/suggestions g)]) enabled-groups))
-         output {:source-dirs (mapv #(.getAbsolutePath (java.io.File. %)) dirs)
-                 :results merged
-                 :suggestions suggestions}
-         output (if (seq fail-on-rules)
-                  (merge output (count-by-tier merged fail-on-rules))
-                  output)]
+         output (merge {:source-dirs (mapv #(.getAbsolutePath (java.io.File. %)) dirs)
+                        :results merged
+                        :suggestions suggestions}
+                       (count-by-tier merged fail-on-rules))]
      (println (pr-str output)))))
 
 (defn- with-tier
@@ -65,10 +65,10 @@
 
 (defn print-baseline-report
   "Print baseline-aware analysis results as EDN to stdout.
-  Includes :new-issues, :baseline-issues, :fixed-issues, and :exit-code.
-  When fail-on-rules and rule->tier are provided, issues are annotated with
-  :tier and the top level includes :blocking-count and :warning-count for
-  the new-issues partition."
+  Always includes :new-issues, :baseline-issues, :fixed-issues, :exit-code,
+  :blocking-count, and :warning-count (counts apply to the new-issues
+  partition; when fail-on-rules is empty, all new issues count as blocking).
+  When rule->tier is provided, issues are annotated with :tier."
   ([dirs new-issues baseline-issues fixed-issues exit-code]
    (print-baseline-report dirs new-issues baseline-issues fixed-issues exit-code nil nil))
   ([dirs new-issues baseline-issues fixed-issues exit-code fail-on-rules rule->tier]
@@ -77,12 +77,14 @@
          baseline-sorted (vec (sort-by str baseline-issues))
          fixed-sorted (vec (sort-by str fixed-issues))
          tier? (boolean rule->tier)
-         output (cond-> {:source-dirs abs-dirs
-                         :new-issues (if tier? (with-tier new-sorted rule->tier) new-sorted)
-                         :baseline-issues (if tier? (with-tier baseline-sorted rule->tier) baseline-sorted)
-                         :fixed-issues (if tier? (with-tier fixed-sorted rule->tier) fixed-sorted)
-                         :exit-code exit-code}
-                  (seq fail-on-rules)
-                  (merge {:blocking-count (count (filter #(contains? fail-on-rules (:rule %)) new-sorted))
-                          :warning-count (count (remove #(contains? fail-on-rules (:rule %)) new-sorted))}))]
+         blocking-pred (if (seq fail-on-rules)
+                         #(contains? fail-on-rules (:rule %))
+                         (constantly true))
+         output {:source-dirs abs-dirs
+                 :new-issues (if tier? (with-tier new-sorted rule->tier) new-sorted)
+                 :baseline-issues (if tier? (with-tier baseline-sorted rule->tier) baseline-sorted)
+                 :fixed-issues (if tier? (with-tier fixed-sorted rule->tier) fixed-sorted)
+                 :exit-code exit-code
+                 :blocking-count (count (filter blocking-pred new-sorted))
+                 :warning-count (count (remove blocking-pred new-sorted))}]
      (println (pr-str output)))))

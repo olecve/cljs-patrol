@@ -98,8 +98,9 @@
     (is (= 1 (count (:baseline-issues parsed))))
     (is (= 1 (count (:fixed-issues parsed))))
     (is (vector? (:source-dirs parsed)))
-    (is (not (contains? parsed :blocking-count))
-        "no blocking-count when fail-on-rules is nil")))
+    (is (= 1 (:blocking-count parsed))
+        "without fail-on, all new issues count as blocking")
+    (is (= 0 (:warning-count parsed)))))
 
 (deftest print-baseline-report-with-fail-on-test
   (let [new-issues #{{:rule :duplicate-subs
