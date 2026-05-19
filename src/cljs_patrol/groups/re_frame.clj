@@ -17,6 +17,38 @@
 
 (def ^:private http-callback-keys #{":on-success" ":on-failure" ":on-error"})
 
+(def ^:private known-1-arity-fns
+  "Built-in 1-arity functions commonly misused with `:=>` sugar in reg-sub.
+  When the sub's body is a single 1-arity fn, the correct sugar is `:->`
+  (which calls it with one arg); `:=>` calls it with two args, and CLJS
+  silently ignores the extra one."
+  #{"first" "second" "last" "ffirst" "fnext" "next" "rest" "butlast"
+    "count" "empty" "seq" "vec" "set" "sort" "sort-by"
+    "keys" "vals" "name" "namespace" "key" "val"
+    "empty?" "nil?" "some?" "any?" "boolean" "not" "true?" "false?"
+    "inc" "dec" "pos?" "neg?" "zero?" "abs"
+    "identity"
+    "reverse" "shuffle" "frequencies" "flatten" "distinct"})
+
+(defn- find-=>-1-arity-misuse
+  "Walk `reg-sub` siblings looking for `:=> SYM` where SYM is in known-1-arity-fns.
+  Returns the name string of the misused fn (or nil)."
+  [reg-sub-loc]
+  (loop [cur (z/down reg-sub-loc)]
+    (cond
+      (nil? cur) nil
+
+      (and (parser/kw-node? cur) (= ":=>" (parser/raw cur)))
+      (let [next-loc (z/right cur)
+            next-name (when (and next-loc (= :token (z/tag next-loc)))
+                        (parser/sym-name next-loc))]
+        (if (contains? known-1-arity-fns next-name)
+          next-name
+          (recur (z/right cur))))
+
+      :else
+      (recur (z/right cur)))))
+
 (defn- handle-list
   "Detect re-frame declarations and usages from list nodes.
   Handles: reg-sub, reg-event-*, reg-fx, reg-cofx, subscribe, dispatch, dispatch-sync."
@@ -30,12 +62,21 @@
             decl-type (get decl-fn->type operator)]
         (when (parser/kw-node? kw-loc)
           (when-let [resolved (parser/resolve-kw (parser/raw kw-loc) ns-name aliases)]
-            {:decls [{:kw resolved
-                      :type decl-type
-                      :file file
-                      :row (parser/position-row kw-loc)}]
-             :usages []
-             :dynamics []})))
+            (let [misused-fn (when (= "reg-sub" operator)
+                               (find-=>-1-arity-misuse loc))
+                  base {:decls [{:kw resolved
+                                 :type decl-type
+                                 :file file
+                                 :row (parser/position-row kw-loc)}]
+                        :usages []
+                        :dynamics []}]
+              (cond-> base
+                misused-fn
+                (update :usages conj {:kw resolved
+                                      :type :sugar-mismatch
+                                      :fn misused-fn
+                                      :file file
+                                      :row (parser/position-row kw-loc)}))))))
 
       (= "subscribe" operator)
       (let [vec-loc (z/right (z/down loc))]
@@ -218,7 +259,8 @@
                                (filter #(= :event (:type %)) usages))
 
         deprecated-effects (filter #(= :deprecated (:type %)) dynamic-sites)
-        dynamic-dispatch (remove #(= :deprecated (:type %)) dynamic-sites)]
+        dynamic-dispatch (remove #(= :deprecated (:type %)) dynamic-sites)
+        sugar-mismatches (filter #(= :sugar-mismatch (:type %)) usages)]
     {:duplicate-subs (find-duplicates sub-decls)
      :duplicate-events (find-duplicates event-decls)
      :unused-subs (parser/distinct-by :kw unused-subs)
@@ -226,11 +268,13 @@
      :phantom-subs (parser/distinct-by :kw phantom-subs)
      :phantom-events (parser/distinct-by :kw phantom-events)
      :deprecated-effects deprecated-effects
-     :dynamic-sites dynamic-dispatch}))
+     :dynamic-sites dynamic-dispatch
+     :reg-sub-=>-1-arity (parser/distinct-by :kw sugar-mismatches)}))
 
 (defn- summary-lines*
   [{:keys [deprecated-effects duplicate-events duplicate-subs dynamic-sites
-           phantom-events phantom-subs unused-events unused-subs]}]
+           phantom-events phantom-subs unused-events unused-subs
+           reg-sub-=>-1-arity]}]
   [["Duplicate subscriptions:" (count duplicate-subs)]
    ["Duplicate events:" (count duplicate-events)]
    ["Unused subscriptions:" (count unused-subs)]
@@ -238,6 +282,7 @@
    ["Phantom subscriptions:" (count phantom-subs)]
    ["Phantom events:" (count phantom-events)]
    ["Deprecated effects:" (count deprecated-effects)]
+   ["reg-sub :=> with 1-arity fn:" (count reg-sub-=>-1-arity)]
    ["Dynamic sites:" (count dynamic-sites)]])
 
 (defn- failed?* [{:keys [deprecated-effects duplicate-events duplicate-subs unused-events unused-subs]}]
@@ -272,11 +317,14 @@
      :deprecated-effects
      "Usage of :dispatch-n, which is deprecated. Replace with :fx. Example: {:dispatch-n [[::event-a arg] [::event-b]]} becomes {:fx [[:dispatch [::event-a arg]] [:dispatch [::event-b]]]}."
      :dynamic-sites
-     "Dispatch or subscribe call with a non-literal keyword - cannot be statically resolved. Requires manual review to confirm the correct handler is being used."})
+     "Dispatch or subscribe call with a non-literal keyword - cannot be statically resolved. Requires manual review to confirm the correct handler is being used."
+     :reg-sub-=>-1-arity
+     "reg-sub uses :=> sugar with a 1-arity function. :=> calls the fn with (signal-value query-vector), so the query-vector is silently ignored on CLJS. Use :-> instead, which calls the fn with just the signal value."})
   (rule->tier [_]
     {:duplicate-subs :bugs
      :duplicate-events :bugs
      :deprecated-effects :deprecations
+     :reg-sub-=>-1-arity :cleanup
      :unused-subs :cleanup
      :unused-events :cleanup
      :phantom-subs :cleanup

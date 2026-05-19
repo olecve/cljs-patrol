@@ -82,7 +82,20 @@
                                                 :usages []
                                                 :dynamic-sites [dep dyn]})]
       (is (= [dep] (:deprecated-effects result)))
-      (is (= [dyn] (:dynamic-sites result))))))
+      (is (= [dyn] (:dynamic-sites result)))))
+
+  (testing "reg-sub :=> with 1-arity fn is partitioned out of usages"
+    (let [mismatch {:kw ::my-sub
+                    :type :sugar-mismatch
+                    :fn "last"
+                    :file "subs.cljs"
+                    :row 5}
+          result (group/analyze re-frame/group {:declarations [sub-decl]
+                                                :usages [mismatch]
+                                                :dynamic-sites []})]
+      (is (= [mismatch] (:reg-sub-=>-1-arity result)))
+      (is (empty? (:phantom-subs result))
+          "sugar-mismatch usages don't count as phantom"))))
 
 (deftest failed?-test
   (testing "fails on duplicate subs"
@@ -150,7 +163,7 @@
                 :deprecated-effects [dep]
                 :dynamic-sites []}
         lines (group/summary-lines re-frame/group result)]
-    (is (= 8 (count lines)))
+    (is (= 9 (count lines)))
     (is (= 2 (second (nth lines 0)))) ; duplicate subs
     (is (= 0 (second (nth lines 1)))) ; duplicate events
     (is (= 1 (second (nth lines 2)))) ; unused subs
@@ -158,4 +171,5 @@
     (is (= 1 (second (nth lines 4)))) ; phantom subs
     (is (= 1 (second (nth lines 5)))) ; phantom events
     (is (= 1 (second (nth lines 6)))) ; deprecated effects
-    (is (= 0 (second (nth lines 7)))))) ; dynamic sites
+    (is (= 0 (second (nth lines 7)))) ; reg-sub :=> with 1-arity fn
+    (is (= 0 (second (nth lines 8)))))) ; dynamic sites
