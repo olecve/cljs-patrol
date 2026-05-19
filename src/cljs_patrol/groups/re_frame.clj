@@ -199,8 +199,7 @@
        (mapcat val)
        vec))
 
-(defn- analyze*
-  [{:keys [declarations dynamic-sites usages]}]
+(defn- analyze* [{:keys [declarations dynamic-sites usages]}]
   (let [sub-decls (filter #(= :sub (:type %)) declarations)
         event-decls (filter #(= :event (:type %)) declarations)
 
@@ -241,8 +240,7 @@
    ["Deprecated effects:" (count deprecated-effects)]
    ["Dynamic sites:" (count dynamic-sites)]])
 
-(defn- failed?*
-  [{:keys [deprecated-effects duplicate-events duplicate-subs unused-events unused-subs]}]
+(defn- failed?* [{:keys [deprecated-effects duplicate-events duplicate-subs unused-events unused-subs]}]
   (or (seq duplicate-subs) (seq duplicate-events)
       (seq unused-subs) (seq unused-events)
       (seq deprecated-effects)))

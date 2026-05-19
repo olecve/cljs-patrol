@@ -24,9 +24,7 @@
 (defn- merge-results [results]
   (apply merge-with (fn [a b] (if (sequential? a) (into a b) b)) results))
 
-(defn print-report
-  "Print analysis results as Markdown to stdout."
-  [enabled-groups _dirs run-results]
+(defn print-report [enabled-groups _dirs run-results]
   (let [sections (for [group-idx (range (count enabled-groups))
                        :let [group (nth enabled-groups group-idx)
                              merged (merge-results (map #(nth (:group-results %) group-idx) run-results))
