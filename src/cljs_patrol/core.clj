@@ -44,6 +44,7 @@
    [nil "--quiet-baseline" "Only print new issues, suppress baseline issues"]
    [nil "--fail-on TIERS_OR_RULES"
     "Comma-separated list of tiers (bugs/deprecations/cleanup), rule keys, or 'all'"]
+   [nil "--list-rules" "Print all rules grouped by tier and exit"]
    ["-h" "--help"]])
 
 (defn- abspath [path]
@@ -271,6 +272,9 @@
               (println (str "Error: " error))
               (System/exit 1))
           opts (assoc base-opts :fail-on-rules (or ok #{}))]
+      (when (:list-rules options)
+        (println (severity/format-rules (severity/list-rules enabled-groups)))
+        (System/exit 0))
       (when (empty? dirs)
         (println "Error: no source directories specified")
         (System/exit 1))

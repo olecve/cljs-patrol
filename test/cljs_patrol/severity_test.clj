@@ -161,3 +161,39 @@
     (is (= {:ok #{:phantom-subs :phantom-events}}
            (severity/parse-fail-on [:phantom-subs :phantom-events] rule->tier))
         "vector of rule keywords parsed")))
+
+(deftest list-rules-test
+  (let [tiered (severity/list-rules all-groups)]
+    (testing "groups every rule by tier"
+      (is (= #{:duplicate-subs :duplicate-events}
+             (set (map :rule (:bugs tiered)))))
+      (is (= #{:deprecated-effects :defclass-as-sole-attr
+               :defattrs-in-merge :mixed-token-groups}
+             (set (map :rule (:deprecations tiered)))))
+      (is (= #{:unused-subs :unused-events :unused-styles
+               :phantom-subs :phantom-events}
+             (set (map :rule (:cleanup tiered))))))
+
+    (testing "info-only contains rules without a tier"
+      (is (contains? (set (map :rule (:info-only tiered))) :dynamic-sites)))
+
+    (testing "every entry has rule, group, tier, and suggestion"
+      (doseq [tier [:bugs :deprecations :cleanup :info-only]
+              entry (get tiered tier)]
+        (is (every? entry [:rule :group :tier :suggestion])
+            (str "entry under " tier " missing keys"))))))
+
+(deftest list-rules-respects-group-filter-test
+  (let [tiered (severity/list-rules [re-frame/group])
+        all-groups (->> tiered vals (mapcat identity) (map :group) set)]
+    (is (= #{:re-frame} all-groups)
+        "only re-frame rules present when only re-frame group is enabled")))
+
+(deftest format-rules-test
+  (let [output (severity/format-rules (severity/list-rules all-groups))]
+    (is (re-find #"bugs:" output))
+    (is (re-find #"deprecations:" output))
+    (is (re-find #"cleanup:" output))
+    (is (re-find #"info-only" output))
+    (is (re-find #":duplicate-subs" output))
+    (is (re-find #":dynamic-sites" output))))
