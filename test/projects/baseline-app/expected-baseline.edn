@@ -10,6 +10,12 @@
  {:rule :phantom-subs
   :key :baseline-app.subs/deleted-feature}
 
+ {:rule :reg-event-fx-db-only
+  :key :baseline-app.events/fetch-data}
+
+ {:rule :reg-event-fx-empty
+  :key :baseline-app.events/no-op}
+
  {:rule :reg-sub-=>-1-arity
   :key :baseline-app.subs/latest-active-user}
 
@@ -18,6 +24,9 @@
 
  {:rule :unused-events
   :key :baseline-app.events/legacy-reset}
+
+ {:rule :unused-events
+  :key :baseline-app.events/no-op}
 
  {:rule :unused-styles
   :ns "baseline-app.styles"
