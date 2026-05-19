@@ -95,7 +95,31 @@
                                                 :dynamic-sites []})]
       (is (= [mismatch] (:reg-sub-=>-1-arity result)))
       (is (empty? (:phantom-subs result))
-          "sugar-mismatch usages don't count as phantom"))))
+          "sugar-mismatch usages don't count as phantom")))
+
+  (testing "reg-event-fx returning only :db is partitioned out of usages"
+    (let [db-only {:kw ::my-event
+                   :type :event-fx-db-only
+                   :file "events.cljs"
+                   :row 7}
+          result (group/analyze re-frame/group {:declarations [event-decl]
+                                                :usages [db-only]
+                                                :dynamic-sites []})]
+      (is (= [db-only] (:reg-event-fx-db-only result)))
+      (is (empty? (:phantom-events result))
+          "event-fx-db-only usages don't count as phantom")))
+
+  (testing "reg-event-fx with empty effects is partitioned out of usages"
+    (let [empty-fx {:kw ::my-event
+                    :type :event-fx-empty
+                    :file "events.cljs"
+                    :row 9}
+          result (group/analyze re-frame/group {:declarations [event-decl]
+                                                :usages [empty-fx]
+                                                :dynamic-sites []})]
+      (is (= [empty-fx] (:reg-event-fx-empty result)))
+      (is (empty? (:phantom-events result))
+          "event-fx-empty usages don't count as phantom"))))
 
 (deftest failed?-test
   (testing "fails on duplicate subs"
@@ -154,6 +178,19 @@
              :form "[:dispatch-n [...]]"
              :file "f.cljs"
              :row 1}
+        sugar-mismatch {:kw ::sugar
+                        :type :sugar-mismatch
+                        :fn "last"
+                        :file "subs.cljs"
+                        :row 5}
+        db-only-fx {:kw ::db-only
+                    :type :event-fx-db-only
+                    :file "events.cljs"
+                    :row 7}
+        empty-fx {:kw ::empty
+                  :type :event-fx-empty
+                  :file "events.cljs"
+                  :row 9}
         result {:duplicate-subs [sub-decl sub-decl]
                 :duplicate-events []
                 :unused-subs [sub-decl]
@@ -161,15 +198,20 @@
                 :phantom-subs [sub-usage]
                 :phantom-events [event-usage]
                 :deprecated-effects [dep]
+                :reg-sub-=>-1-arity [sugar-mismatch]
+                :reg-event-fx-db-only [db-only-fx db-only-fx]
+                :reg-event-fx-empty [empty-fx]
                 :dynamic-sites []}
         lines (group/summary-lines re-frame/group result)]
-    (is (= 9 (count lines)))
-    (is (= 2 (second (nth lines 0)))) ; duplicate subs
-    (is (= 0 (second (nth lines 1)))) ; duplicate events
-    (is (= 1 (second (nth lines 2)))) ; unused subs
-    (is (= 0 (second (nth lines 3)))) ; unused events
-    (is (= 1 (second (nth lines 4)))) ; phantom subs
-    (is (= 1 (second (nth lines 5)))) ; phantom events
-    (is (= 1 (second (nth lines 6)))) ; deprecated effects
-    (is (= 0 (second (nth lines 7)))) ; reg-sub :=> with 1-arity fn
-    (is (= 0 (second (nth lines 8)))))) ; dynamic sites
+    (is (= [["Duplicate subscriptions:" 2]
+            ["Duplicate events:" 0]
+            ["Unused subscriptions:" 1]
+            ["Unused events:" 0]
+            ["Phantom subscriptions:" 1]
+            ["Phantom events:" 1]
+            ["Deprecated effects:" 1]
+            ["reg-sub :=> with 1-arity fn:" 1]
+            ["reg-event-fx returns only :db:" 2]
+            ["reg-event-fx empty effects:" 1]
+            ["Dynamic sites:" 0]]
+           lines))))

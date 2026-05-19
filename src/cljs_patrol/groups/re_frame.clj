@@ -49,6 +49,63 @@
       :else
       (recur (z/right cur)))))
 
+(defn- fn-form?
+  "True if `loc` is a list whose first child is `fn` or `fn*`."
+  [loc]
+  (and loc
+       (= :list (z/tag loc))
+       (let [head (z/down loc)]
+         (and head
+              (= :token (z/tag head))
+              (#{"fn" "fn*"} (parser/sym-name head))))))
+
+(defn- last-fn-form
+  "Return the last child of `loc` that is a (fn ...) form, or nil."
+  [loc]
+  (loop [cur (z/down loc)
+         found nil]
+    (if (nil? cur)
+      found
+      (recur (z/right cur)
+             (if (fn-form? cur) cur found)))))
+
+(defn- last-sibling
+  "Walk to the rightmost sibling starting from `loc`."
+  [loc]
+  (loop [cur loc
+         last-loc loc]
+    (let [nxt (z/right cur)]
+      (if (nil? nxt)
+        last-loc
+        (recur nxt nxt)))))
+
+(defn- fn-body-last
+  "Given a `(fn [args] body...)` zip loc, return the last body expression loc."
+  [fn-loc]
+  (when-let [args-loc (some-> (z/down fn-loc) z/right)]
+    (when (= :vector (z/tag args-loc))
+      (some-> (z/right args-loc) last-sibling))))
+
+(defn- classify-event-fx-return
+  "Inspect `reg-event-fx` body's last expression.
+  Returns :empty when it's an empty map or nil literal, :db-only when it's a
+  map whose only key is :db, otherwise nil."
+  [reg-event-fx-loc]
+  (when-let [fn-loc (last-fn-form reg-event-fx-loc)]
+    (when-let [body-last (fn-body-last fn-loc)]
+      (cond
+        (and (= :token (z/tag body-last))
+             (= "nil" (parser/raw body-last)))
+        :empty
+
+        (= :map (z/tag body-last))
+        (let [keys-set (->> (z/child-sexprs body-last)
+                            (take-nth 2)
+                            set)]
+          (cond
+            (empty? keys-set) :empty
+            (= #{:db} keys-set) :db-only))))))
+
 (defn- handle-list
   "Detect re-frame declarations and usages from list nodes.
   Handles: reg-sub, reg-event-*, reg-fx, reg-cofx, subscribe, dispatch, dispatch-sync."
@@ -64,6 +121,8 @@
           (when-let [resolved (parser/resolve-kw (parser/raw kw-loc) ns-name aliases)]
             (let [misused-fn (when (= "reg-sub" operator)
                                (find-=>-1-arity-misuse loc))
+                  event-fx-shape (when (= "reg-event-fx" operator)
+                                   (classify-event-fx-return loc))
                   base {:decls [{:kw resolved
                                  :type decl-type
                                  :file file
@@ -75,6 +134,14 @@
                 (update :usages conj {:kw resolved
                                       :type :sugar-mismatch
                                       :fn misused-fn
+                                      :file file
+                                      :row (parser/position-row kw-loc)})
+
+                event-fx-shape
+                (update :usages conj {:kw resolved
+                                      :type (case event-fx-shape
+                                              :db-only :event-fx-db-only
+                                              :empty :event-fx-empty)
                                       :file file
                                       :row (parser/position-row kw-loc)}))))))
 
@@ -260,7 +327,9 @@
 
         deprecated-effects (filter #(= :deprecated (:type %)) dynamic-sites)
         dynamic-dispatch (remove #(= :deprecated (:type %)) dynamic-sites)
-        sugar-mismatches (filter #(= :sugar-mismatch (:type %)) usages)]
+        sugar-mismatches (filter #(= :sugar-mismatch (:type %)) usages)
+        event-fx-db-only (filter #(= :event-fx-db-only (:type %)) usages)
+        event-fx-empty (filter #(= :event-fx-empty (:type %)) usages)]
     {:duplicate-subs (find-duplicates sub-decls)
      :duplicate-events (find-duplicates event-decls)
      :unused-subs (parser/distinct-by :kw unused-subs)
@@ -269,12 +338,14 @@
      :phantom-events (parser/distinct-by :kw phantom-events)
      :deprecated-effects deprecated-effects
      :dynamic-sites dynamic-dispatch
-     :reg-sub-=>-1-arity (parser/distinct-by :kw sugar-mismatches)}))
+     :reg-sub-=>-1-arity (parser/distinct-by :kw sugar-mismatches)
+     :reg-event-fx-db-only (parser/distinct-by :kw event-fx-db-only)
+     :reg-event-fx-empty (parser/distinct-by :kw event-fx-empty)}))
 
 (defn- summary-lines*
   [{:keys [deprecated-effects duplicate-events duplicate-subs dynamic-sites
            phantom-events phantom-subs unused-events unused-subs
-           reg-sub-=>-1-arity]}]
+           reg-sub-=>-1-arity reg-event-fx-db-only reg-event-fx-empty]}]
   [["Duplicate subscriptions:" (count duplicate-subs)]
    ["Duplicate events:" (count duplicate-events)]
    ["Unused subscriptions:" (count unused-subs)]
@@ -283,6 +354,8 @@
    ["Phantom events:" (count phantom-events)]
    ["Deprecated effects:" (count deprecated-effects)]
    ["reg-sub :=> with 1-arity fn:" (count reg-sub-=>-1-arity)]
+   ["reg-event-fx returns only :db:" (count reg-event-fx-db-only)]
+   ["reg-event-fx empty effects:" (count reg-event-fx-empty)]
    ["Dynamic sites:" (count dynamic-sites)]])
 
 (defn- failed?* [{:keys [deprecated-effects duplicate-events duplicate-subs unused-events unused-subs]}]
@@ -319,12 +392,18 @@
      :dynamic-sites
      "Dispatch or subscribe call with a non-literal keyword - cannot be statically resolved. Requires manual review to confirm the correct handler is being used."
      :reg-sub-=>-1-arity
-     "reg-sub uses :=> sugar with a 1-arity function. :=> calls the fn with (signal-value query-vector), so the query-vector is silently ignored on CLJS. Use :-> instead, which calls the fn with just the signal value."})
+     "reg-sub uses :=> sugar with a 1-arity function. :=> calls the fn with (signal-value query-vector), so the query-vector is silently ignored on CLJS. Use :-> instead, which calls the fn with just the signal value."
+     :reg-event-fx-db-only
+     "reg-event-fx returns only :db. Use reg-event-db, which takes a handler returning the new db directly - simpler and clearer."
+     :reg-event-fx-empty
+     "reg-event-fx returns an empty effects map (or nil). The handler does nothing - either remove it, or return meaningful effects."})
   (rule->tier [_]
     {:duplicate-subs :bugs
      :duplicate-events :bugs
+     :reg-event-fx-empty :bugs
      :deprecated-effects :deprecations
      :reg-sub-=>-1-arity :cleanup
+     :reg-event-fx-db-only :cleanup
      :unused-subs :cleanup
      :unused-events :cleanup
      :phantom-subs :cleanup
