@@ -97,7 +97,8 @@
     (is (= :deprecations (-> (group/rule->tier typography/group) :mixed-token-groups)))))
 
 (deftest tier->rules-test
-  (is (= #{:duplicate-subs :duplicate-events :reg-event-fx-empty}
+  (is (= #{:duplicate-subs :duplicate-events
+           :reg-event-fx-empty :reg-event-db-empty}
          (severity/tier->rules rule->tier :bugs)))
   (is (= #{:deprecated-effects :defclass-as-sole-attr
            :defattrs-in-merge :mixed-token-groups}
@@ -111,7 +112,8 @@
 
 (deftest parse-fail-on-test
   (testing "tier names"
-    (is (= {:ok #{:duplicate-subs :duplicate-events :reg-event-fx-empty}}
+    (is (= {:ok #{:duplicate-subs :duplicate-events
+                  :reg-event-fx-empty :reg-event-db-empty}}
            (severity/parse-fail-on "bugs" rule->tier)))
     (is (= {:ok (severity/tier->rules rule->tier :deprecations)}
            (severity/parse-fail-on "deprecations" rule->tier)))
@@ -166,7 +168,8 @@
 (deftest list-rules-test
   (let [tiered (severity/list-rules all-groups)]
     (testing "groups every rule by tier"
-      (is (= #{:duplicate-subs :duplicate-events :reg-event-fx-empty}
+      (is (= #{:duplicate-subs :duplicate-events
+               :reg-event-fx-empty :reg-event-db-empty}
              (set (map :rule (:bugs tiered)))))
       (is (= #{:deprecated-effects :defclass-as-sole-attr
                :defattrs-in-merge :mixed-token-groups}
