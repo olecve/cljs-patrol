@@ -18,7 +18,7 @@
   [_]
   (clean nil)
   (let [basis (b/create-basis {:project "deps.edn"})]
-    (b/copy-dir {:src-dirs ["src"] :target-dir class-dir})
+    (b/copy-dir {:src-dirs ["src" "resources"] :target-dir class-dir})
     (b/compile-clj {:basis basis
                     :src-dirs ["src"]
                     :class-dir class-dir})

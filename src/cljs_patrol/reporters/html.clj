@@ -3,60 +3,12 @@
   (:require
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.group :as group]
+   [clojure.java.io :as io]
    [clojure.string :as str]
    [hiccup.page :refer [html5]]
    [hiccup.util :refer [raw-string]]))
 
-(def ^:private css
-  (str
-   "*{box-sizing:border-box;margin:0;padding:0}"
-   "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
-   "font-size:14px;color:#1a1a1a;padding:24px 40px;background:#f0f2f5;line-height:1.5}"
-   "h1{font-size:1.6em;margin-bottom:6px;color:#111}"
-   "h2{font-size:1.15em;margin:28px 0 10px;color:#333;text-transform:uppercase;letter-spacing:.05em}"
-   "p{color:#666;margin-bottom:20px;font-size:13px}"
-   "section{margin-bottom:36px}"
-   "table{border-collapse:collapse;width:100%;background:#fff;border-radius:6px;"
-   "overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)}"
-   "th,td{padding:9px 14px;text-align:left;border-bottom:1px solid #e8e8e8}"
-   "th{background:#f5f5f5;font-weight:600;color:#333}"
-   "th[data-sort]{cursor:pointer;user-select:none}"
-   "th[data-sort]:hover{background:#ebebeb}"
-   "tbody tr:hover{background:#fafafa}"
-   "tbody tr:nth-child(even){background:#fafcfd}"
-   "tbody tr:nth-child(even):hover{background:#f2f6fa}"
-   "table.summary{max-width:480px;margin-bottom:20px}"
-   "table.summary td:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}"
-   "table.summary th:last-child{text-align:right}"
-   "tr.ok{background:#f0fbf0}"
-   "tr.ok:nth-child(even){background:#e8f8e8}"
-   "tr.ok:hover{background:#e0f5e0}"
-   "tr.warn{background:#fef6f6}"
-   "tr.warn:nth-child(even){background:#faeaea}"
-   "tr.warn:hover{background:#f5e0e0}"
-   "table.issues td:nth-child(1){font-family:ui-monospace,'SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace;font-size:13px;word-break:break-all}"
-   "table.issues td:nth-child(2){font-family:ui-monospace,'SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace;font-size:12px;color:#555;"
-   "max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
-   "table.issues td:nth-child(3){text-align:right;font-variant-numeric:tabular-nums;color:#888}"
-   "table.issues th:nth-child(3){text-align:right}"
-   "details{background:#fff;border-radius:6px;margin-bottom:8px;"
-   "box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:hidden}"
-   "details>summary{padding:11px 16px;font-weight:600;cursor:pointer;background:#f8f8f8;"
-   "border-bottom:1px solid #e8e8e8;list-style:none;display:flex;align-items:center;gap:8px}"
-   "details>summary::-webkit-details-marker{display:none}"
-   "details>summary::before{content:'\\25B6';font-size:10px;color:#888;"
-   "transition:transform .15s;flex-shrink:0}"
-   "details[open]>summary::before{transform:rotate(90deg)}"
-   "details>table{border-radius:0;box-shadow:none}"
-   "details>summary .desc{font-weight:400;font-size:12px;color:#888;margin-left:4px}"
-   "tr.new-issue td:first-child::before{content:'[NEW] ';color:#d32f2f;font-weight:700;font-size:11px}"
-   "tr.baseline-issue{opacity:.6}"
-   ".baseline-banner{background:#fff3cd;border:1px solid #ffc107;"
-   "border-radius:6px;padding:12px 16px;margin-bottom:20px;font-size:13px}"
-   ".blocking-badge{display:inline-block;background:#d32f2f;color:#fff;"
-   "border-radius:4px;padding:1px 8px;margin-left:8px;font-size:11px;font-weight:700;letter-spacing:.05em}"
-   ".tier-summary{background:#fff;border:1px solid #e8e8e8;border-radius:6px;"
-   "padding:10px 14px;margin-bottom:14px;font-size:13px;font-weight:600}"))
+(def ^:private css (slurp (io/resource "cljs_patrol/report.css")))
 
 (def ^:private js
   (str
