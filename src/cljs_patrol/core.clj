@@ -124,6 +124,116 @@
     {:source-dir source-dir
      :group-results group-results}))
 
+(defn- count-blocking-warning
+  "Walk run-results and count items per rule-key, partitioned into
+  :blocking (rule-key in fail-on-rules) and :warning (everything else)."
+  [run-results fail-on-rules]
+  (reduce
+   (fn [acc {:keys [group-results]}]
+     (reduce
+      (fn [acc result]
+        (reduce-kv
+         (fn [acc rule-key items]
+           (if (and (sequential? items) (seq items))
+             (if (contains? fail-on-rules rule-key)
+               (update acc :blocking + (count items))
+               (update acc :warning + (count items)))
+             acc))
+         acc
+         result))
+      acc
+      group-results))
+   {:blocking 0
+    :warning 0}
+   run-results))
+
+(defn- run-baseline-write! [run-results opts dirs]
+  (let [identities (baseline/collect-identities run-results)
+        path (baseline/resolve-baseline-path (:baseline-path opts) dirs)]
+    (baseline/write-baseline path identities)
+    (println (str "Wrote baseline with " (count identities) " issues to " path))
+    (System/exit 0)))
+
+(defn- print-baseline-console-summary [{:keys [new-issues present fixed fail-on-rules]}]
+  (println (format "\nFound %d issues: %d new, %d in baseline, %d fixed."
+                   (+ (count new-issues) (count present))
+                   (count new-issues) (count present) (count fixed)))
+  (when (seq fail-on-rules)
+    (let [blocking (count (filter #(contains? fail-on-rules (:rule %)) new-issues))
+          warning (- (count new-issues) blocking)]
+      (println (format "New: %d blocking, %d warnings." blocking warning))))
+  (when (seq fixed)
+    (println (format "%d baseline issues no longer present - consider running --baseline-write to refresh."
+                     (count fixed)))))
+
+(defn- run-baseline-compare! [enabled-groups run-results opts dirs rule->tier]
+  (let [path (baseline/resolve-baseline-path (:baseline-path opts) dirs)
+        {:keys [ok error]} (baseline/read-baseline path)]
+    (when error
+      (println (str "Error: " error))
+      (System/exit 1))
+    (let [found (baseline/collect-identities run-results)
+          {new-issues :new
+           present :present
+           fixed :fixed} (baseline/diff-baseline ok found)
+          fail-on-rules (:fail-on-rules opts)
+          exit-code (if (baseline-failed? {:new-issues new-issues
+                                           :fixed-issues fixed
+                                           :fail-on-rules fail-on-rules
+                                           :strict-baseline (:strict-baseline opts)})
+                      1 0)]
+      (when (= :markdown (:output opts))
+        (println "Error: --output markdown is not supported with --baseline.")
+        (System/exit 1))
+      (case (:output opts)
+        :edn (edn-reporter/print-baseline-report
+              dirs new-issues present fixed exit-code
+              fail-on-rules rule->tier)
+        :html (let [blocking-count (count (filter #(contains? fail-on-rules (:rule %)) new-issues))
+                    warning-count (- (count new-issues) blocking-count)]
+                (html-reporter/write-baseline-report
+                 enabled-groups run-results "report.html"
+                 new-issues (count fixed)
+                 fail-on-rules blocking-count warning-count)
+                (println "Report written to report.html"))
+        (do
+          (doseq [{:keys [source-dir group-results]} run-results]
+            (doseq [result group-results]
+              (console/report-with-baseline
+               result new-issues
+               {:quiet? (:quiet-baseline opts)
+                :source-dir source-dir
+                :fail-on-rules fail-on-rules})))
+          (print-baseline-console-summary
+           {:new-issues new-issues
+            :present present
+            :fixed fixed
+            :fail-on-rules fail-on-rules})))
+      (System/exit exit-code))))
+
+(defn- run-standalone! [enabled-groups run-results opts dirs]
+  (let [fail-on-rules (:fail-on-rules opts)
+        any-failed? (standalone-failed? {:enabled-groups enabled-groups
+                                         :run-results run-results
+                                         :fail-on-rules fail-on-rules})]
+    (case (:output opts)
+      :html (do
+              (html-reporter/write-report enabled-groups run-results "report.html" fail-on-rules)
+              (println "Report written to report.html")
+              (doseq [{:keys [group-results]} run-results]
+                (print-summary enabled-groups group-results)))
+      :edn (edn-reporter/print-report enabled-groups dirs run-results fail-on-rules)
+      :markdown (md-reporter/print-report enabled-groups dirs run-results)
+      (do
+        (doseq [{:keys [group-results]} run-results]
+          (doseq [r group-results]
+            (console/report r fail-on-rules))
+          (print-summary enabled-groups group-results))
+        (when (seq fail-on-rules)
+          (let [{:keys [blocking warning]} (count-blocking-warning run-results fail-on-rules)]
+            (println (format "\n%d blocking, %d warnings." blocking warning))))))
+    (System/exit (if any-failed? 1 0))))
+
 (defn -main
   [& args]
   (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)]
@@ -168,106 +278,10 @@
                           (:files opts) (filter-run-results (:files opts)))]
         (cond
           (:baseline-write opts)
-          (let [identities (baseline/collect-identities run-results)
-                path (baseline/resolve-baseline-path (:baseline-path opts) dirs)]
-            (baseline/write-baseline path identities)
-            (println (str "Wrote baseline with " (count identities)
-                          " issues to " path))
-            (System/exit 0))
+          (run-baseline-write! run-results opts dirs)
 
           (:baseline opts)
-          (let [path (baseline/resolve-baseline-path (:baseline-path opts) dirs)
-                {:keys [ok error]} (baseline/read-baseline path)]
-            (when error
-              (println (str "Error: " error))
-              (System/exit 1))
-            (let [found (baseline/collect-identities run-results)
-                  {new-issues :new
-                   present :present
-                   fixed :fixed} (baseline/diff-baseline ok found)
-                  exit-code (if (baseline-failed? {:new-issues new-issues
-                                                   :fixed-issues fixed
-                                                   :fail-on-rules (:fail-on-rules opts)
-                                                   :strict-baseline (:strict-baseline opts)})
-                              1 0)]
-              (when (= :markdown (:output opts))
-                (println "Error: --output markdown is not supported with --baseline.")
-                (System/exit 1))
-              (case (:output opts)
-                :edn (edn-reporter/print-baseline-report
-                      dirs new-issues present fixed exit-code
-                      (:fail-on-rules opts) rule->tier)
-                :html (let [fail-on-rules (:fail-on-rules opts)
-                            blocking-count (count (filter #(contains? fail-on-rules (:rule %))
-                                                          new-issues))
-                            warning-count (- (count new-issues) blocking-count)]
-                        (html-reporter/write-baseline-report
-                         enabled-groups run-results "report.html"
-                         new-issues (count fixed)
-                         fail-on-rules blocking-count warning-count)
-                        (println "Report written to report.html"))
-                (do
-                  (doseq [{:keys [source-dir group-results]} run-results]
-                    (doseq [result group-results]
-                      (console/report-with-baseline
-                       result new-issues
-                       {:quiet? (:quiet-baseline opts)
-                        :source-dir source-dir
-                        :fail-on-rules (:fail-on-rules opts)})))
-                  (let [fail-on-rules (:fail-on-rules opts)
-                        blocking-new (if (seq fail-on-rules)
-                                       (filter #(contains? fail-on-rules (:rule %)) new-issues)
-                                       new-issues)
-                        warning-new (when (seq fail-on-rules)
-                                      (remove #(contains? fail-on-rules (:rule %)) new-issues))]
-                    (println (format "\nFound %d issues: %d new, %d in baseline, %d fixed."
-                                     (+ (count new-issues) (count present))
-                                     (count new-issues) (count present) (count fixed)))
-                    (when (seq fail-on-rules)
-                      (println (format "New: %d blocking, %d warnings."
-                                       (count blocking-new) (count warning-new))))
-                    (when (seq fixed)
-                      (println (format "%d baseline issues no longer present - consider running --baseline-write to refresh."
-                                       (count fixed)))))))
-              (System/exit exit-code))))
+          (run-baseline-compare! enabled-groups run-results opts dirs rule->tier)
 
-        :else
-        (let [any-failed? (standalone-failed? {:enabled-groups enabled-groups
-                                               :run-results run-results
-                                               :fail-on-rules (:fail-on-rules opts)})]
-          (case (:output opts)
-            :html (do
-                    (html-reporter/write-report enabled-groups run-results "report.html"
-                                                (:fail-on-rules opts))
-                    (println "Report written to report.html")
-                    (doseq [{:keys [group-results]} run-results]
-                      (print-summary enabled-groups group-results)))
-            :edn (edn-reporter/print-report enabled-groups dirs run-results
-                                            (:fail-on-rules opts))
-            :markdown (md-reporter/print-report enabled-groups dirs run-results)
-            (do
-              (doseq [{:keys [group-results]} run-results]
-                (doseq [r group-results]
-                  (console/report r (:fail-on-rules opts)))
-                (print-summary enabled-groups group-results))
-              (when (seq (:fail-on-rules opts))
-                (let [fail-on-rules (:fail-on-rules opts)
-                      counts (reduce (fn [acc {:keys [group-results]}]
-                                       (reduce (fn [acc result]
-                                                 (reduce-kv
-                                                  (fn [acc rule-key items]
-                                                    (if (and (sequential? items) (seq items))
-                                                      (if (contains? fail-on-rules rule-key)
-                                                        (update acc :blocking + (count items))
-                                                        (update acc :warning + (count items)))
-                                                      acc))
-                                                  acc
-                                                  result))
-                                               acc
-                                               group-results))
-                                     {:blocking 0
-                                      :warning 0}
-                                     run-results)]
-                  (println (format "\n%d blocking, %d warnings."
-                                   (:blocking counts) (:warning counts)))))))
-          (System/exit (if any-failed? 1 0)))))))
+          :else
+          (run-standalone! enabled-groups run-results opts dirs))))))
