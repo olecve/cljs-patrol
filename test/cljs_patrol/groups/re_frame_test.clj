@@ -119,7 +119,19 @@
                                                 :dynamic-sites []})]
       (is (= [empty-fx] (:reg-event-fx-empty result)))
       (is (empty? (:phantom-events result))
-          "event-fx-empty usages don't count as phantom"))))
+          "event-fx-empty usages don't count as phantom")))
+
+  (testing "reg-event-db clobbering db is partitioned out of usages"
+    (let [empty-db {:kw ::my-event
+                    :type :event-db-empty
+                    :file "events.cljs"
+                    :row 11}
+          result (group/analyze re-frame/group {:declarations [event-decl]
+                                                :usages [empty-db]
+                                                :dynamic-sites []})]
+      (is (= [empty-db] (:reg-event-db-empty result)))
+      (is (empty? (:phantom-events result))
+          "event-db-empty usages don't count as phantom"))))
 
 (deftest failed?-test
   (testing "fails on duplicate subs"
@@ -187,10 +199,14 @@
                     :type :event-fx-db-only
                     :file "events.cljs"
                     :row 7}
-        empty-fx {:kw ::empty
+        empty-fx {:kw ::empty-fx
                   :type :event-fx-empty
                   :file "events.cljs"
                   :row 9}
+        empty-db {:kw ::empty-db
+                  :type :event-db-empty
+                  :file "events.cljs"
+                  :row 11}
         result {:duplicate-subs [sub-decl sub-decl]
                 :duplicate-events []
                 :unused-subs [sub-decl]
@@ -201,6 +217,7 @@
                 :reg-sub-=>-1-arity [sugar-mismatch]
                 :reg-event-fx-db-only [db-only-fx db-only-fx]
                 :reg-event-fx-empty [empty-fx]
+                :reg-event-db-empty [empty-db]
                 :dynamic-sites []}
         lines (group/summary-lines re-frame/group result)]
     (is (= [["Duplicate subscriptions:" 2]
@@ -213,5 +230,6 @@
             ["reg-sub :=> with 1-arity fn:" 1]
             ["reg-event-fx returns only :db:" 2]
             ["reg-event-fx empty effects:" 1]
+            ["reg-event-db clobbers db:" 1]
             ["Dynamic sites:" 0]]
            lines))))

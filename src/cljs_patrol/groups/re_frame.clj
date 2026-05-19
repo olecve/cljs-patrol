@@ -106,6 +106,17 @@
             (empty? keys-set) :empty
             (= #{:db} keys-set) :db-only))))))
 
+(defn- reg-event-db-empty-return?
+  "True if `reg-event-db`'s last fn body returns nil or {}.
+  Such a handler clobbers the entire app-db, which is almost always a mistake."
+  [reg-event-db-loc]
+  (when-let [fn-loc (last-fn-form reg-event-db-loc)]
+    (when-let [body-last (fn-body-last fn-loc)]
+      (or (and (= :token (z/tag body-last))
+               (= "nil" (parser/raw body-last)))
+          (and (= :map (z/tag body-last))
+               (empty? (z/child-sexprs body-last)))))))
+
 (defn- handle-list
   "Detect re-frame declarations and usages from list nodes.
   Handles: reg-sub, reg-event-*, reg-fx, reg-cofx, subscribe, dispatch, dispatch-sync."
@@ -123,6 +134,8 @@
                                (find-=>-1-arity-misuse loc))
                   event-fx-shape (when (= "reg-event-fx" operator)
                                    (classify-event-fx-return loc))
+                  event-db-empty? (when (= "reg-event-db" operator)
+                                    (reg-event-db-empty-return? loc))
                   base {:decls [{:kw resolved
                                  :type decl-type
                                  :file file
@@ -142,6 +155,12 @@
                                       :type (case event-fx-shape
                                               :db-only :event-fx-db-only
                                               :empty :event-fx-empty)
+                                      :file file
+                                      :row (parser/position-row kw-loc)})
+
+                event-db-empty?
+                (update :usages conj {:kw resolved
+                                      :type :event-db-empty
                                       :file file
                                       :row (parser/position-row kw-loc)}))))))
 
@@ -329,7 +348,8 @@
         dynamic-dispatch (remove #(= :deprecated (:type %)) dynamic-sites)
         sugar-mismatches (filter #(= :sugar-mismatch (:type %)) usages)
         event-fx-db-only (filter #(= :event-fx-db-only (:type %)) usages)
-        event-fx-empty (filter #(= :event-fx-empty (:type %)) usages)]
+        event-fx-empty (filter #(= :event-fx-empty (:type %)) usages)
+        event-db-empty (filter #(= :event-db-empty (:type %)) usages)]
     {:duplicate-subs (find-duplicates sub-decls)
      :duplicate-events (find-duplicates event-decls)
      :unused-subs (parser/distinct-by :kw unused-subs)
@@ -340,12 +360,14 @@
      :dynamic-sites dynamic-dispatch
      :reg-sub-=>-1-arity (parser/distinct-by :kw sugar-mismatches)
      :reg-event-fx-db-only (parser/distinct-by :kw event-fx-db-only)
-     :reg-event-fx-empty (parser/distinct-by :kw event-fx-empty)}))
+     :reg-event-fx-empty (parser/distinct-by :kw event-fx-empty)
+     :reg-event-db-empty (parser/distinct-by :kw event-db-empty)}))
 
 (defn- summary-lines*
   [{:keys [deprecated-effects duplicate-events duplicate-subs dynamic-sites
            phantom-events phantom-subs unused-events unused-subs
-           reg-sub-=>-1-arity reg-event-fx-db-only reg-event-fx-empty]}]
+           reg-sub-=>-1-arity reg-event-fx-db-only reg-event-fx-empty
+           reg-event-db-empty]}]
   [["Duplicate subscriptions:" (count duplicate-subs)]
    ["Duplicate events:" (count duplicate-events)]
    ["Unused subscriptions:" (count unused-subs)]
@@ -356,6 +378,7 @@
    ["reg-sub :=> with 1-arity fn:" (count reg-sub-=>-1-arity)]
    ["reg-event-fx returns only :db:" (count reg-event-fx-db-only)]
    ["reg-event-fx empty effects:" (count reg-event-fx-empty)]
+   ["reg-event-db clobbers db:" (count reg-event-db-empty)]
    ["Dynamic sites:" (count dynamic-sites)]])
 
 (defn- failed?* [{:keys [deprecated-effects duplicate-events duplicate-subs unused-events unused-subs]}]
@@ -396,11 +419,14 @@
      :reg-event-fx-db-only
      "reg-event-fx returns only :db. Use reg-event-db, which takes a handler returning the new db directly - simpler and clearer."
      :reg-event-fx-empty
-     "reg-event-fx returns an empty effects map (or nil). The handler does nothing - either remove it, or return meaningful effects."})
+     "reg-event-fx returns an empty effects map (or nil). The handler does nothing - either remove it, or return meaningful effects."
+     :reg-event-db-empty
+     "reg-event-db returns nil or {}, which clobbers the entire app-db. If a full reset is intended, prefer (assoc db ...) or document the intent; otherwise this is a bug."})
   (rule->tier [_]
     {:duplicate-subs :bugs
      :duplicate-events :bugs
      :reg-event-fx-empty :bugs
+     :reg-event-db-empty :bugs
      :deprecated-effects :deprecations
      :reg-sub-=>-1-arity :cleanup
      :reg-event-fx-db-only :cleanup
