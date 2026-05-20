@@ -12,7 +12,6 @@
 
 **Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.6...v0.0.7
 
-
 ## [v0.0.6] - 2026-05-19
 
 ## What's Changed
