@@ -41,9 +41,13 @@
     (testing "leading/trailing rule flags trailing whitespace"
       (is (contains? whitespace-kws :myapp.core/whitespace-fail-trailing)))
 
-    (testing "private vars are skipped"
-      (is (not (contains? summary-kws :myapp.core/private-meta)))
-      (is (not (contains? summary-kws :myapp.core/private-defn-dash))))
+    (testing "private vars are also checked"
+      (is (contains? summary-kws :myapp.core/private-meta))
+      (is (contains? summary-kws :myapp.core/private-defn-dash)))
+
+    (testing "compliant private docstrings pass"
+      (is (not (contains? summary-kws :myapp.core/compliant-private)))
+      (is (not (contains? indent-kws :myapp.core/compliant-private))))
 
     (testing "def with no third arg treats the string as a value, not a docstring"
       (is (not (contains? summary-kws :myapp.core/value-only))))

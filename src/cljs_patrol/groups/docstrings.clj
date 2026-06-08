@@ -1,14 +1,15 @@
 (ns cljs-patrol.groups.docstrings
   "Docstrings rule group: enforces bbatsov clojure-style-guide docstring conventions.
-  Checks docstring-summary, docstring-indentation, and docstring-leading-trailing-whitespace."
+  Checks docstring-summary, docstring-indentation, and docstring-leading-trailing-whitespace
+  on every def-form regardless of privacy (defn, defn-, def, defmacro, defmulti, defprotocol)."
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [rewrite-clj.zip :as z]))
 
-(def ^:private public-def-fns
-  #{"defn" "def" "defmacro" "defmulti" "defprotocol"})
+(def ^:private def-fns
+  #{"defn" "defn-" "def" "defmacro" "defmulti" "defprotocol"})
 
 (defn- string-node?
   [loc]
@@ -16,14 +17,12 @@
        (contains? #{:token :multi-line} (z/tag loc))
        (string? (try (z/sexpr loc) (catch Exception _ nil)))))
 
-(defn- name-info
-  "Return {:sym <symbol> :private? <bool>} for a defn-style name location, or nil."
+(defn- name-sym
+  "Return the symbol at name-loc (unwrapping any metadata), or nil."
   [name-loc]
   (try
     (let [value (z/sexpr name-loc)]
-      (when (symbol? value)
-        {:sym value
-         :private? (boolean (:private (meta value)))}))
+      (when (symbol? value) value))
     (catch Exception _ nil)))
 
 (defn- find-docstring-loc
@@ -93,12 +92,12 @@
   [loc ns-name _aliases file]
   (let [op-loc (z/down loc)
         operator (parser/sym-name op-loc)]
-    (when (contains? public-def-fns operator)
+    (when (contains? def-fns operator)
       (let [name-loc (some-> op-loc z/right)
-            info (some-> name-loc name-info)]
-        (when (and info (not (:private info)))
+            sym (some-> name-loc name-sym)]
+        (when sym
           (when-let [doc-loc (find-docstring-loc loc)]
-            (let [kw (keyword ns-name (name (:sym info)))
+            (let [kw (keyword ns-name (name sym))
                   content (strip-quotes (parser/raw doc-loc))
                   [_ col] (try (z/position doc-loc) (catch Exception _ [0 1]))
                   row (parser/position-row doc-loc)

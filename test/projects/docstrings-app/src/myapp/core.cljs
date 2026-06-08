@@ -42,14 +42,20 @@ no indentation on continuation."
   x)
 
 (defn ^:private private-meta
-  "Bad: extra prose on same line, but private so ignored.
+  "Bad: extra prose on same line. Private vars are checked too.
   More text."
   [x]
   x)
 
 (defn- private-defn-dash
-  "Bad: extra prose on same line, but private so ignored.
+  "Bad: extra prose on same line. defn- is also checked.
   More text."
+  [x]
+  x)
+
+(defn- compliant-private
+  "A compliant private docstring.
+  Continuation aligned."
   [x]
   x)
 
