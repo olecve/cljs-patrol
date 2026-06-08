@@ -103,15 +103,16 @@
            (Character/isWhitespace (.charAt content (dec (count content)))))))
 
 (defn- docstring-issues [content col]
-  (cond-> []
-    (summary-violation? content)
-    (conj :docstring-summary)
+  (let [leading-trailing? (leading-trailing-violation? content)]
+    (cond-> []
+      (summary-violation? content)
+      (conj :docstring-summary)
 
-    (indentation-violation? content col)
-    (conj :docstring-indentation)
+      (and (not leading-trailing?) (indentation-violation? content col))
+      (conj :docstring-indentation)
 
-    (leading-trailing-violation? content)
-    (conj :docstring-leading-trailing-whitespace)))
+      leading-trailing?
+      (conj :docstring-leading-trailing-whitespace))))
 
 (defn- rightmost-sibling
   "Walk to the rightmost sibling starting from loc."

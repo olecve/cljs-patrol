@@ -53,6 +53,11 @@
     (testing "leading/trailing rule flags trailing whitespace"
       (is (contains? whitespace-kws :myapp.core/whitespace-fail-trailing)))
 
+    (testing "docstring starting with newline is reported once, not double-counted"
+      (is (contains? whitespace-kws :myapp.core/whitespace-leading-newline))
+      (is (not (contains? indent-kws :myapp.core/whitespace-leading-newline))
+          "indentation should be suppressed when leading-whitespace already fires"))
+
     (testing "private vars are also checked"
       (is (contains? summary-kws :myapp.core/private-meta))
       (is (contains? summary-kws :myapp.core/private-defn-dash)))

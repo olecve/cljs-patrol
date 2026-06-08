@@ -65,6 +65,13 @@ no indentation on continuation."
   [x]
   x)
 
+(defn whitespace-leading-newline
+  "
+  Starts with a newline.
+  Second line."
+  [x]
+  x)
+
 (defn ^:private private-meta
   "Bad: extra prose on same line. Private vars are checked too.
   More text."
