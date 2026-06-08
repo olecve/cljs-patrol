@@ -68,18 +68,21 @@
 
 (defn- summary-violation?
   "Detect a missing or non-self-contained summary line in a multi-line docstring.
-  The first line must end with a sentence terminator and not begin a new
-  sentence on the same line. False positives from Clojure-style identifiers
-  (`:dynamic?`, `string?`) are skipped by requiring an upper-case letter after
-  the terminator. Name and place-title abbreviations (`Mr.`, `St.`, ...) are
-  stripped first so they do not look like sentence breaks."
+  The first line must end with a sentence terminator (`.`, `!`, `?`, or `:` for
+  summaries that introduce an indented list/example) and not begin a new
+  sentence on the same line. The run-on check also tolerates a closing bracket
+  between the terminator and the next sentence (`(helper.) Used by ...`).
+  False positives from Clojure-style identifiers (`:dynamic?`, `string?`) are
+  skipped by requiring an upper-case letter after the terminator. Name and
+  place-title abbreviations (`Mr.`, `St.`, ...) are stripped first so they do
+  not look like sentence breaks."
   [content]
   (when (multi-line? content)
     (let [first-line (first (str/split content #"\n" 2))
           cleaned (strip-abbreviation-periods first-line)]
       (boolean
-       (or (re-find #"[.!?]\s+[A-Z]" cleaned)
-           (not (re-find #"[.!?]\s*$" first-line)))))))
+       (or (re-find #"[.!?][)\]}]?\s+[A-Z]" cleaned)
+           (not (re-find #"[.!?:]\s*$" first-line)))))))
 
 (defn- indentation-violation?
   "Detect under-indented continuation lines in a multi-line docstring.

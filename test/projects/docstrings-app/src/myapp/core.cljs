@@ -35,6 +35,19 @@
   [x]
   x)
 
+(defn fail-parenthetical-run-on
+  "Helper for x (the legacy one). Used by foo elsewhere.
+  Detailed explanation."
+  [x]
+  x)
+
+(defn pass-colon-summary
+  "Returns these keys:
+  - :foo
+  - :bar."
+  [x]
+  x)
+
 (defn summary-fail-no-period
   "This is missing a period
   on the first line."

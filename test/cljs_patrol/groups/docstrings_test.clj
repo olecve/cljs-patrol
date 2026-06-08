@@ -41,6 +41,12 @@
     (testing "summary rule still flags transitional abbreviations (e.g., i.e.)"
       (is (contains? summary-kws :myapp.core/fail-eg-transition)))
 
+    (testing "summary rule flags run-ons with a closing bracket between sentences"
+      (is (contains? summary-kws :myapp.core/fail-parenthetical-run-on)))
+
+    (testing "summary rule accepts ':' as terminator for list-introducing summaries"
+      (is (not (contains? summary-kws :myapp.core/pass-colon-summary))))
+
     (testing "indentation rule flags shallow continuation lines"
       (is (contains? indent-kws :myapp.core/indent-fail)))
 
