@@ -175,6 +175,6 @@
     {:docstring-summary :cleanup
      :docstring-indentation :cleanup
      :docstring-leading-trailing-whitespace :cleanup})
-  (file-extensions [_] #{".clj" ".cljs" ".cljc"}))
+  (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->DocstringsGroup))

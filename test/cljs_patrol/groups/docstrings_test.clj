@@ -3,7 +3,6 @@
    [cljs-patrol.core :as core]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.docstrings :as docstrings]
-   [cljs-patrol.groups.spade :as spade]
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private fixture-dir "test/projects/docstrings-app/src/myapp")
@@ -98,19 +97,6 @@
                             {:docstring-summary [{:kw :a/x}]
                              :docstring-indentation [{:kw :a/y}]
                              :docstring-leading-trailing-whitespace [{:kw :a/z}]})))))
-
-(deftest file-extension-scope-test
-  (testing "docstrings group runs on .clj files"
-    (let [{:keys [group-results]} (core/run fixture-dir [docstrings/group])
-          summary-kws (kws (:docstring-summary (first group-results)))]
-      (is (not (contains? summary-kws :myapp.clj-only/well-documented))
-          "compliant .clj docstring should not be flagged")))
-
-  (testing "spade group does NOT run on .clj files"
-    (let [{:keys [group-results]} (core/run fixture-dir [spade/group])
-          unused (kws (:unused-styles (first group-results)))]
-      (is (not (contains? unused :myapp.clj-only/garden-like-style))
-          "garden-style defclass in .clj should be invisible to Spade"))))
 
 (deftest summary-lines-test
   (let [lines (group/summary-lines docstrings/group

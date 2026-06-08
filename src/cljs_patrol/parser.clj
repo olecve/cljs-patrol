@@ -166,7 +166,7 @@
   (filter #(contains? (group/file-extensions %) ext) enabled-groups))
 
 (defn analyze-file
-  "Parse a single .clj/.cljs/.cljc file and return {:declarations :usages :dynamic-sites}.
+  "Parse a single .cljs/.cljc file and return {:declarations :usages :dynamic-sites}.
   Only groups whose `file-extensions` include this file's extension are invoked."
   [file enabled-groups]
   (let [file-path (str file)
@@ -195,17 +195,16 @@
                          (merge-result result (call-handlers handlers tag loc ns-name aliases file-path))))))))))))
 
 (defn find-source-files
-  "Recursively find all .clj, .cljs, and .cljc files under root-dir."
+  "Recursively find all .cljs and .cljc files under root-dir."
   [root-dir]
   (->> (file-seq (io/file root-dir))
        (filter #(and (.isFile %)
                      (let [file-name (.getName %)]
                        (or (str/ends-with? file-name ".cljs")
-                           (str/ends-with? file-name ".cljc")
-                           (str/ends-with? file-name ".clj")))))))
+                           (str/ends-with? file-name ".cljc")))))))
 
 (defn analyze-project
-  "Analyze all Clojure(Script) source files under root-dir using enabled-groups.
+  "Analyze all ClojureScript source files under root-dir using enabled-groups.
   Returns {:declarations :usages :dynamic-sites} across all files."
   [root-dir enabled-groups]
   (let [files (find-source-files root-dir)]
