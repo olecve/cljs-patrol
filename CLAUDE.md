@@ -4,10 +4,11 @@ Guidance for AI assistants working on cljs-patrol.
 
 ## What This Tool Does
 
-cljs-patrol is a standalone static analysis CLI for ClojureScript codebases. It detects:
+cljs-patrol is a standalone static analysis CLI for ClojureScript codebases (also runs against `.clj` for groups whose rules apply, e.g. docstrings). It detects:
 
 - **Re-frame:** unused/phantom subscriptions and events, dynamic dispatch sites
 - **Spade:** unused CSS-in-ClojureScript styles (`defclass`, `defattrs`)
+- **Docstrings:** bbatsov style-guide violations on public defs (summary, indentation, leading/trailing whitespace)
 
 Exits with code 1 when issues are found (CI-friendly).
 
@@ -80,7 +81,7 @@ Register the group in `core.clj` in the `all-groups` vector.
 
 ## Key Architectural Notes
 
-- **Parse phase:** `parser/analyze-project` walks all `.cljs`/`.cljc` files, calls each group's `:parse` handlers per node type (list, vector, token), and accumulates results per file.
+- **Parse phase:** `parser/analyze-project` walks all `.clj`/`.cljs`/`.cljc` files, calls each group's `:parse` handlers per node type (list, vector, token), and accumulates results per file.
 - **Analyze phase:** Each group cross-references declarations vs. usages to compute unused/phantom sets.
 - **Namespace resolution:** `parser/resolve-kw` handles `::alias/name`, `::local`, and `:plain` keywords using per-file alias maps extracted from `ns` forms.
 - **Dynamic sites:** Dispatch/subscribe calls with non-literal keywords are collected separately for manual review and do not trigger a failure.
