@@ -94,3 +94,15 @@ no indentation on continuation."
   "Dispatcher summary.
   Second line."
   identity)
+
+(defprotocol Greeter
+  "Outer protocol summary.
+  Continuation."
+  (greet
+    [this name]
+    "Bad method summary. Run-on Sentence on the same line.
+    More details.")
+  (farewell
+    [this name]
+    "Compliant farewell summary.
+    Continuation."))

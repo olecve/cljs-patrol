@@ -70,7 +70,18 @@
 
     (testing "defmulti docstring is checked"
       (is (not (contains? summary-kws :myapp.core/dispatcher))
-          "compliant defmulti docstring should not flag"))))
+          "compliant defmulti docstring should not flag"))
+
+    (testing "defprotocol outer docstring is checked"
+      (is (not (contains? summary-kws :myapp.core/Greeter))
+          "compliant outer protocol docstring should not flag"))
+
+    (testing "defprotocol method docstrings are also checked"
+      (is (contains? summary-kws :myapp.core/greet)
+          "method with bad summary should be flagged"))
+
+    (testing "compliant defprotocol method docstrings pass"
+      (is (not (contains? summary-kws :myapp.core/farewell))))))
 
 (deftest analyze-filters-by-type-test
   (testing "analyze partitions usages into the three rule buckets"

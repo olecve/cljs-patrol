@@ -1,7 +1,9 @@
 (ns cljs-patrol.groups.docstrings
   "Docstrings rule group: enforces bbatsov clojure-style-guide docstring conventions.
   Checks docstring-summary, docstring-indentation, and docstring-leading-trailing-whitespace
-  on every def-form regardless of privacy (defn, defn-, def, defmacro, defmulti, defprotocol)."
+  on every def-form regardless of privacy (defn, defn-, def, defmacro, defmulti, defprotocol).
+  For defprotocol, both the outer protocol docstring and each method signature's
+  trailing docstring are checked."
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
@@ -111,6 +113,58 @@
     (leading-trailing-violation? content)
     (conj :docstring-leading-trailing-whitespace)))
 
+(defn- rightmost-sibling
+  "Walk to the rightmost sibling starting from loc."
+  [loc]
+  (loop [cur loc last-loc cur]
+    (if-let [nxt (z/right cur)]
+      (recur nxt nxt)
+      last-loc)))
+
+(defn- find-method-docstrings
+  "For a defprotocol form, return a seq of [method-kw doc-loc] for each method
+  signature whose last form is a string. Skips the outer docstring and method
+  signatures that have no trailing docstring."
+  [defprotocol-loc ns-name]
+  (let [op-loc (z/down defprotocol-loc)
+        first-after-name (some-> op-loc z/right z/right)]
+    (loop [loc first-after-name acc []]
+      (if (nil? loc)
+        acc
+        (recur (z/right loc)
+               (if (= :list (z/tag loc))
+                 (let [first-child (z/down loc)
+                       method-name (parser/sym-name first-child)
+                       last-child (when first-child (rightmost-sibling first-child))]
+                   (if (and method-name (string-node? last-child))
+                     (conj acc [(keyword ns-name method-name) last-child])
+                     acc))
+                 acc))))))
+
+(defn- issues-for-doc
+  "Run all three rule predicates against `doc-loc` and return one usage map per
+  violation, keyed by `kw`."
+  [kw doc-loc file]
+  (let [content (strip-quotes (parser/raw doc-loc))
+        [_ col] (try (z/position doc-loc) (catch Exception _ [0 1]))
+        row (parser/position-row doc-loc)]
+    (mapv (fn [t]
+            {:kw kw
+             :type t
+             :file file
+             :row row})
+          (docstring-issues content col))))
+
+(defn- collect-doc-pairs
+  "Return a seq of [kw doc-loc] for every docstring to check in a def-form:
+  the outer docstring (if present) plus, for defprotocol, each method signature
+  with a trailing docstring."
+  [loc operator ns-name name-symbol]
+  (let [primary-kw (keyword ns-name (name name-symbol))
+        primary (when-let [d (find-docstring-loc loc)] [[primary-kw d]])
+        methods (when (= "defprotocol" operator) (find-method-docstrings loc ns-name))]
+    (concat primary methods)))
+
 (defn- handle-list
   [loc ns-name _aliases file]
   (let [op-loc (z/down loc)
@@ -119,22 +173,12 @@
       (let [name-loc (some-> op-loc z/right)
             sym (some-> name-loc name-sym)]
         (when sym
-          (when-let [doc-loc (find-docstring-loc loc)]
-            (let [kw (keyword ns-name (name sym))
-                  content (strip-quotes (parser/raw doc-loc))
-                  [_ col] (try (z/position doc-loc) (catch Exception _ [0 1]))
-                  row (parser/position-row doc-loc)
-                  issue-types (docstring-issues content col)
-                  usages (mapv (fn [t]
-                                 {:kw kw
-                                  :type t
-                                  :file file
-                                  :row row})
-                               issue-types)]
-              (when (seq usages)
-                {:decls []
-                 :usages usages
-                 :dynamics []}))))))))
+          (let [pairs (collect-doc-pairs loc operator ns-name sym)
+                usages (vec (mapcat (fn [[kw doc-loc]] (issues-for-doc kw doc-loc file)) pairs))]
+            (when (seq usages)
+              {:decls []
+               :usages usages
+               :dynamics []})))))))
 
 (defn- analyze* [{:keys [usages]}]
   {:docstring-summary
