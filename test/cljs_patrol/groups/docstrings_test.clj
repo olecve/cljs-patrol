@@ -32,6 +32,15 @@
     (testing "summary rule does not flag '?' inside Clojure identifiers"
       (is (not (contains? summary-kws :myapp.core/identifier-with-question-mark))))
 
+    (testing "summary rule does not flag name-title abbreviations (Mr., Dr., etc.)"
+      (is (not (contains? summary-kws :myapp.core/pass-name-title-abbreviation))))
+
+    (testing "summary rule does not flag place-name abbreviations (St., etc.)"
+      (is (not (contains? summary-kws :myapp.core/pass-place-abbreviation))))
+
+    (testing "summary rule still flags transitional abbreviations (e.g., i.e.)"
+      (is (contains? summary-kws :myapp.core/fail-eg-transition)))
+
     (testing "indentation rule flags shallow continuation lines"
       (is (contains? indent-kws :myapp.core/indent-fail)))
 

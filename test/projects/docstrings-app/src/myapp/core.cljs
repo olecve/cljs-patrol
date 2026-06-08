@@ -17,6 +17,24 @@
   [x]
   x)
 
+(defn pass-name-title-abbreviation
+  "Greets Mr. Smith and Dr. Jones every morning.
+  Returns the greeting count."
+  [x]
+  x)
+
+(defn pass-place-abbreviation
+  "Resolves the address in St. Petersburg or similar.
+  Returns the canonical form."
+  [x]
+  x)
+
+(defn fail-eg-transition
+  "Returns x. E.g. when foo is bar.
+  More details."
+  [x]
+  x)
+
 (defn summary-fail-no-period
   "This is missing a period
   on the first line."

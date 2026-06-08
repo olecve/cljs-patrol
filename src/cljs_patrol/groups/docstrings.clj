@@ -11,6 +11,23 @@
 (def ^:private def-fns
   #{"defn" "defn-" "def" "defmacro" "defmulti" "defprotocol"})
 
+(def ^:private name-title-abbreviations
+  "Title and place-name abbreviations whose trailing period is part of the
+  abbreviation, not a sentence break. Stripped before run-on detection so that
+  `Mr. Smith`, `St. Petersburg`, etc. are not misread as two sentences.
+  Excludes `e.g.`, `i.e.`, `etc.` — those legitimately introduce a second
+  sentence and should remain detected."
+  #{"Mr." "Mrs." "Ms." "Dr." "Prof." "Jr." "Sr." "St." "Inc." "Ltd."})
+
+(defn- strip-abbreviation-periods
+  "Replace each whole-word abbreviation with the same word minus its trailing
+  period, so the following capital letter is no longer preceded by a `.`."
+  [s]
+  (reduce (fn [acc abbr]
+            (str/replace acc abbr (subs abbr 0 (dec (count abbr)))))
+          s
+          name-title-abbreviations))
+
 (defn- string-node?
   [loc]
   (and loc
@@ -50,15 +67,16 @@
 (defn- summary-violation?
   "Detect a missing or non-self-contained summary line in a multi-line docstring.
   The first line must end with a sentence terminator and not begin a new
-  sentence on the same line. To avoid false positives from Clojure-style
-  identifiers (`:dynamic?`, `string?`, namespaced symbols), a follow-up
-  sentence is detected only when an upper-case letter appears after the
-  terminator and whitespace."
+  sentence on the same line. False positives from Clojure-style identifiers
+  (`:dynamic?`, `string?`) are skipped by requiring an upper-case letter after
+  the terminator. Name and place-title abbreviations (`Mr.`, `St.`, ...) are
+  stripped first so they do not look like sentence breaks."
   [content]
   (when (multi-line? content)
-    (let [first-line (first (str/split content #"\n" 2))]
+    (let [first-line (first (str/split content #"\n" 2))
+          cleaned (strip-abbreviation-periods first-line)]
       (boolean
-       (or (re-find #"[.!?]\s+[A-Z]" first-line)
+       (or (re-find #"[.!?]\s+[A-Z]" cleaned)
            (not (re-find #"[.!?]\s*$" first-line)))))))
 
 (defn- indentation-violation?
