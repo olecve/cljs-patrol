@@ -32,6 +32,7 @@
     {:defclass-as-sole-attr
      "Declared with defclass but every usage is {:class (style-fn)}. Use defattrs instead to avoid the :class wrapper."})
   (rule->tier [_]
-    {:defclass-as-sole-attr :deprecations}))
+    {:defclass-as-sole-attr :deprecations})
+  (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->ReagentGroup))
