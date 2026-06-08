@@ -13,7 +13,7 @@
 (defn- string-node?
   [loc]
   (and loc
-       (= :token (z/tag loc))
+       (contains? #{:token :multi-line} (z/tag loc))
        (string? (try (z/sexpr loc) (catch Exception _ nil)))))
 
 (defn- name-info

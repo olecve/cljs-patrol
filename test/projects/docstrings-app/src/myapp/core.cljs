@@ -1,0 +1,66 @@
+(ns myapp.core)
+
+(defn single-line-no-period
+  "A short summary without a terminator"
+  [x]
+  x)
+
+(defn good-multiline
+  "This is a good summary.
+  And this is the rest of the docstring."
+  [x]
+  x)
+
+(defn summary-fail-no-period
+  "This is missing a period
+  on the first line."
+  [x]
+  x)
+
+(defn summary-fail-extra-prose
+  "This does X. And also Y on the same line,
+  which is bad style."
+  [x]
+  x)
+
+(defn indent-fail
+  "First line.
+no indentation on continuation."
+  [x]
+  x)
+
+(defn whitespace-fail-leading
+  " A docstring that starts with a space.
+  Second line."
+  [x]
+  x)
+
+(defn whitespace-fail-trailing
+  "A docstring that ends with spaces.
+  Second line.   "
+  [x]
+  x)
+
+(defn ^:private private-meta
+  "Bad: extra prose on same line, but private so ignored.
+  More text."
+  [x]
+  x)
+
+(defn- private-defn-dash
+  "Bad: extra prose on same line, but private so ignored.
+  More text."
+  [x]
+  x)
+
+(def value-only "actually a value")
+
+(def documented-value
+  "This is a real docstring.
+  Second line."
+  42)
+
+(defmulti dispatcher
+  "Dispatcher summary.
+  Second line."
+  identity)
