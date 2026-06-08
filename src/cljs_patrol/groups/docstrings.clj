@@ -26,9 +26,9 @@
     (catch Exception _ nil)))
 
 (defn- find-docstring-loc
-  "Return the docstring zip loc for a def-form, or nil. A string is treated as
-  a docstring only when followed by at least one more node (so `(def foo \"v\")`
-  is recognized as a value, not a docstring)."
+  "Return the docstring zip loc for a def-form, or nil.
+  A string is treated as a docstring only when followed by at least one more
+  node (so `(def foo \"v\")` is recognized as a value, not a docstring)."
   [def-loc]
   (let [op-loc (z/down def-loc)
         name-loc (some-> op-loc z/right)
@@ -48,11 +48,12 @@
   (str/includes? content "\n"))
 
 (defn- summary-violation?
-  "Multi-line docstring: first line must end with a sentence terminator and not
-  begin a new sentence on the same line. To avoid false positives from
-  Clojure-style identifiers (`:dynamic?`, `string?`, namespaced symbols), a
-  follow-up sentence is detected only when an upper-case letter appears after
-  the terminator and whitespace."
+  "Detect a missing or non-self-contained summary line in a multi-line docstring.
+  The first line must end with a sentence terminator and not begin a new
+  sentence on the same line. To avoid false positives from Clojure-style
+  identifiers (`:dynamic?`, `string?`, namespaced symbols), a follow-up
+  sentence is detected only when an upper-case letter appears after the
+  terminator and whitespace."
   [content]
   (when (multi-line? content)
     (let [first-line (first (str/split content #"\n" 2))]
@@ -61,8 +62,9 @@
            (not (re-find #"[.!?]\s*$" first-line)))))))
 
 (defn- indentation-violation?
-  "Multi-line docstring: each non-blank continuation line must have leading
-  whitespace at least equal to `(column-of-opening-quote - 1)`."
+  "Detect under-indented continuation lines in a multi-line docstring.
+  Each non-blank continuation line must have leading whitespace at least
+  equal to `(column-of-opening-quote - 1)`."
   [content col]
   (when (multi-line? content)
     (let [expected (dec col)
