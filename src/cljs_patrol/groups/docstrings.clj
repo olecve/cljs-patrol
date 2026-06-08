@@ -49,12 +49,15 @@
 
 (defn- summary-violation?
   "Multi-line docstring: first line must end with a sentence terminator and not
-  contain prose after that terminator on the same line."
+  begin a new sentence on the same line. To avoid false positives from
+  Clojure-style identifiers (`:dynamic?`, `string?`, namespaced symbols), a
+  follow-up sentence is detected only when an upper-case letter appears after
+  the terminator and whitespace."
   [content]
   (when (multi-line? content)
     (let [first-line (first (str/split content #"\n" 2))]
       (boolean
-       (or (re-find #"[.!?]\s+\S" first-line)
+       (or (re-find #"[.!?]\s+[A-Z]" first-line)
            (not (re-find #"[.!?]\s*$" first-line)))))))
 
 (defn- indentation-violation?

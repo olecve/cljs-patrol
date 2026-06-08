@@ -11,6 +11,12 @@
   [x]
   x)
 
+(defn identifier-with-question-mark
+  "Return whether x is :dynamic? based on the first element.
+  The trailing ? is part of a keyword, not a sentence terminator."
+  [x]
+  x)
+
 (defn summary-fail-no-period
   "This is missing a period
   on the first line."
@@ -48,7 +54,7 @@ no indentation on continuation."
   x)
 
 (defn- private-defn-dash
-  "Bad: extra prose on same line. defn- is also checked.
+  "Bad: extra prose on same line. The defn- form is also checked.
   More text."
   [x]
   x)

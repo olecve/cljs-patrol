@@ -29,6 +29,9 @@
     (testing "summary rule passes well-formed multi-line docstring"
       (is (not (contains? summary-kws :myapp.core/good-multiline))))
 
+    (testing "summary rule does not flag '?' inside Clojure identifiers"
+      (is (not (contains? summary-kws :myapp.core/identifier-with-question-mark))))
+
     (testing "indentation rule flags shallow continuation lines"
       (is (contains? indent-kws :myapp.core/indent-fail)))
 
