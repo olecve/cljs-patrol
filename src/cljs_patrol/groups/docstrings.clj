@@ -196,10 +196,11 @@
    ["Docstring leading/trailing whitespace:" (count docstring-leading-trailing-whitespace)]])
 
 (defn- failed?*
-  "Always false: docstring style is informational by design. Users opt into
-  CI enforcement via `--fail-on cleanup` or per-rule (`--fail-on
-  docstring-summary`). Other groups (re-frame, spade, typography) return
-  truthy here because their issues are bugs/deprecations, not style noise."
+  "Always return false; docstring rules are informational by design.
+  Users opt into CI enforcement via `--fail-on cleanup` or per-rule
+  (`--fail-on docstring-summary`). Other groups (re-frame, spade,
+  typography) return truthy here because their issues are bugs or
+  deprecations, not style noise."
   [_]
   false)
 
