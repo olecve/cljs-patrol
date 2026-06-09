@@ -96,7 +96,19 @@
           "method with bad summary should be flagged"))
 
     (testing "compliant defprotocol method docstrings pass"
-      (is (not (contains? summary-kws :myapp.core/farewell))))))
+      (is (not (contains? summary-kws :myapp.core/farewell))))
+
+    (testing "defmacro docstrings are checked"
+      (is (not (contains? summary-kws :myapp.core/pass-defmacro))))
+
+    (testing "multi-arity defn docstrings are extracted correctly"
+      (is (not (contains? summary-kws :myapp.core/pass-multi-arity))))
+
+    (testing "attr-map between docstring and arglist does not break detection"
+      (is (not (contains? summary-kws :myapp.core/pass-attr-map-after-doc))))
+
+    (testing "blank lines inside docstring are not flagged for under-indentation"
+      (is (not (contains? indent-kws :myapp.core/pass-blank-line-mid-doc))))))
 
 (deftest analyze-filters-by-type-test
   (testing "analyze partitions usages into the three rule buckets"

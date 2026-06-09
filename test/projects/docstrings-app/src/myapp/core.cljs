@@ -132,3 +132,29 @@ no indentation on continuation."
     [this name]
     "Compliant farewell summary.
     Continuation."))
+
+(defmacro pass-defmacro
+  "Compliant macro summary.
+  Continuation line."
+  [body]
+  `(do ~body))
+
+(defn pass-multi-arity
+  "Compliant summary for a multi-arity fn.
+  Continuation."
+  ([x] x)
+  ([x y] [x y]))
+
+(defn pass-attr-map-after-doc
+  "Compliant summary with attr-map after docstring.
+  Continuation."
+  {:added "1.0"}
+  [x]
+  x)
+
+(defn pass-blank-line-mid-doc
+  "Compliant summary.
+
+  Body paragraph after a blank line."
+  [x]
+  x)
