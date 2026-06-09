@@ -202,7 +202,13 @@
    ["Docstring indentation violations:" (count docstring-indentation)]
    ["Docstring leading/trailing whitespace:" (count docstring-leading-trailing-whitespace)]])
 
-(defn- failed?* [_] false)
+(defn- failed?*
+  "Always false: docstring style is informational by design. Users opt into
+  CI enforcement via `--fail-on cleanup` or per-rule (`--fail-on
+  docstring-summary`). Other groups (re-frame, spade, typography) return
+  truthy here because their issues are bugs/deprecations, not style noise."
+  [_]
+  false)
 
 (defrecord DocstringsGroup []
   group/RuleGroup
