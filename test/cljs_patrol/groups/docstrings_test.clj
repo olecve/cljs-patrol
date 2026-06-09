@@ -53,6 +53,10 @@
     (testing "indentation rule passes aligned continuation lines"
       (is (not (contains? indent-kws :myapp.core/good-multiline))))
 
+    (testing "indentation rule expands tabs before counting columns"
+      (is (not (contains? indent-kws :myapp.core/indent-pass-tab))
+          "a hard tab on a continuation line should satisfy the 2-column expectation"))
+
     (testing "leading/trailing rule flags leading whitespace"
       (is (contains? whitespace-kws :myapp.core/whitespace-fail-leading)))
 

@@ -66,6 +66,12 @@ no indentation on continuation."
   [x]
   x)
 
+(defn indent-pass-tab
+  "First line.
+	Second line indented with a hard tab."
+  [x]
+  x)
+
 (defn whitespace-fail-leading
   " A docstring that starts with a space.
   Second line."

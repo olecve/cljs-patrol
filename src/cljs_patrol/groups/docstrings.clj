@@ -84,18 +84,22 @@
        (or (re-find #"[.!?][)\]}]?\s+[A-Z]" cleaned)
            (not (re-find #"[.!?:]\s*$" first-line)))))))
 
+(def ^:private tab-width 4)
+
 (defn- indentation-violation?
   "Detect under-indented continuation lines in a multi-line docstring.
   Each non-blank continuation line must have leading whitespace at least
-  equal to `(column-of-opening-quote - 1)`."
+  equal to `(column-of-opening-quote - 1)`. Tabs are expanded to `tab-width`
+  spaces before counting."
   [content col]
   (when (multi-line? content)
     (let [expected (dec col)
           continuation (rest (str/split content #"\n" -1))]
       (boolean
        (some (fn [line]
-               (let [trimmed (str/triml line)
-                     leading (- (count line) (count trimmed))]
+               (let [expanded (str/replace line "\t" (apply str (repeat tab-width " ")))
+                     trimmed (str/triml expanded)
+                     leading (- (count expanded) (count trimmed))]
                  (and (seq trimmed)
                       (< leading expected))))
              continuation)))))
