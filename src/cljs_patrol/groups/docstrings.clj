@@ -56,13 +56,6 @@
                (z/right candidate))
       candidate)))
 
-(defn- strip-quotes [raw]
-  (if (and (>= (count raw) 2)
-           (str/starts-with? raw "\"")
-           (str/ends-with? raw "\""))
-    (subs raw 1 (dec (count raw)))
-    raw))
-
 (defn- multi-line? [content]
   (str/includes? content "\n"))
 
@@ -153,9 +146,8 @@
   "Run all three rule predicates against `doc-loc` and return one usage map per
   violation, keyed by `kw`."
   [kw doc-loc file]
-  (let [content (strip-quotes (parser/raw doc-loc))
-        [_ col] (try (z/position doc-loc) (catch Exception _ [0 1]))
-        row (parser/position-row doc-loc)]
+  (let [content (try (z/sexpr doc-loc) (catch Exception _ ""))
+        [row col] (try (z/position doc-loc) (catch Exception _ [0 1]))]
     (mapv (fn [t]
             {:kw kw
              :type t
@@ -189,12 +181,13 @@
                :dynamics []})))))))
 
 (defn- analyze* [{:keys [usages]}]
-  {:docstring-summary
-   (vec (filter #(= :docstring-summary (:type %)) usages))
-   :docstring-indentation
-   (vec (filter #(= :docstring-indentation (:type %)) usages))
-   :docstring-leading-trailing-whitespace
-   (vec (filter #(= :docstring-leading-trailing-whitespace (:type %)) usages))})
+  (let [by-type (group-by :type usages)]
+    {:docstring-summary
+     (vec (by-type :docstring-summary))
+     :docstring-indentation
+     (vec (by-type :docstring-indentation))
+     :docstring-leading-trailing-whitespace
+     (vec (by-type :docstring-leading-trailing-whitespace))}))
 
 (defn- summary-lines* [{:keys [docstring-summary docstring-indentation
                                docstring-leading-trailing-whitespace]}]
