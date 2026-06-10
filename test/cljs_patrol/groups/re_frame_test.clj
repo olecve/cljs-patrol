@@ -131,7 +131,19 @@
                                                 :dynamic-sites []})]
       (is (= [empty-db] (:reg-event-db-empty result)))
       (is (empty? (:phantom-events result))
-          "event-db-empty usages don't count as phantom"))))
+          "event-db-empty usages don't count as phantom")))
+
+  (testing "reg-event-db returning effects map is partitioned out of usages"
+    (let [db-returning-effects {:kw ::my-event
+                                :type :event-db-returning-effects
+                                :file "events.cljs"
+                                :row 13}
+          result (group/analyze re-frame/group {:declarations [event-decl]
+                                                :usages [db-returning-effects]
+                                                :dynamic-sites []})]
+      (is (= [db-returning-effects] (:reg-event-db-returning-effects result)))
+      (is (empty? (:phantom-events result))
+          "event-db-returning-effects usages don't count as phantom"))))
 
 (deftest failed?-test
   (testing "fails on duplicate subs"
@@ -168,6 +180,14 @@
                                        :unused-subs []
                                        :unused-events []
                                        :deprecated-effects [{:effect ":dispatch-n"}]})))
+
+  (testing "fails on reg-event-db returning effects map"
+    (is (group/failed? re-frame/group {:duplicate-subs []
+                                       :duplicate-events []
+                                       :unused-subs []
+                                       :unused-events []
+                                       :deprecated-effects []
+                                       :reg-event-db-returning-effects [event-decl]})))
 
   (testing "does not fail on phantom items only"
     (is (not (group/failed? re-frame/group {:duplicate-subs []
@@ -207,6 +227,10 @@
                   :type :event-db-empty
                   :file "events.cljs"
                   :row 11}
+        db-returning-effects {:kw ::db-returning-effects
+                              :type :event-db-returning-effects
+                              :file "events.cljs"
+                              :row 13}
         result {:duplicate-subs [sub-decl sub-decl]
                 :duplicate-events []
                 :unused-subs [sub-decl]
@@ -218,6 +242,7 @@
                 :reg-event-fx-db-only [db-only-fx db-only-fx]
                 :reg-event-fx-empty [empty-fx]
                 :reg-event-db-empty [empty-db]
+                :reg-event-db-returning-effects [db-returning-effects]
                 :dynamic-sites []}
         lines (group/summary-lines re-frame/group result)]
     (is (= [["Duplicate subscriptions:" 2]
@@ -231,5 +256,6 @@
             ["reg-event-fx returns only :db:" 2]
             ["reg-event-fx empty effects:" 1]
             ["reg-event-db clobbers db:" 1]
+            ["reg-event-db returns effects map:" 1]
             ["Dynamic sites:" 0]]
            lines))))

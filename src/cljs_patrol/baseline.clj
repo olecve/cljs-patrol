@@ -14,7 +14,7 @@
     :duplicate-subs :duplicate-events
     :reg-sub-=>-1-arity
     :reg-event-fx-db-only :reg-event-fx-empty
-    :reg-event-db-empty})
+    :reg-event-db-empty :reg-event-db-returning-effects})
 
 (def ^:private var-keyed-rules
   "Rules where the issue is identified by namespace + var name (from a namespaced keyword)."
