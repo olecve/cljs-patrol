@@ -14,17 +14,13 @@
   #{"defn" "defn-" "def" "defmacro" "defmulti" "defprotocol"})
 
 (def ^:private name-title-abbreviations
-  "Title and place-name abbreviations whose trailing period is part of the
-  abbreviation, not a sentence break. Stripped before run-on detection so that
-  `Mr. Smith`, `St. Petersburg`, etc. are not misread as two sentences.
-  Excludes `e.g.`, `i.e.`, `etc.` — those legitimately introduce a second
-  sentence and should remain detected."
+  "Name- and place-title abbreviations stripped before run-on detection.
+  Without stripping, `Mr. Smith` would look like two sentences. Excludes
+  `e.g.`, `i.e.`, `etc.` — those legitimately introduce a second sentence
+  and should remain detected."
   #{"Mr." "Mrs." "Ms." "Dr." "Prof." "Jr." "Sr." "St." "Inc." "Ltd."})
 
-(defn- strip-abbreviation-periods
-  "Replace each whole-word abbreviation with the same word minus its trailing
-  period, so the following capital letter is no longer preceded by a `.`."
-  [s]
+(defn- strip-abbreviation-periods [s]
   (reduce (fn [acc abbr]
             (str/replace acc abbr (subs abbr 0 (dec (count abbr)))))
           s
@@ -114,18 +110,15 @@
       leading-trailing?
       (conj :docstring-leading-trailing-whitespace))))
 
-(defn- rightmost-sibling
-  "Walk to the rightmost sibling starting from loc."
-  [loc]
+(defn- rightmost-sibling [loc]
   (loop [cur loc last-loc cur]
     (if-let [nxt (z/right cur)]
       (recur nxt nxt)
       last-loc)))
 
 (defn- find-method-docstrings
-  "For a defprotocol form, return a seq of [method-kw doc-loc] for each method
-  signature whose last form is a string. Skips the outer docstring and method
-  signatures that have no trailing docstring."
+  "Return [method-kw doc-loc] for each defprotocol method sig with a docstring.
+  Skips the outer protocol docstring and method sigs without a trailing string."
   [defprotocol-loc ns-name]
   (let [op-loc (z/down defprotocol-loc)
         first-after-name (some-> op-loc z/right z/right)]
@@ -142,10 +135,7 @@
                      acc))
                  acc))))))
 
-(defn- issues-for-doc
-  "Run all three rule predicates against `doc-loc` and return one usage map per
-  violation, keyed by `kw`."
-  [kw doc-loc file]
+(defn- issues-for-doc [kw doc-loc file]
   (let [content (try (z/sexpr doc-loc) (catch Exception _ ""))
         [row col] (try (z/position doc-loc) (catch Exception _ [0 1]))]
     (mapv (fn [t]
@@ -155,11 +145,7 @@
              :row row})
           (docstring-issues content col))))
 
-(defn- collect-doc-pairs
-  "Return a seq of [kw doc-loc] for every docstring to check in a def-form:
-  the outer docstring (if present) plus, for defprotocol, each method signature
-  with a trailing docstring."
-  [loc operator ns-name name-symbol]
+(defn- collect-doc-pairs [loc operator ns-name name-symbol]
   (let [primary-kw (keyword ns-name (name name-symbol))
         primary (when-let [d (find-docstring-loc loc)] [[primary-kw d]])
         methods (when (= "defprotocol" operator) (find-method-docstrings loc ns-name))]
