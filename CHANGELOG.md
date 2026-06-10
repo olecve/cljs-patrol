@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.0.9] - 2026-06-10
+
+## What's Changed
+
+* Detect reg-event-db returning an effects-style map by @olecve in https://github.com/olecve/cljs-patrol/pull/19
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.8...v0.0.9
+
+
 ## [v0.0.8] - 2026-06-10
 
 ## What's Changed
