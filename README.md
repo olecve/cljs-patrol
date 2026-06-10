@@ -75,6 +75,7 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **Phantom subscriptions** — subscribed to but never declared
 - **Phantom events** — dispatched but never declared
 - **Duplicate registrations** — two `reg-sub` or `reg-event-*` calls with the same keyword (second silently overwrites the first)
+- **reg-event-db returning effects** — `reg-event-db` handler returns an effects-style `{:db ... :dispatch ...}` map; the whole map silently replaces app-db and extra effects are dropped (use `reg-event-fx` instead)
 - **Deprecated effects** — use of `:dispatch-n` (replaced by `:fx`)
 - **defclass as sole attr** — `defclass` where every usage is `{:class (style-fn)}` with no other props; should be `defattrs` instead
 - **defattrs in merge** — `defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class` without merge
@@ -83,6 +84,29 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **Docstring indentation** — continuation lines of a multi-line docstring are indented less than the opening-quote column
 - **Docstring leading/trailing whitespace** — docstring starts or ends with whitespace
 - **Dynamic dispatch/subscribe sites** — dispatch or subscribe calls with a non-literal keyword (manual review needed)
+
+### Example: reg-event-db returning effects
+
+```clojure
+;; BAD — reg-event-db handler returns a {:db ... :dispatch ...} map.
+;; The whole map silently becomes the new app-db; :dispatch never fires.
+(reg-event-db
+ :cart/add-item-success
+ (fn [{:keys [db]} [_ item]]
+   {:db (-> db
+            (update :cart-items conj item)
+            (assoc :loading? false))
+    :dispatch [:analytics/track :item-added]}))
+
+;; GOOD — switch to reg-event-fx, which expects exactly this shape.
+(reg-event-fx
+ :cart/add-item-success
+ (fn [{:keys [db]} [_ item]]
+   {:db (-> db
+            (update :cart-items conj item)
+            (assoc :loading? false))
+    :dispatch [:analytics/track :item-added]}))
+```
 
 ## Supported patterns
 
@@ -219,7 +243,7 @@ By default, any issue causes CI to fail. For incremental adoption — or just to
 
 | Tier | Rules | Why |
 | ---- | ----- | --- |
-| `bugs` | `duplicate-subs`, `duplicate-events`, `reg-event-fx-empty`, `reg-event-db-empty` | Silent runtime breakage — duplicate registrations overwrite, and empty-effect handlers clobber app-db. |
+| `bugs` | `duplicate-subs`, `duplicate-events`, `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects` | Silent runtime breakage — duplicate registrations overwrite, empty-effect handlers clobber app-db, and effects-style `reg-event-db` returns replace app-db with the effects map. |
 | `deprecations` | `deprecated-effects`, `defclass-as-sole-attr`, `defattrs-in-merge`, `mixed-token-groups` | Deprecated APIs and idiomatic violations that may break later. |
 | `cleanup` | `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events`, `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace` | Dead code, style noise, and suspicious references with no runtime impact. |
 
