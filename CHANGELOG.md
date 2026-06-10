@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.0.8] - 2026-06-10
+
+## What's Changed
+
+* Add docstrings rule group by @olecve in https://github.com/olecve/cljs-patrol/pull/18
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.7...v0.0.8
+
+
 ## [v0.0.7] - 2026-05-19
 
 ## What's Changed
