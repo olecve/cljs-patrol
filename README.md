@@ -1,6 +1,6 @@
 # cljs-patrol
 
-Static analysis tool for ClojureScript UI codebases. Detects unused and phantom re-frame subscriptions and events, and unused Spade CSS styles.
+Static analysis tool for ClojureScript UI codebases. Detects unused and phantom re-frame subscriptions and events, unused Spade CSS styles, and bbatsov docstring style-guide violations.
 
 ## Usage
 
@@ -30,12 +30,13 @@ java -jar cljs-patrol.jar <source-dir>
 
 Analysis is split into independent rule groups. By default all groups run.
 
-| Group        | Detects                                              |
-| ------------ | ---------------------------------------------------- |
-| `re-frame`   | Unused/phantom re-frame subscriptions and events     |
-| `spade`      | Unused Spade style declarations, defattrs in merge   |
-| `reagent`    | defclass used as sole attr (should be defattrs)      |
-| `typography` | Mixed Figma typography token groups in a single style |
+| Group         | Detects                                                                  |
+| ------------- | ------------------------------------------------------------------------ |
+| `re-frame`    | Unused/phantom re-frame subscriptions and events                         |
+| `spade`       | Unused Spade style declarations, defattrs in merge                       |
+| `reagent`     | defclass used as sole attr (should be defattrs)                          |
+| `typography`  | Mixed Figma typography token groups in a single style                    |
+| `docstrings`  | Bbatsov style-guide violations on every def (summary, indent, whitespace) |
 
 Run only specific groups:
 
@@ -78,6 +79,9 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **defclass as sole attr** — `defclass` where every usage is `{:class (style-fn)}` with no other props; should be `defattrs` instead
 - **defattrs in merge** — `defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class` without merge
 - **Mixed typography token groups** — typography tokens from different Figma token groups mixed in a single style definition
+- **Docstring summary** — first line of a multi-line docstring is not a self-contained sentence ending in `.`, `!`, `?`, or `:`
+- **Docstring indentation** — continuation lines of a multi-line docstring are indented less than the opening-quote column
+- **Docstring leading/trailing whitespace** — docstring starts or ends with whitespace
 - **Dynamic dispatch/subscribe sites** — dispatch or subscribe calls with a non-literal keyword (manual review needed)
 
 ## Supported patterns
@@ -215,9 +219,9 @@ By default, any issue causes CI to fail. For incremental adoption — or just to
 
 | Tier | Rules | Why |
 | ---- | ----- | --- |
-| `bugs` | `duplicate-subs`, `duplicate-events` | Silent runtime breakage — the second registration overwrites the first. |
+| `bugs` | `duplicate-subs`, `duplicate-events`, `reg-event-fx-empty`, `reg-event-db-empty` | Silent runtime breakage — duplicate registrations overwrite, and empty-effect handlers clobber app-db. |
 | `deprecations` | `deprecated-effects`, `defclass-as-sole-attr`, `defattrs-in-merge`, `mixed-token-groups` | Deprecated APIs and idiomatic violations that may break later. |
-| `cleanup` | `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events` | Dead code and suspicious references with no runtime impact. |
+| `cleanup` | `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events`, `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace` | Dead code, style noise, and suspicious references with no runtime impact. |
 
 `dynamic-sites` is info-only — it never affects the exit code.
 

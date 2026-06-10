@@ -106,6 +106,7 @@
           "heading-bold-{small,medium,large,xlarge}, action-{small,medium,large}, "
           "code-compact-{small,medium,large}, code-reg-{small,medium,large}.")})
   (rule->tier [_]
-    {:mixed-token-groups :deprecations}))
+    {:mixed-token-groups :deprecations})
+  (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->TypographyGroup))

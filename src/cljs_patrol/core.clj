@@ -8,6 +8,7 @@
   (:require
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.group :as group]
+   [cljs-patrol.groups.docstrings :as docstrings]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
@@ -21,7 +22,8 @@
    [clojure.string :as str]
    [clojure.tools.cli :as cli]))
 
-(def ^:private all-groups [re-frame/group spade/group reagent/group typography/group])
+(def ^:private all-groups
+  [re-frame/group spade/group reagent/group typography/group docstrings/group])
 
 (defn- filter-groups [{:keys [disable only]}]
   (cond

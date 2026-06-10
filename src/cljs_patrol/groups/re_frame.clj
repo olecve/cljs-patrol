@@ -433,6 +433,7 @@
      :unused-subs :cleanup
      :unused-events :cleanup
      :phantom-subs :cleanup
-     :phantom-events :cleanup}))
+     :phantom-events :cleanup})
+  (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->ReFrameGroup))

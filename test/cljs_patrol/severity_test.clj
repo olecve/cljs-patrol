@@ -1,6 +1,7 @@
 (ns cljs-patrol.severity-test
   (:require
    [cljs-patrol.group :as group]
+   [cljs-patrol.groups.docstrings :as docstrings]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
@@ -9,7 +10,7 @@
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private all-groups
-  [re-frame/group spade/group reagent/group typography/group])
+  [re-frame/group spade/group reagent/group typography/group docstrings/group])
 
 (def ^:private rule->tier
   (severity/collect-rule->tier all-groups))
@@ -105,7 +106,9 @@
          (severity/tier->rules rule->tier :deprecations)))
   (is (= #{:unused-subs :unused-events :unused-styles
            :phantom-subs :phantom-events
-           :reg-sub-=>-1-arity :reg-event-fx-db-only}
+           :reg-sub-=>-1-arity :reg-event-fx-db-only
+           :docstring-summary :docstring-indentation
+           :docstring-leading-trailing-whitespace}
          (severity/tier->rules rule->tier :cleanup)))
   (is (= #{} (severity/tier->rules rule->tier :unknown))
       "unknown tier returns empty set"))
@@ -176,7 +179,9 @@
              (set (map :rule (:deprecations tiered)))))
       (is (= #{:unused-subs :unused-events :unused-styles
                :phantom-subs :phantom-events
-               :reg-sub-=>-1-arity :reg-event-fx-db-only}
+               :reg-sub-=>-1-arity :reg-event-fx-db-only
+               :docstring-summary :docstring-indentation
+               :docstring-leading-trailing-whitespace}
              (set (map :rule (:cleanup tiered))))))
 
     (testing "info-only contains rules without a tier"

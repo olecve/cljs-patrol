@@ -154,31 +154,45 @@
             empty-result
             fns)))
 
+(defn- file-extension
+  "Return the file's extension including the leading dot, or nil."
+  [path]
+  (let [dot (.lastIndexOf path ".")]
+    (when (pos? dot) (subs path dot))))
+
+(defn- groups-for-extension
+  "Return the subset of enabled-groups that opt into the given file extension."
+  [enabled-groups ext]
+  (filter #(contains? (group/file-extensions %) ext) enabled-groups))
+
 (defn analyze-file
-  "Parse a single .cljs/.cljc file and return {:declarations :usages :dynamic-sites}."
+  "Parse a single .cljs/.cljc file and return {:declarations :usages :dynamic-sites}.
+  Only groups whose `file-extensions` include this file's extension are invoked."
   [file enabled-groups]
   (let [file-path (str file)
-        zloc (try (z/of-file file {:track-position? true})
-                  (catch Exception e
-                    (binding [*out* *err*]
-                      (println "WARN: could not parse" file-path ":" (.getMessage e)))
-                    nil))]
-    (when zloc
-      (let [{:keys [aliases ns-name]
-             :or {ns-name "unknown"
-                  aliases {}}}
-            (or (find-ns-info zloc) {:ns-name "unknown"
-                                     :aliases {}})
-            handlers (collect-handlers enabled-groups)]
-        (loop [loc zloc
-               result empty-result]
-          (if (z/end? loc)
-            {:declarations (:decls result)
-             :usages (:usages result)
-             :dynamic-sites (:dynamics result)}
-            (let [tag (z/tag loc)]
-              (recur (z/next loc)
-                     (merge-result result (call-handlers handlers tag loc ns-name aliases file-path))))))))))
+        applicable (groups-for-extension enabled-groups (file-extension file-path))]
+    (when (seq applicable)
+      (let [zloc (try (z/of-file file {:track-position? true})
+                      (catch Exception e
+                        (binding [*out* *err*]
+                          (println "WARN: could not parse" file-path ":" (.getMessage e)))
+                        nil))]
+        (when zloc
+          (let [{:keys [aliases ns-name]
+                 :or {ns-name "unknown"
+                      aliases {}}}
+                (or (find-ns-info zloc) {:ns-name "unknown"
+                                         :aliases {}})
+                handlers (collect-handlers applicable)]
+            (loop [loc zloc
+                   result empty-result]
+              (if (z/end? loc)
+                {:declarations (:decls result)
+                 :usages (:usages result)
+                 :dynamic-sites (:dynamics result)}
+                (let [tag (z/tag loc)]
+                  (recur (z/next loc)
+                         (merge-result result (call-handlers handlers tag loc ns-name aliases file-path))))))))))))
 
 (defn find-source-files
   "Recursively find all .cljs and .cljc files under root-dir."

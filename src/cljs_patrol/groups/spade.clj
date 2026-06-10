@@ -104,6 +104,7 @@
      "Declared with defattrs but used inside merge. Use defclass instead so callers can pass it via :class without merge."})
   (rule->tier [_]
     {:unused-styles :cleanup
-     :defattrs-in-merge :deprecations}))
+     :defattrs-in-merge :deprecations})
+  (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->SpadeGroup))
