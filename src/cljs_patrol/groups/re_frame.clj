@@ -129,10 +129,10 @@
          (catch Exception _ false))))
 
 (defn- collect-tail-locs
-  "Return all tail-position locs reachable from `loc` by unwrapping let/do/if/
-  when at the structural top. Does NOT recurse into nested fn forms, so the
-  inner accumulator in `(reduce (fn [db item] ...) db items)` is not visited.
-  Stops at the first non-control-flow form."
+  "Return all tail-position locs reachable from `loc` through control-flow forms.
+  Unwraps let, do, if, when at the structural top; does NOT recurse into
+  nested fn forms, so the inner accumulator in `(reduce (fn [db item] ...) db
+  items)` is not visited. Stops at the first non-control-flow form."
   [loc]
   (if-not (and loc (= :list (z/tag loc)))
     (when loc [loc])
@@ -156,10 +156,10 @@
         :else [loc]))))
 
 (defn- reg-event-db-returning-effects?
-  "True if a `reg-event-db` handler has any tail-position value that is a map
-  literal with `:db` as a key — i.e., it returns an effects-style map instead
-  of a new db. This silently replaces app-db with the effects map and drops
-  all extra effects (toasts, dispatches, ...), which is almost always a bug."
+  "True if a `reg-event-db` handler tail-returns a `:db`-keyed map literal.
+  Such a handler returns an effects-style map: the map silently replaces
+  app-db and every extra effect key (`:dispatch`, `:fx`, ...) is dropped.
+  Almost always a bug; switch to `reg-event-fx`."
   [reg-event-db-loc]
   (when-let [fn-loc (last-fn-form reg-event-db-loc)]
     (when-let [body-last (fn-body-last fn-loc)]
