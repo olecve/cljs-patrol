@@ -1,19 +1,15 @@
 (ns cljs-patrol.reporters.markdown
   "Markdown output for cljs-patrol analysis results, optimized for AI-assisted remediation."
   (:require
+   [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
-   [clojure.string :as str])
-  (:import
-   [java.io File]))
-
-(defn- absolutize [^String path]
-  (.getAbsolutePath (File. path)))
+   [clojure.string :as str]))
 
 (defn- format-entry [{:keys [file kw row]}]
-  (str "- `" kw "` — `" (absolutize file) ":" row "`"))
+  (str "- `" kw "` — `" (fs/absolute-path file) ":" row "`"))
 
 (defn- format-dynamic-entry [{:keys [file form row]}]
-  (str "- `" (absolutize file) ":" row "` — `" (str/trim form) "`"))
+  (str "- `" (fs/absolute-path file) ":" row "` — `" (str/trim form) "`"))
 
 (defn- section [title suggestion items]
   (when (seq items)

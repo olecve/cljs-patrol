@@ -2,13 +2,12 @@
   "Generates a self-contained HTML report from cljs-patrol analysis results."
   (:require
    [cljs-patrol.baseline :as baseline]
+   [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [clojure.java.io :as io]
    [clojure.string :as str]
    [hiccup.page :refer [html5]]
-   [hiccup.util :refer [raw-string]])
-  (:import
-   [java.io File]))
+   [hiccup.util :refer [raw-string]]))
 
 (def ^:private css (slurp (io/resource "cljs_patrol/report.css")))
 
@@ -33,8 +32,8 @@
    "return asc?av.localeCompare(bv):bv.localeCompare(av);});"
    "rows.forEach(function(r){tbody.appendChild(r);});});});"))
 
-(defn- vscode-link [^String file row]
-  (format "vscode://file/%s:%d" (.getAbsolutePath (File. file)) row))
+(defn- vscode-link [file row]
+  (format "vscode://file/%s:%d" (fs/absolute-path file) row))
 
 (defn- cell-value [col item]
   (case col

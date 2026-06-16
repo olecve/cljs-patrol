@@ -7,6 +7,7 @@
   (:gen-class)
   (:require
    [cljs-patrol.baseline :as baseline]
+   [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.docstrings :as docstrings]
    [cljs-patrol.groups.re-frame :as re-frame]
@@ -20,9 +21,7 @@
    [cljs-patrol.reporters.markdown :as md-reporter]
    [cljs-patrol.severity :as severity]
    [clojure.string :as str]
-   [clojure.tools.cli :as cli])
-  (:import
-   [java.io File]))
+   [clojure.tools.cli :as cli]))
 
 (def ^:private all-groups
   [re-frame/group spade/group reagent/group typography/group docstrings/group])
@@ -51,18 +50,15 @@
    [nil "--list-rules" "Print all rules grouped by tier and exit"]
    ["-h" "--help"]])
 
-(defn- absolute-path [^String path]
-  (.getAbsolutePath (File. path)))
-
 (defn- filter-result [result files-set]
   (into {} (map (fn [[k v]]
                   [k (if (sequential? v)
-                       (filterv #(contains? files-set (absolute-path (:file %))) v)
+                       (filterv #(contains? files-set (fs/absolute-path (:file %))) v)
                        v)])
                 result)))
 
 (defn- filter-run-results [run-results files]
-  (let [files-set (set (map absolute-path files))]
+  (let [files-set (set (map fs/absolute-path files))]
     (mapv (fn [rr]
             (update rr :group-results #(mapv (fn [r] (filter-result r files-set)) %)))
           run-results)))

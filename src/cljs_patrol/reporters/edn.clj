@@ -1,20 +1,19 @@
 (ns cljs-patrol.reporters.edn
   "EDN output for cljs-patrol analysis results, suitable for programmatic and AI-assisted use."
   (:require
+   [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [cljs-patrol.severity :as severity]
-   [clojure.set :as set])
-  (:import
-   [java.io File]))
+   [clojure.set :as set]))
 
-(defn- absolutize-item [item]
+(defn- with-absolute-file [item]
   (if (:file item)
-    (update item :file #(.getAbsolutePath (File. ^String %)))
+    (update item :file fs/absolute-path)
     item))
 
-(defn- absolutize-result [result]
+(defn- with-absolute-files [result]
   (into {} (map (fn [[k v]]
-                  [k (if (sequential? v) (mapv absolutize-item v) v)])
+                  [k (if (sequential? v) (mapv with-absolute-file v) v)])
                 result)))
 
 (defn- merge-results [results]
@@ -38,12 +37,12 @@
   ([enabled-groups dirs run-results fail-on-rules]
    (let [merged (into {}
                       (map-indexed (fn [g-idx g]
-                                     [(group/group-id g) (absolutize-result
-                                                          (merge-results
-                                                           (map #(nth (:group-results %) g-idx) run-results)))])
+                                     [(group/group-id g) (with-absolute-files
+                                                           (merge-results
+                                                            (map #(nth (:group-results %) g-idx) run-results)))])
                                    enabled-groups))
          suggestions (into {} (map (fn [g] [(group/group-id g) (group/suggestions g)]) enabled-groups))
-         output (merge {:source-dirs (mapv #(.getAbsolutePath (File. ^String %)) dirs)
+         output (merge {:source-dirs (mapv fs/absolute-path dirs)
                         :results merged
                         :suggestions suggestions}
                        (count-by-tier merged fail-on-rules))]
@@ -63,7 +62,7 @@
   ([dirs new-issues baseline-issues fixed-issues exit-code]
    (print-baseline-report dirs new-issues baseline-issues fixed-issues exit-code nil nil))
   ([dirs new-issues baseline-issues fixed-issues exit-code fail-on-rules rule->tier]
-   (let [abs-dirs (mapv #(.getAbsolutePath (File. ^String %)) dirs)
+   (let [abs-dirs (mapv fs/absolute-path dirs)
          new-sorted (vec (sort-by str new-issues))
          baseline-sorted (vec (sort-by str baseline-issues))
          fixed-sorted (vec (sort-by str fixed-issues))
