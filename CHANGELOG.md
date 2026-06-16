@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.0.10] - 2026-06-16
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.9...v0.0.10
+
+
 ## [v0.0.9] - 2026-06-10
 
 ## What's Changed
