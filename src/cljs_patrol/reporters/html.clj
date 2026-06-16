@@ -100,7 +100,9 @@
         n (count first-lines)]
     (mapv (fn [i]
             (let [label (first (nth first-lines i))
-                  total (reduce + (map #(second (nth % i)) per-dir-lines))]
+                  total (->> per-dir-lines
+                             (map #(second (nth % i)))
+                             (reduce +))]
               [label total]))
           (range n))))
 

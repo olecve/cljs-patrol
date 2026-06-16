@@ -12,7 +12,10 @@
 (defn distinct-by
   "Return a collection with duplicates removed, using key-fn to determine identity."
   [key-fn coll]
-  (vals (into {} (map (juxt key-fn identity) coll))))
+  (->> coll
+       (map (juxt key-fn identity))
+       (into {})
+       vals))
 
 (defn raw
   "Return the raw source string of a node, preserving :: prefixes and aliases."
