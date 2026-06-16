@@ -6,14 +6,14 @@
    [cljs-patrol.severity :as severity]
    [clojure.set :as set]))
 
-(defn- with-absolute-file [item]
+(defn- with-absolute-file-path [item]
   (if (:file item)
     (update item :file fs/absolute-path)
     item))
 
-(defn- with-absolute-files [result]
+(defn- with-absolute-file-paths [result]
   (into {} (map (fn [[k v]]
-                  [k (if (sequential? v) (mapv with-absolute-file v) v)])
+                  [k (if (sequential? v) (mapv with-absolute-file-path v) v)])
                 result)))
 
 (defn- merge-results [results]
@@ -37,7 +37,7 @@
   ([enabled-groups dirs run-results fail-on-rules]
    (let [merged (into {}
                       (map-indexed (fn [g-idx g]
-                                     [(group/group-id g) (with-absolute-files
+                                     [(group/group-id g) (with-absolute-file-paths
                                                            (merge-results
                                                             (map #(nth (:group-results %) g-idx) run-results)))])
                                    enabled-groups))
