@@ -26,3 +26,30 @@ jobs:
 
       - run: clojure -M:cljfmt check src/ test/
       - run: clojure -M:test
+
+  native-verify:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: DeLaGuardo/setup-clojure@13.0
+        with:
+          cli: latest
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: deps-${{ hashFiles('deps.edn') }}
+          restore-keys: deps-
+
+      - run: clojure -T:build native
+      - run: ./target/cljs-patrol --help
