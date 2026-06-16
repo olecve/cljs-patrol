@@ -6,7 +6,9 @@
    [clojure.java.io :as io]
    [clojure.string :as str]
    [hiccup.page :refer [html5]]
-   [hiccup.util :refer [raw-string]]))
+   [hiccup.util :refer [raw-string]])
+  (:import
+   [java.io File]))
 
 (def ^:private css (slurp (io/resource "cljs_patrol/report.css")))
 
@@ -31,8 +33,8 @@
    "return asc?av.localeCompare(bv):bv.localeCompare(av);});"
    "rows.forEach(function(r){tbody.appendChild(r);});});});"))
 
-(defn- vscode-link [file row]
-  (format "vscode://file/%s:%d" (-> file java.io.File. .getAbsolutePath) row))
+(defn- vscode-link [^String file row]
+  (format "vscode://file/%s:%d" (.getAbsolutePath (File. file)) row))
 
 (defn- cell-value [col item]
   (case col

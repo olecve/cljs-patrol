@@ -3,11 +3,13 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.severity :as severity]
-   [clojure.set :as set]))
+   [clojure.set :as set])
+  (:import
+   [java.io File]))
 
 (defn- absolutize-item [item]
   (if (:file item)
-    (update item :file #(.getAbsolutePath (java.io.File. %)))
+    (update item :file #(.getAbsolutePath (File. ^String %)))
     item))
 
 (defn- absolutize-result [result]
@@ -41,7 +43,7 @@
                                                            (map #(nth (:group-results %) g-idx) run-results)))])
                                    enabled-groups))
          suggestions (into {} (map (fn [g] [(group/group-id g) (group/suggestions g)]) enabled-groups))
-         output (merge {:source-dirs (mapv #(.getAbsolutePath (java.io.File. %)) dirs)
+         output (merge {:source-dirs (mapv #(.getAbsolutePath (File. ^String %)) dirs)
                         :results merged
                         :suggestions suggestions}
                        (count-by-tier merged fail-on-rules))]
@@ -61,7 +63,7 @@
   ([dirs new-issues baseline-issues fixed-issues exit-code]
    (print-baseline-report dirs new-issues baseline-issues fixed-issues exit-code nil nil))
   ([dirs new-issues baseline-issues fixed-issues exit-code fail-on-rules rule->tier]
-   (let [abs-dirs (mapv #(.getAbsolutePath (java.io.File. %)) dirs)
+   (let [abs-dirs (mapv #(.getAbsolutePath (File. ^String %)) dirs)
          new-sorted (vec (sort-by str new-issues))
          baseline-sorted (vec (sort-by str baseline-issues))
          fixed-sorted (vec (sort-by str fixed-issues))

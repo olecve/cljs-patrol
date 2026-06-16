@@ -5,7 +5,9 @@
    [clojure.java.io :as io]
    [clojure.string :as str]
    [rewrite-clj.node :as n]
-   [rewrite-clj.zip :as z]))
+   [rewrite-clj.zip :as z])
+  (:import
+   [java.io File]))
 
 (defn distinct-by
   "Return a collection with duplicates removed, using key-fn to determine identity."
@@ -154,9 +156,7 @@
             empty-result
             fns)))
 
-(defn- file-extension
-  "Return the file's extension including the leading dot, or nil."
-  [path]
+(defn- file-extension [^String path]
   (let [dot (.lastIndexOf path ".")]
     (when (pos? dot) (subs path dot))))
 
@@ -198,10 +198,11 @@
   "Recursively find all .cljs and .cljc files under root-dir."
   [root-dir]
   (->> (file-seq (io/file root-dir))
-       (filter #(and (.isFile %)
-                     (let [file-name (.getName %)]
-                       (or (str/ends-with? file-name ".cljs")
-                           (str/ends-with? file-name ".cljc")))))))
+       (filter (fn [^File f]
+                 (and (.isFile f)
+                      (let [file-name (.getName f)]
+                        (or (str/ends-with? file-name ".cljs")
+                            (str/ends-with? file-name ".cljc"))))))))
 
 (defn analyze-project
   "Analyze all ClojureScript source files under root-dir using enabled-groups.

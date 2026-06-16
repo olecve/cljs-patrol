@@ -93,7 +93,7 @@
                       (< leading expected))))
              continuation)))))
 
-(defn- leading-trailing-violation? [content]
+(defn- leading-trailing-violation? [^String content]
   (and (seq content)
        (or (Character/isWhitespace (.charAt content 0))
            (Character/isWhitespace (.charAt content (dec (count content)))))))

@@ -2,10 +2,12 @@
   "Markdown output for cljs-patrol analysis results, optimized for AI-assisted remediation."
   (:require
    [cljs-patrol.group :as group]
-   [clojure.string :as str]))
+   [clojure.string :as str])
+  (:import
+   [java.io File]))
 
-(defn- absolutize [path]
-  (.getAbsolutePath (java.io.File. path)))
+(defn- absolutize [^String path]
+  (.getAbsolutePath (File. path)))
 
 (defn- format-entry [{:keys [file kw row]}]
   (str "- `" kw "` — `" (absolutize file) ":" row "`"))
