@@ -26,8 +26,8 @@
   Falls back to the original path if source-dir is nil or not a prefix."
   [source-dir path]
   (if source-dir
-    (let [base (.toPath (.getAbsoluteFile (io/file source-dir)))
-          target (.toPath (.getAbsoluteFile (io/file path)))]
+    (let [base (-> source-dir io/file .getAbsoluteFile .toPath)
+          target (-> path io/file .getAbsoluteFile .toPath)]
       (if (.startsWith target base)
         (str (.relativize base target))
         path))

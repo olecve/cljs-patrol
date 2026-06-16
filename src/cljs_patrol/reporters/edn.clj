@@ -12,9 +12,10 @@
     item))
 
 (defn- with-absolute-file-paths [result]
-  (into {} (map (fn [[k v]]
-                  [k (if (sequential? v) (mapv with-absolute-file-path v) v)])
-                result)))
+  (->> result
+       (map (fn [[k v]]
+              [k (if (sequential? v) (mapv with-absolute-file-path v) v)]))
+       (into {})))
 
 (defn- merge-results [results]
   (apply merge-with (fn [a b] (if (sequential? a) (into a b) b)) results))
@@ -35,13 +36,15 @@
   ([enabled-groups dirs run-results]
    (print-report enabled-groups dirs run-results nil))
   ([enabled-groups dirs run-results fail-on-rules]
-   (let [merged (into {}
-                      (map-indexed (fn [g-idx g]
-                                     [(group/group-id g) (with-absolute-file-paths
-                                                           (merge-results
-                                                            (map #(nth (:group-results %) g-idx) run-results)))])
-                                   enabled-groups))
-         suggestions (into {} (map (fn [g] [(group/group-id g) (group/suggestions g)]) enabled-groups))
+   (let [merged (->> enabled-groups
+                     (map-indexed (fn [g-idx g]
+                                    [(group/group-id g) (with-absolute-file-paths
+                                                          (merge-results
+                                                           (map #(nth (:group-results %) g-idx) run-results)))]))
+                     (into {}))
+         suggestions (->> enabled-groups
+                          (map (fn [g] [(group/group-id g) (group/suggestions g)]))
+                          (into {}))
          output (merge {:source-dirs (mapv fs/absolute-path dirs)
                         :results merged
                         :suggestions suggestions}

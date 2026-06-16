@@ -51,11 +51,12 @@
    ["-h" "--help"]])
 
 (defn- filter-result [result files-set]
-  (into {} (map (fn [[k v]]
-                  [k (if (sequential? v)
-                       (filterv #(contains? files-set (fs/absolute-path (:file %))) v)
-                       v)])
-                result)))
+  (->> result
+       (map (fn [[k v]]
+              [k (if (sequential? v)
+                   (filterv #(contains? files-set (fs/absolute-path (:file %))) v)
+                   v)]))
+       (into {})))
 
 (defn- filter-run-results [run-results files]
   (let [files-set (set (map fs/absolute-path files))]
