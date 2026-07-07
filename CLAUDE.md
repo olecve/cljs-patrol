@@ -8,6 +8,7 @@ cljs-patrol is a standalone static analysis CLI for ClojureScript codebases. It 
 
 - **Re-frame:** unused/phantom subscriptions and events, dynamic dispatch sites
 - **Spade:** unused CSS-in-ClojureScript styles (`defclass`, `defattrs`)
+- **A11y:** accessibility issues in Hiccup (currently: `:img` missing `:alt`)
 - **Docstrings:** bbatsov style-guide violations on every def (summary, indentation, leading/trailing whitespace)
 
 Exits with code 1 when issues are found (CI-friendly).
@@ -22,7 +23,8 @@ src/cljs_patrol/
 ├── html_reporter.clj  # Self-contained HTML report generation
 └── groups/
     ├── re_frame.clj   # Re-frame analysis rules
-    └── spade.clj      # Spade analysis rules
+    ├── spade.clj      # Spade analysis rules
+    └── a11y.clj       # Accessibility rules on literal Hiccup vectors
 build.clj              # tools.build uberjar config
 deps.edn               # Dependencies and aliases
 ```
@@ -59,6 +61,16 @@ clojure -M:cljfmt fix src/ test/
 ```
 
 Max line width: **129 characters**. Format before marking work complete.
+
+## Docstrings
+
+The `docstrings` group in this tool enforces the [bbatsov clojure-style-guide](https://github.com/bbatsov/clojure-style-guide) docstring rules on `.cljs`/`.cljc` code. Our own `.clj` sources aren't scanned, but we hold them to the same standard by hand:
+
+- **Summary line** must be a self-contained sentence ending in `.`, `!`, `?`, or `:` (colon is fine when it introduces an indented list/example). Put any additional prose on the next line, not as a continuation of the summary.
+- **Continuation lines** in a multi-line docstring must be indented at least to the column of the opening quote.
+- **No leading or trailing whitespace** inside the docstring.
+
+Beyond style: **prefer no docstring over a redundant one**. If a well-named function's contract is already clear from the name and signature, skip the docstring. Only write one when the docstring conveys something the reader can't derive: a non-obvious return contract (e.g. "returns nil vs. empty set has different meaning"), a hidden invariant, an enumerated shape, or the reason a conservative choice was made. Restating the name in prose is noise.
 
 ## Adding a New Rule Group
 

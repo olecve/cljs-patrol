@@ -1,6 +1,7 @@
 (ns cljs-patrol.severity-test
   (:require
    [cljs-patrol.group :as group]
+   [cljs-patrol.groups.a11y :as a11y]
    [cljs-patrol.groups.docstrings :as docstrings]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
@@ -10,7 +11,7 @@
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private all-groups
-  [re-frame/group spade/group reagent/group typography/group docstrings/group])
+  [re-frame/group spade/group reagent/group typography/group a11y/group docstrings/group])
 
 (def ^:private rule->tier
   (severity/collect-rule->tier all-groups))
@@ -100,7 +101,7 @@
 (deftest tier->rules-test
   (is (= #{:duplicate-subs :duplicate-events
            :reg-event-fx-empty :reg-event-db-empty
-           :reg-event-db-returning-effects}
+           :reg-event-db-returning-effects :img-alt-missing}
          (severity/tier->rules rule->tier :bugs)))
   (is (= #{:deprecated-effects :defclass-as-sole-attr
            :defattrs-in-merge :mixed-token-groups}
@@ -118,7 +119,7 @@
   (testing "tier names"
     (is (= {:ok #{:duplicate-subs :duplicate-events
                   :reg-event-fx-empty :reg-event-db-empty
-                  :reg-event-db-returning-effects}}
+                  :reg-event-db-returning-effects :img-alt-missing}}
            (severity/parse-fail-on "bugs" rule->tier)))
     (is (= {:ok (severity/tier->rules rule->tier :deprecations)}
            (severity/parse-fail-on "deprecations" rule->tier)))
@@ -175,7 +176,7 @@
     (testing "groups every rule by tier"
       (is (= #{:duplicate-subs :duplicate-events
                :reg-event-fx-empty :reg-event-db-empty
-               :reg-event-db-returning-effects}
+               :reg-event-db-returning-effects :img-alt-missing}
              (set (map :rule (:bugs tiered)))))
       (is (= #{:deprecated-effects :defclass-as-sole-attr
                :defattrs-in-merge :mixed-token-groups}

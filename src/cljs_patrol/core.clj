@@ -9,6 +9,7 @@
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
+   [cljs-patrol.groups.a11y :as a11y]
    [cljs-patrol.groups.docstrings :as docstrings]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
@@ -24,7 +25,7 @@
    [clojure.tools.cli :as cli]))
 
 (def ^:private all-groups
-  [re-frame/group spade/group reagent/group typography/group docstrings/group])
+  [re-frame/group spade/group reagent/group typography/group a11y/group docstrings/group])
 
 (defn- filter-groups [{:keys [disable only]}]
   (cond
@@ -219,8 +220,7 @@
             (println (format "\n%d blocking, %d warnings." blocking warning))))))
     (System/exit (if any-failed? 1 0))))
 
-(defn -main
-  [& args]
+(defn -main [& args]
   (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)]
     (when (or (:help options) (empty? args))
       (println "Usage: cljs-patrol [options] <source-dir> [<source-dir> ...]")

@@ -26,8 +26,7 @@
           s
           name-title-abbreviations))
 
-(defn- string-node?
-  [loc]
+(defn- string-node? [loc]
   (and loc
        (contains? #{:token :multi-line} (z/tag loc))
        (string? (try (z/sexpr loc) (catch Exception _ nil)))))
@@ -151,8 +150,7 @@
         methods (when (= "defprotocol" operator) (find-method-docstrings loc ns-name))]
     (concat primary methods)))
 
-(defn- handle-list
-  [loc ns-name _aliases file]
+(defn- handle-list [loc ns-name _aliases file]
   (let [op-loc (z/down loc)
         operator (parser/sym-name op-loc)]
     (when (contains? def-fns operator)

@@ -125,7 +125,31 @@
                                      {:form "(dispatch [on-change {:tab tab\n                            :sort sort}])"
                                       :file "src/views.cljs"
                                       :row 10}))
-        "multiline form collapses to single line"))
+        "multiline form collapses to single line")
+    (is (= {:rule :img-alt-missing
+            :tag :img
+            :file "src/views.cljs"
+            :line 12
+            :col 5}
+           (baseline/issue->identity :img-alt-missing
+                                     {:type :img-alt-missing
+                                      :kw :img
+                                      :file "src/views.cljs"
+                                      :row 12
+                                      :col 5}))
+        "img-alt-missing keyed by tag + file + line + col")
+    (let [id1 (baseline/issue->identity :img-alt-missing
+                                        {:kw :img
+                                         :file "views.cljs"
+                                         :row 12
+                                         :col 5})
+          id2 (baseline/issue->identity :img-alt-missing
+                                        {:kw :img
+                                         :file "views.cljs"
+                                         :row 12
+                                         :col 30})]
+      (is (not= id1 id2)
+          "two [:img] on the same line get distinct identities via :col")))
 
   (testing "unknown rule throws"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown rule"
