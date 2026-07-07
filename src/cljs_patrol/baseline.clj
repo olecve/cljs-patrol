@@ -21,6 +21,12 @@
   #{:unused-styles :defattrs-in-merge :defclass-as-sole-attr :mixed-token-groups
     :docstring-summary :docstring-indentation :docstring-leading-trailing-whitespace})
 
+(def ^:private hiccup-site-rules
+  "Rules where the issue is identified by Hiccup tag + file + line + column.
+  There's no unique symbol or keyword at the call site, and :col distinguishes
+  multiple Hiccup vectors on the same source line."
+  #{:img-alt-missing})
+
 (defn- relativize-path
   "Strip source-dir prefix from path to produce a portable relative path.
   Falls back to the original path if source-dir is nil or not a prefix."
@@ -57,6 +63,13 @@
         :effect (:effect issue)
         :file (rel (:file issue))
         :line (:row issue)}
+
+       (contains? hiccup-site-rules rule)
+       {:rule rule
+        :tag (:kw issue)
+        :file (rel (:file issue))
+        :line (:row issue)
+        :col (:col issue)}
 
        (= :dynamic-sites rule)
        {:rule rule
