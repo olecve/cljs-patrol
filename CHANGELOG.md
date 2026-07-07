@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.0.11] - 2026-07-07
+
+## What's Changed
+
+* Add a11y rule group with :img-alt-missing by @olecve in https://github.com/olecve/cljs-patrol/pull/20
+* Extract shared Hiccup helpers into cljs-patrol.hiccup by @olecve in https://github.com/olecve/cljs-patrol/pull/21
+* Add :invalid-tabindex rule to a11y group by @olecve in https://github.com/olecve/cljs-patrol/pull/22
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.10...v0.0.11
+
+
 ## [v0.0.10] - 2026-06-16
 
 **Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.9...v0.0.10
