@@ -1,4 +1,4 @@
-(ns blogapp.views)
+(ns blogapp.gallery)
 
 (defn ok-with-alt []
   [:img {:src "/img/logo.png"

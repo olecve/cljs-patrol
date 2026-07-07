@@ -36,7 +36,7 @@ Analysis is split into independent rule groups. By default all groups run.
 | `spade`       | Unused Spade style declarations, defattrs in merge                       |
 | `reagent`     | defclass used as sole attr (should be defattrs)                          |
 | `typography`  | Mixed Figma typography token groups in a single style                    |
-| `a11y`        | Accessibility issues in Hiccup: `:img` missing `:alt`                     |
+| `a11y`        | Accessibility issues in Hiccup: `:img` missing `:alt`, invalid `:tabIndex`|
 | `docstrings`  | Bbatsov style-guide violations on every def (summary, indent, whitespace) |
 
 Run only specific groups:
@@ -82,6 +82,7 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **defattrs in merge** — `defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class` without merge
 - **Mixed typography token groups** — typography tokens from different Figma token groups mixed in a single style definition
 - **`:img` missing `:alt`** — `[:img {...}]` without an `:alt` attribute; use `:alt ""` for decorative images
+- **Invalid tabindex** — `:tabIndex`/`:tab-index` with a value that isn't `0` or a negative integer (positive ints break natural focus order; non-int literals aren't valid tabindex values)
 - **Docstring summary** — first line of a multi-line docstring is not a self-contained sentence ending in `.`, `!`, `?`, or `:`
 - **Docstring indentation** — continuation lines of a multi-line docstring are indented less than the opening-quote column
 - **Docstring leading/trailing whitespace** — docstring starts or ends with whitespace
@@ -245,7 +246,7 @@ By default, any issue causes CI to fail. For incremental adoption — or just to
 
 | Tier | Rules | Why |
 | ---- | ----- | --- |
-| `bugs` | `duplicate-subs`, `duplicate-events`, `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects`, `img-alt-missing` | Silent runtime breakage — duplicate registrations overwrite, empty-effect handlers clobber app-db, effects-style `reg-event-db` returns replace app-db with the effects map, and images without `:alt` are unreadable to screen readers. |
+| `bugs` | `duplicate-subs`, `duplicate-events`, `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects`, `img-alt-missing`, `invalid-tabindex` | Silent runtime breakage — duplicate registrations overwrite, empty-effect handlers clobber app-db, effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen readers, and invalid `:tabIndex` values break the natural focus order or aren't focusable at all. |
 | `deprecations` | `deprecated-effects`, `defclass-as-sole-attr`, `defattrs-in-merge`, `mixed-token-groups` | Deprecated APIs and idiomatic violations that may break later. |
 | `cleanup` | `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events`, `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace` | Dead code, style noise, and suspicious references with no runtime impact. |
 

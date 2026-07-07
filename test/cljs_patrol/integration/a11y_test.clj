@@ -16,7 +16,7 @@
 
     (testing "flags [:img] with no attrs"
       (is (contains? by-row 28)
-          "bad-no-attrs case in views.cljs — [:img] with no attrs slot"))
+          "bad-no-attrs case — [:img] with no attrs slot"))
 
     (testing "flags [:img {...}] literal map without :alt"
       (is (contains? by-row 31)
@@ -70,7 +70,58 @@
 
     (testing "every finding carries a :col so same-line siblings differ"
       (is (every? #(pos? (:col %)) img-alt-missing))
-      (let [row-43-findings (filter #(= 43 (:row %)) img-alt-missing)
-            row-43-cols (set (map :col row-43-findings))]
-        (is (= 2 (count row-43-cols))
+      (let [same-row-findings (filter #(= 43 (:row %)) img-alt-missing)
+            same-row-cols (set (map :col same-row-findings))]
+        (is (= 2 (count same-row-cols))
             "the two [:img] on row 43 have distinct :col values")))))
+
+(deftest invalid-tabindex-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        {:keys [invalid-tabindex]} (first group-results)
+        by-row (rows invalid-tabindex)]
+
+    (testing "flags positive integer tabindex"
+      (is (contains? by-row 17)
+          "bad-positive-tabindex case — {:tabIndex 1}")
+      (is (contains? by-row 20)
+          "bad-large-positive-tabindex case — {:tabIndex 100} on :button"))
+
+    (testing "flags kebab-case :tab-index with positive value"
+      (is (contains? by-row 33)
+          "bad-kebab-positive-tabindex case — {:tab-index 5}"))
+
+    (testing "flags string tabindex value"
+      (is (contains? by-row 23)
+          "bad-string-tabindex case — {:tabIndex \"1\"} is not an int"))
+
+    (testing "flags float tabindex value"
+      (is (contains? by-row 26)
+          "bad-float-tabindex case — {:tabIndex 1.5} is not an int"))
+
+    (testing "flags keyword tabindex value"
+      (is (contains? by-row 29)
+          "bad-keyword-tabindex case — {:tabIndex :something} is not an int"))
+
+    (testing "does not flag :tabIndex 0 (in tab order — correct)"
+      (is (not (contains? by-row 4))
+          "ok-tabindex-zero case — 0 is a valid tabindex"))
+
+    (testing "does not flag :tabIndex -1 (programmatic focus — correct)"
+      (is (not (contains? by-row 7))
+          "ok-tabindex-negative case — -1 is a valid tabindex"))
+
+    (testing "does not flag kebab-case with 0"
+      (is (not (contains? by-row 10))
+          "ok-tab-index-kebab-zero case — kebab-case with 0 is valid"))
+
+    (testing "does not flag non-literal tabindex value (conservative)"
+      (is (not (contains? by-row 14))
+          "ok-dynamic-tabindex case — {:tabIndex n} value is a symbol"))
+
+    (testing "finding carries the element tag (not always :img)"
+      (let [tags (set (map :kw invalid-tabindex))]
+        (is (contains? tags :div))
+        (is (contains? tags :button))))
+
+    (testing "every finding has :bugs tier"
+      (is (every? #(= :bugs (:tier %)) invalid-tabindex)))))

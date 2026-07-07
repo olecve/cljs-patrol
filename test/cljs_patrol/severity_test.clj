@@ -101,7 +101,8 @@
 (deftest tier->rules-test
   (is (= #{:duplicate-subs :duplicate-events
            :reg-event-fx-empty :reg-event-db-empty
-           :reg-event-db-returning-effects :img-alt-missing}
+           :reg-event-db-returning-effects
+           :img-alt-missing :invalid-tabindex}
          (severity/tier->rules rule->tier :bugs)))
   (is (= #{:deprecated-effects :defclass-as-sole-attr
            :defattrs-in-merge :mixed-token-groups}
@@ -119,7 +120,8 @@
   (testing "tier names"
     (is (= {:ok #{:duplicate-subs :duplicate-events
                   :reg-event-fx-empty :reg-event-db-empty
-                  :reg-event-db-returning-effects :img-alt-missing}}
+                  :reg-event-db-returning-effects
+                  :img-alt-missing :invalid-tabindex}}
            (severity/parse-fail-on "bugs" rule->tier)))
     (is (= {:ok (severity/tier->rules rule->tier :deprecations)}
            (severity/parse-fail-on "deprecations" rule->tier)))
@@ -176,7 +178,8 @@
     (testing "groups every rule by tier"
       (is (= #{:duplicate-subs :duplicate-events
                :reg-event-fx-empty :reg-event-db-empty
-               :reg-event-db-returning-effects :img-alt-missing}
+               :reg-event-db-returning-effects
+               :img-alt-missing :invalid-tabindex}
              (set (map :rule (:bugs tiered)))))
       (is (= #{:deprecated-effects :defclass-as-sole-attr
                :defattrs-in-merge :mixed-token-groups}
