@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.0.12] - 2026-07-07
+
+## What's Changed
+
+* Include source snippet in a11y findings by @olecve in https://github.com/olecve/cljs-patrol/pull/23
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.11...v0.0.12
+
+
 ## [v0.0.11] - 2026-07-07
 
 ## What's Changed
