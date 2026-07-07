@@ -73,7 +73,11 @@
       (let [same-row-findings (filter #(= 43 (:row %)) img-alt-missing)
             same-row-cols (set (map :col same-row-findings))]
         (is (= 2 (count same-row-cols))
-            "the two [:img] on row 43 have distinct :col values")))))
+            "the two [:img] on row 43 have distinct :col values")))
+
+    (testing "every finding carries a :form snippet showing the actual Hiccup vector"
+      (is (every? #(re-find #"^\[:img" (:form %)) img-alt-missing)
+          "every finding's :form starts with [:img"))))
 
 (deftest invalid-tabindex-fixture-test
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
@@ -124,4 +128,8 @@
         (is (contains? tags :button))))
 
     (testing "every finding has :bugs tier"
-      (is (every? #(= :bugs (:tier %)) invalid-tabindex)))))
+      (is (every? #(= :bugs (:tier %)) invalid-tabindex)))
+
+    (testing "every finding carries a :form snippet showing the vector"
+      (is (every? #(re-find #"^\[:(?:div|button)" (:form %)) invalid-tabindex)
+          "every finding's :form starts with the tag"))))

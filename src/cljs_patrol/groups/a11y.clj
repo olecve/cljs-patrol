@@ -8,7 +8,22 @@
    [cljs-patrol.group :as group]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
+   [clojure.string :as str]
    [rewrite-clj.zip :as z]))
+
+(def ^:private snippet-max-length 120)
+
+(defn- source-snippet
+  "Return a display-friendly snippet of loc's source form: whitespace collapsed
+  to single spaces, then truncated to `snippet-max-length` with an ellipsis if
+  needed. Used as the finding's `:form` field so reporters show the actual
+  Hiccup vector instead of just the tag."
+  [loc]
+  (let [raw (try (z/string loc) (catch Exception _ ""))
+        collapsed (str/replace raw #"\s+" " ")]
+    (if (> (count collapsed) snippet-max-length)
+      (str (subs collapsed 0 (- snippet-max-length 3)) "...")
+      collapsed)))
 
 (defn- img-alt-missing? [{:keys [kind attrs]} tag]
   (when (= :img tag)
@@ -53,6 +68,7 @@
         (let [info (hiccup/attrs-info loc)
               [row col] (try (z/position loc) (catch Exception _ [0 1]))
               base {:kw tag
+                    :form (source-snippet loc)
                     :file file
                     :row row
                     :col col}
