@@ -1,5 +1,7 @@
 (ns blogapp.views)
 
+;; --- :img-alt-missing fixtures ---
+
 (defn ok-with-alt []
   [:img {:src "/img/logo.png"
          :alt "Blogapp logo"}])
@@ -49,3 +51,37 @@
 (defn dynamic-attrs-skipped [props]
   ;; conservative: attrs are a non-literal form, don't flag either way
   [:img (merge {:src "/img/x.png"} props)])
+
+;; --- :invalid-tabindex fixtures ---
+
+(defn ok-tabindex-zero []
+  [:div {:tabIndex 0}])
+
+(defn ok-tabindex-negative []
+  [:div {:tabIndex -1}])
+
+(defn ok-tab-index-kebab-zero []
+  [:div {:tab-index 0}])
+
+(defn ok-dynamic-tabindex [n]
+  ;; conservative: non-literal value — skipped
+  [:div {:tabIndex n}])
+
+(defn bad-positive-tabindex []
+  [:div {:tabIndex 1}])
+
+(defn bad-large-positive-tabindex []
+  [:button {:tabIndex 100}])
+
+(defn bad-string-tabindex []
+  [:div {:tabIndex "1"}])
+
+(defn bad-float-tabindex []
+  [:div {:tabIndex 1.5}])
+
+(defn bad-keyword-tabindex []
+  [:div {:tabIndex :something}])
+
+(defn bad-kebab-positive-tabindex []
+  ;; kebab-case :tab-index also matches
+  [:div {:tab-index 5}])
