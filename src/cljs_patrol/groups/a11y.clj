@@ -131,7 +131,9 @@
   (suggestions [_]
     {:img-alt-missing
      (str "Every :img must set :alt. Use :alt \"\" for images that are purely decorative, "
-          "otherwise supply text that conveys the image's meaning to assistive technologies.")})
+          "otherwise supply text that conveys the image's meaning to assistive technologies. "
+          "See: WCAG 2.1 SC 1.1.1 Non-text Content — "
+          "https://www.w3.org/WAI/WCAG21/Understanding/non-text-content")})
   (rule->tier [_]
     {:img-alt-missing :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
