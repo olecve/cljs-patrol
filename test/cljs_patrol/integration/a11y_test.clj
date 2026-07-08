@@ -155,6 +155,14 @@
       (is (contains? by-row 46)
           "bad-camelcase-onclick-on-section case — :onClick on :section"))
 
+    (testing "flags Hiccup class shorthand [:.card ...] (treated as :div)"
+      (is (contains? by-row 57)
+          "bad-clickable-class-shorthand case — :.card is :div.card"))
+
+    (testing "flags Hiccup id shorthand [:#header ...] (treated as :div)"
+      (is (contains? by-row 61)
+          "bad-clickable-id-shorthand case — :#header is :div#header"))
+
     (testing "does not flag natively interactive :button with :on-click"
       (is (not (contains? by-row 5))
           "ok-button-click case — :button is inherently keyboard-accessible"))

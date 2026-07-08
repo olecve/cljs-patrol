@@ -24,8 +24,9 @@
 (defn parse-tag
   "Return the base HTML tag keyword from a Hiccup tag string.
   Handles plain (`:img`), class (`:img.hero`), id (`:img#logo`), and mixed
-  (`:img.a.b#c`) forms. Returns nil for non-keyword tokens, namespaced
-  keywords, or `::` aliases."
+  (`:img.a.b#c`) forms. Bare `:.class` / `:#id` shorthand — where the tag is
+  omitted — is treated as `:div`, matching Hiccup's runtime convention.
+  Returns nil for non-keyword tokens, namespaced keywords, or `::` aliases."
   [raw-str]
   (when (and raw-str
              (str/starts-with? raw-str ":")
@@ -40,8 +41,9 @@
                 hash hash
                 :else nil)
           tag-name (if end (subs body 0 end) body)]
-      (when (seq tag-name)
-        (keyword tag-name)))))
+      (cond
+        (seq tag-name) (keyword tag-name)
+        (or dot hash) :div))))
 
 (defn literal-map
   "Return `{kw → value-zloc}` for a literal map zloc.
