@@ -62,23 +62,74 @@
 
 (def ^:private non-interactive-tags
   "HTML tags that carry no built-in click / keyboard semantics.
-  Attaching :on-click to these without a :role hint or a keyboard handler
-  produces something that looks clickable but isn't reachable via keyboard."
+  Attaching a mouse / pointer interaction to these without a :role hint or
+  a keyboard handler produces something that looks clickable but isn't
+  reachable via keyboard."
   #{:div :span :li :p :section :article :header :footer :main :aside})
 
-(def ^:private onclick-keys #{:on-click :onClick})
+(def ^:private interaction-keys
+  "Attribute keys that attach a mouse / pointer / touch interaction. Both
+  kebab-case (Reagent idiomatic) and camelCase (React-style) spellings."
+  #{:on-click :onClick
+    :on-mouse-down :onMouseDown
+    :on-mouse-up :onMouseUp
+    :on-pointer-down :onPointerDown
+    :on-pointer-up :onPointerUp
+    :on-touch-start :onTouchStart
+    :on-touch-end :onTouchEnd})
 
 (def ^:private keyboard-handler-keys
   #{:on-key-down :on-key-press :on-key-up
     :onKeyDown :onKeyPress :onKeyUp})
 
+(def ^:private no-op-role-values
+  "Role values that don't confer interactive semantics — either effectively
+  absent (nil, empty string) or explicitly remove semantics (presentation,
+  none)."
+  #{nil "" "presentation" "none"})
+
+(defn- literal-sexpr
+  "Return `::absent` if value-loc is nil, the value's sexpr if the loc holds a
+  literal token / string, or `::non-literal` for anything else (lists, maps,
+  symbols, meta forms, reader macros)."
+  [value-loc]
+  (if (nil? value-loc)
+    ::absent
+    (case (z/tag value-loc)
+      (:token :multi-line)
+      (try (z/sexpr value-loc) (catch Exception _ ::non-literal))
+      ::non-literal)))
+
+(defn- meaningful-role?
+  "True when attrs has a :role value that confers interactive semantics.
+  Non-literal values (variables, expressions) are optimistically accepted."
+  [attrs]
+  (let [v (literal-sexpr (get attrs :role))]
+    (cond
+      (= v ::absent) false
+      (= v ::non-literal) true
+      :else (not (contains? no-op-role-values v)))))
+
+(defn- meaningful-handler?
+  "True when value-loc holds a handler that could actually respond — anything
+  literally nil / false is treated as no-op; non-literal values are accepted."
+  [value-loc]
+  (let [v (literal-sexpr value-loc)]
+    (cond
+      (= v ::absent) false
+      (= v ::non-literal) true
+      :else (not (or (nil? v) (false? v))))))
+
+(defn- has-meaningful-handler? [attrs handler-keys]
+  (some #(meaningful-handler? (get attrs %)) handler-keys))
+
 (defn- onclick-on-non-interactive? [{:keys [kind attrs]} tag]
   (when (and (contains? non-interactive-tags tag)
              (= :map kind)
              (some? attrs))
-    (and (some #(contains? attrs %) onclick-keys)
-         (not (contains? attrs :role))
-         (not (some #(contains? attrs %) keyboard-handler-keys)))))
+    (and (has-meaningful-handler? attrs interaction-keys)
+         (not (meaningful-role? attrs))
+         (not (has-meaningful-handler? attrs keyboard-handler-keys)))))
 
 (defn- handle-vector [loc _ns-name _aliases file]
   (let [first-child (z/down loc)]
@@ -148,11 +199,13 @@
           "See: WCAG 2.1 SC 2.4.3 Focus Order — "
           "https://www.w3.org/WAI/WCAG21/Understanding/focus-order")
      :onclick-on-non-interactive
-     (str ":on-click on a non-interactive tag (:div, :span, :li, :p, :section, ...) "
-          "produces something that looks clickable but is not reachable via keyboard. "
-          "Either switch to a natively interactive tag (:button, or :a with :href), or add "
-          ":role (\"button\", \"link\") or a keyboard handler (:on-key-down / :on-key-press / :on-key-up) — "
-          "WCAG recommends both. "
+     (str "A mouse / pointer / touch handler (:on-click, :on-mouse-down, :on-pointer-*, "
+          ":on-touch-*, ...) is attached to a non-interactive tag (:div, :span, :li, :p, "
+          ":section, ...) with no keyboard equivalent — mouse users can trigger it but "
+          "keyboard users cannot. Either switch to a natively interactive tag (:button, "
+          "or :a with :href), or add :role (\"button\", \"link\") or a keyboard handler "
+          "(:on-key-down / :on-key-press / :on-key-up) — WCAG recommends both. Note: "
+          ":role \"presentation\" / \"none\" / nil / \"\" don't count as valid roles. "
           "See: WCAG 2.1 SC 2.1.1 Keyboard — "
           "https://www.w3.org/WAI/WCAG21/Understanding/keyboard")})
   (rule->tier [_]

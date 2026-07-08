@@ -163,6 +163,42 @@
       (is (contains? by-row 61)
           "bad-clickable-id-shorthand case — :#header is :div#header"))
 
+    (testing "flags :role nil (not a real role at runtime)"
+      (is (contains? by-row 65)
+          "bad-role-nil-does-not-count case"))
+
+    (testing "flags :role \"\" (empty string not a real role)"
+      (is (contains? by-row 70)
+          "bad-role-empty-string case"))
+
+    (testing "flags :role \"presentation\" (explicitly removes semantics)"
+      (is (contains? by-row 76)
+          "bad-role-presentation case — role=\"presentation\" is worse than no role"))
+
+    (testing "flags :role \"none\" (ARIA 1.1 synonym for presentation)"
+      (is (contains? by-row 82)
+          "bad-role-none case"))
+
+    (testing "flags :on-key-down nil (no-op handler)"
+      (is (contains? by-row 88)
+          "bad-keyboard-handler-nil case"))
+
+    (testing "flags :on-mouse-down on a non-interactive tag"
+      (is (contains? by-row 94)
+          "bad-mouse-down-on-div case"))
+
+    (testing "flags :on-touch-start on a non-interactive tag"
+      (is (contains? by-row 97)
+          "bad-touch-start-on-div case"))
+
+    (testing "flags :on-pointer-down on a non-interactive tag"
+      (is (contains? by-row 100)
+          "bad-pointer-down-on-span case"))
+
+    (testing "does not flag :on-mouse-down + :on-key-down together"
+      (is (not (contains? by-row 103))
+          "ok-mouse-down-with-keydown case — keyboard handler is the escape hatch"))
+
     (testing "does not flag natively interactive :button with :on-click"
       (is (not (contains? by-row 5))
           "ok-button-click case — :button is inherently keyboard-accessible"))
@@ -192,7 +228,8 @@
           "ok-dynamic-attrs case — [:div (merge ...)]"))
 
     (testing "every finding carries the offending tag as :kw"
-      (is (every? #(contains? #{:div :span :li :section} (:kw %)) onclick-on-non-interactive)))
+      (is (every? #(contains? #{:div :span :li :section} (:kw %)) onclick-on-non-interactive)
+          "fixture only exercises this 4-tag subset of non-interactive-tags"))
 
     (testing "every finding has :bugs tier"
       (is (every? #(= :bugs (:tier %)) onclick-on-non-interactive)))

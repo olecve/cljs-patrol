@@ -59,3 +59,47 @@
 (defn bad-clickable-id-shorthand [handler]
   ;; :#header is Hiccup shorthand for :div#header — also :div
   [:#header {:on-click handler} "Header"])
+
+(defn bad-role-nil-does-not-count [handler]
+  ;; :role nil is not a role at runtime; can't be an escape hatch
+  [:div {:on-click handler
+         :role nil}
+   "Fake button"])
+
+(defn bad-role-empty-string [handler]
+  [:div {:on-click handler
+         :role ""}
+   "Fake button"])
+
+(defn bad-role-presentation [handler]
+  ;; :role "presentation" explicitly REMOVES semantics — worse than no role
+  [:div {:on-click handler
+         :role "presentation"}
+   "Hidden-from-AT button"])
+
+(defn bad-role-none [handler]
+  ;; :role "none" is the ARIA 1.1 synonym for "presentation"
+  [:div {:on-click handler
+         :role "none"}
+   "Hidden-from-AT button"])
+
+(defn bad-keyboard-handler-nil [handler]
+  ;; :on-key-down nil is a no-op; not a real keyboard handler
+  [:div {:on-click handler
+         :on-key-down nil}
+   "Fake button"])
+
+(defn bad-mouse-down-on-div [start-drag]
+  ;; :on-mouse-down has the same keyboard-inaccessibility problem as :on-click
+  [:div {:on-mouse-down start-drag} "Drag handle"])
+
+(defn bad-touch-start-on-div [tap]
+  [:div {:on-touch-start tap} "Tap target"])
+
+(defn bad-pointer-down-on-span [press]
+  [:span {:on-pointer-down press} "Press"])
+
+(defn ok-mouse-down-with-keydown [press key-handler]
+  [:div {:on-mouse-down press
+         :on-key-down key-handler}
+   "OK"])
