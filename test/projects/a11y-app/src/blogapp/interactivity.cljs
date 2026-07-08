@@ -51,3 +51,11 @@
   [:div {:on-click handler
          :role "button"}
    "Custom button (no keydown yet)"])
+
+(defn bad-clickable-class-shorthand [handler]
+  ;; :.card is Hiccup shorthand for :div.card — treated as :div by parse-tag
+  [:.card {:on-click handler} "Card"])
+
+(defn bad-clickable-id-shorthand [handler]
+  ;; :#header is Hiccup shorthand for :div#header — also :div
+  [:#header {:on-click handler} "Header"])

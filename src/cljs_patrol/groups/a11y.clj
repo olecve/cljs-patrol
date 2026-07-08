@@ -150,8 +150,9 @@
      :onclick-on-non-interactive
      (str ":on-click on a non-interactive tag (:div, :span, :li, :p, :section, ...) "
           "produces something that looks clickable but is not reachable via keyboard. "
-          "Either switch to a natively interactive tag (:button, :a), or add both :role "
-          "(\"button\", \"link\") and a keyboard handler (:on-key-down / :on-key-press / :on-key-up). "
+          "Either switch to a natively interactive tag (:button, or :a with :href), or add "
+          ":role (\"button\", \"link\") or a keyboard handler (:on-key-down / :on-key-press / :on-key-up) — "
+          "WCAG recommends both. "
           "See: WCAG 2.1 SC 2.1.1 Keyboard — "
           "https://www.w3.org/WAI/WCAG21/Understanding/keyboard")})
   (rule->tier [_]

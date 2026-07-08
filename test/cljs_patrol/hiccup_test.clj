@@ -29,10 +29,15 @@
     (is (nil? (hiccup/parse-tag "::alias/img")))
     (is (nil? (hiccup/parse-tag ":my.ns/img"))))
 
-  (testing "returns nil when tag name is empty after stripping"
-    (is (nil? (hiccup/parse-tag ":")))
-    (is (nil? (hiccup/parse-tag ":.foo")))
-    (is (nil? (hiccup/parse-tag ":#bar")))))
+  (testing "returns nil when the string is only a colon"
+    (is (nil? (hiccup/parse-tag ":"))))
+
+  (testing "treats bare :.class / :#id shorthand as :div (Hiccup convention)"
+    (is (= :div (hiccup/parse-tag ":.card")))
+    (is (= :div (hiccup/parse-tag ":#header")))
+    (is (= :div (hiccup/parse-tag ":.a.b")))
+    (is (= :div (hiccup/parse-tag ":.a#b")))
+    (is (= :div (hiccup/parse-tag ":#id.class")))))
 
 (defn- map-zloc [s]
   (z/of-string s))
