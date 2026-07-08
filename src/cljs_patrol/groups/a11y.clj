@@ -59,6 +59,26 @@
     (or (invalid-tabindex-value? (get attrs :tab-index))
         (invalid-tabindex-value? (get attrs :tabIndex)))))
 
+(def ^:private non-interactive-tags
+  "HTML tags that carry no built-in click / keyboard semantics. Attaching
+  :on-click to these without a :role hint or a keyboard handler produces
+  something that looks clickable but isn't reachable via keyboard."
+  #{:div :span :li :p :section :article :header :footer :main :aside})
+
+(def ^:private onclick-keys #{:on-click :onClick})
+
+(def ^:private keyboard-handler-keys
+  #{:on-key-down :on-key-press :on-key-up
+    :onKeyDown :onKeyPress :onKeyUp})
+
+(defn- onclick-on-non-interactive? [{:keys [kind attrs]} tag]
+  (when (and (contains? non-interactive-tags tag)
+             (= :map kind)
+             (some? attrs))
+    (and (some #(contains? attrs %) onclick-keys)
+         (not (contains? attrs :role))
+         (not (some #(contains? attrs %) keyboard-handler-keys)))))
+
 (defn- handle-vector [loc _ns-name _aliases file]
   (let [first-child (z/down loc)]
     (when (and first-child
@@ -77,7 +97,10 @@
                        (conj (assoc base :type :img-alt-missing))
 
                        (invalid-tabindex? info)
-                       (conj (assoc base :type :invalid-tabindex)))]
+                       (conj (assoc base :type :invalid-tabindex))
+
+                       (onclick-on-non-interactive? info tag)
+                       (conj (assoc base :type :onclick-on-non-interactive)))]
           (when (seq usages)
             {:decls []
              :dynamics []
@@ -90,14 +113,18 @@
   ;; :style-call, ...) out of the a11y result — not defensive code.
   (let [by-type (group-by :type usages)]
     {:img-alt-missing (vec (:img-alt-missing by-type))
-     :invalid-tabindex (vec (:invalid-tabindex by-type))}))
+     :invalid-tabindex (vec (:invalid-tabindex by-type))
+     :onclick-on-non-interactive (vec (:onclick-on-non-interactive by-type))}))
 
-(defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex]}]
+(defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex onclick-on-non-interactive]}]
   [["Img missing alt:" (count img-alt-missing)]
-   ["Invalid tabindex:" (count invalid-tabindex)]])
+   ["Invalid tabindex:" (count invalid-tabindex)]
+   ["Onclick on non-interactive:" (count onclick-on-non-interactive)]])
 
-(defn- failed?* [{:keys [img-alt-missing invalid-tabindex]}]
-  (or (seq img-alt-missing) (seq invalid-tabindex)))
+(defn- failed?* [{:keys [img-alt-missing invalid-tabindex onclick-on-non-interactive]}]
+  (or (seq img-alt-missing)
+      (seq invalid-tabindex)
+      (seq onclick-on-non-interactive)))
 
 (defrecord A11yGroup []
   group/RuleGroup
@@ -118,10 +145,18 @@
           "focus order; non-integer values (strings, floats, booleans, keywords) may not "
           "produce a focusable element at all. "
           "See: WCAG 2.1 SC 2.4.3 Focus Order — "
-          "https://www.w3.org/WAI/WCAG21/Understanding/focus-order")})
+          "https://www.w3.org/WAI/WCAG21/Understanding/focus-order")
+     :onclick-on-non-interactive
+     (str ":on-click on a non-interactive tag (:div, :span, :li, :p, :section, ...) "
+          "produces something that looks clickable but is not reachable via keyboard. "
+          "Either switch to a natively interactive tag (:button, :a), or add both :role "
+          "(\"button\", \"link\") and a keyboard handler (:on-key-down / :on-key-press / :on-key-up). "
+          "See: WCAG 2.1 SC 2.1.1 Keyboard — "
+          "https://www.w3.org/WAI/WCAG21/Understanding/keyboard")})
   (rule->tier [_]
     {:img-alt-missing :bugs
-     :invalid-tabindex :bugs})
+     :invalid-tabindex :bugs
+     :onclick-on-non-interactive :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->A11yGroup))

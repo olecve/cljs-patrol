@@ -102,7 +102,7 @@
   (is (= #{:duplicate-subs :duplicate-events
            :reg-event-fx-empty :reg-event-db-empty
            :reg-event-db-returning-effects
-           :img-alt-missing :invalid-tabindex}
+           :img-alt-missing :invalid-tabindex :onclick-on-non-interactive}
          (severity/tier->rules rule->tier :bugs)))
   (is (= #{:deprecated-effects :defclass-as-sole-attr
            :defattrs-in-merge :mixed-token-groups}
@@ -121,7 +121,7 @@
     (is (= {:ok #{:duplicate-subs :duplicate-events
                   :reg-event-fx-empty :reg-event-db-empty
                   :reg-event-db-returning-effects
-                  :img-alt-missing :invalid-tabindex}}
+                  :img-alt-missing :invalid-tabindex :onclick-on-non-interactive}}
            (severity/parse-fail-on "bugs" rule->tier)))
     (is (= {:ok (severity/tier->rules rule->tier :deprecations)}
            (severity/parse-fail-on "deprecations" rule->tier)))
@@ -179,7 +179,7 @@
       (is (= #{:duplicate-subs :duplicate-events
                :reg-event-fx-empty :reg-event-db-empty
                :reg-event-db-returning-effects
-               :img-alt-missing :invalid-tabindex}
+               :img-alt-missing :invalid-tabindex :onclick-on-non-interactive}
              (set (map :rule (:bugs tiered)))))
       (is (= #{:deprecated-effects :defclass-as-sole-attr
                :defattrs-in-merge :mixed-token-groups}

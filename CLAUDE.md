@@ -8,7 +8,7 @@ cljs-patrol is a standalone static analysis CLI for ClojureScript codebases. It 
 
 - **Re-frame:** unused/phantom subscriptions and events, dynamic dispatch sites
 - **Spade:** unused CSS-in-ClojureScript styles (`defclass`, `defattrs`)
-- **A11y:** accessibility issues in Hiccup (`:img` missing `:alt`, invalid `:tabIndex`)
+- **A11y:** accessibility issues in Hiccup (`:img` missing `:alt`, invalid `:tabIndex`, `:on-click` on non-interactive tags)
 - **Docstrings:** bbatsov style-guide violations on every def (summary, indentation, leading/trailing whitespace)
 
 Exits with code 1 when issues are found (CI-friendly).
