@@ -125,7 +125,7 @@
 (defn- has-meaningful-handler? [attrs handler-keys]
   (some #(meaningful-handler? (get attrs %)) handler-keys))
 
-(defn- onclick-on-non-interactive? [{:keys [kind attrs]} tag]
+(defn- on-click-on-non-interactive? [{:keys [kind attrs]} tag]
   (when (and (contains? non-interactive-tags tag)
              (= :map kind)
              (some? attrs))
@@ -133,11 +133,40 @@
          (not (meaningful-role? attrs))
          (not (has-meaningful-handler? attrs keyboard-handler-keys)))))
 
+(def ^:private empty-interactive-tags #{:a :button})
+
+(def ^:private text-name-keys
+  "Attribute keys that give a screen-reader-readable name to an element."
+  #{:aria-label :aria-labelledby :title})
+
+(defn- meaningful-text-name?
+  "True when attrs supplies a non-empty accessible name via aria-label,
+  aria-labelledby, or title. Non-literal values are optimistically accepted."
+  [attrs]
+  (some (fn [k]
+          (let [v (literal-sexpr (get attrs k))]
+            (cond
+              (= v ::absent) false
+              (= v ::non-literal) true
+              (or (nil? v) (false? v)) false
+              (and (string? v) (empty? v)) false
+              :else true)))
+        text-name-keys))
+
+(defn- empty-interactive? [{:keys [kind attrs]} tag loc]
+  (when (and (contains? empty-interactive-tags tag)
+             (not (hiccup/has-body? loc)))
+    (case kind
+      :absent true
+      :map (and (some? attrs) (not (meaningful-text-name? attrs)))
+      false)))
+
 (defn- handle-vector [loc _ns-name _aliases file]
   (let [first-child (z/down loc)]
     (when (and first-child
                (= :token (z/tag first-child))
-               (not (hiccup/inside-quoted-form? loc)))
+               (not (hiccup/inside-quoted-form? loc))
+               (not (hiccup/inside-style-decl? loc)))
       (when-let [tag (hiccup/parse-tag (parser/raw first-child))]
         (let [info (hiccup/attrs-info loc)
               [row col] (try (z/position loc) (catch Exception _ [0 1]))
@@ -153,8 +182,11 @@
                        (invalid-tabindex? info)
                        (conj (assoc base :type :invalid-tabindex))
 
-                       (onclick-on-non-interactive? info tag)
-                       (conj (assoc base :type :onclick-on-non-interactive)))]
+                       (on-click-on-non-interactive? info tag)
+                       (conj (assoc base :type :on-click-on-non-interactive))
+
+                       (empty-interactive? info tag loc)
+                       (conj (assoc base :type :empty-interactive-element)))]
           (when (seq usages)
             {:decls []
              :dynamics []
@@ -168,17 +200,20 @@
   (let [by-type (group-by :type usages)]
     {:img-alt-missing (vec (:img-alt-missing by-type))
      :invalid-tabindex (vec (:invalid-tabindex by-type))
-     :onclick-on-non-interactive (vec (:onclick-on-non-interactive by-type))}))
+     :on-click-on-non-interactive (vec (:on-click-on-non-interactive by-type))
+     :empty-interactive-element (vec (:empty-interactive-element by-type))}))
 
-(defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex onclick-on-non-interactive]}]
+(defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive empty-interactive-element]}]
   [["Img missing alt:" (count img-alt-missing)]
    ["Invalid tabindex:" (count invalid-tabindex)]
-   ["Onclick on non-interactive:" (count onclick-on-non-interactive)]])
+   ["Onclick on non-interactive:" (count on-click-on-non-interactive)]
+   ["Empty interactive element:" (count empty-interactive-element)]])
 
-(defn- failed?* [{:keys [img-alt-missing invalid-tabindex onclick-on-non-interactive]}]
+(defn- failed?* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive empty-interactive-element]}]
   (or (seq img-alt-missing)
       (seq invalid-tabindex)
-      (seq onclick-on-non-interactive)))
+      (seq on-click-on-non-interactive)
+      (seq empty-interactive-element)))
 
 (defrecord A11yGroup []
   group/RuleGroup
@@ -200,7 +235,7 @@
           "produce a focusable element at all. "
           "See: WCAG 2.1 SC 2.4.3 Focus Order — "
           "https://www.w3.org/WAI/WCAG21/Understanding/focus-order")
-     :onclick-on-non-interactive
+     :on-click-on-non-interactive
      (str "A mouse / pointer / touch handler (:on-click, :on-mouse-down, :on-pointer-*, "
           ":on-touch-*, ...) is attached to a non-interactive tag (:div, :span, :li, :p, "
           ":section, ...) with no keyboard equivalent — mouse users can trigger it but "
@@ -209,11 +244,18 @@
           "(:on-key-down / :on-key-press / :on-key-up) — WCAG recommends both. Note: "
           ":role \"presentation\" / \"none\" / nil / \"\" don't count as valid roles. "
           "See: WCAG 2.1 SC 2.1.1 Keyboard — "
-          "https://www.w3.org/WAI/WCAG21/Understanding/keyboard")})
+          "https://www.w3.org/WAI/WCAG21/Understanding/keyboard")
+     :empty-interactive-element
+     (str "A :button or :a element has no visible text and no :aria-label / "
+          ":aria-labelledby / :title — screen readers announce nothing. Add text content, "
+          "or provide an accessible name via :aria-label (e.g. for icon-only buttons). "
+          "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
+          "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")})
   (rule->tier [_]
     {:img-alt-missing :bugs
      :invalid-tabindex :bugs
-     :onclick-on-non-interactive :bugs})
+     :on-click-on-non-interactive :bugs
+     :empty-interactive-element :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->A11yGroup))
