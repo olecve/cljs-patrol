@@ -68,8 +68,9 @@
   #{:div :span :li :p :section :article :header :footer :main :aside})
 
 (def ^:private interaction-keys
-  "Attribute keys that attach a mouse / pointer / touch interaction. Both
-  kebab-case (Reagent idiomatic) and camelCase (React-style) spellings."
+  "Attribute keys that attach a mouse / pointer / touch interaction.
+  Includes both kebab-case (Reagent idiomatic) and camelCase (React-style)
+  spellings."
   #{:on-click :onClick
     :on-mouse-down :onMouseDown
     :on-mouse-up :onMouseUp
@@ -83,15 +84,15 @@
     :onKeyDown :onKeyPress :onKeyUp})
 
 (def ^:private no-op-role-values
-  "Role values that don't confer interactive semantics — either effectively
-  absent (nil, empty string) or explicitly remove semantics (presentation,
-  none)."
+  "Role values that don't confer interactive semantics.
+  Either effectively absent (nil, empty string) or explicitly remove
+  semantics (\"presentation\", \"none\")."
   #{nil "" "presentation" "none"})
 
 (defn- literal-sexpr
-  "Return `::absent` if value-loc is nil, the value's sexpr if the loc holds a
-  literal token / string, or `::non-literal` for anything else (lists, maps,
-  symbols, meta forms, reader macros)."
+  "Return the sexpr of value-loc when it holds a literal token or string.
+  Returns `::absent` when value-loc is nil, or `::non-literal` for anything
+  else (lists, maps, symbols, meta forms, reader macros)."
   [value-loc]
   (if (nil? value-loc)
     ::absent
@@ -111,8 +112,9 @@
       :else (not (contains? no-op-role-values v)))))
 
 (defn- meaningful-handler?
-  "True when value-loc holds a handler that could actually respond — anything
-  literally nil / false is treated as no-op; non-literal values are accepted."
+  "True when value-loc holds a handler that could actually respond.
+  Anything literally nil / false is treated as a no-op; non-literal values
+  are optimistically accepted."
   [value-loc]
   (let [v (literal-sexpr value-loc)]
     (cond
