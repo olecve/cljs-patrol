@@ -14,10 +14,11 @@
 (def ^:private snippet-max-length 120)
 
 (defn- source-snippet
-  "Return a display-friendly snippet of loc's source form: whitespace collapsed
-  to single spaces, then truncated to `snippet-max-length` with an ellipsis if
-  needed. Used as the finding's `:form` field so reporters show the actual
-  Hiccup vector instead of just the tag."
+  "Return a display-friendly snippet of loc's source form.
+  Whitespace is collapsed to single spaces, then truncated to
+  `snippet-max-length` with an ellipsis if needed. Used as the finding's
+  `:form` field so reporters show the actual Hiccup vector instead of
+  just the tag."
   [loc]
   (let [raw (try (z/string loc) (catch Exception _ ""))
         collapsed (str/replace raw #"\s+" " ")]
@@ -60,9 +61,9 @@
         (invalid-tabindex-value? (get attrs :tabIndex)))))
 
 (def ^:private non-interactive-tags
-  "HTML tags that carry no built-in click / keyboard semantics. Attaching
-  :on-click to these without a :role hint or a keyboard handler produces
-  something that looks clickable but isn't reachable via keyboard."
+  "HTML tags that carry no built-in click / keyboard semantics.
+  Attaching :on-click to these without a :role hint or a keyboard handler
+  produces something that looks clickable but isn't reachable via keyboard."
   #{:div :span :li :p :section :article :header :footer :main :aside})
 
 (def ^:private onclick-keys #{:on-click :onClick})
