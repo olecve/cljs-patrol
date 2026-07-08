@@ -133,3 +133,61 @@
     (testing "every finding carries a :form snippet showing the vector"
       (is (every? #(re-find #"^\[:(?:div|button)" (:form %)) invalid-tabindex)
           "every finding's :form starts with the tag"))))
+
+(deftest onclick-on-non-interactive-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        {:keys [onclick-on-non-interactive]} (first group-results)
+        by-row (rows onclick-on-non-interactive)]
+
+    (testing "flags [:div {:on-click ...}] without role or keyboard handler"
+      (is (contains? by-row 34)
+          "bad-clickable-div case"))
+
+    (testing "flags [:span {:on-click ...}]"
+      (is (contains? by-row 37)
+          "bad-clickable-span case"))
+
+    (testing "flags [:li {:on-click ...}]"
+      (is (contains? by-row 40)
+          "bad-clickable-li case"))
+
+    (testing "flags camelCase :onClick on non-interactive tag"
+      (is (contains? by-row 46)
+          "bad-camelcase-onclick-on-section case — :onClick on :section"))
+
+    (testing "does not flag natively interactive :button with :on-click"
+      (is (not (contains? by-row 5))
+          "ok-button-click case — :button is inherently keyboard-accessible"))
+
+    (testing "does not flag natively interactive :a with :on-click"
+      (is (not (contains? by-row 10))
+          "ok-anchor-click case — :a is inherently keyboard-accessible"))
+
+    (testing "does not flag :div with :role + keyboard handler"
+      (is (not (contains? by-row 14))
+          "ok-div-with-role-and-keydown case"))
+
+    (testing "does not flag :div with camelCase :onKeyDown"
+      (is (not (contains? by-row 21))
+          "ok-div-with-camelcase-onkeydown case — :onKeyDown counts as keyboard handler"))
+
+    (testing "does not flag :div without any :on-click"
+      (is (not (contains? by-row 27))
+          "ok-div-without-onclick case"))
+
+    (testing "does not flag :div with :role alone (lenient escape hatch)"
+      (is (not (contains? by-row 51))
+          "ok-clickable-div-with-role-only case"))
+
+    (testing "does not flag when attrs are non-literal"
+      (is (not (contains? by-row 31))
+          "ok-dynamic-attrs case — [:div (merge ...)]"))
+
+    (testing "every finding carries the offending tag as :kw"
+      (is (every? #(contains? #{:div :span :li :section} (:kw %)) onclick-on-non-interactive)))
+
+    (testing "every finding has :bugs tier"
+      (is (every? #(= :bugs (:tier %)) onclick-on-non-interactive)))
+
+    (testing "every finding carries a :form snippet"
+      (is (every? #(re-find #"^\[:" (:form %)) onclick-on-non-interactive)))))
