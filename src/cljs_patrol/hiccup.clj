@@ -11,8 +11,8 @@
    [rewrite-clj.zip :as z]))
 
 (def ^:private dynamic-attr-tags
-  "Zipper tags that indicate the attrs slot is a non-literal form: function
-  calls, quoted / spliced forms, metadata-wrapped values, reader macros, etc."
+  "Zipper tags that indicate the attrs slot is a non-literal form.
+  Covers function calls, quoted / spliced forms, metadata-wrapped values, reader macros, etc."
   #{:list :fn :syntax-quote :unquote :unquote-splicing :reader-macro :meta})
 
 (def ^:private quoted-parent-tags

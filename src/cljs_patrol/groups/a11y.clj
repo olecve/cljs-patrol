@@ -140,8 +140,8 @@
   #{:aria-label :aria-labelledby :title})
 
 (defn- meaningful-text-name?
-  "True when attrs supplies a non-empty accessible name via aria-label,
-  aria-labelledby, or title. Non-literal values are optimistically accepted."
+  "True when attrs supplies a non-empty accessible name.
+  Checks :aria-label, :aria-labelledby, and :title. Non-literal values are optimistically accepted."
   [attrs]
   (some (fn [k]
           (let [v (literal-sexpr (get attrs k))]
