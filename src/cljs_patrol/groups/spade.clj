@@ -8,18 +8,12 @@
 
 (def ^:private style-decl-fns #{"defclass" "defattrs"})
 
-(defn- main-map-loc
-  "Return the first argument map zloc of a defclass/defattrs list.
-  Expected shape: (defclass|defattrs NAME [ARGS] {main-map} ...).
-  Returns nil when the shape doesn't match."
-  [list-loc]
+(defn- main-map-loc [list-loc]
   (let [map-loc (some-> list-loc z/down z/right z/right z/right)]
     (when (and map-loc (= :map (z/tag map-loc)))
       map-loc)))
 
-(defn- map-key-locs
-  "Return a seq of key zlocs for a map zloc, skipping values."
-  [map-loc]
+(defn- map-key-locs [map-loc]
   (loop [loc (z/down map-loc)
          acc []]
     (if (nil? loc)
@@ -27,14 +21,10 @@
       (recur (some-> loc z/right z/right)
              (conj acc loc)))))
 
-(defn- pseudo-selector-key?
-  "True when the raw keyword text starts with `:&`."
-  [kw-str]
+(defn- pseudo-selector-key? [kw-str]
   (str/starts-with? kw-str ":&"))
 
-(defn- pseudo-findings
-  "Scan the main map of a defclass/defattrs form for pseudo-selector keys."
-  [list-loc style-kw file]
+(defn- pseudo-findings [list-loc style-kw file]
   (when-let [map-loc (main-map-loc list-loc)]
     (for [key-loc (map-key-locs map-loc)
           :when (parser/kw-node? key-loc)
