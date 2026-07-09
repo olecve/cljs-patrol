@@ -93,3 +93,27 @@
 (defn ok-div-role-kw-link-with-text []
   [:div {:role :link
          :on-click :navigate} "Go home"])
+
+(defn bad-icon-only-button [handler]
+  ;; body is a nested icon vector with no text — screen readers announce "button"
+  [:button {:on-click handler}
+   [:svg]])
+
+(defn bad-icon-only-anchor []
+  [:a {:href "/settings"}
+   [:svg]])
+
+(defn bad-nested-icon-only-button []
+  ;; even one level deeper: [:span [icons/x]] is still just an icon
+  [:button {:on-click :save}
+   [:span [:svg]]])
+
+(defn ok-button-icon-with-own-aria-label [handler]
+  ;; icon child carries its own aria-label — accessible name flows up
+  [:button {:on-click handler}
+   [:svg {:aria-label "Close dialog"}]])
+
+(defn ok-button-with-text-and-icon [handler]
+  [:button {:on-click handler}
+   [:svg]
+   "Close"])

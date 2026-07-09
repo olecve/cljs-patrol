@@ -163,8 +163,51 @@
 (defn- interactive-via-role? [attrs]
   (contains? empty-interactive-roles (literal-sexpr (get attrs :role))))
 
+(defn- literal-string-loc? [loc]
+  (and loc
+       (contains? #{:token :multi-line} (z/tag loc))
+       (string? (try (z/sexpr loc) (catch Exception _ nil)))))
+
+(defn- visible-content?
+  "True when loc carries visible text or dynamically-computed content.
+  A nested Hiccup vector is treated as opaque icon markup unless it
+  contains a string literal, a dynamic form, or an aria-name attribute
+  on itself or a descendant."
+  [loc]
+  (cond
+    (literal-string-loc? loc) true
+
+    (= :vector (z/tag loc))
+    (let [second-child (some-> loc z/down z/right)
+          attrs-map (when (and second-child (= :map (z/tag second-child)))
+                      second-child)
+          body-start (if attrs-map (z/right attrs-map) second-child)]
+      (or (and attrs-map (meaningful-text-name? (hiccup/literal-map attrs-map)))
+          (loop [cur body-start]
+            (cond
+              (nil? cur) false
+              (visible-content? cur) true
+              :else (recur (z/right cur))))))
+
+    :else true))
+
+(defn- has-visible-body?
+  "True when the vector has body content that would produce visible text
+  or a labelled child element. False for structurally empty vectors and
+  for icon-only markup like `[:button [icons/x]]`."
+  [vec-loc]
+  (let [second-child (some-> vec-loc z/down z/right)
+        body-start (if (and second-child (= :map (z/tag second-child)))
+                     (z/right second-child)
+                     second-child)]
+    (loop [cur body-start]
+      (cond
+        (nil? cur) false
+        (visible-content? cur) true
+        :else (recur (z/right cur))))))
+
 (defn- empty-interactive? [{:keys [kind attrs]} tag loc]
-  (when (not (hiccup/has-body? loc))
+  (when (not (has-visible-body? loc))
     (cond
       (contains? empty-interactive-tags tag)
       (case kind

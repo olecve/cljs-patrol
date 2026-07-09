@@ -285,6 +285,18 @@
       (is (contains? rows 89)
           "bad-empty-div-role-kw-button"))
 
+    (testing "flags icon-only [:button [:svg]] — no visible text or aria-label"
+      (is (contains? rows 99)
+          "bad-icon-only-button"))
+
+    (testing "flags icon-only [:a [:svg]] — no visible text or aria-label"
+      (is (contains? rows 103)
+          "bad-icon-only-anchor"))
+
+    (testing "flags nested icon-only [:button [:span [:svg]]]"
+      (is (contains? rows 108)
+          "bad-nested-icon-only-button"))
+
     (testing "does not flag when the vector has text content"
       (is (not (contains? rows 4))
           "ok-button-with-text"))
@@ -328,6 +340,14 @@
     (testing "does not flag [:div {:role :link}] with body text"
       (is (not (contains? rows 94))
           "ok-div-role-kw-link-with-text"))
+
+    (testing "does not flag [:button [:svg {:aria-label \"…\"}]] — labelled icon"
+      (is (not (contains? rows 113))
+          "ok-button-icon-with-own-aria-label"))
+
+    (testing "does not flag [:button [:svg] \"text\"] — icon + visible text"
+      (is (not (contains? rows 117))
+          "ok-button-with-text-and-icon"))
 
     (testing "every finding has :bugs tier"
       (is (every? #(= :bugs (:tier %)) empty-interactive-element)))
