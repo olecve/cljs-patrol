@@ -17,7 +17,7 @@
   [:div {:tabIndex 1}])
 
 (defn bad-large-positive-tabindex []
-  [:button {:tabIndex 100}])
+  [:button {:tabIndex 100} "Save"])
 
 (defn bad-string-tabindex []
   [:div {:tabIndex "1"}])

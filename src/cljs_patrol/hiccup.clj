@@ -11,8 +11,8 @@
    [rewrite-clj.zip :as z]))
 
 (def ^:private dynamic-attr-tags
-  "Zipper tags that indicate the attrs slot is a non-literal form: function
-  calls, quoted / spliced forms, metadata-wrapped values, reader macros, etc."
+  "Zipper tags that indicate the attrs slot is a non-literal form.
+  Covers function calls, quoted / spliced forms, metadata-wrapped values, reader macros, etc."
   #{:list :fn :syntax-quote :unquote :unquote-splicing :reader-macro :meta})
 
 (def ^:private quoted-parent-tags
@@ -20,6 +20,12 @@
   Rule groups skip those to avoid flagging Hiccup used as test data or in
   macro bodies."
   #{:quote :syntax-quote :unquote :unquote-splicing})
+
+(def ^:private style-decl-forms
+  "Spade / garden macros whose body contains CSS declarations, not Hiccup.
+  A vector like `[:button {:font-family …}]` inside these forms is a CSS
+  selector + property map, not a Hiccup element."
+  #{"defclass" "defattrs" "defglobal" "defkeyframes"})
 
 (defn parse-tag
   "Return the base HTML tag keyword from a Hiccup tag string.
@@ -82,3 +88,31 @@
 
 (defn inside-quoted-form? [loc]
   (some-> loc z/up z/tag quoted-parent-tags boolean))
+
+(defn inside-style-decl?
+  "True when loc has any ancestor list beginning with defclass / defattrs.
+  Those macros use `[:tag {…}]` for CSS selectors + property maps, not
+  Hiccup elements — rules that assume Hiccup should skip these."
+  [loc]
+  (loop [cur (some-> loc z/up)]
+    (cond
+      (nil? cur) false
+
+      (and (= :list (z/tag cur))
+           (contains? style-decl-forms (some-> cur z/down parser/sym-name)))
+      true
+
+      :else (recur (z/up cur)))))
+
+(defn has-body?
+  "True when the vector has any child past its tag and optional attrs map.
+  False only for `[:tag]` and `[:tag {…}]` — no visible content. When the
+  second child is a dynamic form (list, symbol, reader macro, etc.) we
+  conservatively treat that as 'has body' because it might expand to
+  children at runtime."
+  [vec-loc]
+  (let [second-child (some-> vec-loc z/down z/right)]
+    (cond
+      (nil? second-child) false
+      (= :map (z/tag second-child)) (some? (z/right second-child))
+      :else true)))

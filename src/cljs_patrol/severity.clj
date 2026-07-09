@@ -1,6 +1,6 @@
 (ns cljs-patrol.severity
-  "Severity tier helpers: aggregate tier classifications across rule groups
-  and parse the --fail-on flag."
+  "Severity tier helpers.
+  Aggregates tier classifications across rule groups and parses the --fail-on flag."
   (:require
    [cljs-patrol.group :as group]
    [clojure.string :as str]))

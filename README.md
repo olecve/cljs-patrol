@@ -247,7 +247,7 @@ By default, any issue causes CI to fail. For incremental adoption — or just to
 
 | Tier | Rules | Why |
 | ---- | ----- | --- |
-| `bugs` | `duplicate-subs`, `duplicate-events`, `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects`, `img-alt-missing`, `invalid-tabindex`, `onclick-on-non-interactive` | Silent runtime breakage — duplicate registrations overwrite, empty-effect handlers clobber app-db, effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen readers, invalid `:tabIndex` values break the natural focus order, and `:on-click` on non-interactive tags without keyboard support locks keyboard users out. |
+| `bugs` | `duplicate-subs`, `duplicate-events`, `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects`, `img-alt-missing`, `invalid-tabindex`, `on-click-on-non-interactive` | Silent runtime breakage — duplicate registrations overwrite, empty-effect handlers clobber app-db, effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen readers, invalid `:tabIndex` values break the natural focus order, and `:on-click` on non-interactive tags without keyboard support locks keyboard users out. |
 | `deprecations` | `deprecated-effects`, `defclass-as-sole-attr`, `defattrs-in-merge`, `mixed-token-groups` | Deprecated APIs and idiomatic violations that may break later. |
 | `cleanup` | `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events`, `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace` | Dead code, style noise, and suspicious references with no runtime impact. |
 

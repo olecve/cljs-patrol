@@ -134,10 +134,10 @@
       (is (every? #(re-find #"^\[:(?:div|button)" (:form %)) invalid-tabindex)
           "every finding's :form starts with the tag"))))
 
-(deftest onclick-on-non-interactive-fixture-test
+(deftest on-click-on-non-interactive-fixture-test
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
-        {:keys [onclick-on-non-interactive]} (first group-results)
-        by-row (rows onclick-on-non-interactive)]
+        {:keys [on-click-on-non-interactive]} (first group-results)
+        by-row (rows on-click-on-non-interactive)]
 
     (testing "flags [:div {:on-click ...}] without role or keyboard handler"
       (is (contains? by-row 34)
@@ -228,11 +228,73 @@
           "ok-dynamic-attrs case — [:div (merge ...)]"))
 
     (testing "every finding carries the offending tag as :kw"
-      (is (every? #(contains? #{:div :span :li :section} (:kw %)) onclick-on-non-interactive)
+      (is (every? #(contains? #{:div :span :li :section} (:kw %)) on-click-on-non-interactive)
           "fixture only exercises this 4-tag subset of non-interactive-tags"))
 
     (testing "every finding has :bugs tier"
-      (is (every? #(= :bugs (:tier %)) onclick-on-non-interactive)))
+      (is (every? #(= :bugs (:tier %)) on-click-on-non-interactive)))
 
     (testing "every finding carries a :form snippet"
-      (is (every? #(re-find #"^\[:" (:form %)) onclick-on-non-interactive)))))
+      (is (every? #(re-find #"^\[:" (:form %)) on-click-on-non-interactive)))))
+
+(deftest empty-interactive-element-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        {:keys [empty-interactive-element]} (first group-results)
+        by-file (group-by :file empty-interactive-element)
+        rows-in-file (fn [path]
+                       (set (map :row (get by-file (str fixture-dir "/" path)))))
+        rows (rows-in-file "interactive_content.cljs")]
+
+    (testing "flags [:button] with no children"
+      (is (contains? rows 32)
+          "bad-empty-button — no attrs, no children"))
+
+    (testing "flags [:button {…}] with attrs but no children"
+      (is (contains? rows 35)
+          "bad-empty-button-attrs — attrs but no children"))
+
+    (testing "flags [:a {:href …}] with no children"
+      (is (contains? rows 38)
+          "bad-empty-anchor — href but no accessible name"))
+
+    (testing "flags bare [:a]"
+      (is (contains? rows 41)
+          "bad-empty-anchor-no-attrs"))
+
+    (testing "flags [:button {:aria-label \"\"}] — empty string is no name"
+      (is (contains? rows 45)
+          "bad-button-empty-aria-label"))
+
+    (testing "flags [:a {:aria-label nil}] — nil is no name"
+      (is (contains? rows 50)
+          "bad-anchor-nil-aria-label"))
+
+    (testing "does not flag when the vector has text content"
+      (is (not (contains? rows 4))
+          "ok-button-with-text"))
+
+    (testing "does not flag when a child vector is present"
+      (is (not (contains? rows 7))
+          "ok-button-with-child-vector"))
+
+    (testing "does not flag icon-only :button with :aria-label"
+      (is (not (contains? rows 12))
+          "ok-icon-button-with-aria-label"))
+
+    (testing "does not flag icon-only :a with :title"
+      (is (not (contains? rows 17))
+          "ok-icon-anchor-with-title"))
+
+    (testing "does not flag :a with :aria-labelledby"
+      (is (not (contains? rows 22))
+          "ok-anchor-with-aria-labelledby"))
+
+    (testing "does not flag :button whose body is a dynamic expression (conservative)"
+      (is (not (contains? rows 28))
+          "ok-button-with-dynamic-child"))
+
+    (testing "every finding has :bugs tier"
+      (is (every? #(= :bugs (:tier %)) empty-interactive-element)))
+
+    (testing "every finding tag is :a or :button"
+      (is (every? #(contains? #{:a :button} (:kw %)) empty-interactive-element)))))
