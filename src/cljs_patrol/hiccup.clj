@@ -103,16 +103,3 @@
       true
 
       :else (recur (z/up cur)))))
-
-(defn has-body?
-  "True when the vector has any child past its tag and optional attrs map.
-  False only for `[:tag]` and `[:tag {…}]` — no visible content. When the
-  second child is a dynamic form (list, symbol, reader macro, etc.) we
-  conservatively treat that as 'has body' because it might expand to
-  children at runtime."
-  [vec-loc]
-  (let [second-child (some-> vec-loc z/down z/right)]
-    (cond
-      (nil? second-child) false
-      (= :map (z/tag second-child)) (some? (z/right second-child))
-      :else true)))

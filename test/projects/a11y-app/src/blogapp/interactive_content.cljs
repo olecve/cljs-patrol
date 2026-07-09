@@ -49,3 +49,71 @@
   ;; :aria-label nil doesn't provide a name either
   [:a {:href "/"
        :aria-label nil}])
+
+(defn ok-div-role-button-with-text []
+  [:div {:role "button"
+         :on-click :save} "Save"])
+
+(defn ok-span-role-link-with-aria-label []
+  [:span {:role "link"
+          :on-click :navigate
+          :aria-label "Home"}])
+
+(defn ok-div-role-presentation-empty []
+  ;; role=presentation removes semantics — not an interactive element
+  [:div {:role "presentation"}])
+
+(defn ok-div-role-dynamic-empty [role]
+  ;; non-literal role — skip conservatively
+  [:div {:role role}])
+
+(defn bad-empty-div-role-button []
+  [:div {:role "button"
+         :on-click :save
+         :on-key-down :save}])
+
+(defn bad-empty-span-role-link []
+  [:span {:role "link"
+          :on-click :navigate
+          :on-key-down :navigate}])
+
+(defn bad-empty-div-role-button-empty-aria-label []
+  ;; empty :aria-label doesn't confer a name
+  [:div {:role "button"
+         :on-click :save
+         :on-key-down :save
+         :aria-label ""}])
+
+(defn bad-empty-div-role-kw-button []
+  ;; keyword form of role is also valid at runtime (Reagent stringifies it)
+  [:div {:role :button
+         :on-click :save
+         :on-key-down :save}])
+
+(defn ok-div-role-kw-link-with-text []
+  [:div {:role :link
+         :on-click :navigate} "Go home"])
+
+(defn bad-icon-only-button [handler]
+  ;; body is a nested icon vector with no text — screen readers announce "button"
+  [:button {:on-click handler}
+   [:svg]])
+
+(defn bad-icon-only-anchor []
+  [:a {:href "/settings"}
+   [:svg]])
+
+(defn bad-nested-icon-only-button []
+  ;; even one level deeper: [:span [icons/x]] is still just an icon
+  [:button {:on-click :save}
+   [:span [:svg]]])
+
+(defn ok-button-icon-with-own-aria-label [handler]
+  ;; icon child carries its own aria-label — accessible name flows up
+  [:button {:on-click handler}
+   [:svg {:aria-label "Close dialog"}]])
+
+(defn ok-button-with-text-and-icon [handler]
+  [:button {:on-click handler}
+   [:svg]
+   "Close"])
