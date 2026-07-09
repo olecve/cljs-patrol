@@ -103,7 +103,8 @@
            :reg-event-fx-empty :reg-event-db-empty
            :reg-event-db-returning-effects
            :img-alt-missing :invalid-tabindex :on-click-on-non-interactive
-           :empty-interactive-element}
+           :empty-interactive-element
+           :pseudo-in-main-map}
          (severity/tier->rules rule->tier :bugs)))
   (is (= #{:deprecated-effects :defclass-as-sole-attr
            :defattrs-in-merge :mixed-token-groups}
@@ -123,7 +124,8 @@
                   :reg-event-fx-empty :reg-event-db-empty
                   :reg-event-db-returning-effects
                   :img-alt-missing :invalid-tabindex :on-click-on-non-interactive
-                  :empty-interactive-element}}
+                  :empty-interactive-element
+                  :pseudo-in-main-map}}
            (severity/parse-fail-on "bugs" rule->tier)))
     (is (= {:ok (severity/tier->rules rule->tier :deprecations)}
            (severity/parse-fail-on "deprecations" rule->tier)))
@@ -182,7 +184,8 @@
                :reg-event-fx-empty :reg-event-db-empty
                :reg-event-db-returning-effects
                :img-alt-missing :invalid-tabindex :on-click-on-non-interactive
-               :empty-interactive-element}
+               :empty-interactive-element
+               :pseudo-in-main-map}
              (set (map :rule (:bugs tiered)))))
       (is (= #{:deprecated-effects :defclass-as-sole-attr
                :defattrs-in-merge :mixed-token-groups}

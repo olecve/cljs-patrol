@@ -64,6 +64,12 @@
         :file (rel (:file issue))
         :line (:row issue)}
 
+       (= :pseudo-in-main-map rule)
+       {:rule rule
+        :ns (namespace (:kw issue))
+        :var (name (:kw issue))
+        :selector (:selector issue)}
+
        (contains? hiccup-site-rules rule)
        {:rule rule
         :tag (:kw issue)
