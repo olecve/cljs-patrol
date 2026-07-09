@@ -269,6 +269,22 @@
       (is (contains? rows 50)
           "bad-anchor-nil-aria-label"))
 
+    (testing "flags [:div {:role \"button\"}] with no body"
+      (is (contains? rows 71)
+          "bad-empty-div-role-button"))
+
+    (testing "flags [:span {:role \"link\"}] with no body"
+      (is (contains? rows 76)
+          "bad-empty-span-role-link"))
+
+    (testing "flags [:div {:role \"button\" :aria-label \"\"}] — empty name still fails"
+      (is (contains? rows 82)
+          "bad-empty-div-role-button-empty-aria-label"))
+
+    (testing "flags [:div {:role :button}] — keyword form of role also counts"
+      (is (contains? rows 89)
+          "bad-empty-div-role-kw-button"))
+
     (testing "does not flag when the vector has text content"
       (is (not (contains? rows 4))
           "ok-button-with-text"))
@@ -293,8 +309,28 @@
       (is (not (contains? rows 28))
           "ok-button-with-dynamic-child"))
 
+    (testing "does not flag [:div {:role \"button\"}] with body text"
+      (is (not (contains? rows 54))
+          "ok-div-role-button-with-text"))
+
+    (testing "does not flag [:span {:role \"link\" :aria-label \"…\"}]"
+      (is (not (contains? rows 58))
+          "ok-span-role-link-with-aria-label"))
+
+    (testing "does not flag [:div {:role \"presentation\"}] — non-interactive role"
+      (is (not (contains? rows 64))
+          "ok-div-role-presentation-empty"))
+
+    (testing "does not flag [:div {:role dynamic}] (conservative)"
+      (is (not (contains? rows 68))
+          "ok-div-role-dynamic-empty"))
+
+    (testing "does not flag [:div {:role :link}] with body text"
+      (is (not (contains? rows 94))
+          "ok-div-role-kw-link-with-text"))
+
     (testing "every finding has :bugs tier"
       (is (every? #(= :bugs (:tier %)) empty-interactive-element)))
 
-    (testing "every finding tag is :a or :button"
-      (is (every? #(contains? #{:a :button} (:kw %)) empty-interactive-element)))))
+    (testing "every finding carries the offending tag as :kw"
+      (is (every? #(contains? #{:a :button :div :span} (:kw %)) empty-interactive-element)))))

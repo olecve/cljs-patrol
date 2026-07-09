@@ -135,6 +135,13 @@
 
 (def ^:private empty-interactive-tags #{:a :button})
 
+(def ^:private empty-interactive-roles
+  "ARIA role values that make an element behave as a button or link.
+  Both string and keyword literals are accepted — Reagent stringifies
+  keyword attribute values, so `:role :button` is equivalent to
+  `:role \"button\"` at runtime."
+  #{"button" "link" :button :link})
+
 (def ^:private text-name-keys
   "Attribute keys that give a screen-reader-readable name to an element."
   #{:aria-label :aria-labelledby :title})
@@ -153,13 +160,22 @@
               :else true)))
         text-name-keys))
 
+(defn- interactive-via-role? [attrs]
+  (contains? empty-interactive-roles (literal-sexpr (get attrs :role))))
+
 (defn- empty-interactive? [{:keys [kind attrs]} tag loc]
-  (when (and (contains? empty-interactive-tags tag)
-             (not (hiccup/has-body? loc)))
-    (case kind
-      :absent true
-      :map (and (some? attrs) (not (meaningful-text-name? attrs)))
-      false)))
+  (when (not (hiccup/has-body? loc))
+    (cond
+      (contains? empty-interactive-tags tag)
+      (case kind
+        :absent true
+        :map (and (some? attrs) (not (meaningful-text-name? attrs)))
+        false)
+
+      (and (= :map kind) (some? attrs) (interactive-via-role? attrs))
+      (not (meaningful-text-name? attrs))
+
+      :else false)))
 
 (defn- handle-vector [loc _ns-name _aliases file]
   (let [first-child (z/down loc)]
@@ -246,9 +262,10 @@
           "See: WCAG 2.1 SC 2.1.1 Keyboard — "
           "https://www.w3.org/WAI/WCAG21/Understanding/keyboard")
      :empty-interactive-element
-     (str "A :button or :a element has no visible text and no :aria-label / "
-          ":aria-labelledby / :title — screen readers announce nothing. Add text content, "
-          "or provide an accessible name via :aria-label (e.g. for icon-only buttons). "
+     (str "A :button, :a, or element with :role \"button\" / \"link\" has no visible text "
+          "and no :aria-label / :aria-labelledby / :title — screen readers announce "
+          "nothing. Add text content, or provide an accessible name via :aria-label "
+          "(e.g. for icon-only buttons). "
           "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
           "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")})
   (rule->tier [_]
