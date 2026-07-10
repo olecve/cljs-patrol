@@ -1,5 +1,21 @@
 # Changelog
 
+## [v0.0.13] - 2026-07-10
+
+## What's Changed
+
+* Add :onclick-on-non-interactive rule by @olecve in https://github.com/olecve/cljs-patrol/pull/24
+* Fix :.class/:#id shorthand + reconcile onclick suggestion by @olecve in https://github.com/olecve/cljs-patrol/pull/25
+* Value-aware :role/handler checks + pointer events by @olecve in https://github.com/olecve/cljs-patrol/pull/26
+* Add :empty-interactive-element rule + Spade-context skip by @olecve in https://github.com/olecve/cljs-patrol/pull/27
+* Widen :empty-interactive-element (role= and icon-only) by @olecve in https://github.com/olecve/cljs-patrol/pull/28
+* Detect misplaced pseudo-selectors in Spade main style map by @olecve in https://github.com/olecve/cljs-patrol/pull/29
+* Detect consecutive self-selectors in Spade sibling vectors by @olecve in https://github.com/olecve/cljs-patrol/pull/30
+* Add :missing-accessible-name a11y rule with config-driven component aliases by @olecve in https://github.com/olecve/cljs-patrol/pull/31
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.12...v0.0.13
+
+
 ## [v0.0.12] - 2026-07-07
 
 ## What's Changed
