@@ -89,10 +89,7 @@
         {:kw nil
          :dynamic? true}))))
 
-(defn- parse-require
-  "Extract {:full-ns str :as (str|nil) :refers [str ...]} from a require vector,
-  or nil when the vector shape is not recognised."
-  [req-vec]
+(defn- parse-require [req-vec]
   (when (vector? req-vec)
     (when-let [ns-sym (first req-vec)]
       (loop [pairs (rest req-vec)
@@ -111,9 +108,7 @@
               :else (recur (drop 2 pairs) as-alias refers))))))))
 
 (defn- parse-ns-form
-  "Extract {:ns-name :aliases :refers} from a (ns ...) sexpr.
-  :aliases maps alias string -> full ns string.
-  :refers maps refer'd symbol string -> full ns string."
+  "Return {:ns-name str :aliases {alias-str full-ns-str} :refers {refer-name-str full-ns-str}}."
   [ns-sexpr]
   (let [ns-name (str (second ns-sexpr))
         requires (for [clause (rest ns-sexpr)

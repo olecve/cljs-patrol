@@ -247,11 +247,7 @@
       :map (or (nil? attrs) (not (has-accessible-name? attrs)))
       :dynamic false)))
 
-(defn- resolve-full-symbol
-  "Return the fully-qualified symbol referred to by `head-str` in `ns-info`.
-  Handles `alias/name` via :aliases and bare `name` via :refers. Returns nil
-  when the symbol can't be resolved to another namespace."
-  [head-str {:keys [aliases refers]}]
+(defn- resolve-full-symbol [head-str {:keys [aliases refers]}]
   (cond
     (str/includes? head-str "/")
     (let [slash (str/index-of head-str "/")
@@ -264,11 +260,7 @@
     (when-let [full-ns (get refers head-str)]
       (symbol full-ns head-str))))
 
-(defn- resolve-component-tag
-  "Resolve the head symbol of a Hiccup-shaped vector to a native tag via
-  the user-supplied `:component-aliases` config. Returns nil when the head
-  isn't a symbol we recognise."
-  [head-str ns-info component-aliases]
+(defn- resolve-component-tag [head-str ns-info component-aliases]
   (when (seq component-aliases)
     (when-let [full-sym (resolve-full-symbol head-str ns-info)]
       (get component-aliases full-sym))))
