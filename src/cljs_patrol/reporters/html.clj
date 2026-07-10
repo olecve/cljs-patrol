@@ -30,7 +30,11 @@
    "var an=parseFloat(av),bn=parseFloat(bv);"
    "if(!isNaN(an)&&!isNaN(bn))return asc?an-bn:bn-an;"
    "return asc?av.localeCompare(bv):bv.localeCompare(av);});"
-   "rows.forEach(function(r){tbody.appendChild(r);});});});"))
+   "rows.forEach(function(r){tbody.appendChild(r);});});});"
+   "document.querySelectorAll('[data-action]').forEach(function(b){"
+   "b.addEventListener('click',function(){"
+   "var open=b.getAttribute('data-action')==='expand-all';"
+   "document.querySelectorAll('details').forEach(function(d){d.open=open;});});});"))
 
 (defn- vscode-link [file row]
   (format "vscode://file/%s:%d" (fs/absolute-path file) row))
@@ -149,6 +153,11 @@
               [:td cnt]])
            all-rows)]]))
 
+(def ^:private details-toolbar
+  [:div.details-toolbar
+   [:button {:type "button" :data-action "expand-all"} "Expand all"]
+   [:button {:type "button" :data-action "collapse-all"} "Collapse all"]])
+
 (defn- render-group-section [g g-idx run-results fail-on-rules]
   [:section
    [:h2 (group/group-name g)]
@@ -168,6 +177,7 @@
             [:p "Generated: " timestamp " | Analyzed: " dirs]
             [:h2 "Summary"]
             (render-summary-table enabled-groups run-results)
+            details-toolbar
             (map-indexed (fn [i g] (render-group-section g i run-results fail-on-rules))
                          enabled-groups)
             [:script (raw-string js)]])))
@@ -220,6 +230,7 @@
                (str fixed-count " baseline issues no longer present - consider running --baseline-write to refresh.")])
             [:h2 "Summary"]
             (render-summary-table enabled-groups run-results)
+            details-toolbar
             (map-indexed
              (fn [i g]
                [:section
