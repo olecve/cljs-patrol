@@ -54,7 +54,7 @@
             :row (parser/position-row loc)}]))
       (collect-children loc #(collect-style-token-refs % file decl-kw)))))
 
-(defn- handle-list [loc ns-name _aliases file]
+(defn- handle-list [loc {:keys [ns-name]} file]
   (let [op-token (z/down loc)
         operator (parser/sym-name op-token)]
     (when (contains? style-decl-fns operator)

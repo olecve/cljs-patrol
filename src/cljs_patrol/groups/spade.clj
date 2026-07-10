@@ -82,7 +82,7 @@
 (defn- handle-list
   "Detect style declarations and usages from list nodes.
   Handles: defclass/defattrs declarations, and catch-all style function calls."
-  [loc ns-name aliases file]
+  [loc {:keys [ns-name aliases]} file]
   (let [op-token (z/down loc)
         operator (parser/sym-name op-token)
         op-raw (when (and op-token (= :token (z/tag op-token))) (parser/raw op-token))

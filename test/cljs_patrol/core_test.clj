@@ -10,6 +10,8 @@
 
 (def ^:private filter-groups #'cljs-patrol.core/filter-groups)
 (def ^:private filter-run-results #'cljs-patrol.core/filter-run-results)
+(def ^:private assemble-groups #'cljs-patrol.core/assemble-groups)
+(def ^:private default-groups (assemble-groups {}))
 
 (deftest filter-run-results-test
   (let [abs #(.getAbsolutePath (java.io.File. %))
@@ -35,21 +37,21 @@
 
 (deftest filter-groups-test
   (testing "no filters returns all groups"
-    (is (= 6 (count (filter-groups {})))))
+    (is (= 6 (count (filter-groups default-groups {})))))
 
   (testing "--only selects specific group"
-    (let [groups (filter-groups {:only #{:re-frame}})]
+    (let [groups (filter-groups default-groups {:only #{:re-frame}})]
       (is (= 1 (count groups)))
       (is (= :re-frame (group/group-id (first groups))))))
 
   (testing "--disable removes specific group"
-    (let [groups (filter-groups {:disable #{:spade}})]
+    (let [groups (filter-groups default-groups {:disable #{:spade}})]
       (is (= 5 (count groups)))
       (is (= #{:re-frame :reagent :typography :a11y :docstrings} (set (map group/group-id groups))))))
 
   (testing "--only takes precedence over --disable"
-    (let [groups (filter-groups {:only #{:re-frame}
-                                 :disable #{:re-frame}})]
+    (let [groups (filter-groups default-groups {:only #{:re-frame}
+                                                :disable #{:re-frame}})]
       (is (= 1 (count groups)))
       (is (= :re-frame (group/group-id (first groups)))))))
 

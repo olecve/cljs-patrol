@@ -28,6 +28,12 @@
    :file "views.cljs"
    :row row})
 
+(defn- accessible-name-finding [row]
+  {:type :missing-accessible-name
+   :kw :textarea
+   :file "views.cljs"
+   :row row})
+
 (deftest analyze-test
   (testing "no usages — no findings"
     (let [result (group/analyze a11y/group {:usages []})]
@@ -82,19 +88,28 @@
                                    :on-click-on-non-interactive []
                                    :empty-interactive-element [(empty-interactive-finding 5)]})))
 
+  (testing "fails when any missing-accessible-name is found"
+    (is (group/failed? a11y/group {:img-alt-missing []
+                                   :invalid-tabindex []
+                                   :on-click-on-non-interactive []
+                                   :empty-interactive-element []
+                                   :missing-accessible-name [(accessible-name-finding 5)]})))
+
   (testing "does not fail when clean"
     (is (not (group/failed? a11y/group {:img-alt-missing []
                                         :invalid-tabindex []
                                         :on-click-on-non-interactive []
-                                        :empty-interactive-element []})))))
+                                        :empty-interactive-element []
+                                        :missing-accessible-name []})))))
 
 (deftest summary-lines-test
   (let [lines (group/summary-lines a11y/group
                                    {:img-alt-missing [(img-finding 1) (img-finding 2)]
                                     :invalid-tabindex [(tabindex-finding 3)]
                                     :on-click-on-non-interactive [(on-click-finding 4) (on-click-finding 5)]
-                                    :empty-interactive-element [(empty-interactive-finding 6)]})]
-    (is (= 4 (count lines)))
+                                    :empty-interactive-element [(empty-interactive-finding 6)]
+                                    :missing-accessible-name []})]
+    (is (= 5 (count lines)))
     (is (= 2 (second (first lines))))
     (is (= 1 (second (second lines))))
     (is (= 2 (second (nth lines 2))))

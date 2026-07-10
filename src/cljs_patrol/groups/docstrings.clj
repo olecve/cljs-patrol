@@ -150,7 +150,7 @@
         methods (when (= "defprotocol" operator) (find-method-docstrings loc ns-name))]
     (concat primary methods)))
 
-(defn- handle-list [loc ns-name _aliases file]
+(defn- handle-list [loc {:keys [ns-name]} file]
   (let [op-loc (z/down loc)
         operator (parser/sym-name op-loc)]
     (when (contains? def-fns operator)

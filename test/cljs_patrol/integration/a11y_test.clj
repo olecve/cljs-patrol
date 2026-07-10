@@ -354,3 +354,63 @@
 
     (testing "every finding carries the offending tag as :kw"
       (is (every? #(contains? #{:a :button :div :span} (:kw %)) empty-interactive-element)))))
+
+(deftest missing-accessible-name-fixture-test
+  (testing "without :component-aliases config: only native :textarea is checked"
+    (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+          {:keys [missing-accessible-name]} (first group-results)
+          by-row (rows missing-accessible-name)]
+
+      (testing "flags [:textarea {:placeholder ...}] with no aria-label / aria-labelledby"
+        (is (contains? by-row 7)
+            "bad-native-placeholder-only"))
+
+      (testing "flags [:textarea] with no attrs"
+        (is (contains? by-row 12)
+            "bad-native-no-attrs"))
+
+      (testing "does not flag [:textarea {:aria-label ...}]"
+        (is (not (contains? by-row 16))
+            "ok-native-aria-label"))
+
+      (testing "does not flag [:textarea {:aria-labelledby ...}]"
+        (is (not (contains? by-row 23))
+            "ok-native-aria-labelledby"))
+
+      (testing "does not flag dynamic :aria-label — optimistically accepted"
+        (is (not (contains? by-row 28))
+            "ok-native-dynamic-aria-label"))
+
+      (testing "does not flag [ui/textarea ...] wrapper — no config"
+        (is (not (contains? by-row 34))
+            "bad-wrapper-alias-placeholder-only"))
+
+      (testing "does not flag [textarea ...] refer'd wrapper — no config"
+        (is (not (contains? by-row 44))
+            "bad-wrapper-refer-placeholder-only"))
+
+      (testing "every finding has :bugs tier"
+        (is (every? #(= :bugs (:tier %)) missing-accessible-name)))))
+
+  (testing "with :component-aliases config: wrapper calls also participate"
+    (let [configured (a11y/make-group
+                      {:component-aliases {'blogapp.ui/textarea :textarea}})
+          {:keys [group-results]} (core/run fixture-dir [configured])
+          {:keys [missing-accessible-name]} (first group-results)
+          by-row (rows missing-accessible-name)]
+
+      (testing "flags [ui/textarea {:placeholder ...}] once the wrapper is mapped"
+        (is (contains? by-row 34)
+            "bad-wrapper-alias-placeholder-only"))
+
+      (testing "flags [textarea {:placeholder ...}] via :refer resolution"
+        (is (contains? by-row 44)
+            "bad-wrapper-refer-placeholder-only"))
+
+      (testing "still does not flag [ui/textarea {:aria-label ...}]"
+        (is (not (contains? by-row 39))
+            "ok-wrapper-alias-aria-label"))
+
+      (testing "still flags native cases"
+        (is (contains? by-row 7))
+        (is (contains? by-row 12))))))
