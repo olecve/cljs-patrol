@@ -8,8 +8,17 @@
 
 (def ^:private style-decl-fns #{"defclass" "defattrs"})
 
+(defn- body-siblings
+  "Return zlocs for every body form of a defclass/defattrs, in source order."
+  [list-loc]
+  (loop [loc (some-> list-loc z/down z/right z/right z/right)
+         acc []]
+    (if (nil? loc)
+      acc
+      (recur (z/right loc) (conj acc loc)))))
+
 (defn- main-map-loc [list-loc]
-  (let [map-loc (some-> list-loc z/down z/right z/right z/right)]
+  (let [map-loc (first (body-siblings list-loc))]
     (when (and map-loc (= :map (z/tag map-loc)))
       map-loc)))
 
@@ -37,6 +46,27 @@
        :file file
        :row (parser/position-row key-loc)})))
 
+(defn- leading-self-selectors [vector-loc]
+  (loop [loc (z/down vector-loc)
+         acc []]
+    (if (and loc
+             (parser/kw-node? loc)
+             (pseudo-selector-key? (parser/raw loc)))
+      (recur (z/right loc) (conj acc (parser/raw loc)))
+      acc)))
+
+(defn- consecutive-self-selector-findings [list-loc style-kw file]
+  (for [sibling (body-siblings list-loc)
+        :when (= :vector (z/tag sibling))
+        :let [selectors (leading-self-selectors sibling)]
+        :when (>= (count selectors) 2)]
+    {:kw style-kw
+     :type :consecutive-self-selectors
+     :selectors selectors
+     :form (str style-kw " [" (str/join " " selectors) "]")
+     :file file
+     :row (parser/position-row sibling)}))
+
 (defn- class-only-map?
   "True if `value-loc` is the value of `:class` in a map with no other keys."
   [value-loc]
@@ -63,11 +93,12 @@
         (when (and name-loc (= :token (z/tag name-loc)))
           (when-let [style-name (parser/sym-name name-loc)]
             (let [style-kw (keyword ns-name style-name)]
-              {:decls (into [{:kw style-kw
-                              :type (keyword operator)
-                              :file file
-                              :row (parser/position-row name-loc)}]
-                            (pseudo-findings loc style-kw file))
+              {:decls (-> [{:kw style-kw
+                            :type (keyword operator)
+                            :file file
+                            :row (parser/position-row name-loc)}]
+                          (into (pseudo-findings loc style-kw file))
+                          (into (consecutive-self-selector-findings loc style-kw file)))
                :usages []
                :dynamics []}))))
 
@@ -103,6 +134,7 @@
 (defn- analyze* [{:keys [declarations usages]}]
   (let [style-decls (filter #(contains? #{:defclass :defattrs} (:type %)) declarations)
         pseudo-in-main-map (filter #(= :pseudo-in-main-map (:type %)) declarations)
+        consecutive-self-selectors (filter #(= :consecutive-self-selectors (:type %)) declarations)
         style-calls (filter #(= :style-call (:type %)) usages)
         style-call-kws (set (map :kw style-calls))
         unused-styles (remove #(contains? style-call-kws (:kw %)) style-decls)
@@ -114,15 +146,17 @@
                             decl)]
     {:unused-styles (parser/distinct-by :kw unused-styles)
      :defattrs-in-merge (vec defattrs-in-merge)
-     :pseudo-in-main-map (vec pseudo-in-main-map)}))
+     :pseudo-in-main-map (vec pseudo-in-main-map)
+     :consecutive-self-selectors (vec consecutive-self-selectors)}))
 
-(defn- summary-lines* [{:keys [unused-styles defattrs-in-merge pseudo-in-main-map]}]
+(defn- summary-lines* [{:keys [unused-styles defattrs-in-merge pseudo-in-main-map consecutive-self-selectors]}]
   [["Unused styles:" (count unused-styles)]
    ["defattrs in merge:" (count defattrs-in-merge)]
-   ["Pseudo-selector in main map:" (count pseudo-in-main-map)]])
+   ["Pseudo-selector in main map:" (count pseudo-in-main-map)]
+   ["Consecutive self-selectors:" (count consecutive-self-selectors)]])
 
-(defn- failed?* [{:keys [unused-styles pseudo-in-main-map]}]
-  (or (seq unused-styles) (seq pseudo-in-main-map)))
+(defn- failed?* [{:keys [unused-styles pseudo-in-main-map consecutive-self-selectors]}]
+  (or (seq unused-styles) (seq pseudo-in-main-map) (seq consecutive-self-selectors)))
 
 (defrecord SpadeGroup []
   group/RuleGroup
@@ -138,11 +172,14 @@
      :defattrs-in-merge
      "Declared with defattrs but used inside merge. Use defclass instead so callers can pass it via :class without merge."
      :pseudo-in-main-map
-     "Pseudo-selector key placed inside the main style map. Spade emits it as an invalid CSS property, so the rule is silently dropped. Move it out into its own vector, e.g. [:&:hover {...}], after the main map."})
+     "Pseudo-selector key placed inside the main style map. Spade emits it as an invalid CSS property, so the rule is silently dropped. Move it out into its own vector, e.g. [:&:hover {...}], after the main map."
+     :consecutive-self-selectors
+     "Two or more self-selector keywords (e.g. :&:before :&:after) appear consecutively before the style map. Garden treats [:a :b {...}] as a descendant selector (a b), not the comma-joined selector the author intended. Split into separate sibling vectors ([:&:before {...}] [:&:after {...}]) or use a set for comma-join (#{:&:before :&:after})."})
   (rule->tier [_]
     {:unused-styles :cleanup
      :defattrs-in-merge :deprecations
-     :pseudo-in-main-map :bugs})
+     :pseudo-in-main-map :bugs
+     :consecutive-self-selectors :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->SpadeGroup))

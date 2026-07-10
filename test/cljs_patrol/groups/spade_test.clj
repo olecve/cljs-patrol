@@ -37,6 +37,12 @@
                                    :form ":webapp.styles/card-section-attrs :&:first-child"
                                    :file "pseudo_styles.cljs"
                                    :row 14})
+(def ^:private consecutive-before-after {:kw :webapp.styles/badge-marker-attrs
+                                         :type :consecutive-self-selectors
+                                         :selectors [":&:before" ":&:after"]
+                                         :form ":webapp.styles/badge-marker-attrs [:&:before :&:after]"
+                                         :file "pseudo_styles.cljs"
+                                         :row 26})
 
 (deftest analyze-test
   (testing "no styles declared — nothing unused"
@@ -92,7 +98,15 @@
     (let [result (group/analyze spade/group
                                 {:declarations [pseudo-hover]
                                  :usages []})]
-      (is (empty? (:unused-styles result))))))
+      (is (empty? (:unused-styles result)))))
+
+  (testing "consecutive-self-selectors: surfaces findings from declarations"
+    (let [result (group/analyze spade/group
+                                {:declarations [defclass-decl consecutive-before-after]
+                                 :usages [style-usage]})]
+      (is (= 1 (count (:consecutive-self-selectors result))))
+      (is (= [":&:before" ":&:after"]
+             (:selectors (first (:consecutive-self-selectors result))))))))
 
 (deftest failed?-test
   (testing "fails when unused styles exist"
@@ -107,13 +121,19 @@
 
   (testing "fails when pseudo-in-main-map findings exist"
     (is (group/failed? spade/group {:unused-styles []
-                                    :pseudo-in-main-map [pseudo-hover]}))))
+                                    :pseudo-in-main-map [pseudo-hover]})))
+
+  (testing "fails when consecutive-self-selectors findings exist"
+    (is (group/failed? spade/group {:unused-styles []
+                                    :consecutive-self-selectors [consecutive-before-after]}))))
 
 (deftest summary-lines-test
   (let [lines (group/summary-lines spade/group {:unused-styles [defclass-decl defattrs-decl]
                                                 :defattrs-in-merge [defattrs-merged]
-                                                :pseudo-in-main-map [pseudo-hover pseudo-first-child]})]
-    (is (= 3 (count lines)))
-    (is (= 2 (second (first lines))))
-    (is (= 1 (second (second lines))))
-    (is (= 2 (second (last lines))))))
+                                                :pseudo-in-main-map [pseudo-hover pseudo-first-child]
+                                                :consecutive-self-selectors [consecutive-before-after]})]
+    (is (= 4 (count lines)))
+    (is (= 2 (second (nth lines 0))))
+    (is (= 1 (second (nth lines 1))))
+    (is (= 2 (second (nth lines 2))))
+    (is (= 1 (second (nth lines 3))))))
