@@ -61,6 +61,17 @@
       (is (not (contains? (set (map :kw (:pseudo-in-main-map spade-result)))
                           :webapp.pseudo-styles/icon-button-style))))
 
+    (testing "detects consecutive self-selectors in a sibling vector"
+      (let [findings (:consecutive-self-selectors spade-result)]
+        (is (= 2 (count findings)))
+        (is (= #{[:webapp.pseudo-styles/badge-marker-attrs [":&:before" ":&:after"]]
+                 [:webapp.pseudo-styles/callout-style [":&:hover" ":&:focus" ":&:focus-visible"]]}
+               (set (map (juxt :kw :selectors) findings))))))
+
+    (testing "does not flag a self-selector chained with a descendant class"
+      (is (not (contains? (set (map :kw (:consecutive-self-selectors spade-result)))
+                          :webapp.pseudo-styles/panel-style))))
+
     (testing "detects defclass used as sole attr"
       (is (= 3 (count (:defclass-as-sole-attr reagent-result))))
       (is (= #{:webapp.styles/sole-attr-style
@@ -112,4 +123,5 @@
       (is (every? #(= :cleanup (:tier %)) (:unused-styles spade-result)))
       (is (every? #(= :deprecations (:tier %)) (:defattrs-in-merge spade-result)))
       (is (every? #(= :bugs (:tier %)) (:pseudo-in-main-map spade-result)))
+      (is (every? #(= :bugs (:tier %)) (:consecutive-self-selectors spade-result)))
       (is (every? #(= :deprecations (:tier %)) (:defclass-as-sole-attr reagent-result))))))

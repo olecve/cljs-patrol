@@ -36,4 +36,7 @@
   [:section (pseudo-styles/card-section-attrs)
    [:a {:class [(pseudo-styles/menu-item-style) "extra"]} "menu"]
    [:button {:class [(pseudo-styles/tab-style) "extra"]} "tab"]
-   [:button {:class [(pseudo-styles/icon-button-style) "extra"]} "icon"]])
+   [:button {:class [(pseudo-styles/icon-button-style) "extra"]} "icon"]
+   [:mark (pseudo-styles/badge-marker-attrs) "badge"]
+   [:div {:class [(pseudo-styles/callout-style) "extra"]} "callout"]
+   [:div {:class [(pseudo-styles/panel-style) "extra"]} "panel"]])

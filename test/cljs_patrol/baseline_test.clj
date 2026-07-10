@@ -120,6 +120,18 @@
                                       :file "src/app/ui.cljs"
                                       :row 12}))
         "pseudo-in-main-map identifies by ns + var + selector")
+    (is (= {:rule :consecutive-self-selectors
+            :ns "app.ui"
+            :var "badge-marker-attrs"
+            :selectors ":&:before,:&:after"}
+           (baseline/issue->identity :consecutive-self-selectors
+                                     {:kw :app.ui/badge-marker-attrs
+                                      :type :consecutive-self-selectors
+                                      :selectors [":&:before" ":&:after"]
+                                      :form ":app.ui/badge-marker-attrs [:&:before :&:after]"
+                                      :file "src/app/ui.cljs"
+                                      :row 20}))
+        "consecutive-self-selectors identifies by ns + var + joined selectors")
     (is (= {:rule :dynamic-sites
             :form "(rf/dispatch [ev])"
             :file "src/app/handlers.cljs"

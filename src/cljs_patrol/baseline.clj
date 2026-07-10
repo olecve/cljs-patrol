@@ -70,6 +70,12 @@
         :var (name (:kw issue))
         :selector (:selector issue)}
 
+       (= :consecutive-self-selectors rule)
+       {:rule rule
+        :ns (namespace (:kw issue))
+        :var (name (:kw issue))
+        :selectors (str/join "," (:selectors issue))}
+
        (contains? hiccup-site-rules rule)
        {:rule rule
         :tag (:kw issue)
