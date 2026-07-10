@@ -7,3 +7,5 @@
 (defn textarea [attrs] attrs)
 
 (defn text-input [attrs] attrs)
+
+(defn dialog-root [attrs & children] attrs)
