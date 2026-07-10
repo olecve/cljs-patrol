@@ -155,8 +155,10 @@
 
 (def ^:private details-toolbar
   [:div.details-toolbar
-   [:button {:type "button" :data-action "expand-all"} "Expand all"]
-   [:button {:type "button" :data-action "collapse-all"} "Collapse all"]])
+   [:button {:type "button"
+             :data-action "expand-all"} "Expand all"]
+   [:button {:type "button"
+             :data-action "collapse-all"} "Collapse all"]])
 
 (defn- render-group-section [g g-idx run-results fail-on-rules]
   [:section
