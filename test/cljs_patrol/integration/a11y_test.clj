@@ -389,12 +389,43 @@
         (is (not (contains? by-row 44))
             "bad-wrapper-refer-placeholder-only"))
 
+      (testing "flags [:div {:role \"dialog\"}] without an accessible name"
+        (is (contains? by-row 51)
+            "bad-native-dialog-role"))
+
+      (testing "flags [:div {:role :dialog}] — Reagent stringifies keyword values"
+        (is (contains? by-row 56)
+            "bad-native-dialog-role-keyword"))
+
+      (testing "flags [:section {:aria-modal true}] as a dialog"
+        (is (contains? by-row 61)
+            "bad-native-aria-modal"))
+
+      (testing "flags native [:dialog {...}] element"
+        (is (contains? by-row 66)
+            "bad-native-dialog-tag"))
+
+      (testing "does not flag dialogs that supply an accessible name"
+        (is (not (contains? by-row 70))
+            "ok-native-dialog-with-aria-label")
+        (is (not (contains? by-row 75))
+            "ok-native-dialog-with-aria-labelledby"))
+
+      (testing "does not flag [:div {:role role-var}] — dynamic role skipped"
+        (is (not (contains? by-row 82))
+            "ok-native-dynamic-role"))
+
+      (testing "does not flag [ui/dialog-root ...] wrapper — no config"
+        (is (not (contains? by-row 87))
+            "bad-wrapper-dialog"))
+
       (testing "every finding has :bugs tier"
         (is (every? #(= :bugs (:tier %)) missing-accessible-name)))))
 
   (testing "with :component-aliases config: wrapper calls also participate"
     (let [configured (a11y/make-group
-                      {:component-aliases {'blogapp.ui/textarea :textarea}})
+                      {:component-aliases {'blogapp.ui/textarea :textarea
+                                           'blogapp.ui/dialog-root :dialog}})
           {:keys [group-results]} (core/run fixture-dir [configured])
           {:keys [missing-accessible-name]} (first group-results)
           by-row (rows missing-accessible-name)]
@@ -407,10 +438,20 @@
         (is (contains? by-row 44)
             "bad-wrapper-refer-placeholder-only"))
 
+      (testing "flags [ui/dialog-root {...}] wrapper mapped to :dialog"
+        (is (contains? by-row 87)
+            "bad-wrapper-dialog"))
+
       (testing "still does not flag [ui/textarea {:aria-label ...}]"
         (is (not (contains? by-row 39))
             "ok-wrapper-alias-aria-label"))
 
+      (testing "still does not flag [ui/dialog-root {:aria-label ...}]"
+        (is (not (contains? by-row 91))
+            "ok-wrapper-dialog-with-aria-label"))
+
       (testing "still flags native cases"
         (is (contains? by-row 7))
-        (is (contains? by-row 12))))))
+        (is (contains? by-row 12))
+        (is (contains? by-row 51))
+        (is (contains? by-row 66))))))

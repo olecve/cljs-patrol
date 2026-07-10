@@ -221,12 +221,18 @@
       :else false)))
 
 (def ^:private accessible-name-required-tags
-  "Native tags that render a form control without any intrinsic accessible name.
+  "Native tags whose element has no intrinsic accessible name.
   A visible `<label>` associated by id, `:aria-label`, or `:aria-labelledby` is
-  required — `:placeholder` is a hint, not a name."
-  #{:textarea})
+  required — `:placeholder` is a hint, not a name. `:dialog` matches native
+  `<dialog>` and any wrapper aliased to `:dialog` via `:component-aliases`."
+  #{:textarea :dialog})
 
 (def ^:private accessible-name-attrs #{:aria-label :aria-labelledby})
+
+(def ^:private dialog-role-values
+  "Values of `:role` that mark an element as a modal dialog needing an accessible name.
+  Reagent stringifies keyword attribute values at runtime, so both spellings count."
+  #{"dialog" :dialog})
 
 (defn- has-accessible-name? [attrs]
   (some (fn [k]
@@ -239,13 +245,27 @@
               :else true)))
         accessible-name-attrs))
 
+(defn- dialog-shaped-attrs?
+  "True when attrs signal a modal dialog via literal `:role \"dialog\"` or `:aria-modal true`.
+  Non-literal values are treated as unknown and skipped, matching the check's
+  false-positive-free posture."
+  [attrs]
+  (or (contains? dialog-role-values (literal-sexpr (get attrs :role)))
+      (true? (literal-sexpr (get attrs :aria-modal)))))
+
 (defn- missing-accessible-name? [{:keys [kind attrs]} tag]
-  (when (contains? accessible-name-required-tags tag)
+  (cond
+    (contains? accessible-name-required-tags tag)
     (case kind
       :absent true
       :non-map true
       :map (or (nil? attrs) (not (has-accessible-name? attrs)))
-      :dynamic false)))
+      :dynamic false)
+
+    (and (= kind :map) attrs (dialog-shaped-attrs? attrs))
+    (not (has-accessible-name? attrs))
+
+    :else nil))
 
 (defn- resolve-full-symbol [head-str {:keys [aliases refers]}]
   (cond
@@ -371,13 +391,15 @@
           "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
           "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")
      :missing-accessible-name
-     (str "A form control renders without a programmatic name. Add :aria-label "
+     (str "An element renders without a programmatic name. Add :aria-label "
           "\"…\" or :aria-labelledby \"<id of visible label>\" (screen readers "
-          "announce these as the control's name). :placeholder is a hint, not "
+          "announce these as the element's name). :placeholder is a hint, not "
           "a name — it disappears when the user types and is not universally "
-          "announced. To make a wrapper component (e.g. `[my.ui/textarea …]`) "
-          "participate in this check, add it to `:a11y :component-aliases` in "
-          ".cljs-patrol/config.edn — {my.ui/textarea :textarea}. "
+          "announced. Triggered by native form controls (`[:textarea …]`), "
+          "modal-dialog shapes (`[:div {:role \"dialog\"}]`, `:aria-modal true`, "
+          "or `[:dialog …]`), and any wrapper listed under `:a11y "
+          ":component-aliases` in `.cljs-patrol/config.edn` — e.g. "
+          "`{my.ui/textarea :textarea, my.ui/drawer :dialog}`. "
           "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
           "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")})
   (rule->tier [_]

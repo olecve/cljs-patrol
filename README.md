@@ -87,7 +87,7 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **Invalid tabindex** — `:tabIndex`/`:tab-index` with a value that isn't `0` or a negative integer (positive ints break natural focus order; non-int literals aren't valid tabindex values)
 - **`:on-click` on non-interactive tag** — `:on-click` on `:div`/`:span`/`:li`/`:p`/`:section` etc. without `:role` or a keyboard handler; keyboard users can't activate it
 - **Empty interactive element** — `:button`, `:a`, or `:role "button"`/`"link"` with no visible text and no `:aria-label`/`:aria-labelledby`/`:title`; screen readers announce nothing
-- **Missing accessible name** — native `[:textarea …]` with neither `:aria-label` nor `:aria-labelledby`; `:placeholder` is a hint, not a name. Wrapper components (e.g. `[my.ui/textarea …]`) opt in via [`:a11y :component-aliases`](#a11y-component-aliases)
+- **Missing accessible name** — native `[:textarea …]`, native `[:dialog …]`, any hiccup vector whose props carry `:role "dialog"` / `:role :dialog` / `:aria-modal true`, and any wrapper component (`[my.ui/textarea …]`, `[my.ui/drawer …]`) mapped in [`:a11y :component-aliases`](#a11y-component-aliases), that lacks `:aria-label` or `:aria-labelledby`; `:placeholder` is a hint, not a name
 - **Pseudo-selector in Spade main map** — `defclass`/`defattrs` with a `:&`-prefixed key (e.g. `:&:hover`) inside the first argument map; Spade emits it as an invalid CSS property and silently drops the rule. Move the selector into its own sibling vector `[:&:hover {…}]`
 - **Consecutive self-selectors** — Spade sibling vector begins with 2+ `:&`-prefixed keywords (e.g. `[:&:before :&:after {…}]`); Garden compiles this as a descendant selector (`elem:before elem:after`), not the comma-joined selector the author intended
 - **Docstring summary** — first line of a multi-line docstring is not a self-contained sentence ending in `.`, `!`, `?`, or `:`
@@ -104,10 +104,11 @@ Map each wrapper to the native tag it renders in `.cljs-patrol/config.edn`:
 ```edn
 {:a11y {:component-aliases
         {my.ui/textarea :textarea
-         my.ui/button   :button}}}
+         my.ui/button   :button
+         my.ui/drawer   :dialog}}}
 ```
 
-Any call whose head symbol resolves (via `:as` or `:refer` in the caller's `ns`) to a mapped fully-qualified symbol is then checked as if it were the native tag. `[my.ui/textarea {:placeholder "…"}]` participates in `:missing-accessible-name`; icon-only `[my.ui/button [icons/x]]` participates in `:empty-interactive-element`. All existing a11y rules compose the same way.
+Any call whose head symbol resolves (via `:as` or `:refer` in the caller's `ns`) to a mapped fully-qualified symbol is then checked as if it were the native tag. `[my.ui/textarea {:placeholder "…"}]` participates in `:missing-accessible-name`; icon-only `[my.ui/button [icons/x]]` participates in `:empty-interactive-element`; `[my.ui/drawer {:open? true}]` participates in `:missing-accessible-name` via the `:dialog` mapping. All existing a11y rules compose the same way.
 
 ### Example: reg-event-db returning effects
 
