@@ -108,6 +108,18 @@
                                       :file "src/app/events.cljs"
                                       :row 42}))
         "deprecated-effects")
+    (is (= {:rule :pseudo-in-main-map
+            :ns "app.ui"
+            :var "menu-item-style"
+            :selector ":&:hover"}
+           (baseline/issue->identity :pseudo-in-main-map
+                                     {:kw :app.ui/menu-item-style
+                                      :type :pseudo-in-main-map
+                                      :selector ":&:hover"
+                                      :form ":app.ui/menu-item-style :&:hover"
+                                      :file "src/app/ui.cljs"
+                                      :row 12}))
+        "pseudo-in-main-map identifies by ns + var + selector")
     (is (= {:rule :dynamic-sites
             :form "(rf/dispatch [ev])"
             :file "src/app/handlers.cljs"

@@ -25,6 +25,18 @@
                             :file "views.cljs"
                             :row 12
                             :context :in-merge})
+(def ^:private pseudo-hover {:kw :webapp.styles/menu-item-style
+                             :type :pseudo-in-main-map
+                             :selector ":&:hover"
+                             :form ":webapp.styles/menu-item-style :&:hover"
+                             :file "pseudo_styles.cljs"
+                             :row 8})
+(def ^:private pseudo-first-child {:kw :webapp.styles/card-section-attrs
+                                   :type :pseudo-in-main-map
+                                   :selector ":&:first-child"
+                                   :form ":webapp.styles/card-section-attrs :&:first-child"
+                                   :file "pseudo_styles.cljs"
+                                   :row 14})
 
 (deftest analyze-test
   (testing "no styles declared — nothing unused"
@@ -66,7 +78,21 @@
           result (group/analyze spade/group
                                 {:declarations [defattrs-decl]
                                  :usages [plain-usage]})]
-      (is (empty? (:defattrs-in-merge result))))))
+      (is (empty? (:defattrs-in-merge result)))))
+
+  (testing "pseudo-in-main-map: surfaces findings from declarations"
+    (let [result (group/analyze spade/group
+                                {:declarations [defclass-decl pseudo-hover pseudo-first-child]
+                                 :usages [style-usage]})]
+      (is (= 2 (count (:pseudo-in-main-map result))))
+      (is (= #{":&:hover" ":&:first-child"}
+             (set (map :selector (:pseudo-in-main-map result)))))))
+
+  (testing "pseudo-in-main-map: does not double-count style as unused"
+    (let [result (group/analyze spade/group
+                                {:declarations [pseudo-hover]
+                                 :usages []})]
+      (is (empty? (:unused-styles result))))))
 
 (deftest failed?-test
   (testing "fails when unused styles exist"
@@ -77,11 +103,17 @@
 
   (testing "does not fail for defattrs-in-merge (warning only)"
     (is (not (group/failed? spade/group {:unused-styles []
-                                         :defattrs-in-merge [defattrs-merged]})))))
+                                         :defattrs-in-merge [defattrs-merged]}))))
+
+  (testing "fails when pseudo-in-main-map findings exist"
+    (is (group/failed? spade/group {:unused-styles []
+                                    :pseudo-in-main-map [pseudo-hover]}))))
 
 (deftest summary-lines-test
   (let [lines (group/summary-lines spade/group {:unused-styles [defclass-decl defattrs-decl]
-                                                :defattrs-in-merge [defattrs-merged]})]
-    (is (= 2 (count lines)))
+                                                :defattrs-in-merge [defattrs-merged]
+                                                :pseudo-in-main-map [pseudo-hover pseudo-first-child]})]
+    (is (= 3 (count lines)))
     (is (= 2 (second (first lines))))
-    (is (= 1 (second (second lines))))))
+    (is (= 1 (second (second lines))))
+    (is (= 2 (second (last lines))))))

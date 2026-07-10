@@ -3,9 +3,39 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
+   [clojure.string :as str]
    [rewrite-clj.zip :as z]))
 
 (def ^:private style-decl-fns #{"defclass" "defattrs"})
+
+(defn- main-map-loc [list-loc]
+  (let [map-loc (some-> list-loc z/down z/right z/right z/right)]
+    (when (and map-loc (= :map (z/tag map-loc)))
+      map-loc)))
+
+(defn- map-key-locs [map-loc]
+  (loop [loc (z/down map-loc)
+         acc []]
+    (if (nil? loc)
+      acc
+      (recur (some-> loc z/right z/right)
+             (conj acc loc)))))
+
+(defn- pseudo-selector-key? [kw-str]
+  (str/starts-with? kw-str ":&"))
+
+(defn- pseudo-findings [list-loc style-kw file]
+  (when-let [map-loc (main-map-loc list-loc)]
+    (for [key-loc (map-key-locs map-loc)
+          :when (parser/kw-node? key-loc)
+          :let [selector (parser/raw key-loc)]
+          :when (pseudo-selector-key? selector)]
+      {:kw style-kw
+       :type :pseudo-in-main-map
+       :selector selector
+       :form (str style-kw " " selector)
+       :file file
+       :row (parser/position-row key-loc)})))
 
 (defn- class-only-map?
   "True if `value-loc` is the value of `:class` in a map with no other keys."
@@ -32,12 +62,14 @@
       (let [name-loc (z/right (z/down loc))]
         (when (and name-loc (= :token (z/tag name-loc)))
           (when-let [style-name (parser/sym-name name-loc)]
-            {:decls [{:kw (keyword ns-name style-name)
-                      :type (keyword operator)
-                      :file file
-                      :row (parser/position-row name-loc)}]
-             :usages []
-             :dynamics []})))
+            (let [style-kw (keyword ns-name style-name)]
+              {:decls (into [{:kw style-kw
+                              :type (keyword operator)
+                              :file file
+                              :row (parser/position-row name-loc)}]
+                            (pseudo-findings loc style-kw file))
+               :usages []
+               :dynamics []}))))
 
       operator
       (when-let [resolved (parser/resolve-sym op-raw ns-name aliases)]
@@ -70,6 +102,7 @@
 
 (defn- analyze* [{:keys [declarations usages]}]
   (let [style-decls (filter #(contains? #{:defclass :defattrs} (:type %)) declarations)
+        pseudo-in-main-map (filter #(= :pseudo-in-main-map (:type %)) declarations)
         style-calls (filter #(= :style-call (:type %)) usages)
         style-call-kws (set (map :kw style-calls))
         unused-styles (remove #(contains? style-call-kws (:kw %)) style-decls)
@@ -80,14 +113,16 @@
                                             (get usages-by-kw (:kw decl)))]
                             decl)]
     {:unused-styles (parser/distinct-by :kw unused-styles)
-     :defattrs-in-merge (vec defattrs-in-merge)}))
+     :defattrs-in-merge (vec defattrs-in-merge)
+     :pseudo-in-main-map (vec pseudo-in-main-map)}))
 
-(defn- summary-lines* [{:keys [unused-styles defattrs-in-merge]}]
+(defn- summary-lines* [{:keys [unused-styles defattrs-in-merge pseudo-in-main-map]}]
   [["Unused styles:" (count unused-styles)]
-   ["defattrs in merge:" (count defattrs-in-merge)]])
+   ["defattrs in merge:" (count defattrs-in-merge)]
+   ["Pseudo-selector in main map:" (count pseudo-in-main-map)]])
 
-(defn- failed?* [{:keys [unused-styles]}]
-  (seq unused-styles))
+(defn- failed?* [{:keys [unused-styles pseudo-in-main-map]}]
+  (or (seq unused-styles) (seq pseudo-in-main-map)))
 
 (defrecord SpadeGroup []
   group/RuleGroup
@@ -101,10 +136,13 @@
     {:unused-styles
      "Declared with defclass or defattrs but never called. Remove the declaration, or add a call site where the style should be applied."
      :defattrs-in-merge
-     "Declared with defattrs but used inside merge. Use defclass instead so callers can pass it via :class without merge."})
+     "Declared with defattrs but used inside merge. Use defclass instead so callers can pass it via :class without merge."
+     :pseudo-in-main-map
+     "Pseudo-selector key placed inside the main style map. Spade emits it as an invalid CSS property, so the rule is silently dropped. Move it out into its own vector, e.g. [:&:hover {...}], after the main map."})
   (rule->tier [_]
     {:unused-styles :cleanup
-     :defattrs-in-merge :deprecations})
+     :defattrs-in-merge :deprecations
+     :pseudo-in-main-map :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->SpadeGroup))

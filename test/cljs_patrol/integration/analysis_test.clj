@@ -48,6 +48,19 @@
       (is (= #{:webapp.styles/merged-attrs}
              (set (map :kw (:defattrs-in-merge spade-result))))))
 
+    (testing "detects pseudo-selectors misplaced inside the main style map"
+      (let [findings (:pseudo-in-main-map spade-result)]
+        (is (= 4 (count findings)))
+        (is (= #{[:webapp.pseudo-styles/menu-item-style ":&:hover"]
+                 [:webapp.pseudo-styles/card-section-attrs ":&:first-child"]
+                 [:webapp.pseudo-styles/card-section-attrs ":&:last-child"]
+                 [:webapp.pseudo-styles/tab-style ":&:focus-visible>svg"]}
+               (set (map (juxt :kw :selector) findings))))))
+
+    (testing "does not flag pseudo-selectors placed correctly in their own vector"
+      (is (not (contains? (set (map :kw (:pseudo-in-main-map spade-result)))
+                          :webapp.pseudo-styles/icon-button-style))))
+
     (testing "detects defclass used as sole attr"
       (is (= 3 (count (:defclass-as-sole-attr reagent-result))))
       (is (= #{:webapp.styles/sole-attr-style
@@ -98,4 +111,5 @@
     (testing "spade and reagent issues get correct tier"
       (is (every? #(= :cleanup (:tier %)) (:unused-styles spade-result)))
       (is (every? #(= :deprecations (:tier %)) (:defattrs-in-merge spade-result)))
+      (is (every? #(= :bugs (:tier %)) (:pseudo-in-main-map spade-result)))
       (is (every? #(= :deprecations (:tier %)) (:defclass-as-sole-attr reagent-result))))))

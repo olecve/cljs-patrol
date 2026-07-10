@@ -1,6 +1,7 @@
 (ns webapp.views
   (:require
    [re-frame.core :as rf]
+   [webapp.pseudo-styles :as pseudo-styles]
    [webapp.styles :as styles]
    [webapp.subs :as subs]))
 
@@ -28,3 +29,11 @@
 ;; defclass in multi-element :class vector — NOT flagged
 (defn vector-multi-class-view []
   [:div {:class [(styles/vector-multi-class-style) "extra-class"]}])
+
+;; Consumes the pseudo-styles fixture so those styles are not flagged as unused
+;; and do not trip other Spade/Reagent rules unrelated to the pseudo check.
+(defn pseudo-styles-view []
+  [:section (pseudo-styles/card-section-attrs)
+   [:a {:class [(pseudo-styles/menu-item-style) "extra"]} "menu"]
+   [:button {:class [(pseudo-styles/tab-style) "extra"]} "tab"]
+   [:button {:class [(pseudo-styles/icon-button-style) "extra"]} "icon"]])
