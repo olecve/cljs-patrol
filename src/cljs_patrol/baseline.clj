@@ -132,8 +132,9 @@
 (defn- sort-issues [issues]
   (vec (sort-by sort-key issues)))
 
-(defn- tool-version []
-  (or (System/getProperty "cljs-patrol.version") "dev"))
+(def ^:private tool-version
+  (or (some-> (io/resource "cljs_patrol/VERSION") slurp str/trim not-empty)
+      "dev"))
 
 (defn write-baseline
   "Write a baseline file at `path` with the given set of identity maps."
@@ -144,7 +145,7 @@
     (with-open [w (io/writer path)]
       (.write w (str "{:version " baseline-version "\n"))
       (.write w (str " :generated-at \"" (Instant/now) "\"\n"))
-      (.write w (str " :tool-version \"" (tool-version) "\"\n"))
+      (.write w (str " :tool-version \"" tool-version "\"\n"))
       (.write w " :issues\n [")
       (doseq [[i issue] (map-indexed vector sorted)]
         (when (pos? i) (.write w "\n\n  "))

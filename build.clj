@@ -1,5 +1,6 @@
 (ns build
   (:require
+   [clojure.java.io :as io]
    [clojure.tools.build.api :as b]))
 
 (def lib 'cljs-patrol/cljs-patrol)
@@ -12,6 +13,11 @@
 (defn clean [_]
   (b/delete {:path "target"}))
 
+(defn- write-version-resource []
+  (let [f (io/file class-dir "cljs_patrol" "VERSION")]
+    (io/make-parents f)
+    (spit f version)))
+
 (defn uber
   "Builds a standalone executable jar.
   Run with: clojure -T:build uber
@@ -20,6 +26,7 @@
   (clean nil)
   (let [basis (b/create-basis {:project "deps.edn"})]
     (b/copy-dir {:src-dirs ["src" "resources"] :target-dir class-dir})
+    (write-version-resource)
     (b/compile-clj {:basis basis
                     :src-dirs ["src"]
                     :class-dir class-dir})

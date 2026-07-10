@@ -313,7 +313,16 @@
       (let [data (edn/read-string (slurp path))]
         (is (= baseline/baseline-version (:version data)))
         (is (string? (:generated-at data)))
-        (is (string? (:tool-version data))))))
+        (is (string? (:tool-version data)))
+        (is (seq (:tool-version data))
+            "tool-version is never blank"))))
+
+  (testing "tool-version falls back to \"dev\" when no VERSION resource is present"
+    (let [path (tmp-baseline-path)]
+      (baseline/write-baseline path test-issues)
+      (let [data (edn/read-string (slurp path))]
+        (is (= "dev" (:tool-version data))
+            "test classpath has no cljs_patrol/VERSION resource"))))
 
   (testing "creates parent directories"
     (let [dir (io/file (System/getProperty "java.io.tmpdir")
