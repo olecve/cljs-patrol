@@ -24,10 +24,15 @@
    [clojure.string :as str]
    [clojure.tools.cli :as cli]))
 
-(def ^:private all-groups
-  [re-frame/group spade/group reagent/group typography/group a11y/group docstrings/group])
+(defn- assemble-groups [config]
+  [re-frame/group
+   spade/group
+   reagent/group
+   typography/group
+   (a11y/make-group (get config :a11y))
+   docstrings/group])
 
-(defn- filter-groups [{:keys [disable only]}]
+(defn- filter-groups [all-groups {:keys [disable only]}]
   (cond
     only (filter #(contains? only (group/group-id %)) all-groups)
     (seq disable) (remove #(contains? disable (group/group-id %)) all-groups)
@@ -248,7 +253,8 @@
                                            :baseline-write :baseline :strict-baseline
                                            :quiet-baseline]))
           dirs arguments
-          enabled-groups (filter-groups base-opts)
+          all-groups (assemble-groups config)
+          enabled-groups (filter-groups all-groups base-opts)
           fail-on-input (or (:fail-on options) (:fail-on config))
           rule->tier (severity/collect-rule->tier enabled-groups)
           {:keys [ok error]} (severity/parse-fail-on fail-on-input rule->tier)

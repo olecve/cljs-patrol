@@ -25,7 +25,8 @@
   "Rules where the issue is identified by Hiccup tag + file + line + column.
   There's no unique symbol or keyword at the call site, and :col distinguishes
   multiple Hiccup vectors on the same source line."
-  #{:img-alt-missing :invalid-tabindex :on-click-on-non-interactive :empty-interactive-element})
+  #{:img-alt-missing :invalid-tabindex :on-click-on-non-interactive
+    :empty-interactive-element :missing-accessible-name})
 
 (defn- relativize-path
   "Strip source-dir prefix from path to produce a portable relative path.

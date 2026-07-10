@@ -220,36 +220,96 @@
 
       :else false)))
 
-(defn- handle-vector [loc _ns-info file]
+(def ^:private accessible-name-required-tags
+  "Native tags that render a form control without any intrinsic accessible name.
+  A visible `<label>` associated by id, `:aria-label`, or `:aria-labelledby` is
+  required — `:placeholder` is a hint, not a name."
+  #{:textarea})
+
+(def ^:private accessible-name-attrs #{:aria-label :aria-labelledby})
+
+(defn- has-accessible-name? [attrs]
+  (some (fn [k]
+          (let [v (literal-sexpr (get attrs k))]
+            (cond
+              (= v ::absent) false
+              (= v ::non-literal) true
+              (or (nil? v) (false? v)) false
+              (and (string? v) (empty? v)) false
+              :else true)))
+        accessible-name-attrs))
+
+(defn- missing-accessible-name? [{:keys [kind attrs]} tag]
+  (when (contains? accessible-name-required-tags tag)
+    (case kind
+      :absent true
+      :non-map true
+      :map (or (nil? attrs) (not (has-accessible-name? attrs)))
+      :dynamic false)))
+
+(defn- resolve-full-symbol
+  "Return the fully-qualified symbol referred to by `head-str` in `ns-info`.
+  Handles `alias/name` via :aliases and bare `name` via :refers. Returns nil
+  when the symbol can't be resolved to another namespace."
+  [head-str {:keys [aliases refers]}]
+  (cond
+    (str/includes? head-str "/")
+    (let [slash (str/index-of head-str "/")
+          alias-part (subs head-str 0 slash)
+          name-part (subs head-str (inc slash))]
+      (when-let [full-ns (get aliases alias-part)]
+        (symbol full-ns name-part)))
+
+    :else
+    (when-let [full-ns (get refers head-str)]
+      (symbol full-ns head-str))))
+
+(defn- resolve-component-tag
+  "Resolve the head symbol of a Hiccup-shaped vector to a native tag via
+  the user-supplied `:component-aliases` config. Returns nil when the head
+  isn't a symbol we recognise."
+  [head-str ns-info component-aliases]
+  (when (seq component-aliases)
+    (when-let [full-sym (resolve-full-symbol head-str ns-info)]
+      (get component-aliases full-sym))))
+
+(defn- handle-vector* [loc ns-info file component-aliases]
   (let [first-child (z/down loc)]
     (when (and first-child
                (= :token (z/tag first-child))
                (not (hiccup/inside-quoted-form? loc))
-               (not (hiccup/inside-style-decl? loc)))
-      (when-let [tag (hiccup/parse-tag (parser/raw first-child))]
-        (let [info (hiccup/attrs-info loc)
-              [row col] (try (z/position loc) (catch Exception _ [0 1]))
-              base {:kw tag
-                    :form (source-snippet loc)
-                    :file file
-                    :row row
-                    :col col}
-              usages (cond-> []
-                       (img-alt-missing? info tag)
-                       (conj (assoc base :type :img-alt-missing))
+               (not (hiccup/inside-style-decl? loc))
+               (not (hiccup/inside-ns-form? loc)))
+      (let [head-str (parser/raw first-child)
+            tag (or (hiccup/parse-tag head-str)
+                    (resolve-component-tag head-str ns-info component-aliases))]
+        (when tag
+          (let [info (hiccup/attrs-info loc)
+                [row col] (try (z/position loc) (catch Exception _ [0 1]))
+                base {:kw tag
+                      :form (source-snippet loc)
+                      :file file
+                      :row row
+                      :col col}
+                usages (cond-> []
+                         (img-alt-missing? info tag)
+                         (conj (assoc base :type :img-alt-missing))
 
-                       (invalid-tabindex? info)
-                       (conj (assoc base :type :invalid-tabindex))
+                         (invalid-tabindex? info)
+                         (conj (assoc base :type :invalid-tabindex))
 
-                       (on-click-on-non-interactive? info tag)
-                       (conj (assoc base :type :on-click-on-non-interactive))
+                         (on-click-on-non-interactive? info tag)
+                         (conj (assoc base :type :on-click-on-non-interactive))
 
-                       (empty-interactive? info tag loc)
-                       (conj (assoc base :type :empty-interactive-element)))]
-          (when (seq usages)
-            {:decls []
-             :dynamics []
-             :usages usages}))))))
+                         (empty-interactive? info tag loc)
+                         (conj (assoc base :type :empty-interactive-element))
+
+                         (missing-accessible-name? info tag)
+                         (conj (assoc base :type :missing-accessible-name)))]
+            (when (seq usages)
+              {:decls []
+               :dynamics []
+               :usages usages})))))))
 
 (defn- analyze* [{:keys [usages]}]
   ;; The parser pools :usages across ALL enabled groups into one seq before
@@ -260,25 +320,32 @@
     {:img-alt-missing (vec (:img-alt-missing by-type))
      :invalid-tabindex (vec (:invalid-tabindex by-type))
      :on-click-on-non-interactive (vec (:on-click-on-non-interactive by-type))
-     :empty-interactive-element (vec (:empty-interactive-element by-type))}))
+     :empty-interactive-element (vec (:empty-interactive-element by-type))
+     :missing-accessible-name (vec (:missing-accessible-name by-type))}))
 
-(defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive empty-interactive-element]}]
+(defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
+                               empty-interactive-element missing-accessible-name]}]
   [["Img missing alt:" (count img-alt-missing)]
    ["Invalid tabindex:" (count invalid-tabindex)]
    ["Onclick on non-interactive:" (count on-click-on-non-interactive)]
-   ["Empty interactive element:" (count empty-interactive-element)]])
+   ["Empty interactive element:" (count empty-interactive-element)]
+   ["Missing accessible name:" (count missing-accessible-name)]])
 
-(defn- failed?* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive empty-interactive-element]}]
+(defn- failed?* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
+                         empty-interactive-element missing-accessible-name]}]
   (or (seq img-alt-missing)
       (seq invalid-tabindex)
       (seq on-click-on-non-interactive)
-      (seq empty-interactive-element)))
+      (seq empty-interactive-element)
+      (seq missing-accessible-name)))
 
-(defrecord A11yGroup []
+(defrecord A11yGroup [component-aliases]
   group/RuleGroup
   (group-id [_] :a11y)
   (group-name [_] "A11y")
-  (parse-handlers [_] {:handle-vector handle-vector})
+  (parse-handlers [_]
+    {:handle-vector (fn [loc ns-info file]
+                      (handle-vector* loc ns-info file component-aliases))})
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ result] (failed?* result))
@@ -310,12 +377,32 @@
           "nothing. Add text content, or provide an accessible name via :aria-label "
           "(e.g. for icon-only buttons). "
           "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
+          "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")
+     :missing-accessible-name
+     (str "A form control renders without a programmatic name. Add :aria-label "
+          "\"…\" or :aria-labelledby \"<id of visible label>\" (screen readers "
+          "announce these as the control's name). :placeholder is a hint, not "
+          "a name — it disappears when the user types and is not universally "
+          "announced. To make a wrapper component (e.g. `[my.ui/textarea …]`) "
+          "participate in this check, add it to `:a11y :component-aliases` in "
+          ".cljs-patrol/config.edn — {my.ui/textarea :textarea}. "
+          "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
           "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")})
   (rule->tier [_]
     {:img-alt-missing :bugs
      :invalid-tabindex :bugs
      :on-click-on-non-interactive :bugs
-     :empty-interactive-element :bugs})
+     :empty-interactive-element :bugs
+     :missing-accessible-name :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
-(def group (->A11yGroup))
+(defn make-group
+  "Return an a11y RuleGroup configured with the given map (see `A11yGroup`).
+  Supported keys:
+    :component-aliases {full-qualified-symbol native-tag-keyword} — treat
+      calls to the named symbol as the given native tag for a11y checks."
+  ([] (make-group nil))
+  ([{:keys [component-aliases]}]
+   (->A11yGroup (or component-aliases {}))))
+
+(def group (make-group))

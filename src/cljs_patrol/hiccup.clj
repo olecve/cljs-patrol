@@ -103,3 +103,18 @@
       true
 
       :else (recur (z/up cur)))))
+
+(defn inside-ns-form?
+  "True when loc has an ancestor list beginning with `ns`.
+  Data vectors inside `(ns … (:require […])) …` are library shapes, not
+  Hiccup — rules that assume Hiccup should skip them."
+  [loc]
+  (loop [cur (some-> loc z/up)]
+    (cond
+      (nil? cur) false
+
+      (and (= :list (z/tag cur))
+           (= "ns" (some-> cur z/down parser/sym-name)))
+      true
+
+      :else (recur (z/up cur)))))

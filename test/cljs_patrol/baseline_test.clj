@@ -173,7 +173,19 @@
                                          :row 12
                                          :col 30})]
       (is (not= id1 id2)
-          "two [:img] on the same line get distinct identities via :col")))
+          "two [:img] on the same line get distinct identities via :col"))
+    (is (= {:rule :missing-accessible-name
+            :tag :textarea
+            :file "src/views.cljs"
+            :line 42
+            :col 3}
+           (baseline/issue->identity :missing-accessible-name
+                                     {:type :missing-accessible-name
+                                      :kw :textarea
+                                      :file "src/views.cljs"
+                                      :row 42
+                                      :col 3}))
+        "missing-accessible-name keyed by tag + file + line + col"))
 
   (testing "unknown rule throws"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown rule"
