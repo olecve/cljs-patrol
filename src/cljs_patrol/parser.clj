@@ -89,32 +89,54 @@
         {:kw nil
          :dynamic? true}))))
 
-(defn- parse-require-alias
-  "Extract [alias-str full-ns-str] from a require vector like [full.ns :as alias], or nil."
+(defn- parse-require
+  "Extract {:full-ns str :as (str|nil) :refers [str ...]} from a require vector,
+  or nil when the vector shape is not recognised."
   [req-vec]
   (when (vector? req-vec)
-    (let [ns-sym (first req-vec)
-          pairs (rest req-vec)]
-      (when ns-sym
-        (loop [remaining-pairs pairs]
-          (when (>= (count remaining-pairs) 2)
-            (if (= :as (first remaining-pairs))
-              [(str (second remaining-pairs)) (str ns-sym)]
-              (recur (rest remaining-pairs)))))))))
+    (when-let [ns-sym (first req-vec)]
+      (loop [pairs (rest req-vec)
+             as-alias nil
+             refers []]
+        (if (< (count pairs) 2)
+          {:full-ns (str ns-sym)
+           :as as-alias
+           :refers refers}
+          (let [k (first pairs)
+                v (second pairs)]
+            (cond
+              (= :as k) (recur (drop 2 pairs) (str v) refers)
+              (and (= :refer k) (sequential? v))
+              (recur (drop 2 pairs) as-alias (into refers (map str) v))
+              :else (recur (drop 2 pairs) as-alias refers))))))))
 
 (defn- parse-ns-form
-  "Extract {:ns-name str :aliases {alias-str full-ns-str}} from a (ns ...) sexpr."
+  "Extract {:ns-name :aliases :refers} from a (ns ...) sexpr.
+  :aliases maps alias string -> full ns string.
+  :refers maps refer'd symbol string -> full ns string."
   [ns-sexpr]
   (let [ns-name (str (second ns-sexpr))
+        requires (for [clause (rest ns-sexpr)
+                       :when (and (seq? clause) (= :require (first clause)))
+                       req (rest clause)
+                       :let [parsed (parse-require req)]
+                       :when parsed]
+                   parsed)
         aliases (into {}
-                      (for [clause (rest ns-sexpr)
-                            :when (and (seq? clause) (= :require (first clause)))
-                            req (rest clause)
-                            :let [pair (parse-require-alias req)]
-                            :when pair]
-                        pair))]
+                      (keep (fn [{:keys [full-ns as]}]
+                              (when as [as full-ns])))
+                      requires)
+        refers (into {}
+                     (mapcat (fn [{:keys [full-ns refers]}]
+                               (map (fn [r] [r full-ns]) refers)))
+                     requires)]
     {:ns-name ns-name
-     :aliases aliases}))
+     :aliases aliases
+     :refers refers}))
+
+(def ^:private empty-ns-info {:ns-name "unknown"
+                              :aliases {}
+                              :refers {}})
 
 (defn- find-ns-info
   "Find and parse the ns form from a rewrite-clj zip.
@@ -126,8 +148,7 @@
       (if (and (= :list (z/tag loc))
                (= "ns" (sym-name (z/down loc))))
         (try (parse-ns-form (z/sexpr loc))
-             (catch Exception _ {:ns-name "unknown"
-                                 :aliases {}}))
+             (catch Exception _ empty-ns-info))
         (recur (z/right loc))))))
 
 (def ^:private empty-result {:decls []
@@ -149,13 +170,13 @@
      :handle-vector (distinct (keep :handle-vector all-handlers))
      :handle-token (distinct (keep :handle-token all-handlers))}))
 
-(defn- call-handlers [handlers tag loc ns-name aliases file]
+(defn- call-handlers [handlers tag loc ns-info file]
   (let [fns (cond
               (#{:list :fn} tag) (:handle-list handlers)
               (= :vector tag) (:handle-vector handlers)
               (= :token tag) (:handle-token handlers))]
     (reduce (fn [acc handler]
-              (merge-result acc (handler loc ns-name aliases file)))
+              (merge-result acc (handler loc ns-info file)))
             empty-result
             fns)))
 
@@ -181,11 +202,7 @@
                           (println "WARN: could not parse" file-path ":" (.getMessage e)))
                         nil))]
         (when zloc
-          (let [{:keys [aliases ns-name]
-                 :or {ns-name "unknown"
-                      aliases {}}}
-                (or (find-ns-info zloc) {:ns-name "unknown"
-                                         :aliases {}})
+          (let [ns-info (or (find-ns-info zloc) empty-ns-info)
                 handlers (collect-handlers applicable)]
             (loop [loc zloc
                    result empty-result]
@@ -195,7 +212,7 @@
                  :dynamic-sites (:dynamics result)}
                 (let [tag (z/tag loc)]
                   (recur (z/next loc)
-                         (merge-result result (call-handlers handlers tag loc ns-name aliases file-path))))))))))))
+                         (merge-result result (call-handlers handlers tag loc ns-info file-path))))))))))))
 
 (defn find-source-files
   "Recursively find all .cljs and .cljc files under root-dir."

@@ -168,7 +168,7 @@
 (defn- handle-list
   "Detect re-frame declarations and usages from list nodes.
   Handles: reg-sub, reg-event-*, reg-fx, reg-cofx, subscribe, dispatch, dispatch-sync."
-  [loc ns-name aliases file]
+  [loc {:keys [ns-name aliases]} file]
   (let [op-token (z/down loc)
         operator (parser/sym-name op-token)
         row (parser/position-row loc)]
@@ -259,7 +259,7 @@
 (defn- handle-vector
   "Detect event usages from :fx tuple vectors.
   Handles: [:dispatch [::kw]] / [:dispatch-n [[::kw]...]] / [:dispatch-later {:dispatch [::kw]}]."
-  [loc ns-name aliases file]
+  [loc {:keys [ns-name aliases]} file]
   (let [first-elem (z/down loc)
         row (parser/position-row loc)]
     (when (parser/kw-node? first-elem)
@@ -332,7 +332,7 @@
 (defn- handle-token
   "Detect usages from keyword tokens.
   Handles: :<- signal inputs in reg-sub, :on-success/:on-failure/:on-error http callbacks."
-  [loc ns-name aliases file]
+  [loc {:keys [ns-name aliases]} file]
   (when (parser/kw-node? loc)
     (let [raw-str (parser/raw loc)
           row (parser/position-row loc)]

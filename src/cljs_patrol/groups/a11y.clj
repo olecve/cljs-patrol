@@ -220,7 +220,7 @@
 
       :else false)))
 
-(defn- handle-vector [loc _ns-name _aliases file]
+(defn- handle-vector [loc _ns-info file]
   (let [first-child (z/down loc)]
     (when (and first-child
                (= :token (z/tag first-child))
