@@ -1,6 +1,6 @@
 # cljs-patrol
 
-Static analysis tool for ClojureScript UI codebases. Detects unused and phantom re-frame subscriptions and events, unused Spade CSS styles, and bbatsov docstring style-guide violations.
+Static analysis tool for ClojureScript UI codebases. Detects unused and phantom re-frame subscriptions and events, silently-broken Spade CSS (pseudo-selectors misplaced inside the main map, comma-vs-descendant selector confusion), accessibility issues in Hiccup (missing image alt text, invalid tabindex, click handlers on non-interactive tags, empty interactive elements, form controls without an accessible name), unused Spade CSS styles, and bbatsov docstring style-guide violations.
 
 ## Usage
 
@@ -22,9 +22,11 @@ By default, exits with code `1` when any blocking issue is found, making it suit
 Download a pre-built jar from [GitHub Releases](https://github.com/olecve/cljs-patrol/releases):
 
 ```bash
-curl -sL https://github.com/olecve/cljs-patrol/releases/download/v0.1.0/cljs-patrol-0.1.0.jar -o cljs-patrol.jar
+curl -sL https://github.com/olecve/cljs-patrol/releases/download/v0.0.13/cljs-patrol-0.0.13.jar -o cljs-patrol.jar
 java -jar cljs-patrol.jar <source-dir>
 ```
+
+Native binaries (`cljs-patrol-<version>-linux-x86_64`, `cljs-patrol-<version>-macos-aarch64`) are attached to each release too — no JVM required.
 
 ## Rule groups
 
@@ -33,10 +35,10 @@ Analysis is split into independent rule groups. By default all groups run.
 | Group         | Detects                                                                  |
 | ------------- | ------------------------------------------------------------------------ |
 | `re-frame`    | Unused/phantom re-frame subscriptions and events                         |
-| `spade`       | Unused Spade style declarations, defattrs in merge                       |
+| `spade`       | Unused Spade style declarations, defattrs in merge, pseudo-selector keys inside the main style map, consecutive self-selectors that compile to descendant selectors |
 | `reagent`     | defclass used as sole attr (should be defattrs)                          |
 | `typography`  | Mixed Figma typography token groups in a single style                    |
-| `a11y`        | Accessibility issues in Hiccup: `:img` missing `:alt`, invalid `:tabIndex`, `:on-click` on non-interactive tags |
+| `a11y`        | Accessibility issues in Hiccup: `:img` missing `:alt`, invalid `:tabIndex`, `:on-click` on non-interactive tags, empty interactive elements without an accessible name, form controls missing an accessible name |
 | `docstrings`  | Bbatsov style-guide violations on every def (summary, indent, whitespace) |
 
 Run only specific groups:
@@ -84,10 +86,28 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **`:img` missing `:alt`** — `[:img {...}]` without an `:alt` attribute; use `:alt ""` for decorative images
 - **Invalid tabindex** — `:tabIndex`/`:tab-index` with a value that isn't `0` or a negative integer (positive ints break natural focus order; non-int literals aren't valid tabindex values)
 - **`:on-click` on non-interactive tag** — `:on-click` on `:div`/`:span`/`:li`/`:p`/`:section` etc. without `:role` or a keyboard handler; keyboard users can't activate it
+- **Empty interactive element** — `:button`, `:a`, or `:role "button"`/`"link"` with no visible text and no `:aria-label`/`:aria-labelledby`/`:title`; screen readers announce nothing
+- **Missing accessible name** — native `[:textarea …]` with neither `:aria-label` nor `:aria-labelledby`; `:placeholder` is a hint, not a name. Wrapper components (e.g. `[my.ui/textarea …]`) opt in via [`:a11y :component-aliases`](#a11y-component-aliases)
+- **Pseudo-selector in Spade main map** — `defclass`/`defattrs` with a `:&`-prefixed key (e.g. `:&:hover`) inside the first argument map; Spade emits it as an invalid CSS property and silently drops the rule. Move the selector into its own sibling vector `[:&:hover {…}]`
+- **Consecutive self-selectors** — Spade sibling vector begins with 2+ `:&`-prefixed keywords (e.g. `[:&:before :&:after {…}]`); Garden compiles this as a descendant selector (`elem:before elem:after`), not the comma-joined selector the author intended
 - **Docstring summary** — first line of a multi-line docstring is not a self-contained sentence ending in `.`, `!`, `?`, or `:`
 - **Docstring indentation** — continuation lines of a multi-line docstring are indented less than the opening-quote column
 - **Docstring leading/trailing whitespace** — docstring starts or ends with whitespace
 - **Dynamic dispatch/subscribe sites** — dispatch or subscribe calls with a non-literal keyword (manual review needed)
+
+### A11y component aliases
+
+`:missing-accessible-name` and the other a11y rules only inspect native HTML tags (`[:textarea …]`, `[:button …]`) by default. Real codebases usually wrap those in a component library — `[my.ui/textarea …]`, `[loyto/button …]` — which then slips past every check.
+
+Map each wrapper to the native tag it renders in `.cljs-patrol/config.edn`:
+
+```edn
+{:a11y {:component-aliases
+        {my.ui/textarea :textarea
+         my.ui/button   :button}}}
+```
+
+Any call whose head symbol resolves (via `:as` or `:refer` in the caller's `ns`) to a mapped fully-qualified symbol is then checked as if it were the native tag. `[my.ui/textarea {:placeholder "…"}]` participates in `:missing-accessible-name`; icon-only `[my.ui/button [icons/x]]` participates in `:empty-interactive-element`. All existing a11y rules compose the same way.
 
 ### Example: reg-event-db returning effects
 
@@ -247,7 +267,7 @@ By default, any issue causes CI to fail. For incremental adoption — or just to
 
 | Tier | Rules | Why |
 | ---- | ----- | --- |
-| `bugs` | `duplicate-subs`, `duplicate-events`, `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects`, `img-alt-missing`, `invalid-tabindex`, `on-click-on-non-interactive` | Silent runtime breakage — duplicate registrations overwrite, empty-effect handlers clobber app-db, effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen readers, invalid `:tabIndex` values break the natural focus order, and `:on-click` on non-interactive tags without keyboard support locks keyboard users out. |
+| `bugs` | `duplicate-subs`, `duplicate-events`, `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects`, `img-alt-missing`, `invalid-tabindex`, `on-click-on-non-interactive`, `empty-interactive-element`, `missing-accessible-name`, `pseudo-in-main-map`, `consecutive-self-selectors` | Silent runtime breakage — duplicate registrations overwrite, empty-effect handlers clobber app-db, effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen readers, invalid `:tabIndex` values break the natural focus order, `:on-click` on non-interactive tags without keyboard support locks keyboard users out, empty interactive elements and unlabelled form controls have no accessible name, and Spade pseudo-selectors either misplaced inside the main map or chained without a comma silently produce no CSS. |
 | `deprecations` | `deprecated-effects`, `defclass-as-sole-attr`, `defattrs-in-merge`, `mixed-token-groups` | Deprecated APIs and idiomatic violations that may break later. |
 | `cleanup` | `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events`, `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace` | Dead code, style noise, and suspicious references with no runtime impact. |
 
