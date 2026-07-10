@@ -52,15 +52,44 @@
 (defn- blocking-rule? [fail-on-rules rule-key]
   (and (seq fail-on-rules) (contains? fail-on-rules rule-key)))
 
+(def ^:private url-pattern #"https?://\S+")
+
+(defn- linkify
+  "Return a seq of hiccup children for `s` with any http(s) URL replaced by
+  an anchor element. Preserves the URL as its own link text. Returns a
+  Clojure sequence (not a vector) so hiccup inlines it as siblings."
+  [s]
+  (when s
+    (let [parts (str/split s url-pattern -1)
+          urls (re-seq url-pattern s)]
+      (loop [ps parts, us urls, acc []]
+        (cond
+          (empty? ps) (seq acc)
+          (empty? us) (seq (conj acc (first ps)))
+          :else (recur (rest ps) (rest us)
+                       (conj acc (first ps)
+                             [:a {:href (first us)
+                                  :target "_blank"
+                                  :rel "noopener"}
+                              (first us)])))))))
+
+(defn- render-summary [{:keys [title cnt blocking? description]}]
+  [:summary
+   [:span.title title " (" cnt ")"
+    (when blocking? [:span.blocking-badge "BLOCKING"])]
+   (when (seq description)
+     [:span.desc (linkify description)])])
+
 (defn- render-details
   ([section] (render-details section nil))
   ([{:keys [title description columns items rule-key]} fail-on-rules]
    (let [cnt (count items)
          blocking? (blocking-rule? fail-on-rules rule-key)]
      [:details (if (pos? cnt) {:open true} {})
-      [:summary title " (" cnt ")"
-       (when blocking? [:span.blocking-badge "BLOCKING"])
-       (when description [:span.desc description])]
+      (render-summary {:title title
+                       :cnt cnt
+                       :blocking? blocking?
+                       :description description})
       [:table.issues
        [:thead
         [:tr (map #(vector :th {:data-sort ""} (col-header %)) columns)]]
@@ -153,9 +182,10 @@
   (let [cnt (count items)
         blocking? (blocking-rule? fail-on-rules rule-key)]
     [:details (if (pos? cnt) {:open true} {})
-     [:summary title " (" cnt ")"
-      (when blocking? [:span.blocking-badge "BLOCKING"])
-      (when description [:span.desc description])]
+     (render-summary {:title title
+                      :cnt cnt
+                      :blocking? blocking?
+                      :description description})
      [:table.issues
       [:thead
        [:tr (map #(vector :th {:data-sort ""} (col-header %)) columns)]]
