@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.0.14] - 2026-07-10
+
+## What's Changed
+
+* Bake cljs-patrol version into a resource so baselines record real version by @olecve in https://github.com/olecve/cljs-patrol/pull/32
+* Refresh README for rules added in v0.0.13 by @olecve in https://github.com/olecve/cljs-patrol/pull/33
+* Extend :missing-accessible-name to dialog / drawer shapes by @olecve in https://github.com/olecve/cljs-patrol/pull/34
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.13...v0.0.14
+
+
 ## [v0.0.13] - 2026-07-10
 
 ## What's Changed
