@@ -121,10 +121,13 @@
       (str (io/file root default-baseline-path)))))
 
 (defn- sort-key
-  "Vector of stringified identity fields used to sort baseline entries deterministically."
+  "Vector of stringified identity fields used to sort baseline entries deterministically.
+  Order chosen so entries cluster by rule, then by file, then by whatever
+  field distinguishes findings within a file — keeping each file's a11y
+  findings contiguous for readable diffs."
   [identity]
   (mapv #(str (get identity % ""))
-        [:rule :ns :key :var :effect :tag :file :selector :selectors :form :line]))
+        [:rule :file :ns :key :var :effect :tag :form :selector :selectors :line]))
 
 (defn- sort-issues [issues]
   (vec (sort-by sort-key issues)))
