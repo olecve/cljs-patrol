@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.0.17] - 2026-07-13
+
+## What's Changed
+
+* Keep baseline lines under 120 columns by @olecve in https://github.com/olecve/cljs-patrol/pull/39
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.16...v0.0.17
+
+
 ## [v0.0.16] - 2026-07-13
 
 ## What's Changed
