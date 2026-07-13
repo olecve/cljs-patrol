@@ -11,20 +11,28 @@
    [clojure.string :as str]
    [rewrite-clj.zip :as z]))
 
-(def ^:private snippet-max-length 120)
+(def ^:private snippet-edn-max
+  ;; Chars available for `(pr-str snippet)` — the double-quoted, escaped form
+  ;; that ends up in `.cljs-patrol/baseline.edn`. Sized so the surrounding
+  ;; `   :form "…"}]}` (last-issue tail case) never exceeds 120 columns.
+  107)
 
 (defn- source-snippet
   "Return a display-friendly snippet of loc's source form.
-  Whitespace is collapsed to single spaces, then truncated to
-  `snippet-max-length` with an ellipsis if needed. Used as the finding's
-  `:form` field so reporters show the actual Hiccup vector instead of
-  just the tag."
+  Whitespace is collapsed to single spaces, then truncated with an ellipsis
+  so that `(pr-str snippet)` fits in `snippet-edn-max` chars — i.e. the
+  finding's baseline line stays under 120 columns even after EDN escapes
+  `\"` → `\\\"` and similar."
   [loc]
   (let [raw (try (z/string loc) (catch Exception _ ""))
         collapsed (str/replace raw #"\s+" " ")]
-    (if (> (count collapsed) snippet-max-length)
-      (str (subs collapsed 0 (- snippet-max-length 3)) "...")
-      collapsed)))
+    (if (<= (count (pr-str collapsed)) snippet-edn-max)
+      collapsed
+      (loop [n (max 3 (dec (count collapsed)))]
+        (let [candidate (str (subs collapsed 0 n) "...")]
+          (if (<= (count (pr-str candidate)) snippet-edn-max)
+            candidate
+            (recur (dec n))))))))
 
 (defn- img-alt-missing? [{:keys [kind attrs]} tag]
   (when (= :img tag)
