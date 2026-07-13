@@ -22,9 +22,11 @@
     :docstring-summary :docstring-indentation :docstring-leading-trailing-whitespace})
 
 (def ^:private hiccup-site-rules
-  "Rules where the issue is identified by Hiccup tag + file + line + column.
-  There's no unique symbol or keyword at the call site, and :col distinguishes
-  multiple Hiccup vectors on the same source line."
+  "Hiccup-vector rules whose baseline identity is (rule + tag + file + form).
+  Line and column are recorded on the finding for the report but are not part
+  of the identity — reformatting a file must not turn every baselined Hiccup
+  finding into a new one. Two identical Hiccup vectors in the same file
+  collapse to a single identity (rare in practice)."
   #{:img-alt-missing :invalid-tabindex :on-click-on-non-interactive
     :empty-interactive-element :missing-accessible-name})
 
@@ -81,8 +83,7 @@
        {:rule rule
         :tag (:kw issue)
         :file (rel (:file issue))
-        :line (:row issue)
-        :col (:col issue)}
+        :form (str/replace (str/trim (str (:form issue))) #"\s+" " ")}
 
        (= :dynamic-sites rule)
        {:rule rule
@@ -105,7 +106,7 @@
                      (map #(issue->identity rule-key % source-dir) items))))
          result)))
 
-(def baseline-version 1)
+(def baseline-version 2)
 
 (def default-baseline-path ".cljs-patrol/baseline.edn")
 
@@ -120,14 +121,10 @@
       (str (io/file root default-baseline-path)))))
 
 (defn- sort-key
-  "Produce a vector sort key for deterministic ordering of identity maps."
+  "Vector of stringified identity fields used to sort baseline entries deterministically."
   [identity]
-  [(str (:rule identity))
-   (str (:ns identity ""))
-   (str (:key identity ""))
-   (str (:var identity ""))
-   (str (:file identity ""))
-   (str (:line identity ""))])
+  (mapv #(str (get identity % ""))
+        [:rule :ns :key :var :effect :tag :file :selector :selectors :form :line]))
 
 (defn- sort-issues [issues]
   (vec (sort-by sort-key issues)))

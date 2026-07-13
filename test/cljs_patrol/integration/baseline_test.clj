@@ -199,7 +199,7 @@
             expected (edn/read-string (slurp "test/projects/baseline-app/expected-baseline.edn"))]
         (baseline/write-baseline path identities)
         (let [data (edn/read-string (slurp path))]
-          (is (= 1 (:version data)))
+          (is (= 2 (:version data)))
           (is (string? (:generated-at data)))
           (is (= expected (:issues data))
               "baseline issues match snapshot"))

@@ -153,39 +153,52 @@
     (is (= {:rule :img-alt-missing
             :tag :img
             :file "src/views.cljs"
-            :line 12
-            :col 5}
+            :form "[:img {:src \"/a.png\"}]"}
            (baseline/issue->identity :img-alt-missing
                                      {:type :img-alt-missing
                                       :kw :img
+                                      :form "[:img {:src \"/a.png\"}]"
                                       :file "src/views.cljs"
                                       :row 12
                                       :col 5}))
-        "img-alt-missing keyed by tag + file + line + col")
-    (let [id1 (baseline/issue->identity :img-alt-missing
-                                        {:kw :img
-                                         :file "views.cljs"
-                                         :row 12
-                                         :col 5})
-          id2 (baseline/issue->identity :img-alt-missing
-                                        {:kw :img
-                                         :file "views.cljs"
-                                         :row 12
-                                         :col 30})]
-      (is (not= id1 id2)
-          "two [:img] on the same line get distinct identities via :col"))
+        "img-alt-missing keyed by tag + file + form; line/col recorded but not in identity")
+    (let [same-form (fn [row col]
+                      (baseline/issue->identity :img-alt-missing
+                                                {:kw :img
+                                                 :form "[:img {:src \"/a.png\"}]"
+                                                 :file "views.cljs"
+                                                 :row row
+                                                 :col col}))]
+      (is (= (same-form 12 5) (same-form 30 5))
+          "identity survives line shifts from reformatting")
+      (is (= (same-form 12 5) (same-form 12 30))
+          "identity survives column shifts from reformatting"))
+    (let [form-a (baseline/issue->identity :img-alt-missing
+                                           {:kw :img
+                                            :form "[:img {:src \"/a.png\"}]"
+                                            :file "views.cljs"
+                                            :row 12
+                                            :col 5})
+          form-b (baseline/issue->identity :img-alt-missing
+                                           {:kw :img
+                                            :form "[:img {:src \"/b.png\"}]"
+                                            :file "views.cljs"
+                                            :row 12
+                                            :col 5})]
+      (is (not= form-a form-b)
+          "distinct form snippets get distinct identities"))
     (is (= {:rule :missing-accessible-name
             :tag :textarea
             :file "src/views.cljs"
-            :line 42
-            :col 3}
+            :form "[:textarea {:placeholder \"…\"}]"}
            (baseline/issue->identity :missing-accessible-name
                                      {:type :missing-accessible-name
                                       :kw :textarea
+                                      :form "[:textarea {:placeholder \"…\"}]"
                                       :file "src/views.cljs"
                                       :row 42
                                       :col 3}))
-        "missing-accessible-name keyed by tag + file + line + col"))
+        "missing-accessible-name keyed by tag + file + form"))
 
   (testing "unknown rule throws"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown rule"
