@@ -199,9 +199,15 @@ clojure -M:run --baseline src/cljs/myapp
 
 Exits `0` if every found issue is in the baseline. Exits `1` only on **new** issues.
 
-### Why keyword-based baselines survive refactors
+### Why baselines survive refactors and reformats
 
-Re-frame issues are keyed by their fully-qualified keyword (e.g. `:app.subs/users`), not by file path or line number. This means baselines survive file moves and renames without regeneration - a real advantage over line-based baselines in JS/TS tools.
+Every issue is identified by content, not by position:
+
+- **Re-frame** issues are keyed by their fully-qualified keyword (e.g. `:app.subs/users`), so baselines survive file moves and renames without regeneration — a real advantage over line-based baselines in JS/TS tools.
+- **Spade** issues are keyed by ns + var (plus selector, where relevant), so renaming a class within its ns is the only change that shifts identity.
+- **Hiccup a11y** issues are keyed by file + tag + whitespace-collapsed source snippet, so `cljfmt` or manual reformatting never rewrites the baseline. A truly new offending vector (with different source text) still counts as new.
+
+Note: bumping from an older baseline (`:version 1`) requires re-running `--baseline-write` once. The tool reports a clear error otherwise.
 
 ### Output with baseline
 
