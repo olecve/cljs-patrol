@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.0.15] - 2026-07-13
+
+## What's Changed
+
+* Stack rule descriptions under the title and linkify URLs in HTML report by @olecve in https://github.com/olecve/cljs-patrol/pull/35
+* Add Expand all / Collapse all buttons to the HTML report by @olecve in https://github.com/olecve/cljs-patrol/pull/36
+* Content-based identity for Hiccup baseline entries by @olecve in https://github.com/olecve/cljs-patrol/pull/37
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.14...v0.0.15
+
+
 ## [v0.0.14] - 2026-07-10
 
 ## What's Changed
