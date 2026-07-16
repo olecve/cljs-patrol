@@ -2,10 +2,11 @@
   "Console output formatting for cljs-patrol analysis results."
   (:require
    [cljs-patrol.baseline :as baseline]
+   [cljs-patrol.format :refer [formatf]]
    [clojure.string :as str]))
 
 (defn format-entry [{:keys [file kw row]}]
-  (format "  %-60s %s:%d" (str kw) file row))
+  (formatf "  %-60s %s:%d" (str kw) file row))
 
 (defn- section-header [title items blocking?]
   (str "\n=== " title " (" (count items) ")"
@@ -28,7 +29,7 @@
    (if (empty? items)
      (println "  (none)")
      (doseq [{:keys [file form row]} (sort-by :file items)]
-       (println (format "  %s:%d  %s" file row (str/trim form)))))))
+       (println (formatf "  %s:%d  %s" file row (str/trim form)))))))
 
 (defn- key->title [k]
   (-> (name k)
@@ -49,10 +50,10 @@
          (print-section (key->title rule-key) items blocking?))))))
 
 (defn- format-tagged-entry [{:keys [file kw row]} tag]
-  (format "  %-7s %-60s %s:%d" tag (str kw) file row))
+  (formatf "  %-7s %-60s %s:%d" tag (str kw) file row))
 
 (defn- format-tagged-dynamic [{:keys [file form row]} tag]
-  (format "  %-7s %s:%d  %s" tag file row (str/trim form)))
+  (formatf "  %-7s %s:%d  %s" tag file row (str/trim form)))
 
 (defn report-with-baseline
   "Print analysis results with [NEW] / [BASE] tags.

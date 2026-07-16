@@ -128,6 +128,10 @@
 (defn- truncate [s n]
   (if (<= (count s) n) s (str (subs s 0 n) "...")))
 
+(defn- pad-right [s width]
+  (let [pad (- width (count s))]
+    (if (pos? pad) (str s (apply str (repeat pad " "))) s)))
+
 (defn format-rules
   "Render the result of `list-rules` as a human-readable string."
   [tiered]
@@ -140,8 +144,7 @@
                                    "info-only (do not block CI):"
                                    (str (name tier) ":")))]
                       (for [{:keys [rule group suggestion]} entries]
-                        (format "  %-25s (%s)  %s"
-                                (str rule)
-                                (name group)
-                                (truncate suggestion 80))))]
+                        (str "  " (pad-right (str rule) 25)
+                             " (" (name group) ")  "
+                             (truncate suggestion 80))))]
      line)))

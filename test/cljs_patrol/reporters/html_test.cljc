@@ -74,7 +74,7 @@
         tmp-file (fs/tmp-file-path "cljs-patrol-test-" ".html")]
     (try
       (html/write-report [re-frame/group] run-results tmp-file)
-      (let [content (slurp tmp-file)]
+      (let [content (fs/slurp-file tmp-file)]
         (testing "produces HTML document"
           (is (str/includes? content "<!DOCTYPE html>")))
         (testing "includes group name"
@@ -107,7 +107,7 @@
         tmp-file (fs/tmp-file-path "cljs-patrol-baseline-test-" ".html")]
     (try
       (html/write-baseline-report [re-frame/group] run-results tmp-file new-ids 3)
-      (let [content (slurp tmp-file)]
+      (let [content (fs/slurp-file tmp-file)]
         (is (str/includes? content "new-issue")
             "marks new issues with CSS class")
         (is (str/includes? content "baseline-issue")
@@ -133,7 +133,7 @@
     (try
       (html/write-report [re-frame/group] run-results tmp-file
                          #{:unused-subs})
-      (let [content (slurp tmp-file)]
+      (let [content (fs/slurp-file tmp-file)]
         (is (str/includes? content "BLOCKING")
             "blocking badge present"))
       (finally
@@ -159,7 +159,7 @@
       (html/write-baseline-report [re-frame/group] run-results tmp-file
                                   new-ids 0
                                   #{:unused-subs} 1 0)
-      (let [content (slurp tmp-file)]
+      (let [content (fs/slurp-file tmp-file)]
         (is (str/includes? content "BLOCKING")
             "blocking badge applied in baseline HTML")
         (is (str/includes? content "1 blocking, 0 warnings")

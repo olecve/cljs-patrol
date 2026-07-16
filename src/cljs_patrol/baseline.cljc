@@ -1,13 +1,24 @@
 (ns cljs-patrol.baseline
   "Baseline support for cljs-patrol: identity extraction, file I/O, and diff logic."
   (:require
+   #?@(:clj [[clojure.java.io :as io]]
+       :default [])
    [cljs-patrol.fs :as fs]
    [clojure.edn :as edn]
-   [clojure.java.io :as io]
    [clojure.string :as str])
-  (:import
-   (java.time
-    Instant)))
+  #?(:clj (:import (java.time Instant))))
+
+(defn- now-iso []
+  #?(:clj (str (Instant/now))
+     :cljs (.toISOString (js/Date.))))
+
+(defn- error-message [e]
+  #?(:clj (.getMessage ^Throwable e)
+     :cljs (.-message e)))
+
+(defn- read-embedded-version []
+  #?(:clj (some-> (io/resource "cljs_patrol/VERSION") slurp str/trim not-empty)
+     :cljs nil))
 
 (def ^:private keyword-keyed-rules
   "Rules where the issue is uniquely identified by its keyword."
@@ -127,28 +138,30 @@
   (vec (sort-by sort-key issues)))
 
 (def ^:private tool-version
-  (or (some-> (io/resource "cljs_patrol/VERSION") slurp str/trim not-empty)
-      "dev"))
+  (or (read-embedded-version) "dev"))
+
+(defn- render-issue [issue]
+  (str "{"
+       (->> issue
+            (map (fn [[k v]] (str (pr-str k) " " (pr-str v))))
+            (str/join "\n   "))
+       "}"))
+
+(defn- render-baseline [issues]
+  (let [sorted (sort-issues issues)]
+    (str "{:version " baseline-version "\n"
+         " :generated-at \"" (now-iso) "\"\n"
+         " :tool-version \"" tool-version "\"\n"
+         " :issues\n ["
+         (str/join "\n\n  " (map render-issue sorted))
+         "]}\n")))
 
 (defn write-baseline
   "Write a baseline file at `path` with the given set of identity maps."
   [path issues]
-  (let [sorted (sort-issues issues)
-        parent (fs/parent-dir path)]
+  (let [parent (fs/parent-dir path)]
     (when parent (fs/mkdirs parent))
-    (with-open [w (io/writer path)]
-      (.write w (str "{:version " baseline-version "\n"))
-      (.write w (str " :generated-at \"" (Instant/now) "\"\n"))
-      (.write w (str " :tool-version \"" tool-version "\"\n"))
-      (.write w " :issues\n [")
-      (doseq [[i issue] (map-indexed vector sorted)]
-        (when (pos? i) (.write w "\n\n  "))
-        (.write w "{")
-        (doseq [[j [k v]] (map-indexed vector issue)]
-          (when (pos? j) (.write w "\n   "))
-          (.write w (str (pr-str k) " " (pr-str v))))
-        (.write w "}"))
-      (.write w "]}\n"))))
+    (fs/spit-file path (render-baseline issues))))
 
 (defn read-baseline
   "Read and validate a baseline file at `path`.
@@ -158,7 +171,7 @@
     {:error (str "Baseline file not found: " path
                  "\nRun --baseline-write first to create one.")}
     (try
-      (let [data (edn/read-string (slurp path))]
+      (let [data (edn/read-string (fs/slurp-file path))]
         (cond
           (not (map? data))
           {:error (str "Malformed baseline file: " path " (expected a map)")}
@@ -170,8 +183,8 @@
 
           :else
           {:ok (set (:issues data))}))
-      (catch Exception e
-        {:error (str "Failed to parse baseline file: " path "\n" (.getMessage e))}))))
+      (catch #?(:clj Exception :cljs :default) e
+        {:error (str "Failed to parse baseline file: " path "\n" (error-message e))}))))
 
 (defn diff-baseline
   "Compare found issues against a baseline.
@@ -202,11 +215,14 @@
   []
   (if (fs/file-exists? default-config-path)
     (try
-      (edn/read-string (slurp default-config-path))
-      (catch Exception e
-        (binding [*out* *err*]
-          (println (str "WARN: could not parse " default-config-path ": "
-                        (.getMessage e))))
+      (edn/read-string (fs/slurp-file default-config-path))
+      (catch #?(:clj Exception :cljs :default) e
+        #?(:clj (binding [*out* *err*]
+                  (println (str "WARN: could not parse " default-config-path ": "
+                                (error-message e))))
+           :cljs (.error js/console
+                         (str "WARN: could not parse " default-config-path ": "
+                              (error-message e))))
         {}))
     {}))
 

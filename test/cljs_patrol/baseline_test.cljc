@@ -201,7 +201,7 @@
         "missing-accessible-name keyed by tag + file + form"))
 
   (testing "unknown rule throws"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown rule"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) #"Unknown rule"
                           (baseline/issue->identity :bogus-rule {:kw :foo}))))
 
   (testing "ignores volatile fields"
@@ -314,14 +314,14 @@
   (testing "deterministic sort order"
     (let [path (tmp-baseline-path)]
       (baseline/write-baseline path test-issues)
-      (let [data (edn/read-string (slurp path))
+      (let [data (edn/read-string (fs/slurp-file path))
             rules (mapv :rule (:issues data))]
         (is (= rules (sort-by str rules))))))
 
   (testing "includes metadata"
     (let [path (tmp-baseline-path)]
       (baseline/write-baseline path test-issues)
-      (let [data (edn/read-string (slurp path))]
+      (let [data (edn/read-string (fs/slurp-file path))]
         (is (= baseline/baseline-version (:version data)))
         (is (string? (:generated-at data)))
         (is (string? (:tool-version data)))
@@ -331,7 +331,7 @@
   (testing "tool-version falls back to \"dev\" when no VERSION resource is present"
     (let [path (tmp-baseline-path)]
       (baseline/write-baseline path test-issues)
-      (let [data (edn/read-string (slurp path))]
+      (let [data (edn/read-string (fs/slurp-file path))]
         (is (= "dev" (:tool-version data))
             "test classpath has no cljs_patrol/VERSION resource"))))
 
@@ -353,21 +353,21 @@
 
   (testing "version mismatch"
     (let [path (tmp-baseline-path)]
-      (spit path (pr-str {:version 999
-                          :issues []}))
+      (fs/spit-file path (pr-str {:version 999
+                                  :issues []}))
       (let [{:keys [error]} (baseline/read-baseline path)]
         (is (some? error))
         (is (re-find #"version" error)))))
 
   (testing "malformed data"
     (let [path (tmp-baseline-path)]
-      (spit path "[1 2 3]")
+      (fs/spit-file path "[1 2 3]")
       (let [{:keys [error]} (baseline/read-baseline path)]
         (is (some? error)))))
 
   (testing "unparseable EDN"
     (let [path (tmp-baseline-path)]
-      (spit path "{:version 1 :issues [unclosed")
+      (fs/spit-file path "{:version 1 :issues [unclosed")
       (let [{:keys [error]} (baseline/read-baseline path)]
         (is (some? error)
             "returns error instead of throwing")))))
@@ -433,23 +433,26 @@
     (is (= #{} (baseline/collect-identities run-results)))))
 
 (deftest read-config-test
-  (testing "malformed config surfaces a stderr warning and returns {}"
+  (testing "malformed config returns {} (JVM also asserts on stderr warning)"
     (let [path (fs/tmp-file-path "cljs-patrol-config-" ".edn")]
       (try
-        (spit path "{:unclosed")
+        (fs/spit-file path "{:unclosed")
         (with-redefs [baseline/default-config-path path]
-          (let [err (java.io.StringWriter.)]
-            (binding [*err* err]
-              (is (= {} (baseline/read-config))))
-            (is (re-find #"could not parse" (str err))
-                "warning surfaces on stderr")))
+          #?(:clj
+             (let [err (java.io.StringWriter.)]
+               (binding [*err* err]
+                 (is (= {} (baseline/read-config))))
+               (is (re-find #"could not parse" (str err))
+                   "warning surfaces on stderr"))
+             :cljs
+             (is (= {} (baseline/read-config)))))
         (finally
           (fs/delete-tree! path)))))
 
   (testing "valid config parses through"
     (let [path (fs/tmp-file-path "cljs-patrol-config-" ".edn")]
       (try
-        (spit path "{:foo 1}")
+        (fs/spit-file path "{:foo 1}")
         (with-redefs [baseline/default-config-path path]
           (is (= {:foo 1} (baseline/read-config))))
         (finally

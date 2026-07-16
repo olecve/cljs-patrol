@@ -192,9 +192,9 @@
         path (fs/join-path dir "baseline.edn")]
     (try
       (let [{:keys [identities]} (run-analysis)
-            expected (edn/read-string (slurp "test/projects/baseline-app/expected-baseline.edn"))]
+            expected (edn/read-string (fs/slurp-file "test/projects/baseline-app/expected-baseline.edn"))]
         (baseline/write-baseline path identities)
-        (let [data (edn/read-string (slurp path))]
+        (let [data (edn/read-string (fs/slurp-file path))]
           (is (= 2 (:version data)))
           (is (string? (:generated-at data)))
           (is (= expected (:issues data))

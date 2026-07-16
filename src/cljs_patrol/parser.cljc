@@ -7,6 +7,10 @@
    [rewrite-clj.node :as n]
    [rewrite-clj.zip :as z]))
 
+(defn- eprintln [& args]
+  #?(:clj (binding [*out* *err*] (apply println args))
+     :cljs (.error js/console (apply str (interpose " " args)))))
+
 (defn distinct-by
   "Return a collection with duplicates removed, using key-fn to determine identity."
   [key-fn coll]
@@ -31,13 +35,15 @@
   "Return the name string of a symbol token, or nil."
   [zloc]
   (when (and zloc (= :token (z/tag zloc)))
-    (let [sexpr-value (try (z/sexpr zloc) (catch Exception _ nil))]
+    (let [sexpr-value (try (z/sexpr zloc)
+                           (catch #?(:clj Exception :cljs :default) _ nil))]
       (when (symbol? sexpr-value) (name sexpr-value)))))
 
 (defn position-row
   "Return the line number of zloc, or 0 on error."
   [zloc]
-  (try (first (z/position zloc)) (catch Exception _ 0)))
+  (try (first (z/position zloc))
+       (catch #?(:clj Exception :cljs :default) _ 0)))
 
 (defn resolve-kw
   "Resolve a raw keyword string to a fully-qualified Clojure keyword.
@@ -133,15 +139,14 @@
 
 (defn- find-ns-info
   "Find and parse the ns form from a rewrite-clj zip.
-  z/of-file positions at the first top-level form (not a :forms wrapper).
-  Walk top-level siblings with z/right until the ns form is found."
+  Walks top-level siblings until the ns form is found."
   [zloc]
   (loop [loc zloc]
     (when (and loc (not (z/end? loc)))
       (if (and (= :list (z/tag loc))
                (= "ns" (sym-name (z/down loc))))
         (try (parse-ns-form (z/sexpr loc))
-             (catch Exception _ empty-ns-info))
+             (catch #?(:clj Exception :cljs :default) _ empty-ns-info))
         (recur (z/right loc))))))
 
 (def ^:private empty-result {:decls []
@@ -173,9 +178,9 @@
             empty-result
             fns)))
 
-(defn- file-extension [^String path]
-  (let [dot (.lastIndexOf path ".")]
-    (when (pos? dot) (subs path dot))))
+(defn- file-extension [path]
+  (let [dot (str/last-index-of path ".")]
+    (when (and dot (pos? dot)) (subs path dot))))
 
 (defn- groups-for-extension
   "Return the subset of enabled-groups that opt into the given file extension."
@@ -185,14 +190,13 @@
 (defn analyze-file
   "Parse a single .cljs/.cljc file and return {:declarations :usages :dynamic-sites}.
   Only groups whose `file-extensions` include this file's extension are invoked."
-  [file enabled-groups]
-  (let [file-path (str file)
-        applicable (groups-for-extension enabled-groups (file-extension file-path))]
+  [file-path enabled-groups]
+  (let [applicable (groups-for-extension enabled-groups (file-extension file-path))]
     (when (seq applicable)
-      (let [zloc (try (z/of-file file {:track-position? true})
-                      (catch Exception e
-                        (binding [*out* *err*]
-                          (println "WARN: could not parse" file-path ":" (.getMessage e)))
+      (let [zloc (try (z/of-string (fs/slurp-file file-path) {:track-position? true})
+                      (catch #?(:clj Exception :cljs :default) e
+                        (eprintln "WARN: could not parse" file-path ":"
+                                  #?(:clj (.getMessage e) :cljs (.-message e)))
                         nil))]
         (when zloc
           (let [ns-info (or (find-ns-info zloc) empty-ns-info)
@@ -216,9 +220,8 @@
   "Analyze all ClojureScript source files under root-dir using enabled-groups.
   Returns {:declarations :usages :dynamic-sites} across all files."
   [root-dir enabled-groups]
-  (let [files (find-source-files root-dir)]
-    (binding [*out* *err*]
-      (println (str "Analyzing " (count files) " files under " root-dir " ...")))
+  (let [files (fs/list-source-files root-dir)]
+    (eprintln (str "Analyzing " (count files) " files under " root-dir " ..."))
     (let [results (keep #(analyze-file % enabled-groups) files)]
       {:declarations (mapcat :declarations results)
        :usages (mapcat :usages results)

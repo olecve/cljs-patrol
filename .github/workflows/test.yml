@@ -27,6 +27,33 @@ jobs:
       - run: clojure -M:cljfmt check src/ test/
       - run: clojure -M:test
 
+  cljs-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeLaGuardo/setup-clojure@13.0
+        with:
+          cli: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            .shadow-cljs
+          key: deps-${{ hashFiles('deps.edn', 'shadow-cljs.edn') }}
+          restore-keys: deps-
+
+      - name: Compile CLJS test bundle
+        run: clojure -M:spike compile tests
+      - name: Run CLJS tests on Node
+        run: node out/tests.js
+
   native-verify:
     needs: test
     runs-on: ubuntu-latest

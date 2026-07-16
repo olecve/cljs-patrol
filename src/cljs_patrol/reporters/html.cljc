@@ -1,15 +1,16 @@
 (ns cljs-patrol.reporters.html
   "Generates a self-contained HTML report from cljs-patrol analysis results."
   (:require
+   #?(:clj [cljs-patrol.macros :refer [inline-resource]])
    [cljs-patrol.baseline :as baseline]
+   [cljs-patrol.emit :as emit]
+   [cljs-patrol.format :refer [formatf]]
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
-   [clojure.java.io :as io]
-   [clojure.string :as str]
-   [hiccup.page :refer [html5]]
-   [hiccup.util :refer [raw-string]]))
+   [clojure.string :as str])
+  #?(:cljs (:require-macros [cljs-patrol.macros :refer [inline-resource]])))
 
-(def ^:private css (slurp (io/resource "cljs_patrol/report.css")))
+(def ^:private css (inline-resource "cljs_patrol/report.css"))
 
 (def ^:private js
   (str
@@ -36,8 +37,12 @@
    "var open=b.getAttribute('data-action')==='expand-all';"
    "document.querySelectorAll('details').forEach(function(d){d.open=open;});});});"))
 
+(defn- now-str []
+  #?(:clj (str (java.time.LocalDateTime/now))
+     :cljs (.toISOString (js/Date.))))
+
 (defn- vscode-link [file row]
-  (format "vscode://file/%s:%d" (fs/absolute-path file) row))
+  (formatf "vscode://file/%s:%d" (fs/absolute-path file) row))
 
 (defn- cell-value [col item]
   (case col
@@ -61,7 +66,7 @@
 (defn- linkify
   "Return a seq of hiccup children for `s` with any http(s) URL replaced by
   an anchor element. Preserves the URL as its own link text. Returns a
-  Clojure sequence (not a vector) so hiccup inlines it as siblings."
+  Clojure sequence (not a vector) so the emitter inlines it as siblings."
   [s]
   (when s
     (let [parts (str/split s url-pattern -1)
@@ -168,27 +173,28 @@
 
 (defn- render-html [enabled-groups run-results fail-on-rules]
   (let [dirs (str/join ", " (map :source-dir run-results))
-        timestamp (str (java.time.LocalDateTime/now))]
-    (html5 {:lang "en"}
-           [:head
-            [:meta {:charset "UTF-8"}]
-            [:title "cljs-patrol report"]
-            [:style (raw-string css)]]
-           [:body
-            [:h1 "cljs-patrol report"]
-            [:p "Generated: " timestamp " | Analyzed: " dirs]
-            [:h2 "Summary"]
-            (render-summary-table enabled-groups run-results)
-            details-toolbar
-            (map-indexed (fn [i g] (render-group-section g i run-results fail-on-rules))
-                         enabled-groups)
-            [:script (raw-string js)]])))
+        timestamp (now-str)]
+    (emit/emit-document
+     [:html {:lang "en"}
+      [:head
+       [:meta {:charset "UTF-8"}]
+       [:title "cljs-patrol report"]
+       [:style (emit/raw css)]]
+      [:body
+       [:h1 "cljs-patrol report"]
+       [:p "Generated: " timestamp " | Analyzed: " dirs]
+       [:h2 "Summary"]
+       (render-summary-table enabled-groups run-results)
+       details-toolbar
+       (map-indexed (fn [i g] (render-group-section g i run-results fail-on-rules))
+                    enabled-groups)
+       [:script (emit/raw js)]]])))
 
 (defn write-report
   ([enabled-groups run-results output-path]
    (write-report enabled-groups run-results output-path nil))
   ([enabled-groups run-results output-path fail-on-rules]
-   (spit output-path (render-html enabled-groups run-results fail-on-rules))))
+   (fs/spit-file output-path (render-html enabled-groups run-results fail-on-rules))))
 
 (defn- render-baseline-details [{:keys [title description columns items rule-key]} new-identities source-dir fail-on-rules]
   (let [cnt (count items)
@@ -214,33 +220,34 @@
   [enabled-groups run-results new-identities fixed-count fail-on-rules
    blocking-count warning-count]
   (let [dirs (str/join ", " (map :source-dir run-results))
-        timestamp (str (java.time.LocalDateTime/now))
+        timestamp (now-str)
         source-dir (:source-dir (first run-results))]
-    (html5 {:lang "en"}
-           [:head
-            [:meta {:charset "UTF-8"}]
-            [:title "cljs-patrol report (baseline)"]
-            [:style (raw-string css)]]
-           [:body
-            [:h1 "cljs-patrol report (baseline)"]
-            [:p "Generated: " timestamp " | Analyzed: " dirs]
-            (when (seq fail-on-rules)
-              [:div.tier-summary
-               (str "New: " blocking-count " blocking, " warning-count " warnings.")])
-            (when (pos? fixed-count)
-              [:div.baseline-banner
-               (str fixed-count " baseline issues no longer present - consider running --baseline-write to refresh.")])
-            [:h2 "Summary"]
-            (render-summary-table enabled-groups run-results)
-            details-toolbar
-            (map-indexed
-             (fn [i g]
-               [:section
-                [:h2 (group/group-name g)]
-                (map #(render-baseline-details % new-identities source-dir fail-on-rules)
-                     (aggregate-sections g i run-results))])
-             enabled-groups)
-            [:script (raw-string js)]])))
+    (emit/emit-document
+     [:html {:lang "en"}
+      [:head
+       [:meta {:charset "UTF-8"}]
+       [:title "cljs-patrol report (baseline)"]
+       [:style (emit/raw css)]]
+      [:body
+       [:h1 "cljs-patrol report (baseline)"]
+       [:p "Generated: " timestamp " | Analyzed: " dirs]
+       (when (seq fail-on-rules)
+         [:div.tier-summary
+          (str "New: " blocking-count " blocking, " warning-count " warnings.")])
+       (when (pos? fixed-count)
+         [:div.baseline-banner
+          (str fixed-count " baseline issues no longer present - consider running --baseline-write to refresh.")])
+       [:h2 "Summary"]
+       (render-summary-table enabled-groups run-results)
+       details-toolbar
+       (map-indexed
+        (fn [i g]
+          [:section
+           [:h2 (group/group-name g)]
+           (map #(render-baseline-details % new-identities source-dir fail-on-rules)
+                (aggregate-sections g i run-results))])
+        enabled-groups)
+       [:script (emit/raw js)]]])))
 
 (defn write-baseline-report
   ([enabled-groups run-results output-path new-identities fixed-count]
@@ -248,6 +255,6 @@
                           new-identities fixed-count nil 0 0))
   ([enabled-groups run-results output-path new-identities fixed-count
     fail-on-rules blocking-count warning-count]
-   (spit output-path
-         (render-baseline-html enabled-groups run-results new-identities fixed-count
-                               fail-on-rules blocking-count warning-count))))
+   (fs/spit-file output-path
+                 (render-baseline-html enabled-groups run-results new-identities fixed-count
+                                       fail-on-rules blocking-count warning-count))))

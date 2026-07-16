@@ -126,7 +126,7 @@
                          (take-nth 2)
                          set)
                     :db)
-         (catch Exception _ false))))
+         (catch #?(:clj Exception :cljs :default) _ false))))
 
 (defn- collect-tail-locs
   "Return all tail-position locs reachable from `loc` through control-flow forms.

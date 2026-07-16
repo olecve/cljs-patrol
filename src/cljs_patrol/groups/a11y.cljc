@@ -24,7 +24,7 @@
   finding's baseline line stays under 120 columns even after EDN escapes
   `\"` → `\\\"` and similar."
   [loc]
-  (let [raw (try (z/string loc) (catch Exception _ ""))
+  (let [raw (try (z/string loc) (catch #?(:clj Exception :cljs :default) _ ""))
         collapsed (str/replace raw #"\s+" " ")]
     (if (<= (count (pr-str collapsed)) snippet-edn-max)
       collapsed
@@ -54,7 +54,7 @@
   (when value-loc
     (case (z/tag value-loc)
       (:token :multi-line)
-      (let [sexpr (try (z/sexpr value-loc) (catch Exception _ ::skip))]
+      (let [sexpr (try (z/sexpr value-loc) (catch #?(:clj Exception :cljs :default) _ ::skip))]
         (cond
           (= sexpr ::skip) false
           (nil? sexpr) false
@@ -106,7 +106,7 @@
     ::absent
     (case (z/tag value-loc)
       (:token :multi-line)
-      (try (z/sexpr value-loc) (catch Exception _ ::non-literal))
+      (try (z/sexpr value-loc) (catch #?(:clj Exception :cljs :default) _ ::non-literal))
       ::non-literal)))
 
 (defn- meaningful-role?
@@ -174,7 +174,7 @@
 (defn- literal-string-loc? [loc]
   (and loc
        (contains? #{:token :multi-line} (z/tag loc))
-       (string? (try (z/sexpr loc) (catch Exception _ nil)))))
+       (string? (try (z/sexpr loc) (catch #?(:clj Exception :cljs :default) _ nil)))))
 
 (defn- visible-content?
   "True when loc carries visible text or dynamically-computed content.
@@ -305,7 +305,7 @@
                     (resolve-component-tag head-str ns-info component-aliases))]
         (when tag
           (let [info (hiccup/attrs-info loc)
-                [row col] (try (z/position loc) (catch Exception _ [0 1]))
+                [row col] (try (z/position loc) (catch #?(:clj Exception :cljs :default) _ [0 1]))
                 base {:kw tag
                       :form (source-snippet loc)
                       :file file
