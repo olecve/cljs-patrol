@@ -21,7 +21,8 @@
   (.exists (File. path)))
 
 (defn mkdirs
-  "Create `dir` and any missing intermediate directories. No-op if present."
+  "Create `dir` and any missing intermediate directories.
+  No-op if `dir` already exists."
   [^String dir]
   (.mkdirs (File. dir)))
 
@@ -31,8 +32,8 @@
   (.getPath (File. base leaf)))
 
 (defn relativize
-  "Return `target` expressed relative to `base`, or the original `target`
-  when it doesn't sit below `base`."
+  "Return `target` as a path relative to `base`.
+  Falls back to the original `target` when it doesn't sit below `base`."
   [^String base ^String target]
   (let [base-p (-> base File. .getAbsoluteFile .toPath)
         targ-p (-> target File. .getAbsoluteFile .toPath)]
@@ -53,7 +54,8 @@
   (join-path (tmp-dir) (str prefix (nano-time) suffix)))
 
 (defn delete-tree!
-  "Recursively delete `path` if it exists. No-op otherwise."
+  "Recursively delete `path` if it exists.
+  No-op when `path` is missing."
   [^String path]
   (let [f (File. path)]
     (when (.exists f)

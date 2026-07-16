@@ -133,8 +133,9 @@
 (defn write-baseline
   "Write a baseline file at `path` with the given set of identity maps."
   [path issues]
-  (let [sorted (sort-issues issues)]
-    (when-let [parent (fs/parent-dir path)] (fs/mkdirs parent))
+  (let [sorted (sort-issues issues)
+        parent (fs/parent-dir path)]
+    (when parent (fs/mkdirs parent))
     (with-open [w (io/writer path)]
       (.write w (str "{:version " baseline-version "\n"))
       (.write w (str " :generated-at \"" (Instant/now) "\"\n"))
