@@ -19,7 +19,7 @@
    [cljs-patrol.parser :as parser]
    [cljs-patrol.reporters.console :as console]
    [cljs-patrol.reporters.edn :as edn-reporter]
-   #?@(:clj [[cljs-patrol.reporters.html :as html-reporter]])
+   [cljs-patrol.reporters.html :as html-reporter]
    [cljs-patrol.reporters.markdown :as md-reporter]
    [cljs-patrol.severity :as severity]
    [clojure.string :as str]))
@@ -220,15 +220,13 @@
                       (count fixed)))))
 
 (defn- write-baseline-html-report! [enabled-groups run-results new-issues fixed-count fail-on-rules]
-  #?(:clj (let [blocking-count (count (filter #(contains? fail-on-rules (:rule %)) new-issues))
-                warning-count (- (count new-issues) blocking-count)]
-            (html-reporter/write-baseline-report
-             enabled-groups run-results "report.html"
-             new-issues fixed-count
-             fail-on-rules blocking-count warning-count)
-            (println "Report written to report.html"))
-     :cljs (do (println "Error: --output html is only supported in the JVM build for now.")
-               (exit! 1))))
+  (let [blocking-count (count (filter #(contains? fail-on-rules (:rule %)) new-issues))
+        warning-count (- (count new-issues) blocking-count)]
+    (html-reporter/write-baseline-report
+     enabled-groups run-results "report.html"
+     new-issues fixed-count
+     fail-on-rules blocking-count warning-count)
+    (println "Report written to report.html")))
 
 (defn- run-baseline-compare! [enabled-groups run-results opts dirs rule->tier]
   (let [path (baseline/resolve-baseline-path (:baseline-path opts) dirs)
@@ -270,12 +268,10 @@
       (exit! exit-code))))
 
 (defn- write-standalone-html-report! [enabled-groups run-results fail-on-rules]
-  #?(:clj (do (html-reporter/write-report enabled-groups run-results "report.html" fail-on-rules)
-              (println "Report written to report.html")
-              (doseq [{:keys [group-results]} run-results]
-                (print-summary enabled-groups group-results)))
-     :cljs (do (println "Error: --output html is only supported in the JVM build for now.")
-               (exit! 1))))
+  (html-reporter/write-report enabled-groups run-results "report.html" fail-on-rules)
+  (println "Report written to report.html")
+  (doseq [{:keys [group-results]} run-results]
+    (print-summary enabled-groups group-results)))
 
 (defn- run-standalone! [enabled-groups run-results opts dirs]
   (let [fail-on-rules (:fail-on-rules opts)

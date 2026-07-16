@@ -37,7 +37,7 @@ npx @olecve/cljs-patrol --help
 npx @olecve/cljs-patrol src/cljs
 ```
 
-Requires Node 18+. Bundle is ~340 KB, cold start ~80 ms. HTML output (`--output html`) is currently only supported by the JVM and native-binary builds; every other rule and flag works identically.
+Requires Node 18+. Bundle is ~340 KB, cold start ~80 ms. Feature parity with the JVM and native-binary builds — same rules, same flags, same reporters (console / edn / markdown / html).
 
 ## Rule groups
 
