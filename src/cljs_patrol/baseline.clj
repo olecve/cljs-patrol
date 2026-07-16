@@ -194,12 +194,18 @@
 
 (defn read-config
   "Read `.cljs-patrol/config.edn` and return the full map.
-  Returns {} if the file is missing, unreadable, or malformed."
+  Returns {} if the file is missing. On a malformed file, prints a
+  warning to stderr and returns {} so the tool still runs against
+  defaults — a broken config shouldn't crash CI, but silently
+  ignoring one that never took effect is worse."
   []
   (if (fs/file-exists? default-config-path)
     (try
       (edn/read-string (slurp default-config-path))
-      (catch Exception _
+      (catch Exception e
+        (binding [*out* *err*]
+          (println (str "WARN: could not parse " default-config-path ": "
+                        (.getMessage e))))
         {}))
     {}))
 

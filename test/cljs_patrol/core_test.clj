@@ -14,8 +14,7 @@
 (def ^:private default-groups (assemble-groups {}))
 
 (deftest filter-run-results-test
-  (let [abs fs/absolute-path
-        item-a {:kw :a/sub
+  (let [item-a {:kw :a/sub
                 :file "src/a.cljs"
                 :row 1}
         item-b {:kw :b/sub
@@ -25,13 +24,13 @@
                       :group-results [{:unused-subs [item-a item-b]
                                        :unused-events []}]}]]
     (testing "filters items to requested files only"
-      (let [result (filter-run-results run-results [(abs "src/a.cljs")])
+      (let [result (filter-run-results run-results [(fs/absolute-path "src/a.cljs")])
             subs (get-in result [0 :group-results 0 :unused-subs])]
         (is (= 1 (count subs)))
         (is (= "src/a.cljs" (:file (first subs))))))
 
     (testing "empty result when no files match"
-      (let [result (filter-run-results run-results [(abs "src/other.cljs")])
+      (let [result (filter-run-results run-results [(fs/absolute-path "src/other.cljs")])
             subs (get-in result [0 :group-results 0 :unused-subs])]
         (is (empty? subs))))))
 

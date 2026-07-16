@@ -432,6 +432,29 @@
                                       {:unused-styles []}]}]]
     (is (= #{} (baseline/collect-identities run-results)))))
 
+(deftest read-config-test
+  (testing "malformed config surfaces a stderr warning and returns {}"
+    (let [path (fs/tmp-file-path "cljs-patrol-config-" ".edn")]
+      (try
+        (spit path "{:unclosed")
+        (with-redefs [baseline/default-config-path path]
+          (let [err (java.io.StringWriter.)]
+            (binding [*err* err]
+              (is (= {} (baseline/read-config))))
+            (is (re-find #"could not parse" (str err))
+                "warning surfaces on stderr")))
+        (finally
+          (fs/delete-tree! path)))))
+
+  (testing "valid config parses through"
+    (let [path (fs/tmp-file-path "cljs-patrol-config-" ".edn")]
+      (try
+        (spit path "{:foo 1}")
+        (with-redefs [baseline/default-config-path path]
+          (is (= {:foo 1} (baseline/read-config))))
+        (finally
+          (fs/delete-tree! path))))))
+
 (def ^:private defaults
   {:baseline-path nil
    :strict-baseline false
