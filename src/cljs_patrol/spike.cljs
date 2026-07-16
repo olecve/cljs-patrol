@@ -1,24 +1,22 @@
 (ns cljs-patrol.spike
-  "Phase-0 smoke test: load rewrite-clj under Node and walk one snippet."
+  "Phase-1 driver: run the Spade rule group over a fixture directory from Node."
   (:require
-   [rewrite-clj.zip :as z]))
+   [cljs-patrol.group :as group]
+   [cljs-patrol.groups.spade :as spade]
+   [cljs-patrol.parser :as parser]))
 
-(def snippet
-  "(ns example.hello
-     (:require [reagent.core :as r]))
+(defn- run [source-dir enabled-groups]
+  (let [parsed (parser/analyze-project source-dir enabled-groups)]
+    (mapv #(group/analyze % parsed) enabled-groups)))
 
-   (defn greeting [name]
-     [:div {:on-click #(js/alert name)}
-      \"Hello, \" name])")
-
-(defn -main [& _args]
-  (let [zloc (z/of-string snippet {:track-position? true})]
-    (println "rewrite-clj loaded ✓")
-    (println "tag =" (z/tag zloc)
-             "sexpr =" (pr-str (z/sexpr zloc)))
-    (loop [loc zloc, tags []]
-      (if (z/end? loc)
-        (do (println "walked" (count tags) "nodes; tag histogram:"
-                     (pr-str (frequencies tags)))
-            (println "smoke test passed."))
-        (recur (z/next loc) (conj tags (z/tag loc)))))))
+(defn -main [& args]
+  (let [dir (or (first args) "test/projects/re-frame-spade-app/src/webapp")
+        results (run dir [spade/group])
+        summary (group/summary-lines spade/group (first results))]
+    (println "cljs-patrol (cljs) — spade only — " dir)
+    (println)
+    (doseq [[label cnt] summary]
+      (println " " label cnt))
+    (println)
+    (println "Full result:")
+    (println (pr-str (first results)))))
