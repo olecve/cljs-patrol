@@ -1,8 +1,8 @@
 (ns cljs-patrol.baseline-test
   (:require
    [cljs-patrol.baseline :as baseline]
+   [cljs-patrol.fs :as fs]
    [clojure.edn :as edn]
-   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]))
 
 (deftest issue->identity-test
@@ -302,9 +302,7 @@
      :var "a-style"}})
 
 (defn- tmp-baseline-path []
-  (let [f (java.io.File/createTempFile "baseline" ".edn")]
-    (.deleteOnExit f)
-    (.getAbsolutePath f)))
+  (fs/tmp-file-path "baseline-" ".edn"))
 
 (deftest write-baseline-test
   (testing "round-trip preserves issue set"
@@ -338,14 +336,13 @@
             "test classpath has no cljs_patrol/VERSION resource"))))
 
   (testing "creates parent directories"
-    (let [dir (io/file (System/getProperty "java.io.tmpdir")
-                       (str "cljs-patrol-test-" (System/nanoTime)))
-          path (str (.getAbsolutePath dir) "/sub/baseline.edn")]
+    (let [dir (fs/join-path (fs/tmp-dir) (str "cljs-patrol-test-" (fs/nano-time)))
+          path (fs/join-path (fs/join-path dir "sub") "baseline.edn")]
       (try
         (baseline/write-baseline path test-issues)
-        (is (.exists (io/file path)))
+        (is (fs/file-exists? path))
         (finally
-          (run! #(.delete %) (reverse (file-seq dir))))))))
+          (fs/delete-tree! dir))))))
 
 (deftest read-baseline-test
   (testing "missing file"

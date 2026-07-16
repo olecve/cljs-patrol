@@ -2,10 +2,10 @@
   (:require
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.core :as core]
+   [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.spade :as spade]
-   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private filter-groups #'cljs-patrol.core/filter-groups)
@@ -14,7 +14,7 @@
 (def ^:private default-groups (assemble-groups {}))
 
 (deftest filter-run-results-test
-  (let [abs #(.getAbsolutePath (java.io.File. %))
+  (let [abs fs/absolute-path
         item-a {:kw :a/sub
                 :file "src/a.cljs"
                 :row 1}
@@ -61,12 +61,11 @@
   (let [enabled-groups [re-frame/group spade/group]
         run-results [(core/run fixture-dir enabled-groups)]
         identities (baseline/collect-identities run-results)
-        dir (io/file (System/getProperty "java.io.tmpdir")
-                     (str "cljs-patrol-bw-" (System/nanoTime)))
-        path (str (.getAbsolutePath dir) "/baseline.edn")]
+        dir (fs/join-path (fs/tmp-dir) (str "cljs-patrol-bw-" (fs/nano-time)))
+        path (fs/join-path dir "baseline.edn")]
     (try
       (baseline/write-baseline path identities)
-      (is (.exists (io/file path))
+      (is (fs/file-exists? path)
           "baseline file created")
       (let [{:keys [ok]} (baseline/read-baseline path)]
         (is (set? ok)
@@ -76,7 +75,7 @@
         (is (every? :rule ok)
             "every identity has a :rule"))
       (finally
-        (run! #(.delete %) (reverse (file-seq dir)))))))
+        (fs/delete-tree! dir)))))
 
 (deftest baseline-compare-integration-test
   (let [enabled-groups [re-frame/group spade/group]
@@ -221,7 +220,7 @@
         all-ids (baseline/collect-identities run-results)
         filtered-results (#'cljs-patrol.core/filter-run-results
                           run-results
-                          [(.getAbsolutePath (java.io.File. (str fixture-dir "/subs.cljs")))])
+                          [(fs/absolute-path (str fixture-dir "/subs.cljs"))])
         filtered-ids (baseline/collect-identities filtered-results)]
     (is (< (count filtered-ids) (count all-ids))
         "filtering reduces issue count")

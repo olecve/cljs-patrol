@@ -1,6 +1,7 @@
 (ns cljs-patrol.baseline
   "Baseline support for cljs-patrol: identity extraction, file I/O, and diff logic."
   (:require
+   [cljs-patrol.fs :as fs]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
    [clojure.string :as str])
@@ -34,13 +35,7 @@
   "Strip source-dir prefix from path to produce a portable relative path.
   Falls back to the original path if source-dir is nil or not a prefix."
   [source-dir path]
-  (if source-dir
-    (let [base (-> source-dir io/file .getAbsoluteFile .toPath)
-          target (-> path io/file .getAbsoluteFile .toPath)]
-      (if (.startsWith target base)
-        (str (.relativize base target))
-        path))
-    path))
+  (if source-dir (fs/relativize source-dir path) path))
 
 (defn issue->identity
   "Extract the stable identity of an issue for baseline comparison.
@@ -117,8 +112,7 @@
   [configured-path source-dirs]
   (if configured-path
     configured-path
-    (let [root (first source-dirs)]
-      (str (io/file root default-baseline-path)))))
+    (fs/join-path (first source-dirs) default-baseline-path)))
 
 (defn- sort-key
   "Vector of stringified identity fields used to sort baseline entries deterministically.
@@ -139,9 +133,8 @@
 (defn write-baseline
   "Write a baseline file at `path` with the given set of identity maps."
   [path issues]
-  (let [parent (.getParentFile (io/file path))
-        sorted (sort-issues issues)]
-    (when parent (.mkdirs parent))
+  (let [sorted (sort-issues issues)]
+    (when-let [parent (fs/parent-dir path)] (fs/mkdirs parent))
     (with-open [w (io/writer path)]
       (.write w (str "{:version " baseline-version "\n"))
       (.write w (str " :generated-at \"" (Instant/now) "\"\n"))
@@ -160,25 +153,24 @@
   "Read and validate a baseline file at `path`.
   Returns {:ok issues} on success, {:error message} on failure."
   [path]
-  (let [f (io/file path)]
-    (if-not (.exists f)
-      {:error (str "Baseline file not found: " path
-                   "\nRun --baseline-write first to create one.")}
-      (try
-        (let [data (edn/read-string (slurp f))]
-          (cond
-            (not (map? data))
-            {:error (str "Malformed baseline file: " path " (expected a map)")}
+  (if-not (fs/file-exists? path)
+    {:error (str "Baseline file not found: " path
+                 "\nRun --baseline-write first to create one.")}
+    (try
+      (let [data (edn/read-string (slurp path))]
+        (cond
+          (not (map? data))
+          {:error (str "Malformed baseline file: " path " (expected a map)")}
 
-            (not= baseline-version (:version data))
-            {:error (str "Baseline version mismatch in " path ": found version "
-                         (:version data) ", expected " baseline-version "."
-                         "\nRe-run --baseline-write to regenerate.")}
+          (not= baseline-version (:version data))
+          {:error (str "Baseline version mismatch in " path ": found version "
+                       (:version data) ", expected " baseline-version "."
+                       "\nRe-run --baseline-write to regenerate.")}
 
-            :else
-            {:ok (set (:issues data))}))
-        (catch Exception e
-          {:error (str "Failed to parse baseline file: " path "\n" (.getMessage e))})))))
+          :else
+          {:ok (set (:issues data))}))
+      (catch Exception e
+        {:error (str "Failed to parse baseline file: " path "\n" (.getMessage e))}))))
 
 (defn diff-baseline
   "Compare found issues against a baseline.
@@ -204,13 +196,12 @@
   "Read `.cljs-patrol/config.edn` and return the full map.
   Returns {} if the file is missing, unreadable, or malformed."
   []
-  (let [f (io/file default-config-path)]
-    (if (.exists f)
-      (try
-        (edn/read-string (slurp f))
-        (catch Exception _
-          {}))
-      {})))
+  (if (fs/file-exists? default-config-path)
+    (try
+      (edn/read-string (slurp default-config-path))
+      (catch Exception _
+        {}))
+    {}))
 
 (defn merge-config
   "Apply :baseline config-file settings to CLI opts, with CLI flags taking precedence.

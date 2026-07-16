@@ -3,13 +3,13 @@
   (:require
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.core :as core]
+   [cljs-patrol.fs :as fs]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
    [cljs-patrol.reporters.console :as console]
    [cljs-patrol.reporters.edn :as edn-reporter]
    [clojure.edn :as edn]
-   [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
 
@@ -22,19 +22,18 @@
      :identities (baseline/collect-identities run-results)}))
 
 (defn- tmp-dir []
-  (let [dir (io/file (System/getProperty "java.io.tmpdir")
-                     (str "cljs-patrol-integration-" (System/nanoTime)))]
-    (.mkdirs dir)
+  (let [dir (fs/join-path (fs/tmp-dir) (str "cljs-patrol-integration-" (fs/nano-time)))]
+    (fs/mkdirs dir)
     dir))
 
 (defn- cleanup [dir]
-  (run! #(.delete %) (reverse (file-seq dir))))
+  (fs/delete-tree! dir))
 
 (deftest baseline-write-and-read-test
   (let [completed (atom false)
         {:keys [identities]} (run-analysis)
         dir (tmp-dir)
-        path (str (.getAbsolutePath dir) "/baseline.edn")]
+        path (fs/join-path dir "baseline.edn")]
     (try
       (baseline/write-baseline path identities)
       (let [{:keys [ok error]} (baseline/read-baseline path)]
@@ -135,25 +134,25 @@
     (is (empty? (:fixed-issues parsed)))))
 
 (deftest baseline-identities-use-relative-paths-test
-  (let [absolute-dir (.getAbsolutePath (io/file fixture-dir))
+  (let [absolute-dir (fs/absolute-path fixture-dir)
         run-results [(core/run absolute-dir enabled-groups)]
         identities (baseline/collect-identities run-results)
         ids-with-file (filter :file identities)]
     (is (seq ids-with-file)
         "some identities have file paths")
     (doseq [id ids-with-file]
-      (is (not (.isAbsolute (io/file (:file id))))
+      (is (not (fs/absolute-path? (:file id)))
           (str "path should not be absolute, got: " (:file id)))
       (is (not (re-find #"\.\." (:file id)))
           (str "path should not contain .., got: " (:file id))))))
 
 (deftest baseline-round-trip-with-absolute-source-dir-test
   (let [completed (atom false)
-        absolute-dir (.getAbsolutePath (io/file fixture-dir))
+        absolute-dir (fs/absolute-path fixture-dir)
         run-results [(core/run absolute-dir enabled-groups)]
         identities (baseline/collect-identities run-results)
         dir (tmp-dir)
-        path (str (.getAbsolutePath dir) "/baseline.edn")]
+        path (fs/join-path dir "baseline.edn")]
     (try
       (baseline/write-baseline path identities)
       (let [{:keys [ok]} (baseline/read-baseline path)
@@ -174,7 +173,7 @@
   (let [completed (atom false)
         {:keys [identities]} (run-analysis)
         dir (tmp-dir)
-        path (str (.getAbsolutePath dir) "/baseline.edn")]
+        path (fs/join-path dir "baseline.edn")]
     (try
       (baseline/write-baseline path identities)
       (let [{:keys [ok]} (baseline/read-baseline path)
@@ -193,7 +192,7 @@
 (deftest baseline-snapshot-test
   (let [completed (atom false)
         dir (tmp-dir)
-        path (str (.getAbsolutePath dir) "/baseline.edn")]
+        path (fs/join-path dir "baseline.edn")]
     (try
       (let [{:keys [identities]} (run-analysis)
             expected (edn/read-string (slurp "test/projects/baseline-app/expected-baseline.edn"))]

@@ -1,13 +1,11 @@
 (ns cljs-patrol.parser
   "Shared AST utilities and generic walker for ClojureScript static analysis."
   (:require
+   [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
-   [clojure.java.io :as io]
    [clojure.string :as str]
    [rewrite-clj.node :as n]
-   [rewrite-clj.zip :as z])
-  (:import
-   [java.io File]))
+   [rewrite-clj.zip :as z]))
 
 (defn distinct-by
   "Return a collection with duplicates removed, using key-fn to determine identity."
@@ -212,12 +210,7 @@
 (defn find-source-files
   "Recursively find all .cljs and .cljc files under root-dir."
   [root-dir]
-  (->> (file-seq (io/file root-dir))
-       (filter (fn [^File f]
-                 (and (.isFile f)
-                      (let [file-name (.getName f)]
-                        (or (str/ends-with? file-name ".cljs")
-                            (str/ends-with? file-name ".cljc"))))))))
+  (fs/list-source-files root-dir))
 
 (defn analyze-project
   "Analyze all ClojureScript source files under root-dir using enabled-groups.
