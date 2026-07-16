@@ -1,5 +1,6 @@
 (ns cljs-patrol.reporters.edn-test
   (:require
+   [cljs-patrol.fs :as fs]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.reporters.edn :as edn-reporter]
    [clojure.edn :as edn]
@@ -40,7 +41,7 @@
     (testing "result items have absolute file paths"
       (let [items (get-in parsed [:results :re-frame :unused-subs])]
         (is (= 1 (count items)))
-        (is (.isAbsolute (java.io.File. (:file (first items)))))))
+        (is (fs/absolute-path? (:file (first items))))))
 
     (testing "suggestions contain expected keys"
       (let [suggs (get-in parsed [:suggestions :re-frame])]
