@@ -1,5 +1,6 @@
 (ns cljs-patrol.reporters.html-test
   (:require
+   [cljs-patrol.fs :as fs]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.reporters.html :as html]
    [clojure.string :as str]
@@ -70,10 +71,10 @@
                                        :duplicate-events []
                                        :deprecated-effects []
                                        :dynamic-sites []}]}]
-        tmp-file (java.io.File/createTempFile "cljs-patrol-test" ".html")]
+        tmp-file (fs/tmp-file-path "cljs-patrol-test-" ".html")]
     (try
-      (html/write-report [re-frame/group] run-results (.getPath tmp-file))
-      (let [content (slurp tmp-file)]
+      (html/write-report [re-frame/group] run-results tmp-file)
+      (let [content (fs/slurp-file tmp-file)]
         (testing "produces HTML document"
           (is (str/includes? content "<!DOCTYPE html>")))
         (testing "includes group name"
@@ -81,7 +82,7 @@
         (testing "includes keyword from result"
           (is (str/includes? content ":my-ns/sub"))))
       (finally
-        (.delete tmp-file)))))
+        (fs/delete-tree! tmp-file)))))
 
 (deftest write-baseline-report-test
   (let [new-item {:kw :app/new-sub
@@ -103,10 +104,10 @@
                                        :dynamic-sites []}]}]
         new-ids #{{:rule :unused-subs
                    :key :app/new-sub}}
-        tmp-file (java.io.File/createTempFile "cljs-patrol-baseline-test" ".html")]
+        tmp-file (fs/tmp-file-path "cljs-patrol-baseline-test-" ".html")]
     (try
-      (html/write-baseline-report [re-frame/group] run-results (.getPath tmp-file) new-ids 3)
-      (let [content (slurp tmp-file)]
+      (html/write-baseline-report [re-frame/group] run-results tmp-file new-ids 3)
+      (let [content (fs/slurp-file tmp-file)]
         (is (str/includes? content "new-issue")
             "marks new issues with CSS class")
         (is (str/includes? content "baseline-issue")
@@ -116,7 +117,7 @@
         (is (str/includes? content "3 baseline issues no longer present")
             "shows fixed count banner"))
       (finally
-        (.delete tmp-file)))))
+        (fs/delete-tree! tmp-file)))))
 
 (deftest write-report-marks-blocking-test
   (let [run-results [{:source-dir "src"
@@ -128,15 +129,15 @@
                                        :duplicate-events []
                                        :deprecated-effects []
                                        :dynamic-sites []}]}]
-        tmp-file (java.io.File/createTempFile "cljs-patrol-blocking-test" ".html")]
+        tmp-file (fs/tmp-file-path "cljs-patrol-blocking-test-" ".html")]
     (try
-      (html/write-report [re-frame/group] run-results (.getPath tmp-file)
+      (html/write-report [re-frame/group] run-results tmp-file
                          #{:unused-subs})
-      (let [content (slurp tmp-file)]
+      (let [content (fs/slurp-file tmp-file)]
         (is (str/includes? content "BLOCKING")
             "blocking badge present"))
       (finally
-        (.delete tmp-file)))))
+        (fs/delete-tree! tmp-file)))))
 
 (deftest write-baseline-report-with-fail-on-test
   (let [run-results [{:source-dir "src"
@@ -153,15 +154,15 @@
                                        :dynamic-sites []}]}]
         new-ids #{{:rule :unused-subs
                    :key :app/new-sub}}
-        tmp-file (java.io.File/createTempFile "cljs-patrol-baseline-blocking" ".html")]
+        tmp-file (fs/tmp-file-path "cljs-patrol-baseline-blocking-" ".html")]
     (try
-      (html/write-baseline-report [re-frame/group] run-results (.getPath tmp-file)
+      (html/write-baseline-report [re-frame/group] run-results tmp-file
                                   new-ids 0
                                   #{:unused-subs} 1 0)
-      (let [content (slurp tmp-file)]
+      (let [content (fs/slurp-file tmp-file)]
         (is (str/includes? content "BLOCKING")
             "blocking badge applied in baseline HTML")
         (is (str/includes? content "1 blocking, 0 warnings")
             "tier summary panel shown"))
       (finally
-        (.delete tmp-file)))))
+        (fs/delete-tree! tmp-file)))))

@@ -1,8 +1,8 @@
 (ns cljs-patrol.baseline-test
   (:require
    [cljs-patrol.baseline :as baseline]
+   [cljs-patrol.fs :as fs]
    [clojure.edn :as edn]
-   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]))
 
 (deftest issue->identity-test
@@ -201,7 +201,7 @@
         "missing-accessible-name keyed by tag + file + form"))
 
   (testing "unknown rule throws"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown rule"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) #"Unknown rule"
                           (baseline/issue->identity :bogus-rule {:kw :foo}))))
 
   (testing "ignores volatile fields"
@@ -302,9 +302,7 @@
      :var "a-style"}})
 
 (defn- tmp-baseline-path []
-  (let [f (java.io.File/createTempFile "baseline" ".edn")]
-    (.deleteOnExit f)
-    (.getAbsolutePath f)))
+  (fs/tmp-file-path "baseline-" ".edn"))
 
 (deftest write-baseline-test
   (testing "round-trip preserves issue set"
@@ -316,14 +314,14 @@
   (testing "deterministic sort order"
     (let [path (tmp-baseline-path)]
       (baseline/write-baseline path test-issues)
-      (let [data (edn/read-string (slurp path))
+      (let [data (edn/read-string (fs/slurp-file path))
             rules (mapv :rule (:issues data))]
         (is (= rules (sort-by str rules))))))
 
   (testing "includes metadata"
     (let [path (tmp-baseline-path)]
       (baseline/write-baseline path test-issues)
-      (let [data (edn/read-string (slurp path))]
+      (let [data (edn/read-string (fs/slurp-file path))]
         (is (= baseline/baseline-version (:version data)))
         (is (string? (:generated-at data)))
         (is (string? (:tool-version data)))
@@ -333,19 +331,18 @@
   (testing "tool-version falls back to \"dev\" when no VERSION resource is present"
     (let [path (tmp-baseline-path)]
       (baseline/write-baseline path test-issues)
-      (let [data (edn/read-string (slurp path))]
+      (let [data (edn/read-string (fs/slurp-file path))]
         (is (= "dev" (:tool-version data))
             "test classpath has no cljs_patrol/VERSION resource"))))
 
   (testing "creates parent directories"
-    (let [dir (io/file (System/getProperty "java.io.tmpdir")
-                       (str "cljs-patrol-test-" (System/nanoTime)))
-          path (str (.getAbsolutePath dir) "/sub/baseline.edn")]
+    (let [dir (fs/join-path (fs/tmp-dir) (str "cljs-patrol-test-" (fs/nano-time)))
+          path (fs/join-path (fs/join-path dir "sub") "baseline.edn")]
       (try
         (baseline/write-baseline path test-issues)
-        (is (.exists (io/file path)))
+        (is (fs/file-exists? path))
         (finally
-          (run! #(.delete %) (reverse (file-seq dir))))))))
+          (fs/delete-tree! dir))))))
 
 (deftest read-baseline-test
   (testing "missing file"
@@ -356,7 +353,7 @@
 
   (testing "version mismatch"
     (let [path (tmp-baseline-path)]
-      (spit path (pr-str {:version 999
+      (fs/spit-file path (pr-str {:version 999
                           :issues []}))
       (let [{:keys [error]} (baseline/read-baseline path)]
         (is (some? error))
@@ -364,13 +361,13 @@
 
   (testing "malformed data"
     (let [path (tmp-baseline-path)]
-      (spit path "[1 2 3]")
+      (fs/spit-file path "[1 2 3]")
       (let [{:keys [error]} (baseline/read-baseline path)]
         (is (some? error)))))
 
   (testing "unparseable EDN"
     (let [path (tmp-baseline-path)]
-      (spit path "{:version 1 :issues [unclosed")
+      (fs/spit-file path "{:version 1 :issues [unclosed")
       (let [{:keys [error]} (baseline/read-baseline path)]
         (is (some? error)
             "returns error instead of throwing")))))

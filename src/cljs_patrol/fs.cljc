@@ -60,6 +60,43 @@
   (or (str/ends-with? path ".cljs")
       (str/ends-with? path ".cljc")))
 
+(defn tmp-dir
+  "Return the OS temporary directory path."
+  []
+  #?(:clj (System/getProperty "java.io.tmpdir")
+     :cljs (node-fs/realpathSync (or (.-TMPDIR (.-env js/process))
+                                     (.-TMP (.-env js/process))
+                                     "/tmp"))))
+
+(defn nano-time
+  "Return a monotonically increasing counter, used for unique names."
+  []
+  #?(:clj (System/nanoTime)
+     :cljs (js/Date.now)))
+
+(defn tmp-file-path
+  "Return a unique path under `tmp-dir` for `prefix<random>suffix`.
+  Does not create the file — caller writes to it."
+  [prefix suffix]
+  (let [name (str prefix (nano-time) suffix)]
+    #?(:clj (str (java.io.File. ^String (tmp-dir) ^String name))
+       :cljs (node-path/join (tmp-dir) name))))
+
+(defn delete-tree!
+  "Recursively delete `path` if it exists. No-op otherwise."
+  [path]
+  #?(:clj (let [f (java.io.File. ^String path)]
+            (when (.exists f)
+              (run! #(.delete ^java.io.File %) (reverse (file-seq f)))))
+     :cljs (when (node-fs/existsSync path)
+             (node-fs/rmSync path #js {:recursive true :force true}))))
+
+(defn absolute-path?
+  "True when `path` is already absolute."
+  [path]
+  #?(:clj (.isAbsolute (File. ^String path))
+     :cljs (node-path/isAbsolute path)))
+
 (defn list-source-files [root-dir]
   #?(:clj (->> (file-seq (File. ^String root-dir))
                (filter (fn [^File f] (.isFile f)))
