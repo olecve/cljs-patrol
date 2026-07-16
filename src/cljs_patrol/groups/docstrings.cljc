@@ -29,7 +29,7 @@
 (defn- string-node? [loc]
   (and loc
        (contains? #{:token :multi-line} (z/tag loc))
-       (string? (try (z/sexpr loc) (catch Exception _ nil)))))
+       (string? (try (z/sexpr loc) (catch #?(:clj Exception :cljs :default) _ nil)))))
 
 (defn- name-sym
   "Return the symbol at name-loc (unwrapping any metadata), or nil."
@@ -37,7 +37,7 @@
   (try
     (let [value (z/sexpr name-loc)]
       (when (symbol? value) value))
-    (catch Exception _ nil)))
+    (catch #?(:clj Exception :cljs :default) _ nil)))
 
 (defn- find-docstring-loc
   "Return the docstring zip loc for a def-form, or nil.
@@ -92,10 +92,14 @@
                       (< leading expected))))
              continuation)))))
 
-(defn- leading-trailing-violation? [^String content]
+(defn- whitespace-char? [c]
+  #?(:clj (Character/isWhitespace ^Character c)
+     :cljs (some? (re-matches #"\s" (str c)))))
+
+(defn- leading-trailing-violation? [content]
   (and (seq content)
-       (or (Character/isWhitespace (.charAt content 0))
-           (Character/isWhitespace (.charAt content (dec (count content)))))))
+       (or (whitespace-char? (.charAt content 0))
+           (whitespace-char? (.charAt content (dec (count content)))))))
 
 (defn- docstring-issues [content col]
   (let [leading-trailing? (leading-trailing-violation? content)]
@@ -135,8 +139,8 @@
                  acc))))))
 
 (defn- issues-for-doc [kw doc-loc file]
-  (let [content (try (z/sexpr doc-loc) (catch Exception _ ""))
-        [row col] (try (z/position doc-loc) (catch Exception _ [0 1]))]
+  (let [content (try (z/sexpr doc-loc) (catch #?(:clj Exception :cljs :default) _ ""))
+        [row col] (try (z/position doc-loc) (catch #?(:clj Exception :cljs :default) _ [0 1]))]
     (mapv (fn [t]
             {:kw kw
              :type t
