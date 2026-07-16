@@ -1,10 +1,10 @@
 (ns cljs-patrol.baseline
   "Baseline support for cljs-patrol: identity extraction, file I/O, and diff logic."
   (:require
+   #?@(:clj [[clojure.java.io :as io]]
+       :default [])
    [cljs-patrol.fs :as fs]
    [clojure.edn :as edn]
-   #?@(:clj  [[clojure.java.io :as io]]
-       :default [])
    [clojure.string :as str])
   #?(:clj (:import (java.time Instant))))
 

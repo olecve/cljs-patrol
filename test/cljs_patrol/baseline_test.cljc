@@ -354,7 +354,7 @@
   (testing "version mismatch"
     (let [path (tmp-baseline-path)]
       (fs/spit-file path (pr-str {:version 999
-                          :issues []}))
+                                  :issues []}))
       (let [{:keys [error]} (baseline/read-baseline path)]
         (is (some? error))
         (is (re-find #"version" error)))))

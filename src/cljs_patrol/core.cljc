@@ -45,31 +45,59 @@
 (def ^:private options-spec
   "Every supported CLI flag. `:kind` is `:flag` (boolean, no value) or
   `:value` (consumes the next argv slot, optionally through `:parse-fn`)."
-  [{:long "--only" :arg "GROUPS" :kind :value :key :only
+  [{:long "--only"
+    :arg "GROUPS"
+    :kind :value
+    :key :only
     :parse-fn #(set (map keyword (str/split % #",")))
     :help "Enable only these groups (comma-separated)"}
-   {:long "--disable" :arg "GROUPS" :kind :value :key :disable
+   {:long "--disable"
+    :arg "GROUPS"
+    :kind :value
+    :key :disable
     :parse-fn #(set (map keyword (str/split % #",")))
     :help "Disable these groups (comma-separated)"}
-   {:long "--output" :arg "FORMAT" :kind :value :key :output
+   {:long "--output"
+    :arg "FORMAT"
+    :kind :value
+    :key :output
     :parse-fn keyword
     :help "Output format: html, edn, or markdown"}
-   {:long "--files" :arg "FILES" :kind :value :key :files
+   {:long "--files"
+    :arg "FILES"
+    :kind :value
+    :key :files
     :parse-fn #(str/split % #",")
     :help "Limit results to these files (comma-separated)"}
-   {:long "--baseline-write" :kind :flag :key :baseline-write
+   {:long "--baseline-write"
+    :kind :flag
+    :key :baseline-write
     :help "Write current issues to baseline file and exit 0"}
-   {:long "--baseline" :kind :flag :key :baseline
+   {:long "--baseline"
+    :kind :flag
+    :key :baseline
     :help "Compare against baseline; exit 1 only on new issues"}
-   {:long "--strict-baseline" :kind :flag :key :strict-baseline
+   {:long "--strict-baseline"
+    :kind :flag
+    :key :strict-baseline
     :help "Also fail if baseline issues are no longer present"}
-   {:long "--quiet-baseline" :kind :flag :key :quiet-baseline
+   {:long "--quiet-baseline"
+    :kind :flag
+    :key :quiet-baseline
     :help "Only print new issues, suppress baseline issues"}
-   {:long "--fail-on" :arg "TIERS_OR_RULES" :kind :value :key :fail-on
+   {:long "--fail-on"
+    :arg "TIERS_OR_RULES"
+    :kind :value
+    :key :fail-on
     :help "Comma-separated list of tiers (bugs/deprecations/cleanup), rule keys, or 'all'"}
-   {:long "--list-rules" :kind :flag :key :list-rules
+   {:long "--list-rules"
+    :kind :flag
+    :key :list-rules
     :help "Print all rules grouped by tier and exit"}
-   {:long "--help" :short "-h" :kind :flag :key :help
+   {:long "--help"
+    :short "-h"
+    :kind :flag
+    :key :help
     :help "Print this help and exit"}])
 
 (defn- spec-by-flag [flag]

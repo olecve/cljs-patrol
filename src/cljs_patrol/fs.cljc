@@ -89,7 +89,8 @@
             (when (.exists f)
               (run! #(.delete ^java.io.File %) (reverse (file-seq f)))))
      :cljs (when (node-fs/existsSync path)
-             (node-fs/rmSync path #js {:recursive true :force true}))))
+             (node-fs/rmSync path #js {:recursive true
+                                       :force true}))))
 
 (defn absolute-path?
   "True when `path` is already absolute."

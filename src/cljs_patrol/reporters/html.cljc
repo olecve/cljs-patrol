@@ -1,12 +1,12 @@
 (ns cljs-patrol.reporters.html
   "Generates a self-contained HTML report from cljs-patrol analysis results."
   (:require
+   #?(:clj [cljs-patrol.macros :refer [inline-resource]])
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.emit :as emit]
    [cljs-patrol.format :refer [formatf]]
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
-   #?(:clj [cljs-patrol.macros :refer [inline-resource]])
    [clojure.string :as str])
   #?(:cljs (:require-macros [cljs-patrol.macros :refer [inline-resource]])))
 
