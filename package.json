@@ -1,0 +1,39 @@
+{
+  "name": "@olecve/cljs-patrol",
+  "version": "0.0.17",
+  "description": "Static analysis for ClojureScript UI codebases. Detects unused re-frame subs/events, silently-broken Spade CSS, accessibility issues in Hiccup, unused styles, and docstring style-guide violations.",
+  "keywords": [
+    "clojurescript",
+    "cljs",
+    "linter",
+    "static-analysis",
+    "re-frame",
+    "spade",
+    "reagent",
+    "a11y"
+  ],
+  "homepage": "https://github.com/olecve/cljs-patrol",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/olecve/cljs-patrol.git"
+  },
+  "bugs": {
+    "url": "https://github.com/olecve/cljs-patrol/issues"
+  },
+  "license": "MIT",
+  "bin": {
+    "cljs-patrol": "./cljs-patrol.js"
+  },
+  "files": [
+    "cljs-patrol.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "clojure -M:spike release node",
+    "prepublishOnly": "clojure -M:spike release node && test -f cljs-patrol.js"
+  }
+}

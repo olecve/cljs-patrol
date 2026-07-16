@@ -28,6 +28,17 @@ java -jar cljs-patrol.jar <source-dir>
 
 Native binaries (`cljs-patrol-<version>-linux-x86_64`, `cljs-patrol-<version>-macos-aarch64`) are attached to each release too — no JVM required.
 
+### npm
+
+For pure-JS projects with no JVM in their toolchain, cljs-patrol also ships as `@olecve/cljs-patrol` on npm:
+
+```bash
+npx @olecve/cljs-patrol --help
+npx @olecve/cljs-patrol src/cljs
+```
+
+Requires Node 18+. Bundle is ~340 KB, cold start ~80 ms. HTML output (`--output html`) is currently only supported by the JVM and native-binary builds; every other rule and flag works identically.
+
 ## Rule groups
 
 Analysis is split into independent rule groups. By default all groups run.

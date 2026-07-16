@@ -5,4 +5,5 @@ target/
 .shadow-cljs/
 node_modules/
 out/
+cljs-patrol.js
 report.html
