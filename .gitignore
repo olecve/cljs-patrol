@@ -2,4 +2,7 @@
 target/
 .clj-kondo/
 .lsp/
+.shadow-cljs/
+node_modules/
+out/
 report.html
