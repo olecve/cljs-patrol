@@ -211,6 +211,11 @@
                   (recur (z/next loc)
                          (merge-result result (call-handlers handlers tag loc ns-info file-path))))))))))))
 
+(defn find-source-files
+  "Recursively find all .cljs and .cljc files under root-dir."
+  [root-dir]
+  (fs/list-source-files root-dir))
+
 (defn analyze-project
   "Analyze all ClojureScript source files under root-dir using enabled-groups.
   Returns {:declarations :usages :dynamic-sites} across all files."

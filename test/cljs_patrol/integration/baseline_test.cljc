@@ -26,9 +26,6 @@
     (fs/mkdirs dir)
     dir))
 
-(defn- cleanup [dir]
-  (fs/delete-tree! dir))
-
 (deftest baseline-write-and-read-test
   (let [completed (atom false)
         {:keys [identities]} (run-analysis)
@@ -41,7 +38,7 @@
         (is (= identities ok)))
       (reset! completed true)
       (finally
-        (cleanup dir)
+        (fs/delete-tree! dir)
         (is @completed
             "test completed")))))
 
@@ -165,7 +162,7 @@
             "no fixed issues on re-analysis with absolute path"))
       (reset! completed true)
       (finally
-        (cleanup dir)
+        (fs/delete-tree! dir)
         (is @completed
             "test completed")))))
 
@@ -185,7 +182,7 @@
         (is (empty? fixed)))
       (reset! completed true)
       (finally
-        (cleanup dir)
+        (fs/delete-tree! dir)
         (is @completed
             "test completed")))))
 
@@ -204,6 +201,6 @@
               "baseline issues match snapshot"))
         (reset! completed true))
       (finally
-        (cleanup dir)
+        (fs/delete-tree! dir)
         (is @completed
             "test completed")))))

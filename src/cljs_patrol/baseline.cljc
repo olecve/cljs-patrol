@@ -159,8 +159,9 @@
 (defn write-baseline
   "Write a baseline file at `path` with the given set of identity maps."
   [path issues]
-  (when-let [parent (fs/parent-dir path)] (fs/mkdirs parent))
-  (fs/spit-file path (render-baseline issues)))
+  (let [parent (fs/parent-dir path)]
+    (when parent (fs/mkdirs parent))
+    (fs/spit-file path (render-baseline issues))))
 
 (defn read-baseline
   "Read and validate a baseline file at `path`.
@@ -207,11 +208,22 @@
 
 (defn read-config
   "Read `.cljs-patrol/config.edn` and return the full map.
-  Returns {} if the file is missing, unreadable, or malformed."
+  Returns {} if the file is missing. On a malformed file, prints a
+  warning to stderr and returns {} so the tool still runs against
+  defaults — a broken config shouldn't crash CI, but silently
+  ignoring one that never took effect is worse."
   []
   (if (fs/file-exists? default-config-path)
-    (try (edn/read-string (fs/slurp-file default-config-path))
-         (catch #?(:clj Exception :cljs :default) _ {}))
+    (try
+      (edn/read-string (fs/slurp-file default-config-path))
+      (catch #?(:clj Exception :cljs :default) e
+        #?(:clj (binding [*out* *err*]
+                  (println (str "WARN: could not parse " default-config-path ": "
+                                (error-message e))))
+           :cljs (.error js/console
+                         (str "WARN: could not parse " default-config-path ": "
+                              (error-message e))))
+        {}))
     {}))
 
 (defn merge-config
