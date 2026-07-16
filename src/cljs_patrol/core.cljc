@@ -4,9 +4,10 @@
   Detects unused re-frame subscriptions, events, and Spade style declarations via
   static analysis of ClojureScript source files. Exits with code 1 when unused
   code is found, making it suitable for use in CI pipelines."
-  (:gen-class)
+  #?@(:clj [(:gen-class)])
   (:require
    [cljs-patrol.baseline :as baseline]
+   [cljs-patrol.format :refer [formatf]]
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
@@ -18,11 +19,14 @@
    [cljs-patrol.parser :as parser]
    [cljs-patrol.reporters.console :as console]
    [cljs-patrol.reporters.edn :as edn-reporter]
-   [cljs-patrol.reporters.html :as html-reporter]
+   #?@(:clj [[cljs-patrol.reporters.html :as html-reporter]])
    [cljs-patrol.reporters.markdown :as md-reporter]
    [cljs-patrol.severity :as severity]
-   [clojure.string :as str]
-   [clojure.tools.cli :as cli]))
+   [clojure.string :as str]))
+
+(defn- exit! [code]
+  #?(:clj (System/exit code)
+     :cljs (js/process.exit code)))
 
 (defn- assemble-groups [config]
   [re-frame/group
@@ -38,23 +42,83 @@
     (seq disable) (remove #(contains? disable (group/group-id %)) all-groups)
     :else all-groups))
 
-(def ^:private cli-options
-  [[nil "--only GROUPS" "Enable only these groups (comma-separated)"
-    :parse-fn #(set (map keyword (str/split % #",")))]
-   [nil "--disable GROUPS" "Disable these groups (comma-separated)"
-    :parse-fn #(set (map keyword (str/split % #",")))]
-   [nil "--output FORMAT" "Output format: html, edn, or markdown"
-    :parse-fn keyword]
-   [nil "--files FILES" "Limit results to these files (comma-separated)"
-    :parse-fn #(str/split % #",")]
-   [nil "--baseline-write" "Write current issues to baseline file and exit 0"]
-   [nil "--baseline" "Compare against baseline; exit 1 only on new issues"]
-   [nil "--strict-baseline" "Also fail if baseline issues are no longer present"]
-   [nil "--quiet-baseline" "Only print new issues, suppress baseline issues"]
-   [nil "--fail-on TIERS_OR_RULES"
-    "Comma-separated list of tiers (bugs/deprecations/cleanup), rule keys, or 'all'"]
-   [nil "--list-rules" "Print all rules grouped by tier and exit"]
-   ["-h" "--help"]])
+(def ^:private options-spec
+  "Every supported CLI flag. `:kind` is `:flag` (boolean, no value) or
+  `:value` (consumes the next argv slot, optionally through `:parse-fn`)."
+  [{:long "--only" :arg "GROUPS" :kind :value :key :only
+    :parse-fn #(set (map keyword (str/split % #",")))
+    :help "Enable only these groups (comma-separated)"}
+   {:long "--disable" :arg "GROUPS" :kind :value :key :disable
+    :parse-fn #(set (map keyword (str/split % #",")))
+    :help "Disable these groups (comma-separated)"}
+   {:long "--output" :arg "FORMAT" :kind :value :key :output
+    :parse-fn keyword
+    :help "Output format: html, edn, or markdown"}
+   {:long "--files" :arg "FILES" :kind :value :key :files
+    :parse-fn #(str/split % #",")
+    :help "Limit results to these files (comma-separated)"}
+   {:long "--baseline-write" :kind :flag :key :baseline-write
+    :help "Write current issues to baseline file and exit 0"}
+   {:long "--baseline" :kind :flag :key :baseline
+    :help "Compare against baseline; exit 1 only on new issues"}
+   {:long "--strict-baseline" :kind :flag :key :strict-baseline
+    :help "Also fail if baseline issues are no longer present"}
+   {:long "--quiet-baseline" :kind :flag :key :quiet-baseline
+    :help "Only print new issues, suppress baseline issues"}
+   {:long "--fail-on" :arg "TIERS_OR_RULES" :kind :value :key :fail-on
+    :help "Comma-separated list of tiers (bugs/deprecations/cleanup), rule keys, or 'all'"}
+   {:long "--list-rules" :kind :flag :key :list-rules
+    :help "Print all rules grouped by tier and exit"}
+   {:long "--help" :short "-h" :kind :flag :key :help
+    :help "Print this help and exit"}])
+
+(defn- spec-by-flag [flag]
+  (some (fn [s] (when (or (= flag (:long s)) (= flag (:short s))) s))
+        options-spec))
+
+(defn- summary-str []
+  (str/join
+   "\n"
+   (for [{:keys [long arg help]} options-spec]
+     (str "  " long
+          (when arg (str " " arg))
+          "  " help))))
+
+(defn parse-opts
+  "Small tools.cli-lookalike returning {:options :arguments :errors :summary}."
+  [args]
+  (loop [remaining args
+         options {}
+         arguments []
+         errors []]
+    (if (empty? remaining)
+      {:options options
+       :arguments arguments
+       :errors errors
+       :summary (summary-str)}
+      (let [arg (first remaining)
+            tail (rest remaining)]
+        (cond
+          (str/starts-with? arg "--")
+          (if-let [{:keys [kind key parse-fn]} (spec-by-flag arg)]
+            (case kind
+              :flag (recur tail (assoc options key true) arguments errors)
+              :value (if (empty? tail)
+                       (recur []
+                              options
+                              arguments
+                              (conj errors (str "Missing value for " arg)))
+                       (recur (rest tail)
+                              (assoc options key ((or parse-fn identity) (first tail)))
+                              arguments
+                              errors)))
+            (recur tail options arguments (conj errors (str "Unknown option: " arg))))
+
+          (= arg "-h")
+          (recur tail (assoc options :help true) arguments errors)
+
+          :else
+          (recur tail options (conj arguments arg) errors))))))
 
 (defn- filter-result [result files-set]
   (->> result
@@ -74,7 +138,7 @@
   (println "\n=== SUMMARY ===")
   (doseq [[g r] (map vector enabled-groups group-results)]
     (doseq [[label cnt] (group/summary-lines g r)]
-      (println (format "  %-30s %d" label cnt)))))
+      (println (formatf "  %-30s %d" label cnt)))))
 
 (defn- any-rule-issue?
   "True if `run-results` contains any non-empty items vector keyed by a rule in `rule-set`."
@@ -141,26 +205,37 @@
         path (baseline/resolve-baseline-path (:baseline-path opts) dirs)]
     (baseline/write-baseline path identities)
     (println (str "Wrote baseline with " (count identities) " issues to " path))
-    (System/exit 0)))
+    (exit! 0)))
 
 (defn- print-baseline-console-summary [{:keys [new-issues present fixed fail-on-rules]}]
-  (println (format "\nFound %d issues: %d new, %d in baseline, %d fixed."
-                   (+ (count new-issues) (count present))
-                   (count new-issues) (count present) (count fixed)))
+  (println (formatf "\nFound %d issues: %d new, %d in baseline, %d fixed."
+                    (+ (count new-issues) (count present))
+                    (count new-issues) (count present) (count fixed)))
   (when (seq fail-on-rules)
     (let [blocking (count (filter #(contains? fail-on-rules (:rule %)) new-issues))
           warning (- (count new-issues) blocking)]
-      (println (format "New: %d blocking, %d warnings." blocking warning))))
+      (println (formatf "New: %d blocking, %d warnings." blocking warning))))
   (when (seq fixed)
-    (println (format "%d baseline issues no longer present - consider running --baseline-write to refresh."
-                     (count fixed)))))
+    (println (formatf "%d baseline issues no longer present - consider running --baseline-write to refresh."
+                      (count fixed)))))
+
+(defn- write-baseline-html-report! [enabled-groups run-results new-issues fixed-count fail-on-rules]
+  #?(:clj (let [blocking-count (count (filter #(contains? fail-on-rules (:rule %)) new-issues))
+                warning-count (- (count new-issues) blocking-count)]
+            (html-reporter/write-baseline-report
+             enabled-groups run-results "report.html"
+             new-issues fixed-count
+             fail-on-rules blocking-count warning-count)
+            (println "Report written to report.html"))
+     :cljs (do (println "Error: --output html is only supported in the JVM build for now.")
+               (exit! 1))))
 
 (defn- run-baseline-compare! [enabled-groups run-results opts dirs rule->tier]
   (let [path (baseline/resolve-baseline-path (:baseline-path opts) dirs)
         {:keys [ok error]} (baseline/read-baseline path)]
     (when error
       (println (str "Error: " error))
-      (System/exit 1))
+      (exit! 1))
     (let [found (baseline/collect-identities run-results)
           {new-issues :new
            present :present
@@ -173,18 +248,12 @@
                       1 0)]
       (when (= :markdown (:output opts))
         (println "Error: --output markdown is not supported with --baseline.")
-        (System/exit 1))
+        (exit! 1))
       (case (:output opts)
         :edn (edn-reporter/print-baseline-report
               dirs new-issues present fixed exit-code
               fail-on-rules rule->tier)
-        :html (let [blocking-count (count (filter #(contains? fail-on-rules (:rule %)) new-issues))
-                    warning-count (- (count new-issues) blocking-count)]
-                (html-reporter/write-baseline-report
-                 enabled-groups run-results "report.html"
-                 new-issues (count fixed)
-                 fail-on-rules blocking-count warning-count)
-                (println "Report written to report.html"))
+        :html (write-baseline-html-report! enabled-groups run-results new-issues (count fixed) fail-on-rules)
         (do
           (doseq [{:keys [source-dir group-results]} run-results]
             (doseq [result group-results]
@@ -198,7 +267,15 @@
             :present present
             :fixed fixed
             :fail-on-rules fail-on-rules})))
-      (System/exit exit-code))))
+      (exit! exit-code))))
+
+(defn- write-standalone-html-report! [enabled-groups run-results fail-on-rules]
+  #?(:clj (do (html-reporter/write-report enabled-groups run-results "report.html" fail-on-rules)
+              (println "Report written to report.html")
+              (doseq [{:keys [group-results]} run-results]
+                (print-summary enabled-groups group-results)))
+     :cljs (do (println "Error: --output html is only supported in the JVM build for now.")
+               (exit! 1))))
 
 (defn- run-standalone! [enabled-groups run-results opts dirs]
   (let [fail-on-rules (:fail-on-rules opts)
@@ -206,11 +283,7 @@
                                          :run-results run-results
                                          :fail-on-rules fail-on-rules})]
     (case (:output opts)
-      :html (do
-              (html-reporter/write-report enabled-groups run-results "report.html" fail-on-rules)
-              (println "Report written to report.html")
-              (doseq [{:keys [group-results]} run-results]
-                (print-summary enabled-groups group-results)))
+      :html (write-standalone-html-report! enabled-groups run-results fail-on-rules)
       :edn (edn-reporter/print-report enabled-groups dirs run-results fail-on-rules)
       :markdown (md-reporter/print-report enabled-groups dirs run-results)
       (do
@@ -222,11 +295,11 @@
           (let [{:keys [blocking warning]} (severity/count-by-fail-on
                                             (run-results->results run-results)
                                             fail-on-rules)]
-            (println (format "\n%d blocking, %d warnings." blocking warning))))))
-    (System/exit (if any-failed? 1 0))))
+            (println (formatf "\n%d blocking, %d warnings." blocking warning))))))
+    (exit! (if any-failed? 1 0))))
 
 (defn -main [& args]
-  (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)]
+  (let [{:keys [options arguments errors summary]} (parse-opts args)]
     (when (or (:help options) (empty? args))
       (println "Usage: cljs-patrol [options] <source-dir> [<source-dir> ...]")
       (println)
@@ -236,16 +309,16 @@
       (println)
       (println "Options:")
       (println summary)
-      (System/exit 0))
-    (when errors
+      (exit! 0))
+    (when (seq errors)
       (doseq [e errors] (println e))
-      (System/exit 1))
+      (exit! 1))
     (when (and (:baseline-write options) (:baseline options))
       (println "Error: --baseline-write and --baseline are mutually exclusive.")
-      (System/exit 1))
+      (exit! 1))
     (when (and (:baseline-write options) (:files options))
       (println "Error: --baseline-write cannot be used with --files (would write a partial baseline).")
-      (System/exit 1))
+      (exit! 1))
     (let [config (baseline/read-config)
           base-opts (baseline/merge-config
                      config
@@ -260,14 +333,14 @@
           {:keys [ok error]} (severity/parse-fail-on fail-on-input rule->tier)
           _ (when error
               (println (str "Error: " error))
-              (System/exit 1))
+              (exit! 1))
           opts (assoc base-opts :fail-on-rules (or ok #{}))]
       (when (:list-rules options)
         (println (severity/format-rules (severity/list-rules enabled-groups)))
-        (System/exit 0))
+        (exit! 0))
       (when (empty? dirs)
         (println "Error: no source directories specified")
-        (System/exit 1))
+        (exit! 1))
       (let [run-results (cond-> (mapv #(run % enabled-groups) dirs)
                           (:files opts) (filter-run-results (:files opts)))]
         (cond

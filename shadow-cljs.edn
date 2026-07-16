@@ -1,5 +1,5 @@
 {:source-paths ["src"]
  :dependencies [[rewrite-clj/rewrite-clj "1.1.47"]]
- :builds {:spike {:target :node-script
-                  :main cljs-patrol.spike/-main
-                  :output-to "out/spike.js"}}}
+ :builds {:node {:target :node-script
+                 :main cljs-patrol.node/-main
+                 :output-to "out/cljs-patrol.js"}}}
