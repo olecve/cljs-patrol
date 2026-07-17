@@ -40,3 +40,39 @@
    [:mark (pseudo-styles/badge-marker-attrs) "badge"]
    [:div {:class [(pseudo-styles/callout-style) "extra"]} "callout"]
    [:div {:class [(pseudo-styles/panel-style) "extra"]} "panel"]])
+
+;; Redundant into-hiccup: keyword tag. Should be `[:ul (for …)]`.
+(defn redundant-into-keyword-view [items]
+  (into [:ul {:class "list"}]
+        (for [x items]
+          ^{:key x} [:li x])))
+
+;; Redundant into-hiccup: bare-symbol Reagent component head. Should be
+;; `[card-body (for …)]`.
+(defn redundant-into-bare-symbol-view [cards card-body]
+  (into [card-body]
+        (for [c cards]
+          ^{:key (:id c)} [:div (:title c)])))
+
+;; Redundant into-hiccup: namespaced-symbol component head.
+(defn redundant-into-namespaced-view [items]
+  (into [pseudo-styles/panel-style {:aria-label "Group"}]
+        (for [x items]
+          ^{:key x} [:div x])))
+
+;; NOT flagged — plain-Clojure vector construction.
+(defn ok-into-empty [xs]
+  (into [] (map inc xs)))
+
+;; NOT flagged — literal head is a number, obviously data manipulation.
+(defn ok-into-literal-head [more]
+  (into [1 2 3] more))
+
+;; NOT flagged — arity-1 into.
+(defn ok-into-arity-1 []
+  (into [:span]))
+
+;; NOT flagged — vector's second element is another keyword, so this is
+;; a data/schema structure, not a Hiccup element.
+(defn ok-into-keyword-path [ks]
+  (into [:cart :items] ks))

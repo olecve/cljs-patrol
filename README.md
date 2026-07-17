@@ -36,7 +36,7 @@ Analysis is split into independent rule groups. By default all groups run.
 | ------------- | ------------------------------------------------------------------------ |
 | `re-frame`    | Unused/phantom re-frame subscriptions and events                         |
 | `spade`       | Unused Spade style declarations, defattrs in merge, pseudo-selector keys inside the main style map, consecutive self-selectors that compile to descendant selectors |
-| `reagent`     | defclass used as sole attr (should be defattrs)                          |
+| `reagent`     | defclass used as sole attr (should be defattrs); redundant `(into [:tag …] …)` around Hiccup vectors |
 | `typography`  | Mixed Figma typography token groups in a single style                    |
 | `a11y`        | Accessibility issues in Hiccup: `:img` missing `:alt`, invalid `:tabIndex`, `:on-click` on non-interactive tags, empty interactive elements without an accessible name, form controls missing an accessible name |
 | `docstrings`  | Bbatsov style-guide violations on every def (summary, indent, whitespace) |
@@ -81,6 +81,7 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **reg-event-db returning effects** — `reg-event-db` handler returns an effects-style `{:db ... :dispatch ...}` map; the whole map silently replaces app-db and extra effects are dropped (use `reg-event-fx` instead)
 - **Deprecated effects** — use of `:dispatch-n` (replaced by `:fx`)
 - **defclass as sole attr** — `defclass` where every usage is `{:class (style-fn)}` with no other props; should be `defattrs` instead
+- **Redundant into-hiccup** — `(into [:tag …] …)` or `(into [component …] …)` where the first argument is a literal hiccup vector; Reagent inlines top-level seqs in hiccup, so `[:tag children]` renders identically. Drop the `into` wrapper
 - **defattrs in merge** — `defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class` without merge
 - **Mixed typography token groups** — typography tokens from different Figma token groups mixed in a single style definition
 - **`:img` missing `:alt`** — `[:img {...}]` without an `:alt` attribute; use `:alt ""` for decorative images
@@ -276,7 +277,7 @@ By default, any issue causes CI to fail. For incremental adoption — or just to
 | ---- | ----- | --- |
 | `bugs` | `duplicate-subs`, `duplicate-events`, `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects`, `img-alt-missing`, `invalid-tabindex`, `on-click-on-non-interactive`, `empty-interactive-element`, `missing-accessible-name`, `pseudo-in-main-map`, `consecutive-self-selectors` | Silent runtime breakage — duplicate registrations overwrite, empty-effect handlers clobber app-db, effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen readers, invalid `:tabIndex` values break the natural focus order, `:on-click` on non-interactive tags without keyboard support locks keyboard users out, empty interactive elements and unlabelled form controls have no accessible name, and Spade pseudo-selectors either misplaced inside the main map or chained without a comma silently produce no CSS. |
 | `deprecations` | `deprecated-effects`, `defclass-as-sole-attr`, `defattrs-in-merge`, `mixed-token-groups` | Deprecated APIs and idiomatic violations that may break later. |
-| `cleanup` | `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events`, `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace` | Dead code, style noise, and suspicious references with no runtime impact. |
+| `cleanup` | `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events`, `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `redundant-into-hiccup`, `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace` | Dead code, style noise, and suspicious references with no runtime impact. |
 
 `dynamic-sites` is info-only — it never affects the exit code.
 

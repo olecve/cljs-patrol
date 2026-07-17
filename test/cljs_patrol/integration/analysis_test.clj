@@ -83,6 +83,21 @@
       (is (not (contains? (set (map :kw (:defclass-as-sole-attr reagent-result)))
                           :webapp.styles/vector-multi-class-style))))
 
+    (testing "detects redundant `into` around hiccup vectors"
+      (let [findings (:redundant-into-hiccup reagent-result)]
+        (is (= 3 (count findings)))
+        (is (= #{:ul (symbol "card-body") (symbol "pseudo-styles/panel-style")}
+               (set (map :kw findings))))))
+
+    (testing "does not flag plain-Clojure into forms"
+      (let [forms (set (map :form (:redundant-into-hiccup reagent-result)))]
+        (is (not-any? #(re-find #"\(into \[\]" %) forms)
+            "empty-vec into not flagged")
+        (is (not-any? #(re-find #"\(into \[1 2 3\]" %) forms)
+            "literal-head into not flagged")
+        (is (not-any? #(re-find #"\(into \[:span\]\)" %) forms)
+            "arity-1 into not flagged")))
+
     (testing "detects duplicate subscription registration"
       (is (= 2 (count (:duplicate-subs re-frame-result))))
       (is (= #{:webapp.subs/used-sub} (set (map :kw (:duplicate-subs re-frame-result))))))
@@ -124,4 +139,5 @@
       (is (every? #(= :deprecations (:tier %)) (:defattrs-in-merge spade-result)))
       (is (every? #(= :bugs (:tier %)) (:pseudo-in-main-map spade-result)))
       (is (every? #(= :bugs (:tier %)) (:consecutive-self-selectors spade-result)))
-      (is (every? #(= :deprecations (:tier %)) (:defclass-as-sole-attr reagent-result))))))
+      (is (every? #(= :deprecations (:tier %)) (:defclass-as-sole-attr reagent-result)))
+      (is (every? #(= :cleanup (:tier %)) (:redundant-into-hiccup reagent-result))))))
