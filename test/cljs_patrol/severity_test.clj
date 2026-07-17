@@ -114,6 +114,7 @@
   (is (= #{:unused-subs :unused-events :unused-styles
            :phantom-subs :phantom-events
            :reg-sub-=>-1-arity :reg-event-fx-db-only
+           :redundant-into-hiccup
            :docstring-summary :docstring-indentation
            :docstring-leading-trailing-whitespace}
          (severity/tier->rules rule->tier :cleanup)))
@@ -199,6 +200,7 @@
       (is (= #{:unused-subs :unused-events :unused-styles
                :phantom-subs :phantom-events
                :reg-sub-=>-1-arity :reg-event-fx-db-only
+               :redundant-into-hiccup
                :docstring-summary :docstring-indentation
                :docstring-leading-trailing-whitespace}
              (set (map :rule (:cleanup tiered))))))

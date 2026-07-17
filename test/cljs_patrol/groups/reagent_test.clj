@@ -37,13 +37,28 @@
     (let [result (group/analyze reagent/group
                                 {:declarations [defclass-sole]
                                  :usages []})]
-      (is (empty? (:defclass-as-sole-attr result))))))
+      (is (empty? (:defclass-as-sole-attr result)))))
+
+  (testing "surfaces redundant-into-hiccup findings from declarations"
+    (let [into-finding {:kw :ul
+                        :type :redundant-into-hiccup
+                        :form "(into [:ul] (for [x xs] [:li x]))"
+                        :file "views.cljs"
+                        :row 12
+                        :col 3}
+          result (group/analyze reagent/group
+                                {:declarations [into-finding]
+                                 :usages []})]
+      (is (= [into-finding] (:redundant-into-hiccup result))))))
 
 (deftest failed?-test
   (testing "never fails (warning only)"
     (is (not (group/failed? reagent/group {:defclass-as-sole-attr [defclass-sole]})))))
 
 (deftest summary-lines-test
-  (let [lines (group/summary-lines reagent/group {:defclass-as-sole-attr [defclass-sole]})]
-    (is (= 1 (count lines)))
-    (is (= 1 (second (first lines))))))
+  (let [lines (group/summary-lines reagent/group
+                                   {:defclass-as-sole-attr [defclass-sole]
+                                    :redundant-into-hiccup []})]
+    (is (= 2 (count lines)))
+    (is (= 1 (second (first lines))))
+    (is (= 0 (second (second lines))))))

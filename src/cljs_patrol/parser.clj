@@ -158,10 +158,19 @@
 (defn- collect-handlers
   "Collect unique handler functions from all enabled groups, keyed by handler type."
   [enabled-groups]
-  (let [all-handlers (map group/parse-handlers enabled-groups)]
-    {:handle-list (distinct (keep :handle-list all-handlers))
-     :handle-vector (distinct (keep :handle-vector all-handlers))
-     :handle-token (distinct (keep :handle-token all-handlers))}))
+  (let [all-handlers (map group/parse-handlers enabled-groups)
+        gather (fn [k]
+                 (->> all-handlers
+                      (mapcat #(let [v (get % k)]
+                                 (cond
+                                   (nil? v) nil
+                                   (sequential? v) v
+                                   :else [v])))
+                      (keep identity)
+                      distinct))]
+    {:handle-list (gather :handle-list)
+     :handle-vector (gather :handle-vector)
+     :handle-token (gather :handle-token)}))
 
 (defn- call-handlers [handlers tag loc ns-info file]
   (let [fns (cond

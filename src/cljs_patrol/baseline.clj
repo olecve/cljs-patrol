@@ -29,7 +29,8 @@
   finding into a new one. Two identical Hiccup vectors in the same file
   collapse to a single identity (rare in practice)."
   #{:img-alt-missing :invalid-tabindex :on-click-on-non-interactive
-    :empty-interactive-element :missing-accessible-name})
+    :empty-interactive-element :missing-accessible-name
+    :redundant-into-hiccup})
 
 (defn- relativize-path
   "Strip source-dir prefix from path to produce a portable relative path.

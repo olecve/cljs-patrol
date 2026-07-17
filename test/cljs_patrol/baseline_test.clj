@@ -198,7 +198,19 @@
                                       :file "src/views.cljs"
                                       :row 42
                                       :col 3}))
-        "missing-accessible-name keyed by tag + file + form"))
+        "missing-accessible-name keyed by tag + file + form")
+    (is (= {:rule :redundant-into-hiccup
+            :tag :ul
+            :file "src/views.cljs"
+            :form "(into [:ul] (for [x xs] [:li x]))"}
+           (baseline/issue->identity :redundant-into-hiccup
+                                     {:type :redundant-into-hiccup
+                                      :kw :ul
+                                      :form "(into [:ul] (for [x xs] [:li x]))"
+                                      :file "src/views.cljs"
+                                      :row 12
+                                      :col 3}))
+        "redundant-into-hiccup keyed by tag + file + form"))
 
   (testing "unknown rule throws"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown rule"
