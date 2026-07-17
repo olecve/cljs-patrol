@@ -32,14 +32,12 @@ Native binaries (`cljs-patrol-<version>-linux-x86_64`, `cljs-patrol-<version>-ma
 
 Analysis is split into independent rule groups. By default all groups run.
 
-| Group        | Detects                                                                                                                                                                                                          |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `re-frame`   | Unused/phantom re-frame subscriptions and events                                                                                                                                                                 |
-| `spade`      | Unused Spade style declarations, defattrs in merge, pseudo-selector keys inside the main style map, consecutive self-selectors that compile to descendant selectors                                              |
-| `reagent`    | defclass used as sole attr (should be defattrs); redundant `(into [:tag …] …)` around Hiccup vectors                                                                                                             |
-| `typography` | Mixed Figma typography token groups in a single style                                                                                                                                                            |
-| `a11y`       | Accessibility issues in Hiccup: `:img` missing `:alt`, invalid `:tabIndex`, `:on-click` on non-interactive tags, empty interactive elements without an accessible name, form controls missing an accessible name |
-| `docstrings` | Bbatsov style-guide violations on every def (summary, indent, whitespace)                                                                                                                                        |
+- **`re-frame`** — unused/phantom re-frame subscriptions and events
+- **`spade`** — unused Spade style declarations, defattrs in merge, pseudo-selector keys inside the main style map, consecutive self-selectors that compile to descendant selectors
+- **`reagent`** — defclass used as sole attr (should be defattrs); redundant `(into [:tag …] …)` around Hiccup vectors
+- **`typography`** — mixed Figma typography token groups in a single style
+- **`a11y`** — accessibility issues in Hiccup: `:img` missing `:alt`, invalid `:tabIndex`, `:on-click` on non-interactive tags, empty interactive elements without an accessible name, form controls missing an accessible name
+- **`docstrings`** — bbatsov style-guide violations on every def (summary, indent, whitespace)
 
 Run only specific groups:
 
@@ -273,11 +271,22 @@ By default, any issue causes CI to fail. For incremental adoption — or just to
 
 ### Tiers
 
-| Tier           | Rules                                                                                                                                                                                                                                                                                                | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `bugs`         | `duplicate-subs`, `duplicate-events`, `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects`, `img-alt-missing`, `invalid-tabindex`, `on-click-on-non-interactive`, `empty-interactive-element`, `missing-accessible-name`, `pseudo-in-main-map`, `consecutive-self-selectors` | Silent runtime breakage — duplicate registrations overwrite, empty-effect handlers clobber app-db, effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen readers, invalid `:tabIndex` values break the natural focus order, `:on-click` on non-interactive tags without keyboard support locks keyboard users out, empty interactive elements and unlabelled form controls have no accessible name, and Spade pseudo-selectors either misplaced inside the main map or chained without a comma silently produce no CSS. |
-| `deprecations` | `deprecated-effects`, `defclass-as-sole-attr`, `defattrs-in-merge`, `mixed-token-groups`                                                                                                                                                                                                             | Deprecated APIs and idiomatic violations that may break later.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `cleanup`      | `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events`, `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `redundant-into-hiccup`, `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace`                                                      | Dead code, style noise, and suspicious references with no runtime impact.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+**`bugs`** — silent runtime breakage. Duplicate registrations overwrite, empty-effect handlers clobber app-db, effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen readers, invalid `:tabIndex` values break the natural focus order, `:on-click` on non-interactive tags without keyboard support locks keyboard users out, empty interactive elements and unlabelled form controls have no accessible name, and Spade pseudo-selectors either misplaced inside the main map or chained without a comma silently produce no CSS.
+
+- `duplicate-subs`, `duplicate-events`
+- `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects`
+- `img-alt-missing`, `invalid-tabindex`, `on-click-on-non-interactive`, `empty-interactive-element`, `missing-accessible-name`
+- `pseudo-in-main-map`, `consecutive-self-selectors`
+
+**`deprecations`** — deprecated APIs and idiomatic violations that may break later.
+
+- `deprecated-effects`, `defclass-as-sole-attr`, `defattrs-in-merge`, `mixed-token-groups`
+
+**`cleanup`** — dead code, style noise, and suspicious references with no runtime impact.
+
+- `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events`
+- `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `redundant-into-hiccup`
+- `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace`
 
 `dynamic-sites` is info-only — it never affects the exit code.
 
