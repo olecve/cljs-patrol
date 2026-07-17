@@ -18,9 +18,9 @@
       collapsed)))
 
 (defn- hiccup-head-loc?
-  "True when `loc` is a token that plausibly heads a Hiccup vector:
-  a keyword that parses as a Hiccup tag, or any symbol (bare or
-  namespaced) — Reagent components appear here as ordinary refs."
+  "True when `loc` is a token that plausibly heads a Hiccup vector.
+  Accepts a keyword that parses as a Hiccup tag, or any symbol —
+  Reagent components appear here as ordinary refs (bare or namespaced)."
   [loc]
   (and loc
        (= :token (z/tag loc))
@@ -28,16 +28,16 @@
            (some? (parser/sym-name loc)))))
 
 (defn- data-vector?
-  "True when the vector's second element is also a keyword literal —
-  the shape [:ns :key …] and similar are almost always data/schema
-  structures, not Hiccup elements."
+  "True when the vector's second element is also a keyword literal.
+  The shape `[:ns :key …]` almost always encodes a re-frame path or
+  Malli/spec schema, not a Hiccup element."
   [vec-loc]
   (let [second-loc (some-> vec-loc z/down z/right)]
     (and second-loc (parser/kw-node? second-loc))))
 
 (defn- redundant-into?
-  "Match `(into [HEAD …] EXPR …)` where HEAD looks like a Hiccup head
-  and the vector doesn't obviously carry data-shape keywords."
+  "True when `loc` is `(into [HEAD …] EXPR …)` with a Hiccup-shaped head.
+  Skips vectors that look like data or schema structures."
   [loc]
   (when (= "into" (parser/sym-name (z/down loc)))
     (let [vec-loc (some-> loc z/down z/right)
