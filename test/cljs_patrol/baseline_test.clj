@@ -354,7 +354,52 @@
         (baseline/write-baseline path test-issues)
         (is (fs/file-exists? path))
         (finally
-          (fs/delete-tree! dir))))))
+          (fs/delete-tree! dir)))))
+
+  (testing "summary counts totals and rule->total (sorted, deterministic)"
+    (let [path (tmp-baseline-path)]
+      (baseline/write-baseline path test-issues)
+      (let [data (edn/read-string (slurp path))
+            summary (:summary data)]
+        (is (= 4 (:total summary)))
+        (is (= {:unused-styles 2
+                :unused-subs 2}
+               (:rule->total summary)))
+        (is (= [:unused-styles :unused-subs]
+               (vec (keys (:rule->total summary))))
+            "rule->total keys are sorted alphabetically")
+        (is (= {:bugs 0
+                :deprecations 0
+                :cleanup 0}
+               (:tier->total summary))
+            "without rule->tier, all tiers are zero")
+        (is (= [:bugs :deprecations :cleanup]
+               (vec (keys (:tier->total summary))))
+            "tier->total keys follow canonical order: bugs, deprecations, cleanup"))))
+
+  (testing "summary tier->total is populated when rule->tier is provided"
+    (let [path (tmp-baseline-path)
+          rule->tier {:unused-subs :cleanup
+                      :unused-styles :cleanup}]
+      (baseline/write-baseline path test-issues rule->tier)
+      (let [data (edn/read-string (slurp path))
+            summary (:summary data)]
+        (is (= {:bugs 0
+                :deprecations 0
+                :cleanup 4}
+               (:tier->total summary))))))
+
+  (testing "summary handles empty issue set"
+    (let [path (tmp-baseline-path)]
+      (baseline/write-baseline path #{})
+      (let [data (edn/read-string (slurp path))
+            summary (:summary data)]
+        (is (= 0 (:total summary)))
+        (is (= {} (:rule->total summary)))
+        (is (= {:bugs 0
+                :deprecations 0
+                :cleanup 0}
+               (:tier->total summary)))))))
 
 (deftest read-baseline-test
   (testing "missing file"

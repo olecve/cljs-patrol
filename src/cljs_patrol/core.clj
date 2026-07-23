@@ -136,10 +136,10 @@
   [run-results]
   (mapcat :group-results run-results))
 
-(defn- run-baseline-write! [run-results opts dirs]
+(defn- run-baseline-write! [run-results opts dirs rule->tier]
   (let [identities (baseline/collect-identities run-results)
         path (baseline/resolve-baseline-path (:baseline-path opts) dirs)]
-    (baseline/write-baseline path identities)
+    (baseline/write-baseline path identities rule->tier)
     (println (str "Wrote baseline with " (count identities) " issues to " path))
     (System/exit 0)))
 
@@ -272,7 +272,7 @@
                           (:files opts) (filter-run-results (:files opts)))]
         (cond
           (:baseline-write opts)
-          (run-baseline-write! run-results opts dirs)
+          (run-baseline-write! run-results opts dirs rule->tier)
 
           (:baseline opts)
           (run-baseline-compare! enabled-groups run-results opts dirs rule->tier)
