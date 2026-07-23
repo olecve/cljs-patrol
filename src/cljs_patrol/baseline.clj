@@ -131,25 +131,68 @@
   (or (some-> (io/resource "cljs_patrol/VERSION") slurp str/trim not-empty)
       "dev"))
 
+(def ^:private tier-order
+  "Canonical order for `:tier->total`. `:bugs` first — it's the reviewer's
+  load-bearing question and belongs at the top of the summary."
+  [:bugs :deprecations :cleanup])
+
+(defn- tier-totals [rule-counts rule->tier]
+  (reduce
+   (fn [acc tier]
+     (assoc acc tier
+            (->> rule-counts
+                 (filter (fn [[rule _]] (= tier (get rule->tier rule))))
+                 (map val)
+                 (reduce + 0))))
+   (array-map)
+   tier-order))
+
+(defn- summarize [issues rule->tier]
+  (let [rule-counts (into (sorted-map) (frequencies (map :rule issues)))]
+    {:total (count issues)
+     :tier->total (tier-totals rule-counts rule->tier)
+     :rule->total rule-counts}))
+
+(defn- write-summary [w {:keys [total tier->total rule->total]}]
+  (.write w (str " :summary\n {:total " total "\n"))
+  (.write w "  :tier->total {")
+  (doseq [[i [tier n]] (map-indexed vector tier->total)]
+    (when (pos? i) (.write w " "))
+    (.write w (str (pr-str tier) " " n)))
+  (.write w "}\n")
+  (.write w "  :rule->total")
+  (if (empty? rule->total)
+    (.write w " {}}\n")
+    (do
+      (.write w "\n  {")
+      (doseq [[i [rule n]] (map-indexed vector rule->total)]
+        (when (pos? i) (.write w "\n   "))
+        (.write w (str (pr-str rule) " " n)))
+      (.write w "}}\n"))))
+
 (defn write-baseline
-  "Write a baseline file at `path` with the given set of identity maps."
-  [path issues]
-  (let [sorted (sort-issues issues)
-        parent (fs/parent-dir path)]
-    (when parent (fs/mkdirs parent))
-    (with-open [w (io/writer path)]
-      (.write w (str "{:version " baseline-version "\n"))
-      (.write w (str " :generated-at \"" (Instant/now) "\"\n"))
-      (.write w (str " :tool-version \"" tool-version "\"\n"))
-      (.write w " :issues\n [")
-      (doseq [[i issue] (map-indexed vector sorted)]
-        (when (pos? i) (.write w "\n\n  "))
-        (.write w "{")
-        (doseq [[j [k v]] (map-indexed vector issue)]
-          (when (pos? j) (.write w "\n   "))
-          (.write w (str (pr-str k) " " (pr-str v))))
-        (.write w "}"))
-      (.write w "]}\n"))))
+  "Write a baseline file at `path` with the given set of identity maps.
+  `rule->tier` is used to compute `:summary :tier->total`; when absent, all
+  tier counts are zero (tier info isn't part of the identity itself)."
+  ([path issues] (write-baseline path issues {}))
+  ([path issues rule->tier]
+   (let [sorted (sort-issues issues)
+         parent (fs/parent-dir path)]
+     (when parent (fs/mkdirs parent))
+     (with-open [w (io/writer path)]
+       (.write w (str "{:version " baseline-version "\n"))
+       (.write w (str " :generated-at \"" (Instant/now) "\"\n"))
+       (.write w (str " :tool-version \"" tool-version "\"\n"))
+       (write-summary w (summarize sorted rule->tier))
+       (.write w " :issues\n [")
+       (doseq [[i issue] (map-indexed vector sorted)]
+         (when (pos? i) (.write w "\n\n  "))
+         (.write w "{")
+         (doseq [[j [k v]] (map-indexed vector issue)]
+           (when (pos? j) (.write w "\n   "))
+           (.write w (str (pr-str k) " " (pr-str v))))
+         (.write w "}"))
+       (.write w "]}\n")))))
 
 (defn read-baseline
   "Read and validate a baseline file at `path`.
