@@ -407,7 +407,7 @@
           "modal-dialog shapes (`[:div {:role \"dialog\"}]`, `:aria-modal true`, "
           "or `[:dialog …]`), and any wrapper listed under `:a11y "
           ":component-aliases` in `.cljs-patrol/config.edn` — e.g. "
-          "`{my.ui/textarea :textarea, my.ui/drawer :dialog}`. "
+          "`{my.ui/drawer :dialog, my.ui/textarea :textarea}`. "
           "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
           "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")})
   (rule->tier [_]

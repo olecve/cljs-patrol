@@ -455,3 +455,47 @@
         (is (contains? by-row 12))
         (is (contains? by-row 51))
         (is (contains? by-row 66))))))
+
+(deftest button-wrapper-fixture-test
+  (let [buttons-file (str fixture-dir "/buttons.cljs")]
+    (testing "without :component-aliases config: wrapper buttons are inert"
+      (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+            {:keys [empty-interactive-element]} (first group-results)]
+        (is (empty? (filter #(= buttons-file (:file %)) empty-interactive-element))
+            "no wrapper is mapped — buttons.cljs contributes no findings")))
+
+    (testing "with :component-aliases {blogapp.ui/button :button}"
+      (let [configured (a11y/make-group
+                        {:component-aliases {'blogapp.ui/button :button}})
+            {:keys [group-results]} (core/run fixture-dir [configured])
+            {:keys [empty-interactive-element]} (first group-results)
+            in-buttons (filter #(= buttons-file (:file %)) empty-interactive-element)
+            rows (set (map :row in-buttons))]
+
+        (testing "flags [ui/button {:icon …}] — icon-only wrapper, no accessible name"
+          (is (contains? rows 6)
+              "bad-icon-only-wrapper"))
+
+        (testing "flags [button {:icon …}] via :refer resolution"
+          (is (contains? rows 11)
+              "bad-icon-only-wrapper-refer"))
+
+        (testing "does not flag icon wrapper carrying :aria-label"
+          (is (not (contains? rows 15))
+              "ok-icon-with-aria-label"))
+
+        (testing "does not flag icon wrapper with visible text child"
+          (is (not (contains? rows 20))
+              "ok-icon-with-visible-child"))
+
+        (testing "does not flag wrapper with only text (no :icon)"
+          (is (not (contains? rows 25))
+              "ok-text-only"))
+
+        (testing "does not flag wrapper with both :icon and visible text child"
+          (is (not (contains? rows 29))
+              "ok-icon-and-text"))
+
+        (testing "every wrapper finding carries :kw :button and :bugs tier"
+          (is (every? #(= :button (:kw %)) in-buttons))
+          (is (every? #(= :bugs (:tier %)) in-buttons)))))))

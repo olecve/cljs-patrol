@@ -96,15 +96,15 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 
 ### A11y component aliases
 
-`:missing-accessible-name` and the other a11y rules only inspect native HTML tags (`[:textarea …]`, `[:button …]`) by default. Real codebases usually wrap those in a component library — `[my.ui/textarea …]`, `[loyto/button …]` — which then slips past every check.
+`:missing-accessible-name` and the other a11y rules only inspect native HTML tags (`[:textarea …]`, `[:button …]`) by default. Real codebases usually wrap those in a component library — `[my.ui/textarea …]`, `[my.ui/button …]` — which then slips past every check.
 
 Map each wrapper to the native tag it renders in `.cljs-patrol/config.edn`:
 
 ```edn
 {:a11y {:component-aliases
-        {my.ui/textarea :textarea
-         my.ui/button   :button
-         my.ui/drawer   :dialog}}}
+        {my.ui/button :button
+         my.ui/drawer :dialog
+         my.ui/textarea :textarea}}}
 ```
 
 Any call whose head symbol resolves (via `:as` or `:refer` in the caller's `ns`) to a mapped fully-qualified symbol is then checked as if it were the native tag. `[my.ui/textarea {:placeholder "…"}]` participates in `:missing-accessible-name`; icon-only `[my.ui/button [icons/x]]` participates in `:empty-interactive-element`; `[my.ui/drawer {:open? true}]` participates in `:missing-accessible-name` via the `:dialog` mapping. All existing a11y rules compose the same way.

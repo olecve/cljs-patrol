@@ -9,3 +9,5 @@
 (defn text-input [attrs] attrs)
 
 (defn dialog-root [attrs & children] attrs)
+
+(defn button [attrs & children] attrs)
