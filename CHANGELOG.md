@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.0.20] - 2026-09-01
+
+## What's Changed
+
+* Fix --baseline-write crashing in native builds by @olecve in https://github.com/olecve/cljs-patrol/pull/44
+* Write the baseline atomically so a failed write cannot destroy it by @olecve in https://github.com/olecve/cljs-patrol/pull/45
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.19...v0.0.20
+
+
 ## [v0.0.19] - 2026-07-23
 
 ## What's Changed
