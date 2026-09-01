@@ -3,7 +3,11 @@
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.fs :as fs]
    [clojure.edn :as edn]
-   [clojure.test :refer [deftest is testing]]))
+   [clojure.string :as str]
+   [clojure.test :refer [deftest is testing]])
+  (:import
+   (java.io
+    File)))
 
 (deftest issue->identity-test
   (testing "keyword-keyed rules use rule + key"
@@ -400,6 +404,57 @@
                 :deprecations 0
                 :cleanup 0}
                (:tier->total summary)))))))
+
+(defn- sibling-temp-files [path]
+  (let [file (File. ^String path)
+        siblings (.listFiles (.getParentFile file))
+        prefix (.getName file)]
+    (->> siblings
+         (map (fn [^File f] (.getName f)))
+         (filter #(and (str/starts-with? % prefix) (str/ends-with? % ".tmp")))
+         sort
+         vec)))
+
+(defn- fail-mid-write [_ _]
+  (throw (RuntimeException. "boom mid-write")))
+
+(deftest write-baseline-atomicity-test
+  (testing "a failure partway through leaves the existing baseline intact"
+    (let [path (tmp-baseline-path)]
+      (baseline/write-baseline path test-issues)
+      (let [original (slurp path)]
+        (is (thrown? RuntimeException
+                     (with-redefs-fn {#'baseline/write-summary fail-mid-write}
+                       (fn [] (baseline/write-baseline path #{}))))
+            "the write failure still propagates")
+        (is (= original (slurp path))
+            "existing baseline is byte-for-byte unchanged")
+        (is (= test-issues (:ok (baseline/read-baseline path)))
+            "surviving baseline is still readable"))))
+
+  (testing "no temp file is left behind"
+    (let [path (tmp-baseline-path)]
+      (baseline/write-baseline path test-issues)
+      (is (= [] (sibling-temp-files path))
+          "after a successful write")
+      (with-redefs-fn {#'baseline/write-summary fail-mid-write}
+        (fn [] (is (thrown? RuntimeException (baseline/write-baseline path #{}))
+                   "the write failure still propagates")))
+      (is (= [] (sibling-temp-files path))
+          "after a failed write")))
+
+  (testing "the temp file sits next to the target, which is what lets the move be atomic"
+    (let [path (tmp-baseline-path)
+          in-flight (atom nil)]
+      (baseline/write-baseline path test-issues)
+      (with-redefs-fn {#'baseline/write-summary
+                       (fn [w summary]
+                         (reset! in-flight (sibling-temp-files path))
+                         (fail-mid-write w summary))}
+        (fn [] (is (thrown? RuntimeException (baseline/write-baseline path #{}))
+                   "the write failure still propagates")))
+      (is (= 1 (count @in-flight))
+          "a temp file exists beside the target while the write is in flight"))))
 
 (deftest read-baseline-test
   (testing "missing file"

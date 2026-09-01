@@ -4,7 +4,8 @@
   (:require
    [clojure.string :as str])
   (:import
-   [java.io File]))
+   [java.io File]
+   [java.nio.file AtomicMoveNotSupportedException CopyOption Files Path StandardCopyOption]))
 
 (defn absolute-path [^String path]
   (.getAbsolutePath (File. path)))
@@ -52,6 +53,27 @@
   Does not create the file; caller writes to it."
   [prefix suffix]
   (join-path (tmp-dir) (str prefix (nano-time) suffix)))
+
+(defn- as-path ^Path [^String path]
+  (.toPath (File. path)))
+
+(defn delete-file!
+  "Delete `path`, returning true when a file was actually removed.
+  No-op when `path` is missing."
+  [^String path]
+  (.delete (File. path)))
+
+(defn move-replace!
+  "Move `source` onto `target`, replacing any file already there.
+  Atomic when the filesystem supports it, so `target` is never observed
+  half-written; falls back to a plain replace when it does not."
+  [^String source ^String target]
+  (let [src (as-path source)
+        dst (as-path target)]
+    (try
+      (Files/move src dst (into-array CopyOption [StandardCopyOption/ATOMIC_MOVE]))
+      (catch AtomicMoveNotSupportedException _
+        (Files/move src dst (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))))))
 
 (defn delete-tree!
   "Recursively delete `path` if it exists.
