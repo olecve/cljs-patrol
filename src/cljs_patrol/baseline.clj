@@ -170,29 +170,40 @@
         (.write w (str (pr-str rule) " " n)))
       (.write w "}}\n"))))
 
+(defn- write-baseline-file [^String path sorted rule->tier]
+  (with-open [w (io/writer path)]
+    (.write w (str "{:version " baseline-version "\n"))
+    (.write w (str " :generated-at \"" (Instant/now) "\"\n"))
+    (.write w (str " :tool-version \"" tool-version "\"\n"))
+    (write-summary w (summarize sorted rule->tier))
+    (.write w " :issues\n [")
+    (doseq [[i issue] (map-indexed vector sorted)]
+      (when (pos? i) (.write w "\n\n  "))
+      (.write w "{")
+      (doseq [[j [k v]] (map-indexed vector issue)]
+        (when (pos? j) (.write w "\n   "))
+        (.write w (str (pr-str k) " " (pr-str v))))
+      (.write w "}"))
+    (.write w "]}\n")))
+
 (defn write-baseline
   "Write a baseline file at `path` with the given set of identity maps.
   `rule->tier` is used to compute `:summary :tier->total`; when absent, all
-  tier counts are zero (tier info isn't part of the identity itself)."
+  tier counts are zero (tier info isn't part of the identity itself).
+  The new content goes to a sibling temp file that is moved into place only
+  once it is complete, so a failure partway through leaves an existing
+  baseline untouched rather than truncated."
   ([path issues] (write-baseline path issues {}))
   ([path issues rule->tier]
    (let [sorted (sort-issues issues)
-         parent (fs/parent-dir path)]
+         parent (fs/parent-dir path)
+         tmp-path (str path "." (fs/nano-time) ".tmp")]
      (when parent (fs/mkdirs parent))
-     (with-open [w (io/writer path)]
-       (.write w (str "{:version " baseline-version "\n"))
-       (.write w (str " :generated-at \"" (Instant/now) "\"\n"))
-       (.write w (str " :tool-version \"" tool-version "\"\n"))
-       (write-summary w (summarize sorted rule->tier))
-       (.write w " :issues\n [")
-       (doseq [[i issue] (map-indexed vector sorted)]
-         (when (pos? i) (.write w "\n\n  "))
-         (.write w "{")
-         (doseq [[j [k v]] (map-indexed vector issue)]
-           (when (pos? j) (.write w "\n   "))
-           (.write w (str (pr-str k) " " (pr-str v))))
-         (.write w "}"))
-       (.write w "]}\n")))))
+     (try
+       (write-baseline-file tmp-path sorted rule->tier)
+       (fs/move-replace! tmp-path path)
+       (finally
+         (fs/delete-file! tmp-path))))))
 
 (defn read-baseline
   "Read and validate a baseline file at `path`.
