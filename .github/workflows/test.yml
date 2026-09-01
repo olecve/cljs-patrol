@@ -53,3 +53,12 @@ jobs:
 
       - run: clojure -T:build native
       - run: ./target/cljs-patrol --help
+
+      - name: Exercise the baseline writer on the native binary
+        # --help never reaches write-baseline. Reflective interop only fails in
+        # a native build, so the writer has to be run from the real binary.
+        run: |
+          cd test/projects/a11y-app
+          "$GITHUB_WORKSPACE/target/cljs-patrol" --only a11y --baseline-write src
+          grep -q ':issues' src/.cljs-patrol/baseline.edn
+          "$GITHUB_WORKSPACE/target/cljs-patrol" --only a11y --baseline src

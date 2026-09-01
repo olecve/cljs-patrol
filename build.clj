@@ -25,11 +25,15 @@
   [_]
   (clean nil)
   (let [basis (b/create-basis {:project "deps.edn"})]
-    (b/copy-dir {:src-dirs ["src" "resources"] :target-dir class-dir})
+    (b/copy-dir {:src-dirs ["src" "resources"]
+                 :target-dir class-dir})
     (write-version-resource)
     (b/compile-clj {:basis basis
                     :src-dirs ["src"]
-                    :class-dir class-dir})
+                    :class-dir class-dir
+                    ;; Reflective interop survives compilation but throws in the
+                    ;; native-image build, where reflection metadata is stripped.
+                    :bindings {#'clojure.core/*warn-on-reflection* true}})
     (b/uber {:basis basis
              :class-dir class-dir
              :main main-ns

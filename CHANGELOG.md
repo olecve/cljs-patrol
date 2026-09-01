@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.0.19] - 2026-07-23
+
+## What's Changed
+
+* Add :summary block to baseline for PR-diff friendly counts by @olecve in https://github.com/olecve/cljs-patrol/pull/43
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.18...v0.0.19
+
+
 ## [v0.0.18] - 2026-07-17
 
 ## What's Changed
