@@ -3,34 +3,56 @@
   the JVM but throws in a GraalVM binary, where reflection metadata is stripped
   unless registered. Without this, only a native run would catch it."
   (:require
+   [clojure.java.io :as io]
    [clojure.java.shell :refer [sh]]
    [clojure.string :as str]
-   [clojure.test :refer [deftest is]]))
+   [clojure.test :refer [deftest is]])
+  (:import
+   (java.io
+    File)))
 
-(def ^:private probe-forms
-  "Loads every namespace under src/ in a fresh JVM with reflection warnings on.
+(defn- path->ns-symbol [^String path]
+  (-> path
+      (str/replace #"^src/" "")
+      (str/replace #"\.cljc?$" "")
+      (str/replace "_" "-")
+      (str/replace "/" ".")
+      symbol))
+
+(defn- source-namespaces []
+  (->> (file-seq (io/file "src"))
+       (filter (fn [^File f] (.isFile f)))
+       (map (fn [^File f] (.getPath f)))
+       (filter #(or (str/ends-with? % ".clj")
+                    (str/ends-with? % ".cljc")))
+       (map path->ns-symbol)
+       sort
+       vec))
+
+(defn- probe-form
+  "Loads `namespaces` in a fresh JVM with reflection warnings on.
   Runs out-of-process because cljs-patrol.group defines a protocol: reloading it
   into this JVM would leave the already-built group records failing to satisfy
-  the freshly-defined protocol. Fully qualified throughout, and split in two, so
-  each form is compiled only after the previous one has loaded what it names."
-  ['(require 'clojure.java.io 'clojure.string)
-   '(binding [*warn-on-reflection* true]
-      (doseq [path (->> (file-seq (clojure.java.io/file "src"))
-                        (filter (fn [f] (.isFile ^java.io.File f)))
-                        (map (fn [f] (.getPath ^java.io.File f)))
-                        (filter (fn [p] (clojure.string/ends-with? p ".clj")))
-                        sort)]
-        (require (symbol (-> path
-                             (clojure.string/replace #"^src/" "")
-                             (clojure.string/replace #"\.clj$" "")
-                             (clojure.string/replace "_" "-")
-                             (clojure.string/replace "/" "."))))))])
+  the freshly-defined protocol."
+  [namespaces]
+  (str "(binding [*warn-on-reflection* true] (doseq [n '" (pr-str namespaces) "] (require n)))"))
+
+(defn- our-reflection-warnings
+  "Warning lines naming our own sources.
+  The probe loads dependencies transitively under the same binding, and a
+  warning from one of those is not something this build can act on."
+  [err]
+  (->> (str/split-lines (str err))
+       (filter #(and (str/starts-with? % "Reflection warning")
+                     (str/includes? % "cljs_patrol/")))))
 
 (deftest no-reflective-interop-test
-  (let [{:keys [exit err]} (sh "java" "-cp" (System/getProperty "java.class.path")
-                               "clojure.main" "-e" (str/join " " (map pr-str probe-forms)))
-        warnings (->> (str/split-lines (str err))
-                      (filter #(str/starts-with? % "Reflection warning")))]
+  (let [namespaces (source-namespaces)
+        {:keys [exit err]} (sh "java" "-cp" (System/getProperty "java.class.path")
+                               "clojure.main" "-e" (probe-form namespaces))
+        warnings (our-reflection-warnings err)]
+    (is (seq namespaces)
+        "expected to discover source namespaces under src/, otherwise the probe verifies nothing")
     (is (zero? exit)
         (str "probe JVM failed to load the sources:\n" err))
     (is (empty? warnings)
