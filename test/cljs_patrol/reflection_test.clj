@@ -1,7 +1,8 @@
 (ns cljs-patrol.reflection-test
-  "Guards the native-image build: reflective interop compiles and runs fine on
-  the JVM but throws in a GraalVM binary, where reflection metadata is stripped
-  unless registered. Without this, only a native run would catch it."
+  "Guards the native-image build against reflective interop.
+  Such calls compile and run fine on the JVM but throw in a GraalVM binary,
+  where reflection metadata is stripped unless registered, so only a native
+  run would otherwise catch them."
   (:require
    [clojure.java.io :as io]
    [clojure.java.shell :refer [sh]]
@@ -30,15 +31,15 @@
        vec))
 
 (defn- probe-form
-  "Loads `namespaces` in a fresh JVM with reflection warnings on.
-  Runs out-of-process because cljs-patrol.group defines a protocol: reloading it
-  into this JVM would leave the already-built group records failing to satisfy
-  the freshly-defined protocol."
+  "Builds the code that loads `namespaces` in a fresh JVM with reflection warnings on.
+  The probe runs out-of-process because cljs-patrol.group defines a protocol:
+  reloading it into this JVM would leave the already-built group records
+  failing to satisfy the freshly-defined protocol."
   [namespaces]
   (str "(binding [*warn-on-reflection* true] (doseq [n '" (pr-str namespaces) "] (require n)))"))
 
 (defn- our-reflection-warnings
-  "Warning lines naming our own sources.
+  "Filters out warnings from dependency code.
   The probe loads dependencies transitively under the same binding, and a
   warning from one of those is not something this build can act on."
   [err]
