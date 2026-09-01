@@ -204,6 +204,7 @@
      (try
        (write-baseline-file tmp-path sorted rule->tier)
        (fs/move-replace! tmp-path path)
+       nil
        (finally
          (fs/delete-file! tmp-path))))))
 

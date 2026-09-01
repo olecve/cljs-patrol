@@ -71,8 +71,7 @@
   (let [src (as-path source)
         dst (as-path target)]
     (try
-      (Files/move src dst (into-array CopyOption [StandardCopyOption/ATOMIC_MOVE
-                                                  StandardCopyOption/REPLACE_EXISTING]))
+      (Files/move src dst (into-array CopyOption [StandardCopyOption/ATOMIC_MOVE]))
       (catch AtomicMoveNotSupportedException _
         (Files/move src dst (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))))))
 
