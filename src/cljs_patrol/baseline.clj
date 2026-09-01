@@ -6,6 +6,8 @@
    [clojure.java.io :as io]
    [clojure.string :as str])
   (:import
+   (java.io
+    Writer)
    (java.time
     Instant)))
 
@@ -153,7 +155,7 @@
      :tier->total (tier-totals rule-counts rule->tier)
      :rule->total rule-counts}))
 
-(defn- write-summary [w {:keys [total tier->total rule->total]}]
+(defn- write-summary [^Writer w {:keys [total tier->total rule->total]}]
   (.write w (str " :summary\n {:total " total "\n"))
   (.write w "  :tier->total {")
   (doseq [[i [tier n]] (map-indexed vector tier->total)]
