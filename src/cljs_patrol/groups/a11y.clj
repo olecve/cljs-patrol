@@ -275,7 +275,7 @@
 
     :else nil))
 
-(def ^:private role-implicit-aria-live
+(def ^:private role->implicit-aria-live
   "Live-region roles mapped to the `aria-live` politeness each one implies.
   Reagent stringifies keyword attribute values, so both spellings count.
   `timer` and `marquee` are deliberately absent: they are status-family roles that
@@ -320,7 +320,7 @@
   [{:keys [kind attrs]}]
   (when (and (= :map kind) (some? attrs))
     (let [role (literal-sexpr (get attrs :role))
-          implied (get role-implicit-aria-live role)
+          implied (get role->implicit-aria-live role)
           declared (declared-aria-live attrs)]
       (when (and implied
                  declared
