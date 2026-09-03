@@ -501,36 +501,24 @@
           (is (every? #(= :button (:kw %)) in-buttons))
           (is (every? #(= :bugs (:tier %)) in-buttons)))))))
 
-(deftest live-region-missing-aria-live-fixture-test
+(deftest aria-live-contradicts-role-fixture-test
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
-        {:keys [live-region-missing-aria-live]} (first group-results)
-        by-row (rows live-region-missing-aria-live)]
+        {:keys [aria-live-contradicts-role]} (first group-results)
+        by-row (rows aria-live-contradicts-role)]
 
-    (testing "flags a live-region role with no :aria-live at all"
-      (is (contains? by-row 37)
-          "bad-status-without-aria-live case — :role \"status\" alone")
-      (is (contains? by-row 40)
-          "bad-alert-without-aria-live case — :role \"alert\" alone, on a :span")
-      (is (contains? by-row 43)
-          "bad-log-without-aria-live case — :role \"log\" alone"))
-
-    (testing "flags the keyword spelling of the role"
-      (is (contains? by-row 46)
-          "bad-keyword-role-without-aria-live case — :role :status is stringified by Reagent"))
-
-    (testing "flags an :aria-live that contradicts the role's implicit value"
-      (is (contains? by-row 49)
+    (testing "flags an :aria-live that sets a different politeness than the role implies"
+      (is (contains? by-row 52)
           "bad-alert-downgraded-to-polite case — \"alert\" implies \"assertive\"")
-      (is (contains? by-row 53)
+      (is (contains? by-row 56)
           "bad-status-upgraded-to-assertive case — \"status\" implies \"polite\"")
-      (is (contains? by-row 57)
-          "bad-keyword-value-mismatch case — :alert with :polite"))
+      (is (contains? by-row 60)
+          "bad-log-upgraded-to-assertive case — \"log\" implies \"polite\""))
 
-    (testing "flags an explicit nil :aria-live, which announces nothing"
-      (is (contains? by-row 61)
-          "bad-explicit-nil-aria-live case — literal nil reads as absent"))
+    (testing "flags the keyword spelling of both role and value"
+      (is (contains? by-row 64)
+          "bad-keyword-value-mismatch case — :alert with :polite, stringified by Reagent"))
 
-    (testing "does not flag a role whose :aria-live matches"
+    (testing "does not flag an :aria-live that agrees with the role"
       (is (not (contains? by-row 4))
           "ok-status-with-polite case")
       (is (not (contains? by-row 8))
@@ -540,19 +528,29 @@
       (is (not (contains? by-row 16))
           "ok-keyword-spellings case — :status with :polite"))
 
+    (testing "does not flag a role carrying no :aria-live at all"
+      (is (not (contains? by-row 21))
+          "ok-status-role-only case — the role implies \"polite\" on its own")
+      (is (not (contains? by-row 25))
+          "ok-alert-role-only case — the redundant attribute double-speaks in iOS VoiceOver"))
+
+    (testing "does not flag :aria-live \"off\", which is a deliberate opt-out"
+      (is (not (contains? by-row 29))
+          "ok-status-silenced-on-purpose case"))
+
     (testing "does not flag a role that is not a live region"
-      (is (not (contains? by-row 20))
-          "ok-not-a-live-region case — :role \"navigation\""))
+      (is (not (contains? by-row 33))
+          "ok-not-a-live-region case — :role \"navigation\" implies no politeness"))
 
     (testing "does not flag non-literal values (conservative)"
-      (is (not (contains? by-row 24))
+      (is (not (contains? by-row 38))
           "ok-dynamic-role case — role is a symbol")
-      (is (not (contains? by-row 28))
+      (is (not (contains? by-row 43))
           "ok-dynamic-aria-live case — :aria-live is a symbol")
-      (is (not (contains? by-row 33))
+      (is (not (contains? by-row 48))
           "ok-computed-aria-live case — :aria-live is an (if ...) form"))
 
     (testing "flags exactly the bad- cases in the fixture"
-      (is (= 8 (count (filter #(str/ends-with? (:file %) "live_regions.cljs")
-                              live-region-missing-aria-live)))
-          "eight bad- cases, no more"))))
+      (is (= 4 (count (filter #(str/ends-with? (:file %) "live_regions.cljs")
+                              aria-live-contradicts-role)))
+          "four bad- cases, no more"))))

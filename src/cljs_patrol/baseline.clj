@@ -32,7 +32,7 @@
   collapse to a single identity (rare in practice)."
   #{:img-alt-missing :invalid-tabindex :on-click-on-non-interactive
     :empty-interactive-element :missing-accessible-name
-    :live-region-missing-aria-live
+    :aria-live-contradicts-role
     :redundant-into-hiccup})
 
 (defn- relativize-path

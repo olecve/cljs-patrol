@@ -275,9 +275,11 @@
 
     :else nil))
 
-(def ^:private live-region-roles
-  "Live-region roles mapped to the `aria-live` value each one implies.
-  Reagent stringifies keyword attribute values, so both spellings count."
+(def ^:private role-implicit-aria-live
+  "Live-region roles mapped to the `aria-live` politeness each one implies.
+  Reagent stringifies keyword attribute values, so both spellings count.
+  `timer` and `marquee` are deliberately absent: they are status-family roles that
+  imply \"off\", so an explicit \"off\" on them agrees with the role rather than fighting it."
   {"status" "polite"
    :status "polite"
    "log" "polite"
@@ -285,39 +287,41 @@
    "alert" "assertive"
    :alert "assertive"})
 
+(def ^:private announcing-aria-live-values
+  "Politeness values that ask for an announcement.
+  \"off\" is excluded on purpose: silencing a live region is a deliberate choice, since
+  the role still carries braille and read-status-bar semantics, and overlay libraries
+  have begun writing a literal \"off\" purely as a do-not-hide marker."
+  #{"polite" "assertive"})
+
 (defn- declared-aria-live
-  "The `:aria-live` spelling in attrs, or `::absent` / `::dynamic`.
-  Only strings and keywords count as declared. A bare symbol reads as a token, so
-  `literal-sexpr` hands the symbol straight back rather than reporting it non-literal,
-  and a computed value must not be read as a mismatching literal."
+  "The literal `:aria-live` spelling in attrs, or nil when absent or not literal.
+  A bare symbol reads as a token, so `literal-sexpr` hands the symbol straight back
+  rather than reporting it non-literal, and a computed value must not be mistaken
+  for a contradicting literal."
   [attrs]
   (let [v (literal-sexpr (get attrs :aria-live))]
     (cond
-      (= v ::absent) ::absent
-      (= v ::non-literal) ::dynamic
-      (nil? v) ::absent
       (string? v) v
-      (keyword? v) (name v)
-      :else ::dynamic)))
+      (and (keyword? v) (not= v ::absent) (not= v ::non-literal)) (name v)
+      :else nil)))
 
-(defn- live-region-missing-aria-live?
-  "True when a live-region role carries no literal `:aria-live`, or one that contradicts it.
-  The role alone is semantically sufficient, so this is not a spec violation. It is a
-  portal-library one: `aria-hidden`'s `hideOthers`, which Radix and other overlay
-  libraries call to hide the page behind a dialog, select or modal popover, exempts live
-  regions by the `[aria-live]` attribute selector alone. A role-only region is hidden
-  along with everything else for as long as any such overlay is open.
+(defn- aria-live-contradicts-role?
+  "True when an explicit `:aria-live` sets a different politeness than its role implies.
+  The attribute wins: Blink, WebKit and Gecko each read `aria-live` first and consult
+  the role's implicit value only when it is absent, so `:role \"alert\"` carrying
+  `:aria-live \"polite\"` really does downgrade the alert to polite.
 
-  No tag restriction: the role carries the semantics, so a `:div`, a `:span` or an aliased
-  wrapper all qualify. Non-literal roles and non-literal `:aria-live` values are skipped."
+  Only a conflict between two announcing values counts. An absent `:aria-live` is
+  conformant markup and is not flagged — the role alone satisfies the spec, and on
+  `:role \"alert\"` the redundant attribute is known to double-speak in VoiceOver on
+  iOS. `\"off\"` is a deliberate opt-out, and non-literal values are skipped."
   [{:keys [kind attrs]}]
   (when (and (= :map kind) (some? attrs))
-    (when-let [implied (get live-region-roles (literal-sexpr (get attrs :role)))]
-      (let [declared (declared-aria-live attrs)]
-        (cond
-          (= declared ::absent) true
-          (= declared ::dynamic) false
-          :else (not= implied declared))))))
+    (when-let [implied (get role-implicit-aria-live (literal-sexpr (get attrs :role)))]
+      (when-let [declared (declared-aria-live attrs)]
+        (and (contains? announcing-aria-live-values declared)
+             (not= implied declared))))))
 
 (defn- resolve-full-symbol [head-str {:keys [aliases refers]}]
   (cond
@@ -371,8 +375,8 @@
                          (missing-accessible-name? info tag)
                          (conj (assoc base :type :missing-accessible-name))
 
-                         (live-region-missing-aria-live? info)
-                         (conj (assoc base :type :live-region-missing-aria-live)))]
+                         (aria-live-contradicts-role? info)
+                         (conj (assoc base :type :aria-live-contradicts-role)))]
             (when (seq usages)
               {:decls []
                :dynamics []
@@ -389,27 +393,27 @@
      :on-click-on-non-interactive (vec (:on-click-on-non-interactive by-type))
      :empty-interactive-element (vec (:empty-interactive-element by-type))
      :missing-accessible-name (vec (:missing-accessible-name by-type))
-     :live-region-missing-aria-live (vec (:live-region-missing-aria-live by-type))}))
+     :aria-live-contradicts-role (vec (:aria-live-contradicts-role by-type))}))
 
 (defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
                                empty-interactive-element missing-accessible-name
-                               live-region-missing-aria-live]}]
+                               aria-live-contradicts-role]}]
   [["Img missing alt:" (count img-alt-missing)]
    ["Invalid tabindex:" (count invalid-tabindex)]
    ["Onclick on non-interactive:" (count on-click-on-non-interactive)]
    ["Empty interactive element:" (count empty-interactive-element)]
    ["Missing accessible name:" (count missing-accessible-name)]
-   ["Live region missing aria-live:" (count live-region-missing-aria-live)]])
+   ["Aria-live contradicts role:" (count aria-live-contradicts-role)]])
 
 (defn- failed?* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
                          empty-interactive-element missing-accessible-name
-                         live-region-missing-aria-live]}]
+                         aria-live-contradicts-role]}]
   (or (seq img-alt-missing)
       (seq invalid-tabindex)
       (seq on-click-on-non-interactive)
       (seq empty-interactive-element)
       (seq missing-accessible-name)
-      (seq live-region-missing-aria-live)))
+      (seq aria-live-contradicts-role)))
 
 (defrecord A11yGroup [component-aliases]
   group/RuleGroup
@@ -462,26 +466,25 @@
           "`{my.ui/drawer :dialog, my.ui/textarea :textarea}`. "
           "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
           "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")
-     :live-region-missing-aria-live
-     (str "An element with :role \"status\" / \"alert\" / \"log\" has no literal "
-          ":aria-live, or one that contradicts the role. The role alone is enough by "
-          "the spec — :role \"status\" implies aria-live=\"polite\", :role \"alert\" "
-          "implies \"assertive\" — but overlay libraries that hide the page behind a "
-          "dialog, select or modal popover (Radix, Headless UI, MUI and others route "
-          "through the aria-hidden package) exempt live regions by matching the "
-          "[aria-live] attribute alone. A role-only region is hidden along with the "
-          "rest of the page for as long as any such overlay is open, so its updates go "
-          "unannounced. Add the attribute matching the role: :aria-live \"polite\" for "
-          "\"status\" / \"log\", :aria-live \"assertive\" for \"alert\". "
-          "See: WCAG 2.1 SC 4.1.3 Status Messages — "
-          "https://www.w3.org/WAI/WCAG21/Understanding/status-messages")})
+     :aria-live-contradicts-role
+     (str "An element sets :aria-live to a different politeness than its :role "
+          "implies, and the attribute wins: browsers read :aria-live first and fall "
+          "back to the role only when it is absent. :role \"alert\" with :aria-live "
+          "\"polite\" is therefore an alert demoted to polite, and :role \"status\" "
+          "with :aria-live \"assertive\" interrupts the user where the role asked not "
+          "to. Either drop the attribute and let the role speak — \"status\" and "
+          "\"log\" imply \"polite\", \"alert\" implies \"assertive\" — or correct it to "
+          "match. Note :aria-live \"off\" is not flagged: silencing a live region is a "
+          "deliberate choice. "
+          "See: WAI-ARIA 1.2, Implicit Value for Role — "
+          "https://www.w3.org/TR/wai-aria-1.2/#implictValueForRole")})
   (rule->tier [_]
     {:img-alt-missing :bugs
      :invalid-tabindex :bugs
      :on-click-on-non-interactive :bugs
      :empty-interactive-element :bugs
      :missing-accessible-name :bugs
-     :live-region-missing-aria-live :bugs})
+     :aria-live-contradicts-role :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (defn make-group
