@@ -5,11 +5,18 @@
    [cljs-patrol.group :as group]
    [clojure.string :as str]))
 
-(defn- format-entry [{:keys [file kw row]}]
-  (str "- `" kw "` — `" (fs/absolute-path file) ":" row "`"))
+(defn- hint-suffix
+  "Return an indented follow-up line naming the fix, or \"\" when the rule attached none."
+  [{:keys [hint]}]
+  (if hint (str "\n  - " hint) ""))
 
-(defn- format-dynamic-entry [{:keys [file form row]}]
-  (str "- `" (fs/absolute-path file) ":" row "` — `" (str/trim form) "`"))
+(defn- format-entry [{:keys [file kw row]
+                      :as item}]
+  (str "- `" kw "` — `" (fs/absolute-path file) ":" row "`" (hint-suffix item)))
+
+(defn- format-dynamic-entry [{:keys [file form row]
+                              :as item}]
+  (str "- `" (fs/absolute-path file) ":" row "` — `" (str/trim form) "`" (hint-suffix item)))
 
 (defn- section [title suggestion items]
   (when (seq items)

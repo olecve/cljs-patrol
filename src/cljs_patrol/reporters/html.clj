@@ -44,14 +44,16 @@
     :keyword (str (:kw item))
     :file [:a {:href (vscode-link (:file item) (:row item))} (:file item)]
     :line (str (:row item))
-    :form (str/trim (str (:form item)))))
+    :form (str/trim (str (:form item)))
+    :hint (str (:hint item))))
 
 (defn- col-header [col]
   (case col
     :keyword "Keyword"
     :file "File"
     :line "Line"
-    :form "Form"))
+    :form "Form"
+    :hint "Fix"))
 
 (defn- blocking-rule? [fail-on-rules rule-key]
   (and (seq fail-on-rules) (contains? fail-on-rules rule-key)))
@@ -107,10 +109,16 @@
       (str/replace #"-" " ")
       str/capitalize))
 
-(defn- infer-columns [item]
-  (if (contains? item :form)
-    [:form :file :line]
-    [:keyword :file :line]))
+(defn- infer-columns
+  "Columns for a section, chosen from the first item's shape.
+  The Fix column is added only when some item carries a `:hint`, so groups that
+  attach none keep the narrower table."
+  [items]
+  (let [base (if (contains? (first items) :form)
+               [:form :file :line]
+               [:keyword :file :line])]
+    (cond-> base
+      (some :hint items) (conj :hint))))
 
 (defn- aggregate-sections [g g-idx run-results]
   (let [suggs (group/suggestions g)
@@ -120,7 +128,7 @@
             (let [all-items (vec (mapcat #(get (nth (:group-results %) g-idx) k) run-results))]
               {:title (key->title k)
                :description (get suggs k "")
-               :columns (infer-columns (first all-items))
+               :columns (infer-columns all-items)
                :items all-items
                :rule-key k}))
           display-keys)))
