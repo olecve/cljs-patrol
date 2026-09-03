@@ -137,8 +137,9 @@
       "dev"))
 
 (def ^:private tier-order
-  "Canonical order for `:tier->total`. `:bugs` first — it's the reviewer's
-  load-bearing question and belongs at the top of the summary."
+  "Canonical order for `:tier->total`.
+  `:bugs` first — it's the reviewer's load-bearing question and belongs at the
+  top of the summary."
   [:bugs :deprecations :cleanup])
 
 (defn- tier-totals [rule-counts rule->tier]

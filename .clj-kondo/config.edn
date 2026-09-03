@@ -37,4 +37,13 @@
   :unsorted-required-namespaces {:level :warning}
 
   ;; Every `is` should say what it is asserting
-  :is-message-not-string {:level :warning}}}
+  :is-message-not-string {:level :warning}
+
+  ;; Docstrings. The docstrings rule group enforces the bbatsov rules on the
+  ;; .cljs/.cljc this tool analyses; these hold our own .clj to two of the same
+  ;; three. Continuation indentation has no clj-kondo equivalent, so that one
+  ;; stays a manual check. :missing-docstring is deliberately off: CLAUDE.md
+  ;; asks for no docstring over a redundant one, and it flags 32 vars here.
+  :docstring-blank {:level :warning}
+  :docstring-leading-trailing-whitespace {:level :warning}
+  :docstring-no-summary {:level :warning}}}

@@ -200,9 +200,9 @@
     :else true))
 
 (defn- has-visible-body?
-  "True when the vector has body content that would produce visible text
-  or a labelled child element. False for structurally empty vectors and
-  for icon-only markup like `[:button [icons/x]]`."
+  "True when the vector has body content producing visible text or a labelled child.
+  False for structurally empty vectors, and for icon-only markup like
+  `[:button [icons/x]]`."
   [vec-loc]
   (let [second-child (some-> vec-loc z/down z/right)
         body-start (if (and second-child (= :map (z/tag second-child)))

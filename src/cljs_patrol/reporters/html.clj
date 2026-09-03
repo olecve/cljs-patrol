@@ -61,9 +61,9 @@
 (def ^:private url-pattern #"https?://\S+")
 
 (defn- linkify
-  "Return a seq of hiccup children for `s` with any http(s) URL replaced by
-  an anchor element. Preserves the URL as its own link text. Returns a
-  Clojure sequence (not a vector) so hiccup inlines it as siblings."
+  "Return a seq of hiccup children for `s`, with any http(s) URL made an anchor.
+  The URL is preserved as its own link text. The result is a Clojure sequence
+  rather than a vector, so hiccup inlines it as siblings."
   [s]
   (when s
     (let [parts (str/split s url-pattern -1)
