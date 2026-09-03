@@ -4,7 +4,7 @@
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
 
-(def ^:private key->title #'cljs-patrol.reporters.console/key->title)
+(def ^:private key->title #'console/key->title)
 
 (deftest key->title-test
   (is (= "Unused subs" (key->title :unused-subs)))

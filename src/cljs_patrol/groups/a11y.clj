@@ -200,9 +200,9 @@
     :else true))
 
 (defn- has-visible-body?
-  "True when the vector has body content that would produce visible text
-  or a labelled child element. False for structurally empty vectors and
-  for icon-only markup like `[:button [icons/x]]`."
+  "True when the vector has body content producing visible text or a labelled child.
+  False for structurally empty vectors, and for icon-only markup like
+  `[:button [icons/x]]`."
   [vec-loc]
   (let [second-child (some-> vec-loc z/down z/right)
         body-start (if (and second-child (= :map (z/tag second-child)))
@@ -276,10 +276,9 @@
     :else nil))
 
 (def ^:private role->implicit-aria-live
-  "Live-region roles mapped to the `aria-live` politeness each one implies.
-  Reagent stringifies keyword attribute values, so both spellings count.
-  `timer` and `marquee` are deliberately absent: they are status-family roles that
-  imply \"off\", so an explicit \"off\" on them agrees with the role rather than fighting it."
+  "Live-region roles mapped to the `aria-live` politeness each implies.
+  Both spellings count, since Reagent stringifies keyword values. `timer` and
+  `marquee` are absent on purpose: they imply \"off\"."
   {"status" "polite"
    :status "polite"
    "log" "polite"
@@ -289,16 +288,13 @@
 
 (def ^:private announcing-aria-live-values
   "Politeness values that ask for an announcement.
-  \"off\" is excluded on purpose: silencing a live region is a deliberate choice, since
-  the role still carries braille and read-status-bar semantics, and overlay libraries
-  have begun writing a literal \"off\" purely as a do-not-hide marker."
+  \"off\" is excluded: silencing a live region is a deliberate choice."
   #{"polite" "assertive"})
 
 (defn- declared-aria-live
   "Return the literal `:aria-live` spelling in attrs, or nil when absent or not literal.
-  A bare symbol reads as a token, so `literal-sexpr` hands the symbol straight back
-  rather than reporting it non-literal, and a computed value must not be mistaken
-  for a contradicting literal."
+  `literal-sexpr` hands a bare symbol straight back, so a computed value would
+  otherwise read as a contradicting literal."
   [attrs]
   (let [v (literal-sexpr (get attrs :aria-live))]
     (cond
@@ -308,15 +304,9 @@
 
 (defn- contradicting-aria-live
   "Return the role, the politeness it implies, and the declared one, when they conflict.
-  Nil when there is no conflict. The attribute
-  wins: Blink, WebKit and Gecko each read `aria-live` first and consult the role's
-  implicit value only when it is absent, so `:role \"alert\"` carrying
-  `:aria-live \"polite\"` really does downgrade the alert to polite.
-
-  Only a conflict between two announcing values counts. An absent `:aria-live` is
-  conformant markup and is not reported — the role alone satisfies the spec, and on
-  `:role \"alert\"` the redundant attribute is known to double-speak in VoiceOver on
-  iOS. `\"off\"` is a deliberate opt-out, and non-literal values are skipped."
+  The attribute wins: browsers read `aria-live` first and consult the role only when
+  it is absent. An absent `:aria-live` is conformant and not reported, `\"off\"` is a
+  deliberate opt-out, and non-literal values are skipped."
   [{:keys [kind attrs]}]
   (when (and (= :map kind) (some? attrs))
     (let [role (literal-sexpr (get attrs :role))

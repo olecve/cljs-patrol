@@ -8,9 +8,9 @@
    [cljs-patrol.groups.spade :as spade]
    [clojure.test :refer [deftest is testing]]))
 
-(def ^:private filter-groups #'cljs-patrol.core/filter-groups)
-(def ^:private filter-run-results #'cljs-patrol.core/filter-run-results)
-(def ^:private assemble-groups #'cljs-patrol.core/assemble-groups)
+(def ^:private filter-groups #'core/filter-groups)
+(def ^:private filter-run-results #'core/filter-run-results)
+(def ^:private assemble-groups #'core/assemble-groups)
 (def ^:private default-groups (assemble-groups {}))
 
 (deftest filter-run-results-test
@@ -217,7 +217,7 @@
   (let [enabled-groups [re-frame/group spade/group]
         run-results [(core/run fixture-dir enabled-groups)]
         all-ids (baseline/collect-identities run-results)
-        filtered-results (#'cljs-patrol.core/filter-run-results
+        filtered-results (#'core/filter-run-results
                           run-results
                           [(fs/absolute-path (str fixture-dir "/subs.cljs"))])
         filtered-ids (baseline/collect-identities filtered-results)]
