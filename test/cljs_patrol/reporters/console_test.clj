@@ -42,6 +42,39 @@
       (is (str/includes? out "Drop :aria-live, or set it to \"assertive\".")
           "a baselined finding still says what to do about it"))))
 
+(def ^:private long-suggestion
+  (str "Every :img must set :alt. Use :alt \"\" for images that are purely decorative, "
+       "otherwise supply text that conveys the image's meaning to assistive technologies."))
+
+(deftest report-renders-suggestions-test
+  (testing "prints the rule's suggestion under a non-empty section"
+    (let [out (with-out-str
+                (console/report {:unused-subs [kw-item]} nil {:unused-subs "Remove it."}))]
+      (is (str/includes? out "Remove it.")
+          "the explanation reaches default console output")))
+
+  (testing "prints nothing for a section with no findings"
+    (let [out (with-out-str
+                (console/report {:unused-subs []} nil {:unused-subs "Remove it."}))]
+      (is (not (str/includes? out "Remove it."))
+          "an empty section has nothing to explain")))
+
+  (testing "wraps a long suggestion instead of emitting one long line"
+    (let [out (with-out-str
+                (console/report {:img-alt-missing [kw-item]} nil {:img-alt-missing long-suggestion}))
+          body (remove str/blank? (str/split-lines out))]
+      (is (every? #(<= (count %) 100) body)
+          "no line runs past a readable width")
+      (is (str/includes? out "purely decorative")
+          "the whole suggestion is still present")))
+
+  (testing "prints the suggestion in the baseline report too"
+    (let [out (with-out-str
+                (console/report-with-baseline {:unused-subs [kw-item]} #{}
+                                              {:suggestions {:unused-subs "Remove it."}}))]
+      (is (str/includes? out "Remove it.")
+          "a baselined section explains itself as well"))))
+
 (deftest report-kw-sections-test
   (testing "prints kw-based sections using keyword format"
     (let [out (with-out-str

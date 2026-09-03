@@ -187,12 +187,13 @@
                 (println "Report written to report.html"))
         (do
           (doseq [{:keys [source-dir group-results]} run-results]
-            (doseq [result group-results]
+            (doseq [[g result] (map vector enabled-groups group-results)]
               (console/report-with-baseline
                result new-issues
                {:quiet? (:quiet-baseline opts)
                 :source-dir source-dir
-                :fail-on-rules fail-on-rules})))
+                :fail-on-rules fail-on-rules
+                :suggestions (group/suggestions g)})))
           (print-baseline-console-summary
            {:new-issues new-issues
             :present present
@@ -215,8 +216,8 @@
       :markdown (md-reporter/print-report enabled-groups dirs run-results)
       (do
         (doseq [{:keys [group-results]} run-results]
-          (doseq [r group-results]
-            (console/report r fail-on-rules))
+          (doseq [[g r] (map vector enabled-groups group-results)]
+            (console/report r fail-on-rules (group/suggestions g)))
           (print-summary enabled-groups group-results))
         (when (seq fail-on-rules)
           (let [{:keys [blocking warning]} (severity/count-by-fail-on
