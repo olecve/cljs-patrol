@@ -106,7 +106,7 @@
            :empty-interactive-element
            :pseudo-in-main-map
            :consecutive-self-selectors
-           :missing-accessible-name}
+           :missing-accessible-name :live-region-missing-aria-live}
          (severity/tier->rules rule->tier :bugs)))
   (is (= #{:deprecated-effects :defclass-as-sole-attr
            :defattrs-in-merge :mixed-token-groups}
@@ -130,7 +130,7 @@
                   :empty-interactive-element
                   :pseudo-in-main-map
                   :consecutive-self-selectors
-                  :missing-accessible-name}}
+                  :missing-accessible-name :live-region-missing-aria-live}}
            (severity/parse-fail-on "bugs" rule->tier)))
     (is (= {:ok (severity/tier->rules rule->tier :deprecations)}
            (severity/parse-fail-on "deprecations" rule->tier)))
@@ -192,7 +192,7 @@
                :empty-interactive-element
                :pseudo-in-main-map
                :consecutive-self-selectors
-               :missing-accessible-name}
+               :missing-accessible-name :live-region-missing-aria-live}
              (set (map :rule (:bugs tiered)))))
       (is (= #{:deprecated-effects :defclass-as-sole-attr
                :defattrs-in-merge :mixed-token-groups}

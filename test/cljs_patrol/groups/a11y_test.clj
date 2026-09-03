@@ -34,13 +34,20 @@
    :file "views.cljs"
    :row row})
 
+(defn- live-region-finding [row]
+  {:type :live-region-missing-aria-live
+   :kw :div
+   :file "views.cljs"
+   :row row})
+
 (deftest analyze-test
   (testing "no usages — no findings"
     (let [result (group/analyze a11y/group {:usages []})]
       (is (empty? (:img-alt-missing result)))
       (is (empty? (:invalid-tabindex result)))
       (is (empty? (:on-click-on-non-interactive result)))
-      (is (empty? (:empty-interactive-element result)))))
+      (is (empty? (:empty-interactive-element result)))
+      (is (empty? (:live-region-missing-aria-live result)))))
 
   (testing "splits usages by :type across all rules"
     (let [other {:type :some-other-thing
@@ -52,6 +59,7 @@
                                           (tabindex-finding 5)
                                           (on-click-finding 7)
                                           (empty-interactive-finding 9)
+                                          (live-region-finding 11)
                                           other
                                           (img-finding 8)]})]
       (is (= 2 (count (:img-alt-missing result))))
@@ -61,7 +69,9 @@
       (is (= 1 (count (:on-click-on-non-interactive result))))
       (is (= #{7} (set (map :row (:on-click-on-non-interactive result)))))
       (is (= 1 (count (:empty-interactive-element result))))
-      (is (= #{9} (set (map :row (:empty-interactive-element result))))))))
+      (is (= #{9} (set (map :row (:empty-interactive-element result)))))
+      (is (= 1 (count (:live-region-missing-aria-live result))))
+      (is (= #{11} (set (map :row (:live-region-missing-aria-live result))))))))
 
 (deftest failed?-test
   (testing "fails when any img is missing alt"
@@ -95,12 +105,21 @@
                                    :empty-interactive-element []
                                    :missing-accessible-name [(accessible-name-finding 5)]})))
 
+  (testing "fails when any live-region-missing-aria-live is found"
+    (is (group/failed? a11y/group {:img-alt-missing []
+                                   :invalid-tabindex []
+                                   :on-click-on-non-interactive []
+                                   :empty-interactive-element []
+                                   :missing-accessible-name []
+                                   :live-region-missing-aria-live [(live-region-finding 5)]})))
+
   (testing "does not fail when clean"
     (is (not (group/failed? a11y/group {:img-alt-missing []
                                         :invalid-tabindex []
                                         :on-click-on-non-interactive []
                                         :empty-interactive-element []
-                                        :missing-accessible-name []})))))
+                                        :missing-accessible-name []
+                                        :live-region-missing-aria-live []})))))
 
 (deftest summary-lines-test
   (let [lines (group/summary-lines a11y/group
@@ -108,12 +127,14 @@
                                     :invalid-tabindex [(tabindex-finding 3)]
                                     :on-click-on-non-interactive [(on-click-finding 4) (on-click-finding 5)]
                                     :empty-interactive-element [(empty-interactive-finding 6)]
-                                    :missing-accessible-name []})]
-    (is (= 5 (count lines)))
+                                    :missing-accessible-name []
+                                    :live-region-missing-aria-live [(live-region-finding 7)]})]
+    (is (= 6 (count lines)))
     (is (= 2 (second (first lines))))
     (is (= 1 (second (second lines))))
     (is (= 2 (second (nth lines 2))))
-    (is (= 1 (second (nth lines 3))))))
+    (is (= 1 (second (nth lines 3))))
+    (is (= 1 (second (nth lines 5))))))
 
 (deftest rule->tier-test
   (let [tiers (group/rule->tier a11y/group)]
@@ -127,7 +148,10 @@
       (is (= :bugs (get tiers :on-click-on-non-interactive))))
 
     (testing "empty-interactive-element is a bug"
-      (is (= :bugs (get tiers :empty-interactive-element))))))
+      (is (= :bugs (get tiers :empty-interactive-element))))
+
+    (testing "live-region-missing-aria-live is a bug"
+      (is (= :bugs (get tiers :live-region-missing-aria-live))))))
 
 (deftest suggestions-test
   (let [suggestions (group/suggestions a11y/group)]
@@ -141,4 +165,7 @@
       (is (re-find #"WCAG.*2\.1\.1" (:on-click-on-non-interactive suggestions))))
 
     (testing "empty-interactive-element suggestion references WCAG name/role/value"
-      (is (re-find #"WCAG.*4\.1\.2" (:empty-interactive-element suggestions))))))
+      (is (re-find #"WCAG.*4\.1\.2" (:empty-interactive-element suggestions))))
+
+    (testing "live-region-missing-aria-live suggestion references WCAG status messages"
+      (is (re-find #"WCAG.*4\.1\.3" (:live-region-missing-aria-live suggestions))))))

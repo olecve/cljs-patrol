@@ -87,6 +87,7 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **`:on-click` on non-interactive tag** — `:on-click` on `:div`/`:span`/`:li`/`:p`/`:section` etc. without `:role` or a keyboard handler; keyboard users can't activate it
 - **Empty interactive element** — `:button`, `:a`, or `:role "button"`/`"link"` with no visible text and no `:aria-label`/`:aria-labelledby`/`:title`; screen readers announce nothing
 - **Missing accessible name** — native `[:textarea …]`, native `[:dialog …]`, any hiccup vector whose props carry `:role "dialog"` / `:role :dialog` / `:aria-modal true`, and any wrapper component (`[my.ui/textarea …]`, `[my.ui/drawer …]`) mapped in [`:a11y :component-aliases`](#a11y-component-aliases), that lacks `:aria-label` or `:aria-labelledby`; `:placeholder` is a hint, not a name
+- **Live region missing `aria-live`** — a hiccup vector whose props carry `:role "status"` / `"alert"` / `"log"` with no literal `:aria-live`, or one that contradicts the role's implicit value (`"status"` and `"log"` imply `"polite"`, `"alert"` implies `"assertive"`). The role alone is spec-sufficient, but overlay libraries built on the [`aria-hidden`](https://github.com/theKashey/aria-hidden) package (Radix, Headless UI, MUI and others) exempt live regions by matching the `[aria-live]` **attribute** only, so a role-only region is hidden along with the rest of the page whenever a dialog, select or modal popover is open, and its updates go unannounced
 - **Pseudo-selector in Spade main map** — `defclass`/`defattrs` with a `:&`-prefixed key (e.g. `:&:hover`) inside the first argument map; Spade emits it as an invalid CSS property and silently drops the rule. Move the selector into its own sibling vector `[:&:hover {…}]`
 - **Consecutive self-selectors** — Spade sibling vector begins with 2+ `:&`-prefixed keywords (e.g. `[:&:before :&:after {…}]`); Garden compiles this as a descendant selector (`elem:before elem:after`), not the comma-joined selector the author intended
 - **Docstring summary** — first line of a multi-line docstring is not a self-contained sentence ending in `.`, `!`, `?`, or `:`
@@ -271,11 +272,11 @@ By default, any issue causes CI to fail. For incremental adoption — or just to
 
 ### Tiers
 
-**`bugs`** — silent runtime breakage. Duplicate registrations overwrite, empty-effect handlers clobber app-db, effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen readers, invalid `:tabIndex` values break the natural focus order, `:on-click` on non-interactive tags without keyboard support locks keyboard users out, empty interactive elements and unlabelled form controls have no accessible name, and Spade pseudo-selectors either misplaced inside the main map or chained without a comma silently produce no CSS.
+**`bugs`** — silent runtime breakage. Duplicate registrations overwrite, empty-effect handlers clobber app-db, effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen readers, live regions declared by role alone go silent behind any open overlay, invalid `:tabIndex` values break the natural focus order, `:on-click` on non-interactive tags without keyboard support locks keyboard users out, empty interactive elements and unlabelled form controls have no accessible name, and Spade pseudo-selectors either misplaced inside the main map or chained without a comma silently produce no CSS.
 
 - `duplicate-subs`, `duplicate-events`
 - `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects`
-- `img-alt-missing`, `invalid-tabindex`, `on-click-on-non-interactive`, `empty-interactive-element`, `missing-accessible-name`
+- `img-alt-missing`, `invalid-tabindex`, `on-click-on-non-interactive`, `empty-interactive-element`, `missing-accessible-name`, `live-region-missing-aria-live`
 - `pseudo-in-main-map`, `consecutive-self-selectors`
 
 **`deprecations`** — deprecated APIs and idiomatic violations that may break later.
