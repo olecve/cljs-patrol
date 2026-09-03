@@ -6,9 +6,9 @@
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
 
-(def ^:private key->title #'cljs-patrol.reporters.html/key->title)
-(def ^:private infer-columns #'cljs-patrol.reporters.html/infer-columns)
-(def ^:private aggregate-sections #'cljs-patrol.reporters.html/aggregate-sections)
+(def ^:private key->title #'html/key->title)
+(def ^:private infer-columns #'html/infer-columns)
+(def ^:private aggregate-sections #'html/aggregate-sections)
 
 (deftest key->title-test
   (is (= "Unused subs" (key->title :unused-subs)))
