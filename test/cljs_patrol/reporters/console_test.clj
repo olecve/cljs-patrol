@@ -19,6 +19,29 @@
                           :file "src/views.cljs"
                           :row 12})
 
+(def ^:private kw-item-with-hint (assoc kw-item :hint "Drop :aria-live, or set it to \"assertive\"."))
+(def ^:private form-item-with-hint (assoc form-item :hint "Drop :aria-live, or set it to \"assertive\"."))
+
+(deftest report-renders-hints-test
+  (testing "prints a finding's hint under the finding, on both section shapes"
+    (let [kw-out (with-out-str (console/report {:unused-subs [kw-item-with-hint]}))
+          form-out (with-out-str (console/report {:dynamic-sites [form-item-with-hint]}))]
+      (is (str/includes? kw-out "Drop :aria-live, or set it to \"assertive\".")
+          "kw-keyed sections render hints too, not only form-keyed ones")
+      (is (str/includes? form-out "Drop :aria-live, or set it to \"assertive\".")
+          "form-keyed sections render hints")))
+
+  (testing "prints nothing extra for a finding with no hint"
+    (let [out (with-out-str (console/report {:unused-subs [kw-item]}))]
+      (is (not (str/includes? out "\u2192"))
+          "no arrow line when the rule attached no hint")))
+
+  (testing "prints hints in the baseline report as well"
+    (let [out (with-out-str
+                (console/report-with-baseline {:unused-subs [kw-item-with-hint]} #{}))]
+      (is (str/includes? out "Drop :aria-live, or set it to \"assertive\".")
+          "a baselined finding still says what to do about it"))))
+
 (deftest report-kw-sections-test
   (testing "prints kw-based sections using keyword format"
     (let [out (with-out-str
