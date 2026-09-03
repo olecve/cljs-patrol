@@ -7,6 +7,11 @@
 (defn format-entry [{:keys [file kw row]}]
   (format "  %-60s %s:%d" (str kw) file row))
 
+(defn- hint-line
+  "Indented follow-up line naming the concrete fix, when a rule attached one."
+  [{:keys [hint]}]
+  (when hint (str "      \u2192 " hint)))
+
 (defn- section-header [title items blocking?]
   (str "\n=== " title " (" (count items) ")"
        (when blocking? " [BLOCKING]")
@@ -27,8 +32,10 @@
    (println (section-header title items blocking?))
    (if (empty? items)
      (println "  (none)")
-     (doseq [{:keys [file form row]} (sort-by :file items)]
-       (println (format "  %s:%d  %s" file row (str/trim form)))))))
+     (doseq [{:keys [file form row]
+              :as item} (sort-by :file items)]
+       (println (format "  %s:%d  %s" file row (str/trim form)))
+       (some-> (hint-line item) println)))))
 
 (defn- key->title [k]
   (-> (name k)
@@ -80,4 +87,5 @@
                  tag (if (contains? new-identities id) "[NEW]" "[BASE]")]
              (println (if dynamic?
                         (format-tagged-dynamic item tag)
-                        (format-tagged-entry item tag))))))))))
+                        (format-tagged-entry item tag)))
+             (some-> (hint-line item) println))))))))

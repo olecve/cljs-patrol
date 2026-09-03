@@ -553,4 +553,17 @@
     (testing "flags exactly the bad- cases in the fixture"
       (is (= 4 (count (filter #(str/ends-with? (:file %) "live_regions.cljs")
                               aria-live-contradicts-role)))
-          "four bad- cases, no more"))))
+          "four bad- cases, no more"))
+
+    (testing "each finding carries a hint naming the value the role implies"
+      (let [hint-at (fn [row] (:hint (first (filter #(= row (:row %))
+                                                    aria-live-contradicts-role))))]
+        (is (= ":role \"alert\" implies \"assertive\", not \"polite\" — drop :aria-live, or set it to \"assertive\"."
+               (hint-at 52))
+            "names the role, both values, and the two ways out")
+        (is (= ":role \"status\" implies \"polite\", not \"assertive\" — drop :aria-live, or set it to \"polite\"."
+               (hint-at 56))
+            "the fix differs per role, which is why it is per-finding")
+        (is (= ":role :alert implies \"assertive\", not \"polite\" — drop :aria-live, or set it to \"assertive\"."
+               (hint-at 64))
+            "echoes the author's keyword spelling of the role")))))

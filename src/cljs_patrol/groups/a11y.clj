@@ -306,22 +306,33 @@
       (and (keyword? v) (not= v ::absent) (not= v ::non-literal)) (name v)
       :else nil)))
 
-(defn- aria-live-contradicts-role?
-  "True when an explicit `:aria-live` sets a different politeness than its role implies.
-  The attribute wins: Blink, WebKit and Gecko each read `aria-live` first and consult
-  the role's implicit value only when it is absent, so `:role \"alert\"` carrying
+(defn- contradicting-aria-live
+  "Details of an `:aria-live` that sets a different politeness than its role implies.
+  Returns `{:role … :implied … :declared …}` on a conflict, nil otherwise. The attribute
+  wins: Blink, WebKit and Gecko each read `aria-live` first and consult the role's
+  implicit value only when it is absent, so `:role \"alert\"` carrying
   `:aria-live \"polite\"` really does downgrade the alert to polite.
 
   Only a conflict between two announcing values counts. An absent `:aria-live` is
-  conformant markup and is not flagged — the role alone satisfies the spec, and on
+  conformant markup and is not reported — the role alone satisfies the spec, and on
   `:role \"alert\"` the redundant attribute is known to double-speak in VoiceOver on
   iOS. `\"off\"` is a deliberate opt-out, and non-literal values are skipped."
   [{:keys [kind attrs]}]
   (when (and (= :map kind) (some? attrs))
-    (when-let [implied (get role-implicit-aria-live (literal-sexpr (get attrs :role)))]
-      (when-let [declared (declared-aria-live attrs)]
-        (and (contains? announcing-aria-live-values declared)
-             (not= implied declared))))))
+    (let [role (literal-sexpr (get attrs :role))
+          implied (get role-implicit-aria-live role)
+          declared (declared-aria-live attrs)]
+      (when (and implied
+                 declared
+                 (contains? announcing-aria-live-values declared)
+                 (not= implied declared))
+        {:role role
+         :implied implied
+         :declared declared}))))
+
+(defn- aria-live-hint [{:keys [role implied declared]}]
+  (format ":role %s implies \"%s\", not \"%s\" — drop :aria-live, or set it to \"%s\"."
+          (pr-str role) implied declared implied))
 
 (defn- resolve-full-symbol [head-str {:keys [aliases refers]}]
   (cond
@@ -353,6 +364,7 @@
                     (resolve-component-tag head-str ns-info component-aliases))]
         (when tag
           (let [info (hiccup/attrs-info loc)
+                aria-live-conflict (contradicting-aria-live info)
                 [row col] (try (z/position loc) (catch Exception _ [0 1]))
                 base {:kw tag
                       :form (source-snippet loc)
@@ -375,8 +387,10 @@
                          (missing-accessible-name? info tag)
                          (conj (assoc base :type :missing-accessible-name))
 
-                         (aria-live-contradicts-role? info)
-                         (conj (assoc base :type :aria-live-contradicts-role)))]
+                         aria-live-conflict
+                         (conj (assoc base
+                                      :type :aria-live-contradicts-role
+                                      :hint (aria-live-hint aria-live-conflict))))]
             (when (seq usages)
               {:decls []
                :dynamics []
