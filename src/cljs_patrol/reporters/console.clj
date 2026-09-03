@@ -24,7 +24,8 @@
    (if (empty? items)
      (println "  (none)")
      (doseq [item (sort-by (comp str :kw) items)]
-       (println (format-entry item))))))
+       (println (format-entry item))
+       (some-> (hint-line item) println)))))
 
 (defn print-dynamic-section
   ([title items] (print-dynamic-section title items false))
