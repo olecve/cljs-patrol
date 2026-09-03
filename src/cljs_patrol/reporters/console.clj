@@ -8,7 +8,7 @@
   (format "  %-60s %s:%d" (str kw) file row))
 
 (defn- hint-line
-  "Indented follow-up line naming the concrete fix, when a rule attached one."
+  "Return an indented follow-up line naming the fix, or nil when the rule attached none."
   [{:keys [hint]}]
   (when hint (str "      \u2192 " hint)))
 

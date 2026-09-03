@@ -295,7 +295,7 @@
   #{"polite" "assertive"})
 
 (defn- declared-aria-live
-  "The literal `:aria-live` spelling in attrs, or nil when absent or not literal.
+  "Return the literal `:aria-live` spelling in attrs, or nil when absent or not literal.
   A bare symbol reads as a token, so `literal-sexpr` hands the symbol straight back
   rather than reporting it non-literal, and a computed value must not be mistaken
   for a contradicting literal."
@@ -307,8 +307,8 @@
       :else nil)))
 
 (defn- contradicting-aria-live
-  "Details of an `:aria-live` that sets a different politeness than its role implies.
-  Returns `{:role … :implied … :declared …}` on a conflict, nil otherwise. The attribute
+  "Return the role, the politeness it implies, and the declared one, when they conflict.
+  Nil when there is no conflict. The attribute
   wins: Blink, WebKit and Gecko each read `aria-live` first and consult the role's
   implicit value only when it is absent, so `:role \"alert\"` carrying
   `:aria-live \"polite\"` really does downgrade the alert to polite.
