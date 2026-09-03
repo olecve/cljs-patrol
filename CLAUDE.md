@@ -60,9 +60,7 @@ integration tests are in `test/fixtures/myapp/`.
 clojure -M:clj-kondo --lint src test/cljs_patrol build.clj
 ```
 
-`test/projects/` is deliberately excluded: those are fixture sources fed to the
-analyzer, and several are malformed on purpose. Extra linters beyond clj-kondo's
-defaults are enabled in `.clj-kondo/config.edn`.
+`test/projects/` is excluded: those fixtures are malformed on purpose.
 
 ## Formatting
 
