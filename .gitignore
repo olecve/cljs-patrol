@@ -1,6 +1,6 @@
 .cpcache/
 target/
-.clj-kondo/
+.clj-kondo/.cache/
 .lsp/
 report.html
 .shadow-cljs

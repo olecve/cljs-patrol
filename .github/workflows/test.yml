@@ -25,6 +25,7 @@ jobs:
           restore-keys: deps-
 
       - run: clojure -M:cljfmt check src/ test/
+      - run: clojure -M:clj-kondo --lint src test/cljs_patrol build.clj
       - run: clojure -M:test
 
   native-verify:

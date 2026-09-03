@@ -1,0 +1,40 @@
+;; Linters clj-kondo ships disabled or at :info, turned on here.
+;; Scope is src, test/cljs_patrol and build.clj: test/projects holds fixture
+;; sources fed to the analyzer, and they are deliberately malformed.
+{:linters
+ {;; Real defects
+  :case-symbol-test {:level :error}
+  :equals-float {:level :error}
+  :main-without-gen-class {:level :error}
+
+  ;; Dead or misleading code
+  :unused-alias {:level :warning}
+  :unused-binding {:level :warning}
+  :unused-namespace {:level :warning}
+  :used-underscored-binding {:level :warning}
+  :redundant-let-binding {:level :warning}
+  :redundant-call {:level :warning}
+  :redundant-fn-wrapper {:level :warning}
+  :redundant-nested-call {:level :warning}
+  :redundant-str-call {:level :warning}
+
+  ;; Idiom: say the thing directly
+  :aliased-namespace-symbol {:level :warning}
+  :conditional-build-up {:level :warning}
+  :equals-false {:level :warning}
+  :equals-nil {:level :warning}
+  :equals-true {:level :warning}
+  :if-nil-return {:level :warning}
+  :if-x-x-y {:level :warning}
+  :minus-one {:level :warning}
+  :not-nil? {:level :warning}
+  :plus-one {:level :warning}
+  :seq-rest {:level :warning}
+  :single-key-in {:level :warning}
+
+  ;; Ordering, so a new require or import has one obvious home
+  :unsorted-imports {:level :warning}
+  :unsorted-required-namespaces {:level :warning}
+
+  ;; Every `is` should say what it is asserting
+  :is-message-not-string {:level :warning}}}

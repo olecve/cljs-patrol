@@ -54,6 +54,16 @@ clojure -M:test          # run all tests
 Tests live in `test/`, mirroring the `src/` structure. Fixture CLJS files for
 integration tests are in `test/fixtures/myapp/`.
 
+## Linting
+
+```bash
+clojure -M:clj-kondo --lint src test/cljs_patrol build.clj
+```
+
+`test/projects/` is deliberately excluded: those are fixture sources fed to the
+analyzer, and several are malformed on purpose. Extra linters beyond clj-kondo's
+defaults are enabled in `.clj-kondo/config.edn`.
+
 ## Formatting
 
 ```bash
