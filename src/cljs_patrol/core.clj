@@ -72,9 +72,9 @@
 
 (defn- print-summary [enabled-groups group-results]
   (println "\n=== SUMMARY ===")
-  (doseq [[g r] (map vector enabled-groups group-results)]
-    (doseq [[label cnt] (group/summary-lines g r)]
-      (println (format "  %-30s %d" label cnt)))))
+  (doseq [[rule-group result] (map vector enabled-groups group-results)]
+    (doseq [[label issue-count] (group/summary-lines rule-group result)]
+      (println (format "  %-30s %d" label issue-count)))))
 
 (defn- any-rule-issue?
   "True if `run-results` contains any non-empty items vector keyed by a rule in `rule-set`."
@@ -98,7 +98,7 @@
     (boolean (any-rule-issue? run-results fail-on-rules))
     (boolean
      (some (fn [{:keys [group-results]}]
-             (some (fn [[g r]] (group/failed? g r))
+             (some (fn [[rule-group result]] (group/failed? rule-group result))
                    (map vector enabled-groups group-results)))
            run-results))))
 
@@ -187,12 +187,13 @@
                 (println "Report written to report.html"))
         (do
           (doseq [{:keys [source-dir group-results]} run-results]
-            (doseq [result group-results]
+            (doseq [[rule-group result] (map vector enabled-groups group-results)]
               (console/report-with-baseline
                result new-issues
                {:quiet? (:quiet-baseline opts)
                 :source-dir source-dir
-                :fail-on-rules fail-on-rules})))
+                :fail-on-rules fail-on-rules
+                :suggestions (group/suggestions rule-group)})))
           (print-baseline-console-summary
            {:new-issues new-issues
             :present present
@@ -215,8 +216,8 @@
       :markdown (md-reporter/print-report enabled-groups dirs run-results)
       (do
         (doseq [{:keys [group-results]} run-results]
-          (doseq [r group-results]
-            (console/report r fail-on-rules))
+          (doseq [[rule-group result] (map vector enabled-groups group-results)]
+            (console/report result fail-on-rules (group/suggestions rule-group)))
           (print-summary enabled-groups group-results))
         (when (seq fail-on-rules)
           (let [{:keys [blocking warning]} (severity/count-by-fail-on
