@@ -7,6 +7,11 @@
 (defn format-entry [{:keys [file kw row]}]
   (format "  %-60s %s:%d" (str kw) file row))
 
+(defn- hint-line
+  "Return an indented follow-up line naming the fix, or nil when the rule attached none."
+  [{:keys [hint]}]
+  (when hint (str "      \u2192 " hint)))
+
 (defn- section-header [title items blocking?]
   (str "\n=== " title " (" (count items) ")"
        (when blocking? " [BLOCKING]")
@@ -19,7 +24,8 @@
    (if (empty? items)
      (println "  (none)")
      (doseq [item (sort-by (comp str :kw) items)]
-       (println (format-entry item))))))
+       (println (format-entry item))
+       (some-> (hint-line item) println)))))
 
 (defn print-dynamic-section
   ([title items] (print-dynamic-section title items false))
@@ -27,8 +33,10 @@
    (println (section-header title items blocking?))
    (if (empty? items)
      (println "  (none)")
-     (doseq [{:keys [file form row]} (sort-by :file items)]
-       (println (format "  %s:%d  %s" file row (str/trim form)))))))
+     (doseq [{:keys [file form row]
+              :as item} (sort-by :file items)]
+       (println (format "  %s:%d  %s" file row (str/trim form)))
+       (some-> (hint-line item) println)))))
 
 (defn- key->title [k]
   (-> (name k)
@@ -80,4 +88,5 @@
                  tag (if (contains? new-identities id) "[NEW]" "[BASE]")]
              (println (if dynamic?
                         (format-tagged-dynamic item tag)
-                        (format-tagged-entry item tag))))))))))
+                        (format-tagged-entry item tag)))
+             (some-> (hint-line item) println))))))))

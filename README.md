@@ -87,6 +87,7 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **`:on-click` on non-interactive tag** — `:on-click` on `:div`/`:span`/`:li`/`:p`/`:section` etc. without `:role` or a keyboard handler; keyboard users can't activate it
 - **Empty interactive element** — `:button`, `:a`, or `:role "button"`/`"link"` with no visible text and no `:aria-label`/`:aria-labelledby`/`:title`; screen readers announce nothing
 - **Missing accessible name** — native `[:textarea …]`, native `[:dialog …]`, any hiccup vector whose props carry `:role "dialog"` / `:role :dialog` / `:aria-modal true`, and any wrapper component (`[my.ui/textarea …]`, `[my.ui/drawer …]`) mapped in [`:a11y :component-aliases`](#a11y-component-aliases), that lacks `:aria-label` or `:aria-labelledby`; `:placeholder` is a hint, not a name
+- **`aria-live` contradicts role** — a hiccup vector whose props set `:aria-live` to a different politeness than its `:role` implies (`"status"` and `"log"` imply `"polite"`, `"alert"` implies `"assertive"`). The attribute wins: browsers read `:aria-live` first and fall back to the role only when it is absent, so `:role "alert"` with `:aria-live "polite"` is an alert silently demoted to polite. A role carrying no `:aria-live` at all is **not** flagged — it is conformant markup, and on `:role "alert"` the redundant attribute is documented to double-speak in VoiceOver on iOS. `:aria-live "off"` is not flagged either; silencing a live region is a deliberate choice
 - **Pseudo-selector in Spade main map** — `defclass`/`defattrs` with a `:&`-prefixed key (e.g. `:&:hover`) inside the first argument map; Spade emits it as an invalid CSS property and silently drops the rule. Move the selector into its own sibling vector `[:&:hover {…}]`
 - **Consecutive self-selectors** — Spade sibling vector begins with 2+ `:&`-prefixed keywords (e.g. `[:&:before :&:after {…}]`); Garden compiles this as a descendant selector (`elem:before elem:after`), not the comma-joined selector the author intended
 - **Docstring summary** — first line of a multi-line docstring is not a self-contained sentence ending in `.`, `!`, `?`, or `:`
@@ -271,11 +272,11 @@ By default, any issue causes CI to fail. For incremental adoption — or just to
 
 ### Tiers
 
-**`bugs`** — silent runtime breakage. Duplicate registrations overwrite, empty-effect handlers clobber app-db, effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen readers, invalid `:tabIndex` values break the natural focus order, `:on-click` on non-interactive tags without keyboard support locks keyboard users out, empty interactive elements and unlabelled form controls have no accessible name, and Spade pseudo-selectors either misplaced inside the main map or chained without a comma silently produce no CSS.
+**`bugs`** — silent runtime breakage. Duplicate registrations overwrite, empty-effect handlers clobber app-db, effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen readers, an `:aria-live` that contradicts its role silently changes how urgently updates are announced, invalid `:tabIndex` values break the natural focus order, `:on-click` on non-interactive tags without keyboard support locks keyboard users out, empty interactive elements and unlabelled form controls have no accessible name, and Spade pseudo-selectors either misplaced inside the main map or chained without a comma silently produce no CSS.
 
 - `duplicate-subs`, `duplicate-events`
 - `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects`
-- `img-alt-missing`, `invalid-tabindex`, `on-click-on-non-interactive`, `empty-interactive-element`, `missing-accessible-name`
+- `img-alt-missing`, `invalid-tabindex`, `on-click-on-non-interactive`, `empty-interactive-element`, `missing-accessible-name`, `aria-live-contradicts-role`
 - `pseudo-in-main-map`, `consecutive-self-selectors`
 
 **`deprecations`** — deprecated APIs and idiomatic violations that may break later.

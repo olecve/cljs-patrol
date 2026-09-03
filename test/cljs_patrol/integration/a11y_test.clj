@@ -2,6 +2,7 @@
   (:require
    [cljs-patrol.core :as core]
    [cljs-patrol.groups.a11y :as a11y]
+   [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private fixture-dir "test/projects/a11y-app/src/blogapp")
@@ -499,3 +500,70 @@
         (testing "every wrapper finding carries :kw :button and :bugs tier"
           (is (every? #(= :button (:kw %)) in-buttons))
           (is (every? #(= :bugs (:tier %)) in-buttons)))))))
+
+(deftest aria-live-contradicts-role-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        {:keys [aria-live-contradicts-role]} (first group-results)
+        by-row (rows aria-live-contradicts-role)]
+
+    (testing "flags an :aria-live that sets a different politeness than the role implies"
+      (is (contains? by-row 63)
+          "bad-alert-downgraded-to-polite case — \"alert\" implies \"assertive\"")
+      (is (contains? by-row 68)
+          "bad-status-upgraded-to-assertive case — \"status\" implies \"polite\"")
+      (is (contains? by-row 73)
+          "bad-log-upgraded-to-assertive case — \"log\" implies \"polite\""))
+
+    (testing "flags the keyword spelling of both role and value"
+      (is (contains? by-row 78)
+          "bad-keyword-value-mismatch case — :alert with :polite, stringified by Reagent"))
+
+    (testing "does not flag an :aria-live that agrees with the role"
+      (is (not (contains? by-row 4))
+          "ok-status-with-polite case")
+      (is (not (contains? by-row 9))
+          "ok-alert-with-assertive case")
+      (is (not (contains? by-row 14))
+          "ok-log-with-polite case")
+      (is (not (contains? by-row 19))
+          "ok-keyword-spellings case — :status with :polite"))
+
+    (testing "does not flag a role carrying no :aria-live at all"
+      (is (not (contains? by-row 25))
+          "ok-status-role-only case — the role implies \"polite\" on its own")
+      (is (not (contains? by-row 30))
+          "ok-alert-role-only case — the redundant attribute double-speaks in iOS VoiceOver"))
+
+    (testing "does not flag :aria-live \"off\", which is a deliberate opt-out"
+      (is (not (contains? by-row 35))
+          "ok-status-silenced-on-purpose case"))
+
+    (testing "does not flag a role that is not a live region"
+      (is (not (contains? by-row 40))
+          "ok-not-a-live-region case — :role \"navigation\" implies no politeness"))
+
+    (testing "does not flag non-literal values (conservative)"
+      (is (not (contains? by-row 46))
+          "ok-dynamic-role case — role is a symbol")
+      (is (not (contains? by-row 52))
+          "ok-dynamic-aria-live case — :aria-live is a symbol")
+      (is (not (contains? by-row 58))
+          "ok-computed-aria-live case — :aria-live is an (if ...) form"))
+
+    (testing "flags exactly the bad- cases in the fixture"
+      (is (= 4 (count (filter #(str/ends-with? (:file %) "live_regions.cljs")
+                              aria-live-contradicts-role)))
+          "four bad- cases, no more"))
+
+    (testing "each finding carries a hint naming the value the role implies"
+      (let [hint-at (fn [row] (:hint (first (filter #(= row (:row %))
+                                                    aria-live-contradicts-role))))]
+        (is (= ":role \"alert\" implies \"assertive\", not \"polite\" — drop :aria-live, or set it to \"assertive\"."
+               (hint-at 63))
+            "names the role, both values, and the two ways out")
+        (is (= ":role \"status\" implies \"polite\", not \"assertive\" — drop :aria-live, or set it to \"polite\"."
+               (hint-at 68))
+            "the fix differs per role, which is why it is per-finding")
+        (is (= ":role :alert implies \"assertive\", not \"polite\" — drop :aria-live, or set it to \"assertive\"."
+               (hint-at 78))
+            "echoes the author's keyword spelling of the role")))))

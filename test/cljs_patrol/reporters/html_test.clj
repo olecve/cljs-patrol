@@ -18,15 +18,37 @@
 (deftest infer-columns-test
   (testing "form items use form/file/line columns"
     (is (= [:form :file :line]
-           (infer-columns {:form "(rf/dispatch [::ev])"
-                           :file "f.cljs"
-                           :row 1}))))
+           (infer-columns [{:form "(rf/dispatch [::ev])"
+                            :file "f.cljs"
+                            :row 1}]))))
 
   (testing "kw items use keyword/file/line columns"
     (is (= [:keyword :file :line]
-           (infer-columns {:kw :my/sub
-                           :file "f.cljs"
-                           :row 1})))))
+           (infer-columns [{:kw :my/sub
+                            :file "f.cljs"
+                            :row 1}]))))
+
+  (testing "a section gains a Fix column when some item carries a hint"
+    (is (= [:form :file :line :hint]
+           (infer-columns [{:form "(rf/dispatch [::ev])"
+                            :file "f.cljs"
+                            :row 1
+                            :hint "Do the thing."}]))
+        "hinted findings get somewhere to show the fix")
+    (is (= [:form :file :line :hint]
+           (infer-columns [{:form "(a)"
+                            :file "f.cljs"
+                            :row 1}
+                           {:form "(b)"
+                            :file "f.cljs"
+                            :row 2
+                            :hint "Do the thing."}]))
+        "one hinted item is enough, since the column is per section")
+    (is (= [:keyword :file :line]
+           (infer-columns [{:kw :my/sub
+                            :file "f.cljs"
+                            :row 1}]))
+        "groups that attach no hint keep the narrower table")))
 
 (def ^:private kw-item {:kw :my-ns/sub
                         :file "src/subs.cljs"

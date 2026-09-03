@@ -275,6 +275,65 @@
 
     :else nil))
 
+(def ^:private role->implicit-aria-live
+  "Live-region roles mapped to the `aria-live` politeness each one implies.
+  Reagent stringifies keyword attribute values, so both spellings count.
+  `timer` and `marquee` are deliberately absent: they are status-family roles that
+  imply \"off\", so an explicit \"off\" on them agrees with the role rather than fighting it."
+  {"status" "polite"
+   :status "polite"
+   "log" "polite"
+   :log "polite"
+   "alert" "assertive"
+   :alert "assertive"})
+
+(def ^:private announcing-aria-live-values
+  "Politeness values that ask for an announcement.
+  \"off\" is excluded on purpose: silencing a live region is a deliberate choice, since
+  the role still carries braille and read-status-bar semantics, and overlay libraries
+  have begun writing a literal \"off\" purely as a do-not-hide marker."
+  #{"polite" "assertive"})
+
+(defn- declared-aria-live
+  "Return the literal `:aria-live` spelling in attrs, or nil when absent or not literal.
+  A bare symbol reads as a token, so `literal-sexpr` hands the symbol straight back
+  rather than reporting it non-literal, and a computed value must not be mistaken
+  for a contradicting literal."
+  [attrs]
+  (let [v (literal-sexpr (get attrs :aria-live))]
+    (cond
+      (string? v) v
+      (and (keyword? v) (not= v ::absent) (not= v ::non-literal)) (name v)
+      :else nil)))
+
+(defn- contradicting-aria-live
+  "Return the role, the politeness it implies, and the declared one, when they conflict.
+  Nil when there is no conflict. The attribute
+  wins: Blink, WebKit and Gecko each read `aria-live` first and consult the role's
+  implicit value only when it is absent, so `:role \"alert\"` carrying
+  `:aria-live \"polite\"` really does downgrade the alert to polite.
+
+  Only a conflict between two announcing values counts. An absent `:aria-live` is
+  conformant markup and is not reported — the role alone satisfies the spec, and on
+  `:role \"alert\"` the redundant attribute is known to double-speak in VoiceOver on
+  iOS. `\"off\"` is a deliberate opt-out, and non-literal values are skipped."
+  [{:keys [kind attrs]}]
+  (when (and (= :map kind) (some? attrs))
+    (let [role (literal-sexpr (get attrs :role))
+          implied (get role->implicit-aria-live role)
+          declared (declared-aria-live attrs)]
+      (when (and implied
+                 declared
+                 (contains? announcing-aria-live-values declared)
+                 (not= implied declared))
+        {:role role
+         :implied implied
+         :declared declared}))))
+
+(defn- aria-live-hint [{:keys [role implied declared]}]
+  (format ":role %s implies \"%s\", not \"%s\" — drop :aria-live, or set it to \"%s\"."
+          (pr-str role) implied declared implied))
+
 (defn- resolve-full-symbol [head-str {:keys [aliases refers]}]
   (cond
     (str/includes? head-str "/")
@@ -305,6 +364,7 @@
                     (resolve-component-tag head-str ns-info component-aliases))]
         (when tag
           (let [info (hiccup/attrs-info loc)
+                aria-live-conflict (contradicting-aria-live info)
                 [row col] (try (z/position loc) (catch Exception _ [0 1]))
                 base {:kw tag
                       :form (source-snippet loc)
@@ -325,7 +385,12 @@
                          (conj (assoc base :type :empty-interactive-element))
 
                          (missing-accessible-name? info tag)
-                         (conj (assoc base :type :missing-accessible-name)))]
+                         (conj (assoc base :type :missing-accessible-name))
+
+                         aria-live-conflict
+                         (conj (assoc base
+                                      :type :aria-live-contradicts-role
+                                      :hint (aria-live-hint aria-live-conflict))))]
             (when (seq usages)
               {:decls []
                :dynamics []
@@ -341,23 +406,28 @@
      :invalid-tabindex (vec (:invalid-tabindex by-type))
      :on-click-on-non-interactive (vec (:on-click-on-non-interactive by-type))
      :empty-interactive-element (vec (:empty-interactive-element by-type))
-     :missing-accessible-name (vec (:missing-accessible-name by-type))}))
+     :missing-accessible-name (vec (:missing-accessible-name by-type))
+     :aria-live-contradicts-role (vec (:aria-live-contradicts-role by-type))}))
 
 (defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
-                               empty-interactive-element missing-accessible-name]}]
+                               empty-interactive-element missing-accessible-name
+                               aria-live-contradicts-role]}]
   [["Img missing alt:" (count img-alt-missing)]
    ["Invalid tabindex:" (count invalid-tabindex)]
    ["Onclick on non-interactive:" (count on-click-on-non-interactive)]
    ["Empty interactive element:" (count empty-interactive-element)]
-   ["Missing accessible name:" (count missing-accessible-name)]])
+   ["Missing accessible name:" (count missing-accessible-name)]
+   ["Aria-live contradicts role:" (count aria-live-contradicts-role)]])
 
 (defn- failed?* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
-                         empty-interactive-element missing-accessible-name]}]
+                         empty-interactive-element missing-accessible-name
+                         aria-live-contradicts-role]}]
   (or (seq img-alt-missing)
       (seq invalid-tabindex)
       (seq on-click-on-non-interactive)
       (seq empty-interactive-element)
-      (seq missing-accessible-name)))
+      (seq missing-accessible-name)
+      (seq aria-live-contradicts-role)))
 
 (defrecord A11yGroup [component-aliases]
   group/RuleGroup
@@ -409,13 +479,26 @@
           ":component-aliases` in `.cljs-patrol/config.edn` — e.g. "
           "`{my.ui/drawer :dialog, my.ui/textarea :textarea}`. "
           "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
-          "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")})
+          "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")
+     :aria-live-contradicts-role
+     (str "An element sets :aria-live to a different politeness than its :role "
+          "implies, and the attribute wins: browsers read :aria-live first and fall "
+          "back to the role only when it is absent. :role \"alert\" with :aria-live "
+          "\"polite\" is therefore an alert demoted to polite, and :role \"status\" "
+          "with :aria-live \"assertive\" interrupts the user where the role asked not "
+          "to. Either drop the attribute and let the role speak — \"status\" and "
+          "\"log\" imply \"polite\", \"alert\" implies \"assertive\" — or correct it to "
+          "match. Note :aria-live \"off\" is not flagged: silencing a live region is a "
+          "deliberate choice. "
+          "See: WAI-ARIA 1.2, Implicit Value for Role — "
+          "https://www.w3.org/TR/wai-aria-1.2/#implictValueForRole")})
   (rule->tier [_]
     {:img-alt-missing :bugs
      :invalid-tabindex :bugs
      :on-click-on-non-interactive :bugs
      :empty-interactive-element :bugs
-     :missing-accessible-name :bugs})
+     :missing-accessible-name :bugs
+     :aria-live-contradicts-role :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (defn make-group
