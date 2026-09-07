@@ -229,8 +229,8 @@
           "ok-dynamic-attrs case — [:div (merge ...)]"))
 
     (testing "every finding carries the offending tag as :kw"
-      (is (every? #(contains? #{:div :span :li :section} (:kw %)) on-click-on-non-interactive)
-          "fixture only exercises this 4-tag subset of non-interactive-tags"))
+      (is (every? #(contains? #{:div :span :li :section :svg} (:kw %)) on-click-on-non-interactive)
+          "fixture only exercises this 5-tag subset of non-interactive-tags"))
 
     (testing "every finding has :bugs tier"
       (is (every? #(= :bugs (:tier %)) on-click-on-non-interactive)))
@@ -567,3 +567,105 @@
         (is (= ":role :alert implies \"assertive\", not \"polite\" — drop :aria-live, or set it to \"assertive\"."
                (hint-at 78))
             "echoes the author's keyword spelling of the role")))))
+
+(deftest svg-on-click-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        {:keys [on-click-on-non-interactive]} (first group-results)
+        by-row (rows on-click-on-non-interactive)]
+
+    (testing "flags a click handler on a bare svg"
+      (is (contains? by-row 109)
+          "bad-svg-with-on-click — svg carries no click or keyboard semantics"))
+
+    (testing "leaves an svg with no handler alone"
+      (is (not (contains? by-row 112))
+          "ok-svg-without-handler"))
+
+    (testing "leaves an svg given a role and a keyboard path alone"
+      (is (not (contains? by-row 116))
+          "ok-svg-made-interactive"))))
+
+(deftest namespace-glob-component-alias-fixture-test
+  (testing "without the alias, an icon call resolves to no tag and is inert"
+    (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+          {:keys [on-click-on-non-interactive]} (first group-results)]
+      (is (empty? (filter #(str/ends-with? (:file %) "icon_controls.cljs")
+                          on-click-on-non-interactive))
+          "an unmapped component namespace stays invisible to the a11y rules")))
+
+  (testing "a `ns/*` alias maps every var in that namespace"
+    (let [configured (a11y/make-group {:component-aliases {'blogapp.icons/* :svg}})
+          {:keys [group-results]} (core/run fixture-dir [configured])
+          {:keys [on-click-on-non-interactive]} (first group-results)
+          in-icons (filter #(str/ends-with? (:file %) "icon_controls.cljs")
+                           on-click-on-non-interactive)
+          by-row (rows in-icons)]
+
+      (testing "flags an icon carrying its own :on-click"
+        (is (contains? by-row 7)
+            "bad-icon-as-its-own-control — not focusable, no button semantics"))
+
+      (testing "leaves an icon with no handler alone"
+        (is (not (contains? by-row 10))
+            "ok-icon-without-handler"))
+
+      (testing "leaves an icon inside a named button alone"
+        (is (not (contains? by-row 15))
+            "ok-icon-inside-a-named-button — the button is the control"))
+
+      (testing "flags only the one call"
+        (is (= 1 (count in-icons))
+            "one bad- case in the fixture, no more"))))
+
+  (testing "an exact symbol alias still wins over the namespace glob"
+    (let [configured (a11y/make-group
+                      {:component-aliases {'blogapp.icons/* :svg
+                                           'blogapp.icons/square :button}})
+          {:keys [group-results]} (core/run fixture-dir [configured])
+          {:keys [on-click-on-non-interactive empty-interactive-element]} (first group-results)]
+      (is (empty? (filter #(str/ends-with? (:file %) "icon_controls.cljs")
+                          on-click-on-non-interactive))
+          "mapped to :button, it is interactive, so the non-interactive rule is silent")
+      (is (seq (filter #(and (str/ends-with? (:file %) "icon_controls.cljs")
+                             (= 7 (:row %)))
+                       empty-interactive-element))
+          "and it is judged as a nameless button instead"))))
+
+(deftest icon-only-button-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        {:keys [empty-interactive-element]} (first group-results)
+        in-icons (filter #(str/ends-with? (:file %) "icon_controls.cljs")
+                         empty-interactive-element)
+        by-row (rows in-icons)]
+
+    (testing "flags a button whose every branch renders an icon"
+      (is (contains? by-row 19)
+          "bad-icon-only-button-cond — three cond branches, all icons")
+      (is (contains? by-row 26)
+          "bad-icon-only-button-if — both if branches are icons"))
+
+    (testing "leaves a button that names itself alone"
+      (is (not (contains? by-row 32))
+          "ok-icon-only-button-with-label")
+      (is (not (contains? by-row 13))
+          "ok-icon-inside-a-named-button"))
+
+    (testing "leaves a stateful widget alone"
+      (is (not (contains? by-row 39))
+          "ok-icon-only-button-with-state — :aria-checked and :role \"checkbox\""))
+
+    (testing "leaves a button with visible text alone"
+      (is (not (contains? by-row 47))
+          "ok-button-with-text-and-icon"))
+
+    (testing "leaves a branch that might render text alone"
+      (is (not (contains? by-row 53))
+          "ok-button-with-branch-producing-text — a call is opaque, so the form is too"))
+
+    (testing "leaves a button named by its image's alt text alone"
+      (is (not (contains? by-row 60))
+          "ok-button-named-by-image-alt — alt text is announced, so it names the button"))
+
+    (testing "flags exactly the bad- cases"
+      (is (= 2 (count in-icons))
+          "two bad- buttons in the fixture, no more"))))
