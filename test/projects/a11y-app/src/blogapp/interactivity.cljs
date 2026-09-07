@@ -103,3 +103,18 @@
   [:div {:on-mouse-down press
          :on-key-down key-handler}
    "OK"])
+
+(defn bad-svg-with-on-click [on-click]
+  ;; <svg> has no click or keyboard semantics of its own
+  [:svg {:on-click on-click}])
+
+(defn ok-svg-without-handler []
+  [:svg {:viewBox "0 0 16 16"}])
+
+(defn ok-svg-made-interactive [on-click]
+  ;; a role and a keyboard path make it a control; the label makes it a named one
+  [:svg {:role "button"
+         :aria-label "Zoom in"
+         :tabIndex 0
+         :on-click on-click
+         :on-key-down on-click}])

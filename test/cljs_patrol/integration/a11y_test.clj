@@ -229,8 +229,8 @@
           "ok-dynamic-attrs case — [:div (merge ...)]"))
 
     (testing "every finding carries the offending tag as :kw"
-      (is (every? #(contains? #{:div :span :li :section} (:kw %)) on-click-on-non-interactive)
-          "fixture only exercises this 4-tag subset of non-interactive-tags"))
+      (is (every? #(contains? #{:div :span :li :section :svg} (:kw %)) on-click-on-non-interactive)
+          "fixture only exercises this 5-tag subset of non-interactive-tags"))
 
     (testing "every finding has :bugs tier"
       (is (every? #(= :bugs (:tier %)) on-click-on-non-interactive)))
@@ -567,3 +567,20 @@
         (is (= ":role :alert implies \"assertive\", not \"polite\" — drop :aria-live, or set it to \"assertive\"."
                (hint-at 78))
             "echoes the author's keyword spelling of the role")))))
+
+(deftest svg-on-click-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        {:keys [on-click-on-non-interactive]} (first group-results)
+        by-row (rows on-click-on-non-interactive)]
+
+    (testing "flags a click handler on a bare svg"
+      (is (contains? by-row 109)
+          "bad-svg-with-on-click — svg carries no click or keyboard semantics"))
+
+    (testing "leaves an svg with no handler alone"
+      (is (not (contains? by-row 112))
+          "ok-svg-without-handler"))
+
+    (testing "leaves an svg given a role and a keyboard path alone"
+      (is (not (contains? by-row 116))
+          "ok-svg-made-interactive"))))

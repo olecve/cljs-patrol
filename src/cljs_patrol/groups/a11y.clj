@@ -73,7 +73,7 @@
   Attaching a mouse / pointer interaction to these without a :role hint or
   a keyboard handler produces something that looks clickable but isn't
   reachable via keyboard."
-  #{:div :span :li :p :section :article :header :footer :main :aside})
+  #{:div :span :li :p :section :article :header :footer :main :aside :svg})
 
 (def ^:private interaction-keys
   "Attribute keys that attach a mouse / pointer / touch interaction.
@@ -443,8 +443,8 @@
           "https://www.w3.org/WAI/WCAG21/Understanding/focus-order")
      :on-click-on-non-interactive
      (str "A mouse / pointer / touch handler (:on-click, :on-mouse-down, :on-pointer-*, "
-          ":on-touch-*, ...) is attached to a non-interactive tag (:div, :span, :li, :p, "
-          ":section, ...) with no keyboard equivalent — mouse users can trigger it but "
+          ":on-touch-*, ...) is attached to a non-interactive tag (:div, :span, :svg, "
+          ":li, :p, :section, ...) with no keyboard equivalent — mouse users can trigger it but "
           "keyboard users cannot. Either switch to a natively interactive tag (:button, "
           "or :a with :href), or add :role (\"button\", \"link\") or a keyboard handler "
           "(:on-key-down / :on-key-press / :on-key-up) — WCAG recommends both. Note: "
