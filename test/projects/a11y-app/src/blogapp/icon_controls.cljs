@@ -62,3 +62,21 @@
           :src "/img/viewer.svg"}]
    (when icon-visible?
      [icons/square {:size 16}])])
+
+(defn bad-icon-handler-via-assoc [base-icon-props on-select]
+  ;; the handler is literal even though the base map is opaque
+  [icons/square (assoc base-icon-props :on-click on-select)])
+
+(defn bad-icon-handler-via-merge [base-icon-props on-select]
+  [icons/square (merge base-icon-props {:on-click on-select})])
+
+(defn ok-icon-given-role-and-keyboard-in-the-assoc [base-icon-props on-select]
+  [icons/square (assoc base-icon-props
+                       :role "button"
+                       :tabIndex 0
+                       :on-click on-select
+                       :on-key-down on-select)])
+
+(defn ok-icon-with-opaque-props [base-icon-props]
+  ;; nothing literal to read: no construction call, so no claim either way
+  [icons/square base-icon-props])

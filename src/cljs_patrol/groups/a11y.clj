@@ -40,7 +40,7 @@
       :absent true
       :non-map true
       :map (and (some? attrs) (not (contains? attrs :alt)))
-      :dynamic false)))
+      (:dynamic :dynamic-map) false)))
 
 (defn- non-positive-int? [x]
   (and (integer? x) (<= x 0)))
@@ -133,9 +133,15 @@
 (defn- has-meaningful-handler? [attrs handler-keys]
   (some #(meaningful-handler? (get attrs %)) handler-keys))
 
+(def ^:private attrs-readable-kinds
+  "Classifications whose `:attrs` can answer whether a key is present.
+  `:dynamic-map` is a floor rather than the whole map, so it is enough to spot an
+  interaction key and never enough to call one missing."
+  #{:map :dynamic-map})
+
 (defn- on-click-on-non-interactive? [{:keys [kind attrs]} tag]
   (when (and (contains? non-interactive-tags tag)
-             (= :map kind)
+             (contains? attrs-readable-kinds kind)
              (some? attrs))
     (and (has-meaningful-handler? attrs interaction-keys)
          (not (meaningful-role? attrs))
@@ -338,7 +344,7 @@
       :absent true
       :non-map true
       :map (or (nil? attrs) (not (has-accessible-name? attrs)))
-      :dynamic false)
+      (:dynamic :dynamic-map) false)
 
     (and (= kind :map) attrs (dialog-shaped-attrs? attrs))
     (not (has-accessible-name? attrs))

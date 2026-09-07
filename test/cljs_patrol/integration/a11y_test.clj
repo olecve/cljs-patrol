@@ -613,9 +613,9 @@
         (is (not (contains? by-row 15))
             "ok-icon-inside-a-named-button — the button is the control"))
 
-      (testing "flags only the one call"
-        (is (= 1 (count in-icons))
-            "one bad- case in the fixture, no more"))))
+      (testing "flags exactly the icon calls carrying a handler"
+        (is (= #{7 68 71} (set (map :row in-icons)))
+            "the literal-map case and the two built through assoc / merge"))))
 
   (testing "an exact symbol alias still wins over the namespace glob"
     (let [configured (a11y/make-group
@@ -669,3 +669,33 @@
     (testing "flags exactly the bad- cases"
       (is (= 2 (count in-icons))
           "two bad- buttons in the fixture, no more"))))
+
+(deftest attr-construction-forms-fixture-test
+  (let [configured (a11y/make-group {:component-aliases {'blogapp.icons/* :svg}})
+        {:keys [group-results]} (core/run fixture-dir [configured])
+        {:keys [on-click-on-non-interactive empty-interactive-element]} (first group-results)
+        in-icons (filter #(str/ends-with? (:file %) "icon_controls.cljs")
+                         on-click-on-non-interactive)
+        by-row (rows in-icons)]
+
+    (testing "reads a handler through (assoc base …)"
+      (is (contains? by-row 68)
+          "bad-icon-handler-via-assoc — the base is opaque, the :on-click is not"))
+
+    (testing "reads a handler through (merge base {…})"
+      (is (contains? by-row 71)
+          "bad-icon-handler-via-merge"))
+
+    (testing "honours a role and keyboard handler supplied in the same call"
+      (is (not (contains? by-row 74))
+          "ok-icon-given-role-and-keyboard-in-the-assoc"))
+
+    (testing "claims nothing about a wholly opaque props symbol"
+      (is (not (contains? by-row 82))
+          "ok-icon-with-opaque-props — no construction call, so no literal keys"))
+
+    (testing "a partial view never drives a rule that asserts something is missing"
+      (is (empty? (filter #(and (str/ends-with? (:file %) "icon_controls.cljs")
+                                (contains? #{68 71 74 82} (:row %)))
+                          empty-interactive-element))
+          "constructed attrs cannot show a name is absent, only that a key is present"))))
