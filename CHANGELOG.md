@@ -1,5 +1,18 @@
 # Changelog
 
+## [v0.0.21] - 2026-09-07
+
+## What's Changed
+
+* Add a11y rule: aria-live-contradicts-role by @olecve in https://github.com/olecve/cljs-patrol/pull/46
+* Add clj-kondo, with the linters it ships switched off turned on by @olecve in https://github.com/olecve/cljs-patrol/pull/47
+* Explain the rule in console output, not only in html and markdown by @olecve in https://github.com/olecve/cljs-patrol/pull/48
+* Catch icon-as-clickable and icon-only unnamed buttons by @olecve in https://github.com/olecve/cljs-patrol/pull/49
+* Document svg, namespace-glob aliases, and icon-only button bodies in the README by @olecve in https://github.com/olecve/cljs-patrol/pull/50
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.20...v0.0.21
+
+
 ## [v0.0.20] - 2026-09-01
 
 ## What's Changed
