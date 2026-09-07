@@ -84,8 +84,8 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **Mixed typography token groups** — typography tokens from different Figma token groups mixed in a single style definition
 - **`:img` missing `:alt`** — `[:img {...}]` without an `:alt` attribute; use `:alt ""` for decorative images
 - **Invalid tabindex** — `:tabIndex`/`:tab-index` with a value that isn't `0` or a negative integer (positive ints break natural focus order; non-int literals aren't valid tabindex values)
-- **`:on-click` on non-interactive tag** — `:on-click` on `:div`/`:span`/`:li`/`:p`/`:section` etc. without `:role` or a keyboard handler; keyboard users can't activate it
-- **Empty interactive element** — `:button`, `:a`, or `:role "button"`/`"link"` with no visible text and no `:aria-label`/`:aria-labelledby`/`:title`; screen readers announce nothing
+- **`:on-click` on non-interactive tag** — `:on-click` on `:div`/`:span`/`:svg`/`:li`/`:p`/`:section` etc. without `:role` or a keyboard handler; keyboard users can't activate it. `:svg` counts because an icon rendered as a bare `<svg>` carrying its own handler is not focusable and has no button semantics
+- **Empty interactive element** — `:button`, `:a`, or `:role "button"`/`"link"` with no visible text and no `:aria-label`/`:aria-labelledby`/`:title`; screen readers announce nothing. A body that is only a `(cond …)`/`(if …)`/`(when …)` whose every branch renders an icon counts as no visible text, so an icon-only toggle is caught rather than mistaken for content. Non-empty `:alt` on a child `[:img …]` does name the control, and `:aria-pressed`/`:aria-checked`/`:role "checkbox"` mark a stateful widget and are left alone
 - **Missing accessible name** — native `[:textarea …]`, native `[:dialog …]`, any hiccup vector whose props carry `:role "dialog"` / `:role :dialog` / `:aria-modal true`, and any wrapper component (`[my.ui/textarea …]`, `[my.ui/drawer …]`) mapped in [`:a11y :component-aliases`](#a11y-component-aliases), that lacks `:aria-label` or `:aria-labelledby`; `:placeholder` is a hint, not a name
 - **`aria-live` contradicts role** — a hiccup vector whose props set `:aria-live` to a different politeness than its `:role` implies (`"status"` and `"log"` imply `"polite"`, `"alert"` implies `"assertive"`). The attribute wins: browsers read `:aria-live` first and fall back to the role only when it is absent, so `:role "alert"` with `:aria-live "polite"` is an alert silently demoted to polite. A role carrying no `:aria-live` at all is **not** flagged — it is conformant markup, and on `:role "alert"` the redundant attribute is documented to double-speak in VoiceOver on iOS. `:aria-live "off"` is not flagged either; silencing a live region is a deliberate choice
 - **Pseudo-selector in Spade main map** — `defclass`/`defattrs` with a `:&`-prefixed key (e.g. `:&:hover`) inside the first argument map; Spade emits it as an invalid CSS property and silently drops the rule. Move the selector into its own sibling vector `[:&:hover {…}]`
@@ -105,10 +105,13 @@ Map each wrapper to the native tag it renders in `.cljs-patrol/config.edn`:
 {:a11y {:component-aliases
         {my.ui/button :button
          my.ui/drawer :dialog
-         my.ui/textarea :textarea}}}
+         my.ui/textarea :textarea
+         my.ui.icons/* :svg}}}
 ```
 
-Any call whose head symbol resolves (via `:as` or `:refer` in the caller's `ns`) to a mapped fully-qualified symbol is then checked as if it were the native tag. `[my.ui/textarea {:placeholder "…"}]` participates in `:missing-accessible-name`; icon-only `[my.ui/button [icons/x]]` participates in `:empty-interactive-element`; `[my.ui/drawer {:open? true}]` participates in `:missing-accessible-name` via the `:dialog` mapping. All existing a11y rules compose the same way.
+A `some.ns/*` key maps every var in that namespace, so a 200-icon namespace costs one line instead of 200. An exact symbol key wins over the glob when both match.
+
+Any call whose head symbol resolves (via `:as` or `:refer` in the caller's `ns`) to a mapped fully-qualified symbol is then checked as if it were the native tag. `[my.ui/textarea {:placeholder "…"}]` participates in `:missing-accessible-name`; icon-only `[my.ui/button [icons/x]]` participates in `:empty-interactive-element`; `[my.ui/drawer {:open? true}]` participates in `:missing-accessible-name` via the `:dialog` mapping; `[my.ui.icons/x {:on-click f}]` participates in `:on-click-on-non-interactive` via the `:svg` mapping. All existing a11y rules compose the same way.
 
 ### Example: reg-event-db returning effects
 
