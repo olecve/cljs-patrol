@@ -630,3 +630,42 @@
                              (= 7 (:row %)))
                        empty-interactive-element))
           "and it is judged as a nameless button instead"))))
+
+(deftest icon-only-button-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        {:keys [empty-interactive-element]} (first group-results)
+        in-icons (filter #(str/ends-with? (:file %) "icon_controls.cljs")
+                         empty-interactive-element)
+        by-row (rows in-icons)]
+
+    (testing "flags a button whose every branch renders an icon"
+      (is (contains? by-row 19)
+          "bad-icon-only-button-cond — three cond branches, all icons")
+      (is (contains? by-row 26)
+          "bad-icon-only-button-if — both if branches are icons"))
+
+    (testing "leaves a button that names itself alone"
+      (is (not (contains? by-row 32))
+          "ok-icon-only-button-with-label")
+      (is (not (contains? by-row 13))
+          "ok-icon-inside-a-named-button"))
+
+    (testing "leaves a stateful widget alone"
+      (is (not (contains? by-row 39))
+          "ok-icon-only-button-with-state — :aria-checked and :role \"checkbox\""))
+
+    (testing "leaves a button with visible text alone"
+      (is (not (contains? by-row 47))
+          "ok-button-with-text-and-icon"))
+
+    (testing "leaves a branch that might render text alone"
+      (is (not (contains? by-row 53))
+          "ok-button-with-branch-producing-text — a call is opaque, so the form is too"))
+
+    (testing "leaves a button named by its image's alt text alone"
+      (is (not (contains? by-row 60))
+          "ok-button-named-by-image-alt — alt text is announced, so it names the button"))
+
+    (testing "flags exactly the bad- cases"
+      (is (= 2 (count in-icons))
+          "two bad- buttons in the fixture, no more"))))

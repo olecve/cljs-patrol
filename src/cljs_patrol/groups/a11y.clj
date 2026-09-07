@@ -176,6 +176,35 @@
        (contains? #{:token :multi-line} (z/tag loc))
        (string? (try (z/sexpr loc) (catch Exception _ nil)))))
 
+(def ^:private branching-forms
+  "Forms whose branches each render, so a body built only of them is still icon-only."
+  #{"cond" "if" "if-not" "when" "when-not" "when-let" "when-some"})
+
+(defn- right-locs [loc]
+  (when loc (cons loc (lazy-seq (right-locs (z/right loc))))))
+
+(defn- branch-result-locs
+  "Locs a branching form can render, with tests and bindings dropped.
+  `cond` alternates test and result, so only odd positions render; the rest put
+  every argument after the first in the body."
+  [head-str first-arg]
+  (let [args (right-locs first-arg)]
+    (if (= "cond" head-str)
+      (keep-indexed (fn [i loc] (when (odd? i) loc)) args)
+      (rest args))))
+
+(declare icon-only-branches?)
+
+(defn- image-alt-name?
+  "True when loc is an `[:img …]` carrying non-empty `:alt` text.
+  Alt text is announced, so an image holding it names whatever control it sits in."
+  [loc attrs]
+  (and (some? attrs)
+       (when-let [head (z/down loc)]
+         (= :img (hiccup/parse-tag (parser/raw head))))
+       (let [alt (literal-sexpr (get attrs :alt))]
+         (and (string? alt) (seq alt)))))
+
 (defn- visible-content?
   "True when loc carries visible text or dynamically-computed content.
   A nested Hiccup vector is treated as opaque icon markup unless it
@@ -190,14 +219,40 @@
           attrs-map (when (and second-child (= :map (z/tag second-child)))
                       second-child)
           body-start (if attrs-map (z/right attrs-map) second-child)]
-      (or (and attrs-map (meaningful-text-name? (hiccup/literal-map attrs-map)))
+      (or (when attrs-map
+            (let [attrs (hiccup/literal-map attrs-map)]
+              (or (meaningful-text-name? attrs)
+                  (image-alt-name? loc attrs))))
           (loop [cur body-start]
             (cond
               (nil? cur) false
               (visible-content? cur) true
               :else (recur (z/right cur))))))
 
+    (= :list (z/tag loc))
+    (not (icon-only-branches? loc))
+
     :else true))
+
+(defn- icon-only-branches?
+  "True when every branch a form could render is icon markup.
+  A `(cond … [icons/a] … [icons/b])` in a button body reads as content to a
+  reader and as nothing at all to a screen reader, so it must not count as a
+  visible name. Anything else in a branch — a string, a symbol, a call that
+  might produce text — makes the whole form opaque again."
+  [loc]
+  (and (= :list (z/tag loc))
+       (let [head (z/down loc)
+             head-str (when head (parser/raw head))]
+         (and (contains? branching-forms head-str)
+              (let [results (branch-result-locs head-str (z/right head))]
+                (and (seq results)
+                     (every? (fn [result]
+                               (case (z/tag result)
+                                 :vector (not (visible-content? result))
+                                 :list (icon-only-branches? result)
+                                 false))
+                             results)))))))
 
 (defn- has-visible-body?
   "True when the vector has body content producing visible text or a labelled child.
@@ -214,17 +269,32 @@
         (visible-content? cur) true
         :else (recur (z/right cur))))))
 
+(def ^:private widget-state-attrs
+  "Attributes marking a control as a stateful widget rather than a plain button.
+  Present, the element is left alone: it shows deliberate a11y work, and the name
+  it may still lack is a different finding from an unlabelled icon button."
+  #{:aria-pressed :aria-checked})
+
+(def ^:private checkbox-role-values #{"checkbox" :checkbox})
+
+(defn- stateful-widget? [attrs]
+  (or (some (fn [k] (not= ::absent (literal-sexpr (get attrs k)))) widget-state-attrs)
+      (contains? checkbox-role-values (literal-sexpr (get attrs :role)))))
+
 (defn- empty-interactive? [{:keys [kind attrs]} tag loc]
   (when (not (has-visible-body? loc))
     (cond
       (contains? empty-interactive-tags tag)
       (case kind
         :absent true
-        :map (and (some? attrs) (not (meaningful-text-name? attrs)))
+        :map (and (some? attrs)
+                  (not (meaningful-text-name? attrs))
+                  (not (stateful-widget? attrs)))
         false)
 
       (and (= :map kind) (some? attrs) (interactive-via-role? attrs))
-      (not (meaningful-text-name? attrs))
+      (and (not (meaningful-text-name? attrs))
+           (not (stateful-widget? attrs)))
 
       :else false)))
 
