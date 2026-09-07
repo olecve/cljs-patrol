@@ -584,3 +584,49 @@
     (testing "leaves an svg given a role and a keyboard path alone"
       (is (not (contains? by-row 116))
           "ok-svg-made-interactive"))))
+
+(deftest namespace-glob-component-alias-fixture-test
+  (testing "without the alias, an icon call resolves to no tag and is inert"
+    (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+          {:keys [on-click-on-non-interactive]} (first group-results)]
+      (is (empty? (filter #(str/ends-with? (:file %) "icon_controls.cljs")
+                          on-click-on-non-interactive))
+          "an unmapped component namespace stays invisible to the a11y rules")))
+
+  (testing "a `ns/*` alias maps every var in that namespace"
+    (let [configured (a11y/make-group {:component-aliases {'blogapp.icons/* :svg}})
+          {:keys [group-results]} (core/run fixture-dir [configured])
+          {:keys [on-click-on-non-interactive]} (first group-results)
+          in-icons (filter #(str/ends-with? (:file %) "icon_controls.cljs")
+                           on-click-on-non-interactive)
+          by-row (rows in-icons)]
+
+      (testing "flags an icon carrying its own :on-click"
+        (is (contains? by-row 7)
+            "bad-icon-as-its-own-control — not focusable, no button semantics"))
+
+      (testing "leaves an icon with no handler alone"
+        (is (not (contains? by-row 10))
+            "ok-icon-without-handler"))
+
+      (testing "leaves an icon inside a named button alone"
+        (is (not (contains? by-row 15))
+            "ok-icon-inside-a-named-button — the button is the control"))
+
+      (testing "flags only the one call"
+        (is (= 1 (count in-icons))
+            "one bad- case in the fixture, no more"))))
+
+  (testing "an exact symbol alias still wins over the namespace glob"
+    (let [configured (a11y/make-group
+                      {:component-aliases {'blogapp.icons/* :svg
+                                           'blogapp.icons/square :button}})
+          {:keys [group-results]} (core/run fixture-dir [configured])
+          {:keys [on-click-on-non-interactive empty-interactive-element]} (first group-results)]
+      (is (empty? (filter #(str/ends-with? (:file %) "icon_controls.cljs")
+                          on-click-on-non-interactive))
+          "mapped to :button, it is interactive, so the non-interactive rule is silent")
+      (is (seq (filter #(and (str/ends-with? (:file %) "icon_controls.cljs")
+                             (= 7 (:row %)))
+                       empty-interactive-element))
+          "and it is judged as a nameless button instead"))))

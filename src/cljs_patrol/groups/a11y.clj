@@ -337,10 +337,16 @@
     (when-let [full-ns (get refers head-str)]
       (symbol full-ns head-str))))
 
-(defn- resolve-component-tag [head-str ns-info component-aliases]
+(defn- resolve-component-tag
+  "Return the native tag mapped to a resolved component symbol, or nil.
+  A `some.ns/*` key maps every var in that namespace, so a large icon or widget
+  namespace costs one entry rather than one per var. An exact symbol wins over it."
+  [head-str ns-info component-aliases]
   (when (seq component-aliases)
     (when-let [full-sym (resolve-full-symbol head-str ns-info)]
-      (get component-aliases full-sym))))
+      (or (get component-aliases full-sym)
+          (when-let [component-ns (namespace full-sym)]
+            (get component-aliases (symbol component-ns "*")))))))
 
 (defn- handle-vector* [loc ns-info file component-aliases]
   (let [first-child (z/down loc)]
