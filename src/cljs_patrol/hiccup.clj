@@ -68,6 +68,56 @@
         (recur (some-> value-loc z/right)
                (assoc acc (z/sexpr key-loc) value-loc))))))
 
+(def ^:private attr-construction-heads
+  "Calls that build a map from a base plus literal keys we can still read."
+  #{"assoc" "merge" "assoc-in"})
+
+(declare construction-attrs)
+
+(defn- contributed-attrs [loc]
+  (cond
+    (nil? loc) {}
+    (= :map (z/tag loc)) (or (literal-map loc) {})
+    (= :list (z/tag loc)) (or (construction-attrs loc) {})
+    :else {}))
+
+(defn- right-args [head]
+  (when-let [arg (z/right head)]
+    (cons arg (lazy-seq (right-args arg)))))
+
+(defn construction-attrs
+  "Return `{kw → value-zloc}` for the keys a map-building call definitely contributes.
+  Handles `(assoc base :k v …)`, `(merge base {:k v} …)` and `(assoc-in base [:k …] v)`,
+  nesting through each other. Returns nil when the call is not one of those.
+
+  The base may be opaque and computed keys are skipped, so the result is a floor on
+  what the map holds: it can answer that a key is present, never that one is absent."
+  [list-loc]
+  (when (= :list (z/tag list-loc))
+    (when-let [head (z/down list-loc)]
+      (let [head-str (parser/raw head)]
+        (when (contains? attr-construction-heads head-str)
+          (let [args (right-args head)]
+            (case head-str
+              "merge"
+              (reduce (fn [acc arg] (merge acc (contributed-attrs arg))) {} args)
+
+              "assoc"
+              (reduce (fn [acc [key-loc value-loc]]
+                        (if (parser/kw-node? key-loc)
+                          (assoc acc (z/sexpr key-loc) value-loc)
+                          acc))
+                      (contributed-attrs (first args))
+                      (partition 2 (rest args)))
+
+              "assoc-in"
+              (let [[base path-loc value-loc] args
+                    outer-key (when (and path-loc (= :vector (z/tag path-loc)))
+                                (z/down path-loc))]
+                (cond-> (contributed-attrs base)
+                  (and outer-key (parser/kw-node? outer-key))
+                  (assoc (z/sexpr outer-key) value-loc))))))))))
+
 (defn attrs-info
   "Classify the second child of a Hiccup vector.
 
@@ -76,14 +126,22 @@
     {:kind :map :attrs {kw → value-loc}}  ; literal map — attrs returned
     {:kind :map :attrs nil}               ; literal map with non-kw keys
     {:kind :non-map}                      ; e.g. [:img \"child\"] — no attrs slot
-    {:kind :dynamic}                      ; non-literal (e.g. (build-attrs))"
+    {:kind :dynamic-map :attrs {kw → …}}  ; (assoc base :k v) — the keys still readable
+    {:kind :dynamic}                      ; non-literal (e.g. (build-attrs))
+
+  `:dynamic-map` carries a partial view, so it answers only that a key is present.
+  Rules asserting something is missing need `:map`."
   [vec-loc]
   (let [second-child (some-> vec-loc z/down z/right)]
     (cond
       (nil? second-child) {:kind :absent}
       (= :map (z/tag second-child)) {:kind :map
                                      :attrs (literal-map second-child)}
-      (contains? dynamic-attr-tags (z/tag second-child)) {:kind :dynamic}
+      (contains? dynamic-attr-tags (z/tag second-child))
+      (if-let [built (seq (construction-attrs second-child))]
+        {:kind :dynamic-map
+         :attrs (into {} built)}
+        {:kind :dynamic})
       :else {:kind :non-map})))
 
 (defn inside-quoted-form? [loc]
