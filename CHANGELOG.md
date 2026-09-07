@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.0.22] - 2026-09-07
+
+## What's Changed
+
+* See :on-click through assoc, merge and assoc-in attr wrappers by @olecve in https://github.com/olecve/cljs-patrol/pull/51
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.21...v0.0.22
+
+
 ## [v0.0.21] - 2026-09-07
 
 ## What's Changed
