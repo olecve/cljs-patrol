@@ -360,7 +360,8 @@
   (testing "without :component-aliases config: only native :textarea is checked"
     (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
           {:keys [missing-accessible-name]} (first group-results)
-          by-row (rows missing-accessible-name)]
+          by-row (rows (filter #(str/ends-with? (:file %) "forms.cljs")
+                               missing-accessible-name))]
 
       (testing "flags [:textarea {:placeholder ...}] with no aria-label / aria-labelledby"
         (is (contains? by-row 7)
@@ -429,7 +430,8 @@
                                            'blogapp.ui/dialog-root :dialog}})
           {:keys [group-results]} (core/run fixture-dir [configured])
           {:keys [missing-accessible-name]} (first group-results)
-          by-row (rows missing-accessible-name)]
+          by-row (rows (filter #(str/ends-with? (:file %) "forms.cljs")
+                               missing-accessible-name))]
 
       (testing "flags [ui/textarea {:placeholder ...}] once the wrapper is mapped"
         (is (contains? by-row 34)
@@ -699,3 +701,44 @@
                                 (contains? #{68 71 74 82} (:row %)))
                           empty-interactive-element))
           "constructed attrs cannot show a name is absent, only that a key is present"))))
+
+(deftest name-required-role-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        {:keys [missing-accessible-name]} (first group-results)
+        in-roles (filter #(str/ends-with? (:file %) "named_roles.cljs")
+                         missing-accessible-name)
+        by-row (rows in-roles)]
+
+    (testing "flags :role \"img\" with no name of its own"
+      (is (contains? by-row 28)
+          "bad-img-role-unnamed — the role announces nothing without a name"))
+
+    (testing "flags the keyword spelling of the role"
+      (is (contains? by-row 31)
+          "bad-img-role-keyword-spelling — Reagent stringifies :img"))
+
+    (testing "treats an empty :aria-label as no name"
+      (is (contains? by-row 34)
+          "bad-img-role-empty-label"))
+
+    (testing "leaves a named :role \"img\" alone"
+      (is (not (contains? by-row 4))
+          "ok-img-role-with-aria-label")
+      (is (not (contains? by-row 8))
+          "ok-img-role-with-labelledby")
+      (is (not (contains? by-row 12))
+          "ok-img-role-with-title — :title is a last-resort name, but a real one"))
+
+    (testing "leaves a decorative icon that opts out alone"
+      (is (not (contains? by-row 17))
+          "ok-decorative-icon-hidden — :aria-hidden true, no role at all"))
+
+    (testing "leaves non-literal values alone (conservative)"
+      (is (not (contains? by-row 21))
+          "ok-dynamic-role — role is a symbol")
+      (is (not (contains? by-row 25))
+          "ok-computed-attrs — the attrs map is a call"))
+
+    (testing "flags exactly the bad- cases"
+      (is (= 3 (count in-roles))
+          "three bad- cases in the fixture, no more"))))
