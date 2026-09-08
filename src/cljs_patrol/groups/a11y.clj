@@ -311,12 +311,19 @@
   `<dialog>` and any wrapper aliased to `:dialog` via `:component-aliases`."
   #{:textarea :dialog})
 
-(def ^:private accessible-name-attrs #{:aria-label :aria-labelledby})
+(def ^:private accessible-name-attrs
+  "Attributes that give an element a programmatic name.
+  `:title` is a last-resort source but a real one, so it counts; `:placeholder`
+  is a hint that disappears on typing and does not."
+  #{:aria-label :aria-labelledby :title})
 
-(def ^:private dialog-role-values
-  "Values of `:role` that mark an element as a modal dialog needing an accessible name.
-  Reagent stringifies keyword attribute values at runtime, so both spellings count."
-  #{"dialog" :dialog})
+(def ^:private name-required-roles
+  "Roles that WAI-ARIA requires to carry an accessible name of their own.
+  `img` opts an element into the accessibility tree with nothing to announce, and
+  `dialog` needs a name to be identifiable once focus moves into it. The name has to
+  sit on the element itself, so a purely local check is correct for both. Reagent
+  stringifies keyword attribute values at runtime, so both spellings count."
+  #{"dialog" :dialog "img" :img})
 
 (defn- has-accessible-name? [attrs]
   (some (fn [k]
@@ -329,12 +336,13 @@
               :else true)))
         accessible-name-attrs))
 
-(defn- dialog-shaped-attrs?
-  "True when attrs signal a modal dialog via literal `:role \"dialog\"` or `:aria-modal true`.
-  Non-literal values are treated as unknown and skipped, matching the check's
-  false-positive-free posture."
+(defn- name-required-attrs?
+  "True when attrs claim a role that must carry its own accessible name.
+  Either a literal `:role` in [[name-required-roles]], or `:aria-modal true`, which
+  makes an element a dialog whatever its role says. Non-literal values are treated as
+  unknown and skipped, matching the check's false-positive-free posture."
   [attrs]
-  (or (contains? dialog-role-values (literal-sexpr (get attrs :role)))
+  (or (contains? name-required-roles (literal-sexpr (get attrs :role)))
       (true? (literal-sexpr (get attrs :aria-modal)))))
 
 (defn- missing-accessible-name? [{:keys [kind attrs]} tag]
@@ -346,7 +354,7 @@
       :map (or (nil? attrs) (not (has-accessible-name? attrs)))
       (:dynamic :dynamic-map) false)
 
-    (and (= kind :map) attrs (dialog-shaped-attrs? attrs))
+    (and (= kind :map) attrs (name-required-attrs? attrs))
     (not (has-accessible-name? attrs))
 
     :else nil))
@@ -547,7 +555,10 @@
           "a name — it disappears when the user types and is not universally "
           "announced. Triggered by native form controls (`[:textarea …]`), "
           "modal-dialog shapes (`[:div {:role \"dialog\"}]`, `:aria-modal true`, "
-          "or `[:dialog …]`), and any wrapper listed under `:a11y "
+          "or `[:dialog …]`), `:role \"img\"` — which opts an element into the "
+          "accessibility tree and then leaves a screen reader nothing to announce, "
+          "so a decorative icon wants `:aria-hidden true` instead of a role — "
+          "and any wrapper listed under `:a11y "
           ":component-aliases` in `.cljs-patrol/config.edn` — e.g. "
           "`{my.ui/drawer :dialog, my.ui/textarea :textarea}`. "
           "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
