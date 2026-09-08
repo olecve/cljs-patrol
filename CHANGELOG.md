@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.0.23] - 2026-09-08
+
+## What's Changed
+
+* Require an accessible name on role=img, not just dialog by @olecve in https://github.com/olecve/cljs-patrol/pull/52
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.22...v0.0.23
+
+
 ## [v0.0.22] - 2026-09-07
 
 ## What's Changed
