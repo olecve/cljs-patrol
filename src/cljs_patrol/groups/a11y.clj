@@ -432,6 +432,135 @@
           (when-let [component-ns (namespace full-sym)]
             (get component-aliases (symbol component-ns "*")))))))
 
+(def ^:private repeating-forms
+  "Forms that render their body once per item of a collection."
+  #{"for" "map" "mapv" "mapcat" "map-indexed" "keep" "keep-indexed"})
+
+(defn- descendant-of? [ancestor loc]
+  (loop [cur loc]
+    (cond
+      (nil? cur) false
+      (identical? (z/node cur) (z/node ancestor)) true
+      :else (recur (z/up cur)))))
+
+(defn- for-once-loc
+  "The single expression a `for` evaluates once: its first binding's collection.
+  Everything else in the bindings vector, including `:let` and any later
+  collection expression, is re-evaluated on every iteration."
+  [form-loc]
+  (some-> form-loc z/down z/right z/down z/right))
+
+(defn- repeats-child?
+  "True when `loc` sits in the part of `form-loc` that runs once per item.
+  `for` repeats everything except its first binding's collection expression. The
+  map family takes the repeating function as its first argument, so its remaining
+  arguments are collections that are evaluated once."
+  [form-loc child loc]
+  (if (= "for" (some-> form-loc z/down parser/raw))
+    (let [once (for-once-loc form-loc)]
+      (not (and once (descendant-of? once loc))))
+    (let [repeating-arg (some-> form-loc z/down z/right)]
+      (boolean (and repeating-arg (identical? (z/node repeating-arg) (z/node child)))))))
+
+(defn- literal-name-value
+  "Return the literal non-empty string attrs give to `k`, or nil.
+  A computed value like `(str \"Figure \" (inc i))` already varies per item, and
+  `:alt \"\"` marks a decorative image that is correct however often it repeats."
+  [attrs k]
+  (let [v (literal-sexpr (get attrs k))]
+    (when (and (string? v) (seq v)) v)))
+
+(defn- inside-repeating-form? [loc]
+  (loop [child loc
+         parent (z/up loc)]
+    (cond
+      (nil? parent) false
+
+      (and (= :list (z/tag parent))
+           (contains? repeating-forms (some-> parent z/down parser/raw))
+           (repeats-child? parent child loc))
+      true
+
+      :else (recur parent (z/up parent)))))
+
+(defn- vector-tag
+  "Return the native tag a Hiccup vector renders, or nil when it is not Hiccup.
+  Resolves wrapper components through `:component-aliases` the same way the
+  per-vector checks do, so `[my.ui/button …]` reports as `:button`."
+  [loc ns-info component-aliases]
+  (let [head (some-> loc z/down)]
+    (when (and head (= :token (z/tag head)))
+      (let [head-str (parser/raw head)]
+        (or (hiccup/parse-tag head-str)
+            (resolve-component-tag head-str ns-info component-aliases))))))
+
+(defn- control? [loc ns-info component-aliases]
+  (and (= :vector (z/tag loc))
+       (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
+         (or (contains? empty-interactive-tags (vector-tag loc ns-info component-aliases))
+             (and (contains? attrs-readable-kinds kind)
+                  (some? attrs)
+                  (interactive-via-role? attrs))))))
+
+(defn- known-unnamed-control?
+  "True when `loc` is a control that demonstrably has no name of its own.
+  An absent or non-map attrs slot holds nothing, so it names nothing. A literal map
+  answers for itself. A built, opaque or unclassifiable map is unknown rather than
+  unnamed, and counts as named: claiming a key is absent from a partial view is what
+  produces false positives."
+  [loc ns-info component-aliases]
+  (and (control? loc ns-info component-aliases)
+       (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
+         (case kind
+           (:absent :non-map) true
+           :map (and (some? attrs) (not (meaningful-text-name? attrs)))
+           false))))
+
+(defn- names-an-unnamed-control?
+  "True when the nearest enclosing control demonstrably has no name of its own.
+  Alt text is only a control's name when the image sits inside a link or button
+  supplying none itself. An image in a row names nothing, so a badge repeating the
+  same alt across items is correct markup."
+  [loc ns-info component-aliases]
+  (loop [parent (z/up loc)]
+    (cond
+      (nil? parent) false
+      (control? parent ns-info component-aliases)
+      (known-unnamed-control? parent ns-info component-aliases)
+      :else (recur (z/up parent)))))
+
+(defn- name-overridden?
+  "True when something in attrs means the literal name is not what gets announced.
+  `aria-labelledby` wins over `aria-label` in the accessible-name computation, so a
+  per-item id there names the item however stale the `aria-label` beside it is, and
+  `aria-hidden` removes the element from the tree altogether."
+  [attrs]
+  (or (not= ::absent (literal-sexpr (get attrs :aria-labelledby)))
+      (true? (literal-sexpr (get attrs :aria-hidden)))))
+
+(defn- repeated-accessible-name
+  "Return the constant name every iteration of a repeated element announces, or nil.
+  Only an explicit name attribute counts, and only from a literal attrs map: a
+  built map such as `(merge {:aria-label \"Remove\"} props)` can still be overridden
+  per item. Visible body text is left alone, since WCAG allows a link or button to
+  take its purpose from its surroundings where an authored `:aria-label` is not."
+  [{:keys [kind attrs]} tag loc ns-info component-aliases]
+  (when (and (= :map kind)
+             (some? attrs)
+             (not (name-overridden? attrs))
+             (inside-repeating-form? loc))
+    (cond
+      (or (contains? empty-interactive-tags tag)
+          (interactive-via-role? attrs))
+      (literal-name-value attrs :aria-label)
+
+      (= :img tag)
+      (when (names-an-unnamed-control? loc ns-info component-aliases)
+        (literal-name-value attrs :alt)))))
+
+(defn- repeated-name-hint [name-value]
+  (format "Every item announces %s. Fold the item into the name." (pr-str name-value)))
+
 (defn- handle-vector* [loc ns-info file component-aliases]
   (let [first-child (z/down loc)]
     (when (and first-child
@@ -439,42 +568,45 @@
                (not (hiccup/inside-quoted-form? loc))
                (not (hiccup/inside-style-decl? loc))
                (not (hiccup/inside-ns-form? loc)))
-      (let [head-str (parser/raw first-child)
-            tag (or (hiccup/parse-tag head-str)
-                    (resolve-component-tag head-str ns-info component-aliases))]
-        (when tag
-          (let [info (hiccup/attrs-info loc)
-                aria-live-conflict (contradicting-aria-live info)
-                [row col] (try (z/position loc) (catch Exception _ [0 1]))
-                base {:kw tag
-                      :form (source-snippet loc)
-                      :file file
-                      :row row
-                      :col col}
-                usages (cond-> []
-                         (img-alt-missing? info tag)
-                         (conj (assoc base :type :img-alt-missing))
+      (when-let [tag (vector-tag loc ns-info component-aliases)]
+        (let [info (hiccup/attrs-info loc)
+              aria-live-conflict (contradicting-aria-live info)
+              repeated-name (repeated-accessible-name info tag loc ns-info component-aliases)
+              [row col] (try (z/position loc) (catch Exception _ [0 1]))
+              base {:kw tag
+                    :form (source-snippet loc)
+                    :file file
+                    :row row
+                    :col col}
+              usages (cond-> []
+                       (img-alt-missing? info tag)
+                       (conj (assoc base :type :img-alt-missing))
 
-                         (invalid-tabindex? info)
-                         (conj (assoc base :type :invalid-tabindex))
+                       (invalid-tabindex? info)
+                       (conj (assoc base :type :invalid-tabindex))
 
-                         (on-click-on-non-interactive? info tag)
-                         (conj (assoc base :type :on-click-on-non-interactive))
+                       (on-click-on-non-interactive? info tag)
+                       (conj (assoc base :type :on-click-on-non-interactive))
 
-                         (empty-interactive? info tag loc)
-                         (conj (assoc base :type :empty-interactive-element))
+                       (empty-interactive? info tag loc)
+                       (conj (assoc base :type :empty-interactive-element))
 
-                         (missing-accessible-name? info tag)
-                         (conj (assoc base :type :missing-accessible-name))
+                       (missing-accessible-name? info tag)
+                       (conj (assoc base :type :missing-accessible-name))
 
-                         aria-live-conflict
-                         (conj (assoc base
-                                      :type :aria-live-contradicts-role
-                                      :hint (aria-live-hint aria-live-conflict))))]
-            (when (seq usages)
-              {:decls []
-               :dynamics []
-               :usages usages})))))))
+                       repeated-name
+                       (conj (assoc base
+                                    :type :repeated-accessible-name
+                                    :hint (repeated-name-hint repeated-name)))
+
+                       aria-live-conflict
+                       (conj (assoc base
+                                    :type :aria-live-contradicts-role
+                                    :hint (aria-live-hint aria-live-conflict))))]
+          (when (seq usages)
+            {:decls []
+             :dynamics []
+             :usages usages}))))))
 
 (defn- analyze* [{:keys [usages]}]
   ;; The parser pools :usages across ALL enabled groups into one seq before
@@ -487,26 +619,29 @@
      :on-click-on-non-interactive (vec (:on-click-on-non-interactive by-type))
      :empty-interactive-element (vec (:empty-interactive-element by-type))
      :missing-accessible-name (vec (:missing-accessible-name by-type))
+     :repeated-accessible-name (vec (:repeated-accessible-name by-type))
      :aria-live-contradicts-role (vec (:aria-live-contradicts-role by-type))}))
 
 (defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
                                empty-interactive-element missing-accessible-name
-                               aria-live-contradicts-role]}]
+                               repeated-accessible-name aria-live-contradicts-role]}]
   [["Img missing alt:" (count img-alt-missing)]
    ["Invalid tabindex:" (count invalid-tabindex)]
    ["Onclick on non-interactive:" (count on-click-on-non-interactive)]
    ["Empty interactive element:" (count empty-interactive-element)]
    ["Missing accessible name:" (count missing-accessible-name)]
+   ["Repeated accessible name:" (count repeated-accessible-name)]
    ["Aria-live contradicts role:" (count aria-live-contradicts-role)]])
 
 (defn- failed?* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
                          empty-interactive-element missing-accessible-name
-                         aria-live-contradicts-role]}]
+                         repeated-accessible-name aria-live-contradicts-role]}]
   (or (seq img-alt-missing)
       (seq invalid-tabindex)
       (seq on-click-on-non-interactive)
       (seq empty-interactive-element)
       (seq missing-accessible-name)
+      (seq repeated-accessible-name)
       (seq aria-live-contradicts-role)))
 
 (defrecord A11yGroup [component-aliases]
@@ -563,6 +698,25 @@
           "`{my.ui/drawer :dialog, my.ui/textarea :textarea}`. "
           "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
           "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")
+     :repeated-accessible-name
+     (str "A control rendered once per collection item names every item with the same "
+          "literal string, so a screen-reader user listing the controls on the page hears "
+          "\"Remove, Remove, Remove\" with nothing to tell them apart. Build the item into "
+          "the name, as in (str \"Remove \" (:title item)), or point :aria-labelledby at the id "
+          "of the row's own visible label. Flagged on :button / :a / :role \"button\" / "
+          ":role \"link\" carrying a literal :aria-label, and on :img whose :alt names "
+          "an enclosing control that has none of its own, inside for / map / mapv / "
+          "mapcat / map-indexed / keep / keep-indexed. A computed name is assumed to "
+          "vary and is never flagged, nor is :alt \"\" on a decorative image, nor an "
+          "image that names nothing, such as a status badge in a row, nor a built attrs "
+          "map like (assoc base :aria-label \"…\"), where base may still supply a "
+          "per-item name. A control in a branch is flagged on the name it carries, so "
+          "arms that each name differently, as in a tab list, are reported even though "
+          "only one renders per item. Visible body "
+          "text is also left alone: WCAG lets a control take its purpose from its "
+          "surroundings, which an authored :aria-label overrides. "
+          "See: WCAG 2.1 SC 2.4.6 Headings and Labels — "
+          "https://www.w3.org/WAI/WCAG21/Understanding/headings-and-labels")
      :aria-live-contradicts-role
      (str "An element sets :aria-live to a different politeness than its :role "
           "implies, and the attribute wins: browsers read :aria-live first and fall "
@@ -581,6 +735,7 @@
      :on-click-on-non-interactive :bugs
      :empty-interactive-element :bugs
      :missing-accessible-name :bugs
+     :repeated-accessible-name :bugs
      :aria-live-contradicts-role :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 

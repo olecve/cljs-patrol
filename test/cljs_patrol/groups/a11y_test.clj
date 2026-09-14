@@ -34,6 +34,12 @@
    :file "views.cljs"
    :row row})
 
+(defn- repeated-name-finding [row]
+  {:type :repeated-accessible-name
+   :kw :button
+   :file "views.cljs"
+   :row row})
+
 (defn- contradicting-aria-live-finding [row]
   {:type :aria-live-contradicts-role
    :kw :div
@@ -47,6 +53,7 @@
       (is (empty? (:invalid-tabindex result)))
       (is (empty? (:on-click-on-non-interactive result)))
       (is (empty? (:empty-interactive-element result)))
+      (is (empty? (:repeated-accessible-name result)))
       (is (empty? (:aria-live-contradicts-role result)))))
 
   (testing "splits usages by :type across all rules"
@@ -59,6 +66,7 @@
                                           (tabindex-finding 5)
                                           (on-click-finding 7)
                                           (empty-interactive-finding 9)
+                                          (repeated-name-finding 10)
                                           (contradicting-aria-live-finding 11)
                                           other
                                           (img-finding 8)]})]
@@ -70,6 +78,8 @@
       (is (= #{7} (set (map :row (:on-click-on-non-interactive result)))))
       (is (= 1 (count (:empty-interactive-element result))))
       (is (= #{9} (set (map :row (:empty-interactive-element result)))))
+      (is (= 1 (count (:repeated-accessible-name result))))
+      (is (= #{10} (set (map :row (:repeated-accessible-name result)))))
       (is (= 1 (count (:aria-live-contradicts-role result))))
       (is (= #{11} (set (map :row (:aria-live-contradicts-role result))))))))
 
@@ -105,6 +115,14 @@
                                    :empty-interactive-element []
                                    :missing-accessible-name [(accessible-name-finding 5)]})))
 
+  (testing "fails when any repeated-accessible-name is found"
+    (is (group/failed? a11y/group {:img-alt-missing []
+                                   :invalid-tabindex []
+                                   :on-click-on-non-interactive []
+                                   :empty-interactive-element []
+                                   :missing-accessible-name []
+                                   :repeated-accessible-name [(repeated-name-finding 5)]})))
+
   (testing "fails when any aria-live-contradicts-role is found"
     (is (group/failed? a11y/group {:img-alt-missing []
                                    :invalid-tabindex []
@@ -119,6 +137,7 @@
                                         :on-click-on-non-interactive []
                                         :empty-interactive-element []
                                         :missing-accessible-name []
+                                        :repeated-accessible-name []
                                         :aria-live-contradicts-role []})))))
 
 (deftest summary-lines-test
@@ -128,13 +147,15 @@
                                     :on-click-on-non-interactive [(on-click-finding 4) (on-click-finding 5)]
                                     :empty-interactive-element [(empty-interactive-finding 6)]
                                     :missing-accessible-name []
-                                    :aria-live-contradicts-role [(contradicting-aria-live-finding 7)]})]
-    (is (= 6 (count lines)))
+                                    :repeated-accessible-name [(repeated-name-finding 7)]
+                                    :aria-live-contradicts-role [(contradicting-aria-live-finding 8)]})]
+    (is (= 7 (count lines)))
     (is (= 2 (second (first lines))))
     (is (= 1 (second (second lines))))
     (is (= 2 (second (nth lines 2))))
     (is (= 1 (second (nth lines 3))))
-    (is (= 1 (second (nth lines 5))))))
+    (is (= 1 (second (nth lines 5))))
+    (is (= 1 (second (nth lines 6))))))
 
 (deftest rule->tier-test
   (let [tiers (group/rule->tier a11y/group)]
@@ -149,6 +170,9 @@
 
     (testing "empty-interactive-element is a bug"
       (is (= :bugs (get tiers :empty-interactive-element))))
+
+    (testing "repeated-accessible-name is a bug"
+      (is (= :bugs (get tiers :repeated-accessible-name))))
 
     (testing "aria-live-contradicts-role is a bug"
       (is (= :bugs (get tiers :aria-live-contradicts-role))))))
@@ -166,6 +190,9 @@
 
     (testing "empty-interactive-element suggestion references WCAG name/role/value"
       (is (re-find #"WCAG.*4\.1\.2" (:empty-interactive-element suggestions))))
+
+    (testing "repeated-accessible-name suggestion references WCAG headings and labels"
+      (is (re-find #"WCAG.*2\.4\.6" (:repeated-accessible-name suggestions))))
 
     (testing "aria-live-contradicts-role suggestion references the ARIA implicit-value rule"
       (is (re-find #"Implicit Value for Role" (:aria-live-contradicts-role suggestions))))))

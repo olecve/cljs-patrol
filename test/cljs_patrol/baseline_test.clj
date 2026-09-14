@@ -2,6 +2,13 @@
   (:require
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.fs :as fs]
+   [cljs-patrol.group :as group]
+   [cljs-patrol.groups.a11y :as a11y]
+   [cljs-patrol.groups.docstrings :as docstrings]
+   [cljs-patrol.groups.re-frame :as re-frame]
+   [cljs-patrol.groups.reagent :as reagent]
+   [cljs-patrol.groups.spade :as spade]
+   [cljs-patrol.groups.typography :as typography]
    [clojure.edn :as edn]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]])
@@ -603,3 +610,19 @@
   (is (= "src/myapp/.cljs-patrol/baseline.edn"
          (baseline/resolve-baseline-path nil ["src/myapp"]))
       "works with relative source dirs"))
+
+(def ^:private every-group
+  [re-frame/group spade/group reagent/group typography/group a11y/group docstrings/group])
+
+(deftest every-registered-rule-has-an-identity-test
+  (testing "a rule a group can report is a rule the baseline can record"
+    (let [issue {:kw :app.views/thing
+                 :decl-kw :app.views/thing
+                 :file "src/app/views.cljs"
+                 :form "[:div {:aria-label \"x\"}]"
+                 :row 12
+                 :col 3}]
+      (doseq [rule (sort (mapcat (comp keys group/rule->tier) every-group))]
+        (is (some? (baseline/issue->identity rule issue))
+            (str "issue->identity throws on an unregistered rule, so one finding of "
+                 rule " breaks --baseline and --baseline-write for the whole project"))))))

@@ -32,6 +32,7 @@
   collapse to a single identity (rare in practice)."
   #{:aria-live-contradicts-role
     :empty-interactive-element
+    :repeated-accessible-name
     :img-alt-missing
     :invalid-tabindex
     :missing-accessible-name

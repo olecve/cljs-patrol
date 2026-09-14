@@ -742,3 +742,118 @@
     (testing "flags exactly the bad- cases"
       (is (= 3 (count in-roles))
           "three bad- cases in the fixture, no more"))))
+
+(deftest repeated-accessible-name-fixture-test
+  (testing "without :component-aliases config: only native tags are checked"
+    (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+          {:keys [repeated-accessible-name]} (first group-results)
+          in-lists (filter #(str/ends-with? (:file %) "lists.cljs") repeated-accessible-name)
+          by-row (rows in-lists)]
+
+      (testing "flags a literal :aria-label repeated by every item"
+        (is (contains? by-row 8)
+            "bad-button-in-for")
+        (is (contains? by-row 15)
+            "bad-link-in-map"))
+
+      (testing "flags a nested repeat reached through keep"
+        (is (contains? by-row 56)
+            "bad-nested-in-keep"))
+
+      (testing "flags :alt only when it names a control that has no name of its own"
+        (is (contains? by-row 31)
+            "bad-img-naming-a-link")
+        (is (not (contains? by-row 38))
+            "ok-img-badge-in-row, the image names nothing so repeating its alt is correct")
+        (is (not (contains? by-row 74))
+            "ok-alt-inside-named-control, the button name wins and the alt is never announced"))
+
+      (testing "flags Hiccup in a for :let, which is re-evaluated every iteration"
+        (is (contains? by-row 85)
+            "bad-name-in-for-let"))
+
+      (testing "leaves the one expression a for evaluates once"
+        (is (not (contains? by-row 90))
+            "ok-name-in-first-binding-collection"))
+
+      (testing "leaves a built attrs map alone, since it is only a partial view"
+        (is (not (contains? by-row 50))
+            "ok-built-attrs-in-for, base may still supply a per-item name"))
+
+      (testing "leaves a name that already varies per item"
+        (is (not (contains? by-row 62))
+            "ok-computed-name"))
+
+      (testing "leaves a decorative image alone"
+        (is (not (contains? by-row 68))
+            "ok-decorative-alt"))
+
+      (testing "leaves repeated visible body text alone"
+        (is (not (contains? by-row 79))
+            "ok-visible-text-only, WCAG lets a control take its purpose from context"))
+
+      (testing "leaves a control rendered once alone"
+        (is (not (contains? by-row 99))
+            "ok-single-control, outside any repeating form"))
+
+      (testing "leaves non-literal attrs alone"
+        (is (not (contains? by-row 105))
+            "ok-dynamic-attrs"))
+
+      (testing "leaves an unmapped wrapper component alone"
+        (is (not (contains? by-row 44))
+            "bad-aliased-button-in-for needs :component-aliases to be seen"))
+
+      (testing "flags a control in a branch, including where only one arm renders"
+        (is (contains? by-row 124)
+            "bad-branch-with-one-name, the empty arm names nothing so the repeat stands")
+        (is (contains? by-row 114)
+            "known-limit-branch-arms-named-differently, a distinct name per arm is flagged anyway")
+        (is (contains? by-row 116)
+            "known-limit-branch-arms-named-differently, the other arm"))
+
+      (testing "reads a control with no attrs slot as having no name of its own"
+        (is (contains? by-row 146)
+            "bad-img-in-a-link-with-no-attrs, nothing there can hide an :aria-label"))
+
+      (testing "treats an unclassifiable attrs map as unknown rather than unnamed"
+        (is (not (contains? by-row 154))
+            "ok-img-in-a-control-with-unclassifiable-attrs, a non-keyword key makes it unreadable"))
+
+      (testing "leaves the collection argument of a map alone"
+        (is (not (contains? by-row 126))
+            "ok-map-collection-argument, only the function repeats"))
+
+      (testing "an empty :alt is what spares a decorative image inside an unnamed link"
+        (is (not (contains? by-row 132))
+            "ok-decorative-alt-in-a-link"))
+
+      (testing "an enclosing control with built attrs is unknown, not unnamed"
+        (is (not (contains? by-row 139))
+            "ok-img-in-a-built-attrs-control, base may already carry :aria-label"))
+
+      (testing "each finding names the constant it found"
+        (is (= "Every item announces \"Remove post\". Fold the item into the name."
+               (:hint (first (filter #(= 8 (:row %)) in-lists))))
+            "the hint quotes the repeated name"))
+
+      (testing "leaves a name that something else overrides"
+        (is (not (contains? by-row 159))
+            "ok-labelledby-wins-over-label, aria-labelledby wins the name computation")
+        (is (not (contains? by-row 166))
+            "ok-hidden-from-assistive-tech, nothing is announced at all"))
+
+      (testing "flags exactly the bad- cases"
+        (is (= #{8 15 22 31 56 85 114 116 124 146} (set (map :row in-lists)))
+            "every bad- case and nothing else"))))
+
+  (testing "with :component-aliases config: wrapper calls also participate"
+    (let [configured (a11y/make-group {:component-aliases {'blogapp.ui/button :button}})
+          {:keys [group-results]} (core/run fixture-dir [configured])
+          {:keys [repeated-accessible-name]} (first group-results)
+          by-row (rows (filter #(str/ends-with? (:file %) "lists.cljs")
+                               repeated-accessible-name))]
+
+      (testing "flags [ui/button {:aria-label \"...\"}] once the wrapper is mapped"
+        (is (contains? by-row 44)
+            "bad-aliased-button-in-for")))))
