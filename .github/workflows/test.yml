@@ -2,9 +2,18 @@ name: Test
 
 on:
   push:
-    branches: [main]
+    # Every branch, so work in progress is checked before a PR exists.
+    # '**' matches branches only, leaving tag pushes to the release workflow.
+    branches: ['**']
   pull_request:
     branches: [main]
+
+# A PR branch is covered by both triggers. Grouping them under one branch-derived
+# key with cancel-in-progress means the second run supersedes the first instead of
+# building the native binary twice.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   test:
