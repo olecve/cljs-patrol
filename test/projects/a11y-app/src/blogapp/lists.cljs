@@ -105,8 +105,10 @@
     [:button (build-props post)
      "Remove"]))
 
-(defn ok-branch-arms-named-differently [tabs]
-  ;; only one arm renders per item, and they do not share a name
+(defn known-limit-branch-arms-named-differently [tabs]
+  ;; only one arm renders per item, so neither name really repeats. The rule has no
+  ;; way to tell that apart from a genuine repeat and flags both: a known limit,
+  ;; kept here so a change in that behaviour is noticed rather than assumed.
   (for [tab tabs]
     (case tab
       :home [:a {:aria-label "Home"
@@ -136,4 +138,17 @@
   ;; base may already carry :aria-label, so the control is not known to be unnamed
   (for [post posts]
     [:a (assoc base :href (:url post))
+     [:img {:alt "Open post"}]]))
+
+(defn bad-img-in-a-link-with-no-attrs [posts]
+  ;; no attrs slot at all, so the link demonstrably has no name of its own
+  (for [post posts]
+    [:a [:img {:alt "Open post"}]]))
+
+(defn ok-img-in-a-control-with-unclassifiable-attrs [posts]
+  ;; a non-keyword key makes the map unreadable, so the link is unknown, not unnamed
+  (for [post posts]
+    [:a {:href (:url post)
+         "data-testid" "open"
+         :aria-label (str "Open " (:title post))}
      [:img {:alt "Open post"}]]))

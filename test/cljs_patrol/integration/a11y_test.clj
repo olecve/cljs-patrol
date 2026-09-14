@@ -804,13 +804,21 @@
         (is (not (contains? by-row 44))
             "bad-aliased-button-in-for needs :component-aliases to be seen"))
 
-      (testing "suppresses only when the branch arms name differently"
-        (is (not (contains? by-row 112))
-            "ok-branch-arms-named-differently, one arm renders per item")
-        (is (not (contains? by-row 114))
-            "ok-branch-arms-named-differently, the other arm")
-        (is (contains? by-row 122)
-            "bad-branch-with-one-name, the empty arm names nothing so the repeat stands"))
+      (testing "flags a control in a branch, including where only one arm renders"
+        (is (contains? by-row 124)
+            "bad-branch-with-one-name, the empty arm names nothing so the repeat stands")
+        (is (contains? by-row 114)
+            "known-limit-branch-arms-named-differently, a distinct name per arm is flagged anyway")
+        (is (contains? by-row 116)
+            "known-limit-branch-arms-named-differently, the other arm"))
+
+      (testing "reads a control with no attrs slot as having no name of its own"
+        (is (contains? by-row 146)
+            "bad-img-in-a-link-with-no-attrs, nothing there can hide an :aria-label"))
+
+      (testing "treats an unclassifiable attrs map as unknown rather than unnamed"
+        (is (not (contains? by-row 154))
+            "ok-img-in-a-control-with-unclassifiable-attrs, a non-keyword key makes it unreadable"))
 
       (testing "leaves the collection argument of a map alone"
         (is (not (contains? by-row 126))
@@ -830,7 +838,7 @@
             "the hint quotes the repeated name"))
 
       (testing "flags exactly the bad- cases"
-        (is (= #{8 15 22 31 56 85 122} (set (map :row in-lists)))
+        (is (= #{8 15 22 31 56 85 114 116 124 146} (set (map :row in-lists)))
             "every bad- case and nothing else"))))
 
   (testing "with :component-aliases config: wrapper calls also participate"

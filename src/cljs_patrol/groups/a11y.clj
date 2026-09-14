@@ -470,44 +470,6 @@
   (let [v (literal-sexpr (get attrs k))]
     (when (and (string? v) (seq v)) v)))
 
-(def ^:private branching-name-forms
-  "Forms that render one arm rather than all of them.
-  `when` and friends are absent: a single arm names every item it renders the same
-  way, so the repeat still holds."
-  #{"case" "cond" "condp" "if" "if-not" "if-let" "if-some"})
-
-(defn- literal-aria-labels-in
-  "Every distinct literal `:aria-label` on a Hiccup vector inside `root`."
-  [root]
-  (loop [cur (z/next root)
-         found #{}]
-    (if (or (nil? cur) (z/end? cur) (not (descendant-of? root cur)))
-      found
-      (recur (z/next cur)
-             (if (= :vector (z/tag cur))
-               (let [{:keys [kind attrs]} (hiccup/attrs-info cur)]
-                 (if (and (= :map kind) (some? attrs))
-                   (if-let [name-value (literal-name-value attrs :aria-label)]
-                     (conj found name-value)
-                     found)
-                   found))
-               found)))))
-
-(defn- inside-differently-named-branch?
-  "True when a branching form between `loc` and `form-loc` names its arms differently.
-  Only one arm renders per item, so two literal names inside the same branch mean no
-  single name is repeated. One name, or none, leaves the repeat intact: an arm that
-  renders nothing still names every item it does render identically."
-  [loc form-loc]
-  (loop [parent (z/up loc)]
-    (cond
-      (nil? parent) false
-      (identical? (z/node parent) (z/node form-loc)) false
-      (and (= :list (z/tag parent))
-           (contains? branching-name-forms (some-> parent z/down parser/raw))
-           (< 1 (count (literal-aria-labels-in parent)))) true
-      :else (recur (z/up parent)))))
-
 (defn- inside-repeating-form? [loc]
   (loop [child loc
          parent (z/up loc)]
@@ -517,7 +479,7 @@
       (and (= :list (z/tag parent))
            (contains? repeating-forms (some-> parent z/down parser/raw))
            (repeats-child? parent child loc))
-      (not (inside-differently-named-branch? loc parent))
+      true
 
       :else (recur parent (z/up parent)))))
 
@@ -541,14 +503,18 @@
                   (interactive-via-role? attrs))))))
 
 (defn- known-unnamed-control?
-  "True when `loc` is a control whose literal attrs give it no name of its own.
-  A built or opaque attrs map is unknown rather than unnamed, and counts as named:
-  claiming a key is absent from a partial view is what produces false positives."
+  "True when `loc` is a control that demonstrably has no name of its own.
+  An absent or non-map attrs slot holds nothing, so it names nothing. A literal map
+  answers for itself. A built, opaque or unclassifiable map is unknown rather than
+  unnamed, and counts as named: claiming a key is absent from a partial view is what
+  produces false positives."
   [loc ns-info component-aliases]
   (and (control? loc ns-info component-aliases)
        (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
-         (and (= :map kind)
-              (not (and (some? attrs) (meaningful-text-name? attrs)))))))
+         (case kind
+           (:absent :non-map) true
+           :map (and (some? attrs) (not (meaningful-text-name? attrs)))
+           false))))
 
 (defn- names-an-unnamed-control?
   "True when the nearest enclosing control demonstrably has no name of its own.
@@ -734,8 +700,9 @@
           "vary and is never flagged, nor is :alt \"\" on a decorative image, nor an "
           "image that names nothing, such as a status badge in a row, nor a built attrs "
           "map like (assoc base :aria-label \"…\"), where base may still supply a "
-          "per-item name, nor a control inside a case / cond / if whose arms name "
-          "differently, since only one arm renders per item. Visible body "
+          "per-item name. A control in a branch is flagged on the name it carries, so "
+          "arms that each name differently, as in a tab list, are reported even though "
+          "only one renders per item. Visible body "
           "text is also left alone: WCAG lets a control take its purpose from its "
           "surroundings, which an authored :aria-label overrides. "
           "See: WCAG 2.1 SC 2.4.6 Headings and Labels — "
