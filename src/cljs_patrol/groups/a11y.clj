@@ -529,6 +529,15 @@
       (known-unnamed-control? parent ns-info component-aliases)
       :else (recur (z/up parent)))))
 
+(defn- name-overridden?
+  "True when something in attrs means the literal name is not what gets announced.
+  `aria-labelledby` wins over `aria-label` in the accessible-name computation, so a
+  per-item id there names the item however stale the `aria-label` beside it is, and
+  `aria-hidden` removes the element from the tree altogether."
+  [attrs]
+  (or (not= ::absent (literal-sexpr (get attrs :aria-labelledby)))
+      (true? (literal-sexpr (get attrs :aria-hidden)))))
+
 (defn- repeated-accessible-name
   "Return the constant name every iteration of a repeated element announces, or nil.
   Only an explicit name attribute counts, and only from a literal attrs map: a
@@ -538,6 +547,7 @@
   [{:keys [kind attrs]} tag loc ns-info component-aliases]
   (when (and (= :map kind)
              (some? attrs)
+             (not (name-overridden? attrs))
              (inside-repeating-form? loc))
     (cond
       (or (contains? empty-interactive-tags tag)

@@ -152,3 +152,16 @@
          "data-testid" "open"
          :aria-label (str "Open " (:title post))}
      [:img {:alt "Open post"}]]))
+
+(defn ok-labelledby-wins-over-label [posts]
+  ;; aria-labelledby wins in the name computation, so the item names itself
+  (for [post posts]
+    [:button {:aria-labelledby (str "post-" (:id post))
+              :aria-label "Remove post"
+              :on-click #(delete! post)} "x"]))
+
+(defn ok-hidden-from-assistive-tech [posts]
+  ;; nothing is announced at all, so there is no repeated name
+  (for [post posts]
+    [:button {:aria-hidden true
+              :aria-label "Remove post"} "x"]))

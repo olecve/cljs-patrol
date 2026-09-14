@@ -837,6 +837,12 @@
                (:hint (first (filter #(= 8 (:row %)) in-lists))))
             "the hint quotes the repeated name"))
 
+      (testing "leaves a name that something else overrides"
+        (is (not (contains? by-row 159))
+            "ok-labelledby-wins-over-label, aria-labelledby wins the name computation")
+        (is (not (contains? by-row 166))
+            "ok-hidden-from-assistive-tech, nothing is announced at all"))
+
       (testing "flags exactly the bad- cases"
         (is (= #{8 15 22 31 56 85 114 116 124 146} (set (map :row in-lists)))
             "every bad- case and nothing else"))))
