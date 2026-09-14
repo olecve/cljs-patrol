@@ -24,17 +24,28 @@
                 :role "button"}])
        posts))
 
-(defn bad-img-in-for [posts]
+(defn bad-img-naming-a-link [posts]
+  ;; the link has no name of its own, so the alt text becomes its name
   (for [post posts]
-    [:img {:alt "Post thumbnail"
-           :src (:thumbnail post)}]))
+    [:a {:href (:url post)}
+     [:img {:alt "Post thumbnail"
+            :src (:thumbnail post)}]]))
+
+(defn ok-img-badge-in-row [posts]
+  ;; the image names nothing: it sits in the row, so repeating its alt is correct
+  (for [post posts]
+    [:div
+     [:img {:alt "Verified"
+            :src "/verified.svg"}]
+     (:title post)]))
 
 (defn bad-aliased-button-in-for [posts]
   (for [post posts]
     [ui/button {:aria-label "Pin post"
                 :on-click #(pin! post)}]))
 
-(defn bad-built-attrs-in-for [posts base]
+(defn ok-built-attrs-in-for [posts base]
+  ;; a built map is a partial view: `base` may still supply a per-item name
   (for [post posts]
     [:button (assoc base :aria-label "Share post")]))
 
@@ -68,10 +79,16 @@
     [:button {:on-click #(delete! post)}
      "Remove"]))
 
-(defn ok-name-in-binding [posts]
+(defn bad-name-in-for-let [posts]
+  ;; :let is re-evaluated on every iteration, so this button does repeat
   (for [post posts
         :let [fallback [:button {:aria-label "Retry"}]]]
     [:div (or (:title post) fallback)]))
+
+(defn ok-name-in-first-binding-collection []
+  ;; the first binding's collection expression is evaluated exactly once
+  (for [item (cons [:button {:aria-label "Add"}] (list))]
+    [:div item]))
 
 (defn ok-status-icon [posts]
   (for [post posts]

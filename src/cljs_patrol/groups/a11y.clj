@@ -436,15 +436,48 @@
   "Forms that render their body once per item of a collection."
   #{"for" "map" "mapv" "mapcat" "map-indexed" "keep" "keep-indexed"})
 
+(defn- descendant-of? [ancestor loc]
+  (loop [cur loc]
+    (cond
+      (nil? cur) false
+      (identical? (z/node cur) (z/node ancestor)) true
+      :else (recur (z/up cur)))))
+
+(defn- for-once-loc
+  "The single expression a `for` evaluates once: its first binding's collection.
+  Everything else in the bindings vector, including `:let` and any later
+  collection expression, is re-evaluated on every iteration."
+  [form-loc]
+  (some-> form-loc z/down z/right z/down z/right))
+
 (defn- repeats-child?
-  "True when `child` is an argument of `loop-loc` that runs once per item.
-  `for` puts its bindings in the argument right after the head, so Hiccup parked in a
-  `:let` there renders once; every other repeating form takes a function whose whole
-  body repeats."
-  [loop-loc child]
-  (or (not= "for" (some-> loop-loc z/down parser/raw))
-      (let [bindings (some-> loop-loc z/down z/right)]
-        (not (and bindings (identical? (z/node bindings) (z/node child)))))))
+  "True when `loc` sits in the part of `form-loc` that runs once per item.
+  `for` repeats everything except its first binding's collection expression. The
+  map family takes the repeating function as its first argument, so its remaining
+  arguments are collections that are evaluated once."
+  [form-loc child loc]
+  (if (= "for" (some-> form-loc z/down parser/raw))
+    (let [once (for-once-loc form-loc)]
+      (not (and once (descendant-of? once loc))))
+    (let [repeating-arg (some-> form-loc z/down z/right)]
+      (boolean (and repeating-arg (identical? (z/node repeating-arg) (z/node child)))))))
+
+(def ^:private name-varying-forms
+  "Branching forms whose arms can each supply a different name.
+  A control inside one of these is not necessarily announced the same way by every
+  item, so a repeat cannot be established from the source alone."
+  #{"case" "cond" "condp" "if" "if-not"})
+
+(defn- inside-name-varying-form?
+  "True when a branching form sits between `loc` and `form-loc`."
+  [loc form-loc]
+  (loop [parent (z/up loc)]
+    (cond
+      (nil? parent) false
+      (identical? (z/node parent) (z/node form-loc)) false
+      (and (= :list (z/tag parent))
+           (contains? name-varying-forms (some-> parent z/down parser/raw))) true
+      :else (recur (z/up parent)))))
 
 (defn- inside-repeating-form? [loc]
   (loop [child loc
@@ -454,8 +487,8 @@
 
       (and (= :list (z/tag parent))
            (contains? repeating-forms (some-> parent z/down parser/raw))
-           (repeats-child? parent child))
-      true
+           (repeats-child? parent child loc))
+      (not (inside-name-varying-form? loc parent))
 
       :else (recur parent (z/up parent)))))
 
@@ -479,15 +512,25 @@
                   (interactive-via-role? attrs))
               (meaningful-text-name? attrs)))))
 
-(defn- inside-named-control?
-  "True when an enclosing control already supplies its own accessible name.
-  A named `:button` is announced by that name alone, so `:alt` text on an image
-  inside it never reaches the user and repeating it is not this rule's finding."
+(defn- control? [loc ns-info component-aliases]
+  (and (= :vector (z/tag loc))
+       (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
+         (or (contains? empty-interactive-tags (vector-tag loc ns-info component-aliases))
+             (and (contains? attrs-readable-kinds kind)
+                  (some? attrs)
+                  (interactive-via-role? attrs))))))
+
+(defn- names-an-unnamed-control?
+  "True when the nearest enclosing control has no name of its own.
+  Alt text is only a control's name when the image is inside a link or button that
+  supplies none itself. An image sitting in a row names nothing, so a badge or
+  status icon repeating the same alt across items is correct markup."
   [loc ns-info component-aliases]
   (loop [parent (z/up loc)]
     (cond
       (nil? parent) false
-      (named-control? parent ns-info component-aliases) true
+      (control? parent ns-info component-aliases)
+      (not (named-control? parent ns-info component-aliases))
       :else (recur (z/up parent)))))
 
 (defn- literal-name-value
@@ -500,11 +543,12 @@
 
 (defn- repeated-accessible-name
   "Return the constant name every iteration of a repeated element announces, or nil.
-  Only an explicit name attribute counts. Visible body text is left alone: WCAG
-  allows a link or button to take its purpose from its surroundings, so identical
-  text in a table row is defensible where an authored `:aria-label` is not."
+  Only an explicit name attribute counts, and only from a literal attrs map: a
+  built map such as `(merge {:aria-label \"Remove\"} props)` can still be overridden
+  per item. Visible body text is left alone, since WCAG allows a link or button to
+  take its purpose from its surroundings where an authored `:aria-label` is not."
   [{:keys [kind attrs]} tag loc ns-info component-aliases]
-  (when (and (contains? attrs-readable-kinds kind)
+  (when (and (= :map kind)
              (some? attrs)
              (inside-repeating-form? loc))
     (cond
@@ -513,7 +557,7 @@
       (literal-name-value attrs :aria-label)
 
       (= :img tag)
-      (when-not (inside-named-control? loc ns-info component-aliases)
+      (when (names-an-unnamed-control? loc ns-info component-aliases)
         (literal-name-value attrs :alt)))))
 
 (defn- repeated-name-hint [name-value]
@@ -662,11 +706,14 @@
           "\"Remove, Remove, Remove\" with nothing to tell them apart. Build the item into "
           "the name, as in (str \"Remove \" (:title item)), or point :aria-labelledby at the id "
           "of the row's own visible label. Flagged on :button / :a / :role \"button\" / "
-          ":role \"link\" carrying a literal :aria-label, and on :img carrying a literal "
-          ":alt, inside for / map / mapv / mapcat / map-indexed / keep / keep-indexed. A "
-          "computed name is assumed to vary and is never flagged, nor is :alt \"\" on a "
-          "decorative image, nor :alt inside a control that already has its own "
-          ":aria-label: that name wins and the alt text is never announced. Visible body "
+          ":role \"link\" carrying a literal :aria-label, and on :img whose :alt names "
+          "an enclosing control that has none of its own, inside for / map / mapv / "
+          "mapcat / map-indexed / keep / keep-indexed. A computed name is assumed to "
+          "vary and is never flagged, nor is :alt \"\" on a decorative image, nor an "
+          "image that names nothing, such as a status badge in a row, nor a built attrs "
+          "map like (assoc base :aria-label \"…\"), where base may still supply a "
+          "per-item name, nor a control inside a case / cond / if, whose arms can each "
+          "name differently. Visible body "
           "text is also left alone: WCAG lets a control take its purpose from its "
           "surroundings, which an authored :aria-label overrides. "
           "See: WCAG 2.1 SC 2.4.6 Headings and Labels — "

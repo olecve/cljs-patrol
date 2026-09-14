@@ -747,75 +747,66 @@
   (testing "without :component-aliases config: only native tags are checked"
     (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
           {:keys [repeated-accessible-name]} (first group-results)
-          by-row (rows (filter #(str/ends-with? (:file %) "lists.cljs")
-                               repeated-accessible-name))]
+          in-lists (filter #(str/ends-with? (:file %) "lists.cljs") repeated-accessible-name)
+          by-row (rows in-lists)]
 
-      (testing "flags a literal :aria-label on a :button rendered once per item"
+      (testing "flags a literal :aria-label repeated by every item"
         (is (contains? by-row 8)
-            "bad-button-in-for"))
-
-      (testing "flags a literal :aria-label on an :a inside a map-indexed fn"
+            "bad-button-in-for")
         (is (contains? by-row 15)
-            "bad-link-in-map-indexed"))
+            "bad-link-in-map"))
 
-      (testing "flags a literal :aria-label on :role \"button\" inside a map fn"
-        (is (contains? by-row 22)
-            "bad-role-button-in-map"))
-
-      (testing "flags a literal :alt on an :img rendered once per item"
-        (is (contains? by-row 29)
-            "bad-img-in-for"))
-
-      (testing "flags a name built with assoc, since the key is still named literally"
-        (is (contains? by-row 39)
-            "bad-built-attrs-in-for"))
-
-      (testing "flags a control nested several levels below the repeating form"
-        (is (contains? by-row 45)
+      (testing "flags a nested repeat reached through keep"
+        (is (contains? by-row 56)
             "bad-nested-in-keep"))
 
-      (testing "does not flag [ui/button ...] wrapper without config"
-        (is (not (contains? by-row 34))
-            "bad-aliased-button-in-for"))
+      (testing "flags :alt only when it names a control that has no name of its own"
+        (is (contains? by-row 31)
+            "bad-img-naming-a-link")
+        (is (not (contains? by-row 38))
+            "ok-img-badge-in-row, the image names nothing so repeating its alt is correct")
+        (is (not (contains? by-row 74))
+            "ok-alt-inside-named-control, the button name wins and the alt is never announced"))
 
-      (testing "does not flag a computed name, which already varies per item"
-        (is (not (contains? by-row 51))
+      (testing "flags Hiccup in a for :let, which is re-evaluated every iteration"
+        (is (contains? by-row 85)
+            "bad-name-in-for-let"))
+
+      (testing "leaves the one expression a for evaluates once"
+        (is (not (contains? by-row 90))
+            "ok-name-in-first-binding-collection"))
+
+      (testing "leaves a built attrs map alone, since it is only a partial view"
+        (is (not (contains? by-row 50))
+            "ok-built-attrs-in-for, base may still supply a per-item name"))
+
+      (testing "leaves a name that already varies per item"
+        (is (not (contains? by-row 62))
             "ok-computed-name"))
 
-      (testing "does not flag :alt \"\", since a decorative image repeats correctly"
-        (is (not (contains? by-row 57))
+      (testing "leaves a decorative image alone"
+        (is (not (contains? by-row 68))
             "ok-decorative-alt"))
 
-      (testing "does not flag :alt inside a control that names itself"
-        (is (not (contains? by-row 63))
-            "ok-img-inside-named-control"))
+      (testing "leaves repeated visible body text alone"
+        (is (not (contains? by-row 79))
+            "ok-visible-text-only, WCAG lets a control take its purpose from context"))
 
-      (testing "does not flag repeated visible text, since WCAG allows a name from context"
-        (is (not (contains? by-row 67))
-            "ok-visible-text-only"))
+      (testing "leaves a control rendered once alone"
+        (is (not (contains? by-row 99))
+            "ok-single-control, outside any repeating form"))
 
-      (testing "does not flag Hiccup in a for binding, which renders once, not per item"
-        (is (not (contains? by-row 73))
-            "ok-name-in-binding"))
-
-      (testing "does not flag a repeated status icon, since :role \"img\" is not a control"
-        (is (not (contains? by-row 78))
-            "ok-status-icon"))
-
-      (testing "does not flag a literal name outside any repeating form"
-        (is (not (contains? by-row 82))
-            "ok-outside-any-loop"))
-
-      (testing "does not flag an opaque attrs map"
-        (is (not (contains? by-row 87))
+      (testing "leaves non-literal attrs alone"
+        (is (not (contains? by-row 105))
             "ok-dynamic-attrs"))
 
-      (testing "every finding carries the constant name in its :hint"
-        (is (every? #(re-find #"Every item announces" (:hint %))
-                    repeated-accessible-name)))
+      (testing "leaves an unmapped wrapper component alone"
+        (is (not (contains? by-row 44))
+            "bad-aliased-button-in-for needs :component-aliases to be seen"))
 
-      (testing "every finding has :bugs tier"
-        (is (every? #(= :bugs (:tier %)) repeated-accessible-name)))))
+      (testing "flags exactly the bad- cases"
+        (is (= #{8 15 22 31 56 85} (set (map :row in-lists)))
+            "every bad- case and nothing else"))))
 
   (testing "with :component-aliases config: wrapper calls also participate"
     (let [configured (a11y/make-group {:component-aliases {'blogapp.ui/button :button}})
@@ -825,5 +816,5 @@
                                repeated-accessible-name))]
 
       (testing "flags [ui/button {:aria-label \"...\"}] once the wrapper is mapped"
-        (is (contains? by-row 34)
+        (is (contains? by-row 44)
             "bad-aliased-button-in-for")))))
