@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.0.24] - 2026-09-14
+
+## What's Changed
+
+* Run CI on every branch push, not only on main and pull requests by @olecve in https://github.com/olecve/cljs-patrol/pull/53
+* Flag a literal accessible name repeated by every item of a list by @olecve in https://github.com/olecve/cljs-patrol/pull/54
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.23...v0.0.24
+
+
 ## [v0.0.23] - 2026-09-08
 
 ## What's Changed
