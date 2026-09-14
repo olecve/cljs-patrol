@@ -742,3 +742,88 @@
     (testing "flags exactly the bad- cases"
       (is (= 3 (count in-roles))
           "three bad- cases in the fixture, no more"))))
+
+(deftest repeated-accessible-name-fixture-test
+  (testing "without :component-aliases config: only native tags are checked"
+    (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+          {:keys [repeated-accessible-name]} (first group-results)
+          by-row (rows (filter #(str/ends-with? (:file %) "lists.cljs")
+                               repeated-accessible-name))]
+
+      (testing "flags a literal :aria-label on a :button rendered once per item"
+        (is (contains? by-row 8)
+            "bad-button-in-for"))
+
+      (testing "flags a literal :aria-label on an :a inside a map-indexed fn"
+        (is (contains? by-row 15)
+            "bad-link-in-map-indexed"))
+
+      (testing "flags a literal :aria-label on :role \"button\" inside a map fn"
+        (is (contains? by-row 22)
+            "bad-role-button-in-map"))
+
+      (testing "flags a literal :alt on an :img rendered once per item"
+        (is (contains? by-row 29)
+            "bad-img-in-for"))
+
+      (testing "flags a name built with assoc, since the key is still named literally"
+        (is (contains? by-row 39)
+            "bad-built-attrs-in-for"))
+
+      (testing "flags a control nested several levels below the repeating form"
+        (is (contains? by-row 45)
+            "bad-nested-in-keep"))
+
+      (testing "does not flag [ui/button ...] wrapper without config"
+        (is (not (contains? by-row 34))
+            "bad-aliased-button-in-for"))
+
+      (testing "does not flag a computed name, which already varies per item"
+        (is (not (contains? by-row 51))
+            "ok-computed-name"))
+
+      (testing "does not flag :alt \"\", since a decorative image repeats correctly"
+        (is (not (contains? by-row 57))
+            "ok-decorative-alt"))
+
+      (testing "does not flag :alt inside a control that names itself"
+        (is (not (contains? by-row 63))
+            "ok-img-inside-named-control"))
+
+      (testing "does not flag repeated visible text, since WCAG allows a name from context"
+        (is (not (contains? by-row 67))
+            "ok-visible-text-only"))
+
+      (testing "does not flag Hiccup in a for binding, which renders once, not per item"
+        (is (not (contains? by-row 73))
+            "ok-name-in-binding"))
+
+      (testing "does not flag a repeated status icon, since :role \"img\" is not a control"
+        (is (not (contains? by-row 78))
+            "ok-status-icon"))
+
+      (testing "does not flag a literal name outside any repeating form"
+        (is (not (contains? by-row 82))
+            "ok-outside-any-loop"))
+
+      (testing "does not flag an opaque attrs map"
+        (is (not (contains? by-row 87))
+            "ok-dynamic-attrs"))
+
+      (testing "every finding carries the constant name in its :hint"
+        (is (every? #(re-find #"Every item announces" (:hint %))
+                    repeated-accessible-name)))
+
+      (testing "every finding has :bugs tier"
+        (is (every? #(= :bugs (:tier %)) repeated-accessible-name)))))
+
+  (testing "with :component-aliases config: wrapper calls also participate"
+    (let [configured (a11y/make-group {:component-aliases {'blogapp.ui/button :button}})
+          {:keys [group-results]} (core/run fixture-dir [configured])
+          {:keys [repeated-accessible-name]} (first group-results)
+          by-row (rows (filter #(str/ends-with? (:file %) "lists.cljs")
+                               repeated-accessible-name))]
+
+      (testing "flags [ui/button {:aria-label \"...\"}] once the wrapper is mapped"
+        (is (contains? by-row 34)
+            "bad-aliased-button-in-for")))))
