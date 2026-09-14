@@ -104,3 +104,36 @@
   (for [post posts]
     [:button (build-props post)
      "Remove"]))
+
+(defn ok-branch-arms-named-differently [tabs]
+  ;; only one arm renders per item, and they do not share a name
+  (for [tab tabs]
+    (case tab
+      :home [:a {:aria-label "Home"
+                 :href "/"} "h"]
+      :settings [:a {:aria-label "Settings"
+                     :href "/s"} "s"])))
+
+(defn bad-branch-with-one-name [posts]
+  ;; the other arm renders nothing, so every item this does render says the same
+  (for [post posts]
+    (if (:deleted? post)
+      nil
+      [:button {:aria-label "Remove post"} "x"])))
+
+(defn ok-map-collection-argument [f posts]
+  ;; the collection argument is evaluated once; only the function repeats
+  (map f (conj posts [:button {:aria-label "Add post"} "+"])))
+
+(defn ok-decorative-alt-in-a-link [posts]
+  ;; the link supplies no name, so only the empty alt keeps this from flagging
+  (for [post posts]
+    [:a {:href (:url post)}
+     [:img {:alt ""
+            :src (:thumbnail post)}]]))
+
+(defn ok-img-in-a-built-attrs-control [posts base]
+  ;; base may already carry :aria-label, so the control is not known to be unnamed
+  (for [post posts]
+    [:a (assoc base :href (:url post))
+     [:img {:alt "Open post"}]]))

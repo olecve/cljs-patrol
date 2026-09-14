@@ -804,8 +804,33 @@
         (is (not (contains? by-row 44))
             "bad-aliased-button-in-for needs :component-aliases to be seen"))
 
+      (testing "suppresses only when the branch arms name differently"
+        (is (not (contains? by-row 112))
+            "ok-branch-arms-named-differently, one arm renders per item")
+        (is (not (contains? by-row 114))
+            "ok-branch-arms-named-differently, the other arm")
+        (is (contains? by-row 122)
+            "bad-branch-with-one-name, the empty arm names nothing so the repeat stands"))
+
+      (testing "leaves the collection argument of a map alone"
+        (is (not (contains? by-row 126))
+            "ok-map-collection-argument, only the function repeats"))
+
+      (testing "an empty :alt is what spares a decorative image inside an unnamed link"
+        (is (not (contains? by-row 132))
+            "ok-decorative-alt-in-a-link"))
+
+      (testing "an enclosing control with built attrs is unknown, not unnamed"
+        (is (not (contains? by-row 139))
+            "ok-img-in-a-built-attrs-control, base may already carry :aria-label"))
+
+      (testing "each finding names the constant it found"
+        (is (= "Every item announces \"Remove post\". Fold the item into the name."
+               (:hint (first (filter #(= 8 (:row %)) in-lists))))
+            "the hint quotes the repeated name"))
+
       (testing "flags exactly the bad- cases"
-        (is (= #{8 15 22 31 56 85} (set (map :row in-lists)))
+        (is (= #{8 15 22 31 56 85 122} (set (map :row in-lists)))
             "every bad- case and nothing else"))))
 
   (testing "with :component-aliases config: wrapper calls also participate"
