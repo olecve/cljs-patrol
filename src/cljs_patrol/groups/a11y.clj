@@ -221,12 +221,11 @@
     (literal-string-loc? loc) true
 
     (= :vector (z/tag loc))
-    (let [attrs-loc (hiccup/attrs-slot loc)
-          body-start (if attrs-loc (z/right attrs-loc) (some-> loc z/down z/right))]
-      (or (when attrs-loc
-            (let [attrs (:attrs (hiccup/attrs-info loc))]
-              (or (meaningful-text-name? attrs)
-                  (image-alt-name? loc attrs))))
+    (let [{:keys [slot attrs]} (hiccup/attrs-info loc)
+          body-start (if slot (z/right slot) (some-> loc z/down z/right))]
+      (or (when slot
+            (or (meaningful-text-name? attrs)
+                (image-alt-name? loc attrs)))
           (loop [cur body-start]
             (cond
               (nil? cur) false
@@ -540,10 +539,11 @@
 
 (defn- repeated-accessible-name
   "Return the constant name every iteration of a repeated element announces, or nil.
-  Only an explicit name attribute counts, and only from a literal attrs map: a
-  built map such as `(merge {:aria-label \"Remove\"} props)` can still be overridden
-  per item. Visible body text is left alone, since WCAG allows a link or button to
-  take its purpose from its surroundings where an authored `:aria-label` is not."
+  Only an explicit name attribute counts, and only from a map that can be read whole:
+  a built map such as `(merge {:aria-label \"Remove\"} props)` can still be overridden
+  per item by what `props` holds. Visible body text is left alone, since WCAG allows a
+  link or button to take its purpose from its surroundings where an authored
+  `:aria-label` is not."
   [{:keys [kind attrs]} tag loc ns-info component-aliases]
   (when (and (= :map kind)
              (some? attrs)
@@ -709,8 +709,10 @@
           "mapcat / map-indexed / keep / keep-indexed. A computed name is assumed to "
           "vary and is never flagged, nor is :alt \"\" on a decorative image, nor an "
           "image that names nothing, such as a status badge in a row, nor a built attrs "
-          "map like (assoc base :aria-label \"…\"), where base may still supply a "
-          "per-item name. A control in a branch is flagged on the name it carries, so "
+          "map like (assoc base :aria-label \"…\") whose base cannot be read, since it "
+          "may still supply a per-item name — one built entirely from maps this can "
+          "read holds no such surprise and is flagged. "
+          "A control in a branch is flagged on the name it carries, so "
           "arms that each name differently, as in a tab list, are reported even though "
           "only one renders per item. Visible body "
           "text is also left alone: WCAG lets a control take its purpose from its "

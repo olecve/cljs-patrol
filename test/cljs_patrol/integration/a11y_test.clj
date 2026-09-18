@@ -696,6 +696,10 @@
       (is (not (contains? by-row 82))
           "ok-icon-with-opaque-props — no construction call, so no literal keys"))
 
+    (testing "reads a base the file itself defines, and honours what it carries"
+      (is (not (contains? by-row 92))
+          "ok-icon-role-and-keyboard-from-a-def — the def supplies role and keyboard"))
+
     (testing "a partial view never drives a rule that asserts something is missing"
       (is (empty? (filter #(and (str/ends-with? (:file %) "icon_controls.cljs")
                                 (contains? #{68 71 74 82} (:row %)))
@@ -885,6 +889,12 @@
     (testing "flags a let-bound map literal that carries no name"
       (is (contains? by-row 112)
           "bad-let-bound-props, resolved and found unnamed"))
+
+    (testing "a def in the same file names a map the way a let does"
+      (is (not (contains? by-row 166))
+          "ok-def-bound-props")
+      (is (contains? by-row 172)
+          "bad-def-bound-props, the def holds no name"))
 
     (testing "an attrs symbol is the attrs slot, not a body child"
       (let [{:keys [empty-interactive-element]} (first group-results)

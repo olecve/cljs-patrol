@@ -215,6 +215,107 @@
       (is (= :map (:kind info)))
       (is (nil? (:attrs info))))))
 
+(deftest attrs-info-construction-completeness-test
+  (testing "a construction whose every part is readable states the whole map"
+    (is (= :map (:kind (img-attrs-info "[:img (assoc {:class \"c\"} :alt \"cat\")]")))
+        "a literal base and literal keys leave nothing unknown")
+    (is (= :map (:kind (img-attrs-info "[:img (merge {:src \"a\"} {:alt \"cat\"})]")))
+        "merging literals states the whole map too"))
+
+  (testing "a construction with an unreadable part states only a floor"
+    (is (= :dynamic-map (:kind (img-attrs-info "(defn v [base] [:img (assoc base :alt \"cat\")])")))
+        "an opaque base may still hold keys of its own")
+    (is (= :dynamic-map (:kind (img-attrs-info "(defn v [o] [:img (merge {:src \"a\"} o)])")))
+        "merging something opaque in")
+    (is (= :dynamic-map (:kind (img-attrs-info "[:img (assoc {:src \"a\"} k v)]")))
+        "a computed key names something we cannot read")
+    (is (= :dynamic-map (:kind (img-attrs-info "[:img (assoc-in {:src \"a\"} [:a :b] 1)]")))
+        "a deeper path leaves the outer key holding a map we did not read"))
+
+  (testing "a one-key assoc-in path is an assoc"
+    (is (= :map (:kind (img-attrs-info "[:img (assoc-in {:src \"a\"} [:alt] \"cat\")]")))))
+
+  (testing "a deeper assoc-in path states no value for the key it nests under"
+    (let [info (img-attrs-info "[:img (assoc-in {:src \"a\"} [:alt :text] \"cat\")]")]
+      (is (= #{:src} (set (keys (:attrs info))))
+          "recording the nested value under :alt would read as the alt text itself"))))
+
+(deftest attrs-info-def-test
+  (testing "a def in the same file names a map"
+    (let [info (img-attrs-info "(def props {:src \"a\" :alt \"cat\"}) (defn v [] [:img props])")]
+      (is (= :map (:kind info)))
+      (is (= #{:src :alt} (set (keys (:attrs info))))))
+    (is (= :map (:kind (img-attrs-info "(defonce props {:alt \"cat\"}) (defn v [] [:img props])")))
+        "defonce binds a var the same way")
+    (is (= :map (:kind (img-attrs-info "(def ^:private props {:alt \"cat\"}) (defn v [] [:img props])")))
+        "metadata sits between the head and the name")
+    (is (= :map (:kind (img-attrs-info "(def props \"doc\" {:alt \"cat\"}) (defn v [] [:img props])")))
+        "a docstring sits between the name and the value"))
+
+  (testing "a local of the same name wins, and never falls through to the var"
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defn v [props] [:img props])")))
+        "a parameter shadows the var")
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defn v [] (let [props (f)] [:img props]))")))
+        "a let binding shadows the var, unreadable value and all"))
+
+  (testing "a macro we do not know still binds its parameters"
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defnc row [props] [:img props])")))
+        "a defnc parameter shadows the var of the same name")
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (rum/defc row < rum/static [props] [:img props])")))
+        "the name is read past the namespace and past the mixin")
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defui App [this props] [:img props])")))
+        "an unknown macro leaves the symbol unknown rather than letting the var answer")
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (fn-traced [props] [:img props])")))
+        "a head that looks nothing like a definition binds all the same")
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defnc row (^:x [props] [:img props]))")))
+        "one arity of a multi-arity macro, with metadata on its parameter list")
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defnc row [^js props] [:img props])")))
+        "metadata rides along on a parameter without hiding it")
+    (is (= :map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (component [props on-select] [:img props])")))
+        "known limit: a macro named neither def… nor …fn… is left unread, so the var answers"))
+
+  (testing "a vector of symbols in a form that defines nothing is data"
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (if wide? [wide-photo props] [:img props]))")))
+        "a Reagent component vector in an if arm is not a parameter list")
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (use-memo (fn [] x) [props]) [:img props])")))
+        "nor is a hook dependency vector")
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (into [[card props]] [[:img props]]))")))
+        "nor a nested component vector"))
+
+  (testing "a vector holding something no parameter list holds is data, not parameters"
+    (let [info (img-attrs-info "(def props {:alt \"cat\"}) (def thumbnail [:img props])")]
+      (is (= :map (:kind info))
+          "a def whose value is Hiccup does not bind its own tag as a parameter"))
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (list [:span props] [:img props]))")))
+        "nor does a Hiccup vector written before this one in the same call")
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (if open? [:span props] [:img props]))")))
+        "nor does the other arm of an if")
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (my-layout [sidebar [:img props]]))")))
+        "and the vector the usage itself sits in is the form's body, not its parameters"))
+
+  (testing "metadata in front of a parameter list does not hide it"
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defn v ^:static [props] (render [:img props]))")))
+        "the parameters bind whatever is attached to them, and the var must not answer"))
+
+  (testing "the last def of a name wins, the way a re-def rebinds the var"
+    (let [info (img-attrs-info "(def props {:alt \"cat\"}) (def props {:src \"a\"}) (defn v [] [:img props])")]
+      (is (= #{:src} (set (keys (:attrs info)))))))
+
+  (testing "metadata stacks in front of the name"
+    (is (= :map (:kind (img-attrs-info "(def ^:private ^:const props {:alt \"cat\"}) (defn v [] [:img props])")))
+        "two metadata layers")
+    (is (= :map (:kind (img-attrs-info "(def ^{:doc \"d\"} ^:private props {:alt \"cat\"}) (defn v [] [:img props])")))
+        "a metadata map and a shorthand layer"))
+
+  (testing "a def of something other than a map literal answers nothing"
+    (is (= :non-map (:kind (img-attrs-info "(def props (make-props)) (defn v [] [:img props])")))))
+
+  (testing "a construction over a defined base is readable end to end"
+    (let [info (img-attrs-info "(def base {:src \"a\"}) (defn v [] [:img (assoc base :alt \"cat\")])")]
+      (is (= :map (:kind info))
+          "nothing about the map is unknown, so absence can be asserted from it")
+      (is (= #{:src :alt} (set (keys (:attrs info))))))))
+
 (deftest attrs-slot-test
   (testing "a literal map occupies the attrs slot"
     (is (some? (hiccup/attrs-slot (vec-zloc "[:button {:on-click f}]")))))
@@ -223,6 +324,13 @@
     (let [loc (-> (z/of-string "(let [props {:on-click f}] [:button props])") z/down z/rightmost)]
       (is (some? (hiccup/attrs-slot loc))
           "the body starts after the props symbol, so the button counts as empty")))
+
+  (testing "a call the attrs were read from occupies the slot, not the body"
+    (is (some? (hiccup/attrs-slot (vec-zloc "[:button (assoc {:class \"c\"} :on-click f)]")))
+        "a construction read whole is the attrs slot, so the button counts as empty")
+    (let [loc (-> (z/of-string "(defn v [base f] [:button (assoc base :on-click f)])") z/down z/rightmost)]
+      (is (some? (hiccup/attrs-slot loc))
+          "a floor is still attrs — what it cannot answer is a separate question")))
 
   (testing "nothing occupies the slot when it cannot be read"
     (is (nil? (hiccup/attrs-slot (vec-zloc "[:button]"))))
