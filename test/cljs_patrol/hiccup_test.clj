@@ -253,13 +253,32 @@
     (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defn v [] (let [props (f)] [:img props]))")))
         "a let binding shadows the var, unreadable value and all"))
 
-  (testing "a def-shaped macro we do not know still binds its parameters"
+  (testing "a macro we do not know still binds its parameters"
     (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defnc row [props] [:img props])")))
         "a defnc parameter shadows the var of the same name")
     (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (rum/defc row < rum/static [props] [:img props])")))
         "the name is read past the namespace and past the mixin")
     (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defui App [this props] [:img props])")))
-        "an unknown macro leaves the symbol unknown rather than letting the var answer"))
+        "an unknown macro leaves the symbol unknown rather than letting the var answer")
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (fn-traced [props] [:img props])")))
+        "a head that looks nothing like a definition binds all the same")
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (component [props on-select] [:img props])")))
+        "a project's own component macro"))
+
+  (testing "a vector holding something no parameter list holds is data, not parameters"
+    (let [info (img-attrs-info "(def props {:alt \"cat\"}) (def thumbnail [:img props])")]
+      (is (= :map (:kind info))
+          "a def whose value is Hiccup does not bind its own tag as a parameter"))
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (list [:span props] [:img props]))")))
+        "nor does a Hiccup vector written before this one in the same call")
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (if open? [:span props] [:img props]))")))
+        "nor does the other arm of an if")
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (my-layout [sidebar [:img props]]))")))
+        "and the vector the usage itself sits in is the form's body, not its parameters"))
+
+  (testing "metadata in front of a parameter list does not hide it"
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defn v ^:static [props] (render [:img props]))")))
+        "the parameters bind whatever is attached to them, and the var must not answer"))
 
   (testing "the last def of a name wins, the way a re-def rebinds the var"
     (let [info (img-attrs-info "(def props {:alt \"cat\"}) (def props {:src \"a\"}) (defn v [] [:img props])")]

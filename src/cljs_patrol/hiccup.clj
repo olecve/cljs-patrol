@@ -143,6 +143,16 @@
 (defn- skip-right [loc n]
   (reduce (fn [current _] (some-> current z/right)) loc (range n)))
 
+(defn- unwrap-meta
+  "Return the value a `:meta` node wraps, or loc itself.
+  `(defn f ^:static [a b] …)` reads as a parameter list with something in front of it,
+  and the parameters bind whether or not anything is attached to them."
+  [loc]
+  (loop [current loc]
+    (if (= :meta (some-> current z/tag))
+      (recur (some-> current z/down z/rightmost))
+      current)))
+
 (defn- parameter-vectors
   "Return the vectors binding parameters in a fn-like form.
   The first vector after the head is the parameter list of a single-arity form; in a
@@ -159,10 +169,10 @@
 
         ;; A single-arity form states its parameters directly, and then everything
         ;; after them is body — including a body that begins with a vector.
-        (= :vector (z/tag child)) [child]
+        (= :vector (some-> child unwrap-meta z/tag)) [(unwrap-meta child)]
 
         (= :list (z/tag child))
-        (let [first-child (z/down child)]
+        (let [first-child (some-> child z/down unwrap-meta)]
           (recur (z/right child)
                  (cond-> arity-vectors (= :vector (some-> first-child z/tag)) (conj first-child))))
 
@@ -191,14 +201,31 @@
           (cond->> (binding-pairs bindings-loc)
             cut (take-while (fn [[form init]] (not (or (same-node? form cut) (same-node? init cut))))))))
 
-(defn- def-macro-head?
-  "True for a `def`-shaped head we do not otherwise recognize.
-  Component macros — `defnc`, `defui`, `rum/defc`, and whatever a project rolls
-  itself — bind parameters like a `defn` does. Reading their parameter vectors as
-  binding is what keeps an unrecognized macro an unknown rather than a wrong answer:
-  without it a parameter would look unbound and a var of the same name would answer."
-  [head-name]
-  (and head-name (str/starts-with? head-name "def")))
+(defn- parameter-list?
+  "True when a vector reads as a parameter list rather than as data.
+  Parameters are binding forms — a symbol, a destructuring map or vector, `&` — and
+  never a keyword, a string or a number, so `[props on-select]` is a parameter list
+  where the Hiccup `[:dialog props]` beside it in the same form is not. Deciding by
+  what the vector holds is what lets an unrecognized macro be read at all: the head
+  says nothing, since a project names its own component macro whatever it likes."
+  [vector-loc]
+  (loop [element (z/down vector-loc)]
+    (cond
+      (nil? element) true
+      (contains? #{:map :vector} (z/tag element)) (recur (z/right element))
+      (some? (unqualified-symbol-name element)) (recur (z/right element))
+      :else false)))
+
+(defn- unknown-form-parameters
+  "Return the parameter lists an unrecognized form binds for the body holding `child`.
+  A form this does not know is the dangerous case: reading it as binding nothing lets
+  a var of the same name answer for what is really a parameter. So any vector of it
+  that reads as a parameter list counts — except the one the usage itself sits in,
+  which is the form's body rather than its parameters."
+  [list-loc child]
+  (->> (parameter-vectors list-loc)
+       (remove #(same-node? % child))
+       (filter parameter-list?)))
 
 (defn- method-form?
   "True when list-loc is a `(name [params] …)` method inside a form that holds methods.
@@ -241,10 +268,12 @@
       (let [bound (skip-right bindings (get symbol-binding-heads head-name))]
         (when (= symbol-name (unqualified-symbol-name bound)) ::shadowed))
 
-      (or (contains? parameter-binding-heads head-name)
-          (def-macro-head? head-name)
-          (method-form? list-loc))
-      (when (some #(mentions-symbol? % symbol-name) (parameter-vectors list-loc)) ::shadowed))))
+      (or (contains? parameter-binding-heads head-name) (method-form? list-loc))
+      (when (some #(mentions-symbol? % symbol-name) (parameter-vectors list-loc)) ::shadowed)
+
+      :else
+      (when (some #(mentions-symbol? % symbol-name) (unknown-form-parameters list-loc child))
+        ::shadowed))))
 
 (defn- lexically-bound-value
   "Return the zloc an enclosing binding form binds symbol-name to.
@@ -310,8 +339,10 @@
   Files are walked one after another, and a file's vectors ask about its vars over
   and over, so this turns a scan per question into a scan per file — the difference
   between linear and quadratic on a namespace with a thousand `def`s. Keyed by
-  identity of the file's own root node, so a file this never saw rebuilds it."
-  (atom {:root nil
+  identity of the file's first top-level form, so a file this never saw rebuilds it.
+  One entry is enough because files are read in sequence; walking them in parallel
+  would make each file rebuild what the last one cached, correctly but pointlessly."
+  (atom {:cached-root nil
          :defs {}}))
 
 (defn- top-level-defs [loc]
@@ -429,11 +460,12 @@
                     outer-key (first path-keys)
                     readable-key? (and outer-key (parser/kw-node? outer-key))]
                 (cond-> (contributed base)
-                  readable-key?
+                  ;; Only a one-key path states a value. A deeper one leaves the outer
+                  ;; key holding a map that was not read, and an entry whose value is
+                  ;; not the value is worse than no entry: rules read those values.
+                  (and readable-key? (not (next path-keys)))
                   (assoc-in [:attrs (z/sexpr outer-key)] value-loc)
 
-                  ;; A deeper path leaves the outer key holding a map we did not
-                  ;; read, so the key is known to be there and its value is not.
                   (or (not readable-key?) (next path-keys))
                   (assoc :complete? false))))))))))
 

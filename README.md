@@ -132,7 +132,7 @@ Resolution is innermost-first: the nearest local binding answers, a `def` only w
 
 A binding to a map-building call is read for the keys it names — `(merge base {:aria-label "…"})` bound in a `let` answers the same way it does written in the slot, and `(merge defaults opts)`, which names none, holds an unknown map rather than an empty one — while a symbol bound to anything else, an opaque call or another symbol, leaves the props slot as opaque as it was before.
 
-How much a built map can be asked depends on how much of it can be read. `(assoc base :on-click f)` over an opaque `base` is a **floor**: it answers that `:on-click` is there, never that `:role` is missing, so rules that report something absent leave it alone. Once every part is readable — a literal base, or one a `let` or a `def` in the same file names — the call states the **whole** map, and it is read exactly like a map written out, absence and all:
+How much a built map can be asked depends on how much of it can be read. `(assoc base :on-click f)` over an opaque `base` is a **floor**: it answers that `:on-click` is there, never that `:role` is missing, so rules that report something absent leave it alone. Once every part is readable — a literal base, or a symbol a `let` or a `def` in the same file names a map literal with — the call states the **whole** map, and it is read exactly like a map written out, absence and all:
 
 ```clojure
 (def clickable-icon-props {:role "button" :tabIndex 0 :on-key-down activate})
