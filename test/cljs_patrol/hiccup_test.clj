@@ -97,6 +97,75 @@
   (testing "meta-wrapped attrs → :dynamic (conservative — silent)"
     (is (= :dynamic (:kind (hiccup/attrs-info (vec-zloc "[:img ^:foo {:src \"x\"}]")))))))
 
+(defn- img-attrs-info
+  "Classify the attrs slot of the [:img …] vector nested anywhere in src."
+  [src]
+  (loop [loc (z/of-string src)]
+    (cond
+      (z/end? loc) nil
+
+      (and (= :vector (z/tag loc))
+           (= ":img" (some-> loc z/down z/string)))
+      (hiccup/attrs-info loc)
+
+      :else (recur (z/next loc)))))
+
+(deftest attrs-info-bound-symbol-test
+  (testing "a symbol bound to a map literal classifies as that literal"
+    (let [info (img-attrs-info "(let [props {:src \"x\" :alt \"cat\"}] [:img props])")]
+      (is (= :map (:kind info)))
+      (is (= #{:src :alt} (set (keys (:attrs info)))))))
+
+  (testing "when-let and if-let bind the same way"
+    (is (= :map (:kind (img-attrs-info "(when-let [props {:alt \"cat\"}] [:img props])"))))
+    (is (= :map (:kind (img-attrs-info "(if-let [props {:alt \"cat\"}] [:img props] nil)")))))
+
+  (testing "the innermost binding wins"
+    (let [info (img-attrs-info "(let [props {:src \"x\"}] (let [props {:alt \"cat\"}] [:img props]))")]
+      (is (= #{:alt} (set (keys (:attrs info))))
+          "the inner map answers, not the outer one")))
+
+  (testing "resolves past an enclosing form that binds nothing of that name"
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (fn [] [:img props]))")))
+        "a form-2 component closes over the binding")
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (for [item items] [:img props]))")))
+        "for binds item, not props"))
+
+  (testing "a binding that is not a map literal leaves the slot as it was"
+    (is (= :non-map (:kind (img-attrs-info "(let [props (build-props)] [:img props])")))
+        "bound to a call")
+    (is (= :non-map (:kind (img-attrs-info "(let [props other] [:img props])")))
+        "bound to another symbol")
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"} props (build-props)] [:img props])")))
+        "rebound later in the same binding vector"))
+
+  (testing "a shadowing binding ends the search rather than deferring to an outer one"
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (fn [props] [:img props]))")))
+        "a fn parameter shadows")
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (fn ([] nil) ([props] [:img props])))")))
+        "a parameter of one arity of a multi-arity fn shadows")
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (let [{:keys [props]} x] [:img props]))")))
+        "a destructuring form shadows")
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (doseq [props items] [:img props]))")))
+        "a doseq binding shadows"))
+
+  (testing "only bindings already made when the usage is read are in scope"
+    (is (= :non-map (:kind (img-attrs-info "(let [thumb [:img props] props {:alt \"cat\"}] thumb)")))
+        "props is bound to the right of the usage")
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"} thumb [:img props] props (f)] thumb)")))
+        "the binding left of the usage is the one it sees"))
+
+  (testing "a qualified symbol is not a local binding"
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] [:img ui/props])")))))
+
+  (testing "an unbound symbol stays :non-map"
+    (is (= :non-map (:kind (img-attrs-info "[:img props]")))))
+
+  (testing "a bound map literal with a computed key is classified like an inline one"
+    (let [info (img-attrs-info "(let [props {(compute) 1}] [:img props])")]
+      (is (= :map (:kind info)))
+      (is (nil? (:attrs info))))))
+
 (deftest inside-quoted-form?-test
   (testing "true when the vector's immediate parent is a quote-family node"
     (let [zloc (-> (z/of-string "'[:img]") z/down)]

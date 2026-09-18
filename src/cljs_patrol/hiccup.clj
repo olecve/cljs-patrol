@@ -118,6 +118,144 @@
                   (and outer-key (parser/kw-node? outer-key))
                   (assoc (z/sexpr outer-key) value-loc))))))))))
 
+(def ^:private map-binding-heads
+  "Binding forms whose `[name init]` pairs we read a literal map out of.
+  All of them bind left to right and shadow what encloses them, so the nearest
+  binding of a symbol is the one that reaches the usage."
+  #{"let" "let*" "when-let" "if-let" "when-some" "if-some" "when-first"})
+
+(def ^:private opaque-binding-heads
+  "Binding forms whose bound values we never read, but which still shadow.
+  Their binding vectors hold shapes a pairwise scan would misread — `for` clauses,
+  `letfn` fn specs, a `loop` name `recur` rebinds — so any mention of the symbol
+  inside one ends the search instead of letting an enclosing `let` answer for it."
+  #{"loop" "for" "doseq" "letfn" "binding" "with-open" "with-redefs" "with-local-vars"})
+
+(def ^:private parameter-binding-heads
+  "Forms whose parameter vectors bind symbols for the body that follows."
+  #{"fn" "fn*" "defn" "defn-" "defmethod" "defmacro"})
+
+(def ^:private parameter-list-offsets
+  "Children to skip after the head before a parameter vector can appear.
+  Only `defmethod` can put a vector — its dispatch value — before the parameters."
+  {"defmethod" 2})
+
+(defn- unqualified-symbol-name
+  "Return the name of a bare symbol token, or nil for anything else.
+  A qualified symbol names something another namespace binds, which no local
+  binding form can shadow, so `ui/props` must not answer to a local `props`."
+  [loc]
+  (let [symbol-name (parser/sym-name loc)]
+    (when (and symbol-name (= symbol-name (parser/raw loc)))
+      symbol-name)))
+
+(defn- mentions-symbol? [loc symbol-name]
+  (loop [current (z/subzip loc)]
+    (cond
+      (z/end? current) false
+      (= symbol-name (unqualified-symbol-name current)) true
+      :else (recur (z/next current)))))
+
+(defn- same-node? [a b]
+  (boolean (and a b (identical? (z/node a) (z/node b)))))
+
+(defn- parameter-vectors
+  "Return the vectors binding parameters in a fn-like form.
+  The first vector after the head is the parameter list of a single-arity form; in a
+  multi-arity one each arity is a list whose first child is that vector. A body vector
+  is never mistaken for either, since a parameter list always precedes the body."
+  [list-loc]
+  (let [head (z/down list-loc)
+        start (reduce (fn [loc _] (some-> loc z/right))
+                      (some-> head z/right)
+                      (range (get parameter-list-offsets (some-> head parser/sym-name) 0)))]
+    (loop [child start
+           found []
+           parameters-seen? false]
+      (cond
+        (nil? child) found
+
+        (and (not parameters-seen?) (= :vector (z/tag child)))
+        (recur (z/right child) (conj found child) true)
+
+        (= :list (z/tag child))
+        (let [first-child (z/down child)]
+          (recur (z/right child)
+                 (cond-> found (= :vector (some-> first-child z/tag)) (conj first-child))
+                 parameters-seen?))
+
+        :else (recur (z/right child) found parameters-seen?)))))
+
+(defn- binding-pairs [vector-loc]
+  (loop [form (z/down vector-loc)
+         pairs []]
+    (if (nil? form)
+      pairs
+      (let [init (z/right form)]
+        (recur (some-> init z/right) (conj pairs [form init]))))))
+
+(defn- bound-init
+  "Return the init a let-style binding vector binds symbol-name to.
+  `::shadowed` when a destructuring form binds it instead, nil when it is not bound
+  here. Pairs from `cut` — the binding the usage itself sits in — on are not in scope
+  yet, and the last binding left of it wins."
+  [bindings-loc symbol-name cut]
+  (reduce (fn [found [form init]]
+            (cond
+              (= symbol-name (unqualified-symbol-name form)) init
+              (mentions-symbol? form symbol-name) ::shadowed
+              :else found))
+          nil
+          (cond->> (binding-pairs bindings-loc)
+            cut (take-while (fn [[form init]] (not (or (same-node? form cut) (same-node? init cut))))))))
+
+(defn- binder-lookup
+  "Look up symbol-name in the bindings one enclosing form makes.
+  `child` is that form's own child the usage descends from and `inner` the one below
+  it: together they place a usage written inside the binding vector itself, where the
+  bindings to its right are not in scope yet."
+  [list-loc child inner symbol-name]
+  (let [head (z/down list-loc)
+        head-name (some-> head parser/sym-name)
+        bindings (some-> head z/right)
+        binding-vector? (= :vector (some-> bindings z/tag))]
+    (cond
+      (and binding-vector? (contains? map-binding-heads head-name))
+      (bound-init bindings symbol-name (when (same-node? child bindings) inner))
+
+      (and binding-vector? (contains? opaque-binding-heads head-name))
+      (when (mentions-symbol? bindings symbol-name) ::shadowed)
+
+      (contains? parameter-binding-heads head-name)
+      (when (some #(mentions-symbol? % symbol-name) (parameter-vectors list-loc)) ::shadowed))))
+
+(defn- lexically-bound-value
+  "Return the zloc an enclosing binding form binds symbol-name to, or nil.
+  Innermost first, and a binding whose value we cannot read ends the search rather
+  than letting an outer form answer for a symbol it no longer names. Nothing crosses
+  a fn or a namespace boundary."
+  [loc symbol-name]
+  (loop [inner nil
+         child loc
+         parent (z/up loc)]
+    (when (some? parent)
+      (let [found (when (= :list (z/tag parent))
+                    (binder-lookup parent child inner symbol-name))]
+        (cond
+          (= ::shadowed found) nil
+          (some? found) found
+          :else (recur child parent (z/up parent)))))))
+
+(defn- bound-attrs-map
+  "Return the map literal a symbol in the attrs slot was bound to, or nil.
+  Only a map literal answers: a call or another symbol leaves the slot as opaque as
+  it was before the lookup."
+  [loc]
+  (when-let [symbol-name (unqualified-symbol-name loc)]
+    (let [value (lexically-bound-value loc symbol-name)]
+      (when (= :map (some-> value z/tag))
+        value))))
+
 (defn attrs-info
   "Classify the second child of a Hiccup vector.
 
@@ -130,7 +268,11 @@
     {:kind :dynamic}                      ; non-literal (e.g. (build-attrs))
 
   `:dynamic-map` carries a partial view, so it answers only that a key is present.
-  Rules asserting something is missing need `:map`."
+  Rules asserting something is missing need `:map`.
+
+  A symbol in the slot is looked up in the binding forms enclosing it: one bound to a
+  map literal classifies as that literal, since the binding is the whole of what the
+  slot holds. Every other symbol stays `:non-map`."
   [vec-loc]
   (let [second-child (some-> vec-loc z/down z/right)]
     (cond
@@ -142,7 +284,12 @@
         {:kind :dynamic-map
          :attrs (into {} built)}
         {:kind :dynamic})
-      :else {:kind :non-map})))
+
+      :else
+      (if-let [bound (bound-attrs-map second-child)]
+        {:kind :map
+         :attrs (literal-map bound)}
+        {:kind :non-map}))))
 
 (defn inside-quoted-form? [loc]
   (some-> loc z/up z/tag quoted-parent-tags boolean))
