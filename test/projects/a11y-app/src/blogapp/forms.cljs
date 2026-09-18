@@ -156,3 +156,18 @@
 (defn ok-let-bound-opaque-merge [opts]
   (let [dialog-props (merge base-props opts)]
     [:dialog dialog-props]))
+
+(def export-dialog-props
+  {:aria-label "Export"
+   :open true})
+
+;; A def in this file names the map as plainly as a let does.
+(defn ok-def-bound-props []
+  [:dialog export-dialog-props
+   [:p "Pick a format."]])
+
+(def unnamed-dialog-props {:open true})
+
+(defn bad-def-bound-props []
+  [:dialog unnamed-dialog-props
+   [:p "Pick a format."]])

@@ -68,56 +68,6 @@
         (recur (some-> value-loc z/right)
                (assoc acc (z/sexpr key-loc) value-loc))))))
 
-(def ^:private attr-construction-heads
-  "Calls that build a map from a base plus literal keys we can still read."
-  #{"assoc" "merge" "assoc-in"})
-
-(declare construction-attrs)
-
-(defn- contributed-attrs [loc]
-  (cond
-    (nil? loc) {}
-    (= :map (z/tag loc)) (or (literal-map loc) {})
-    (= :list (z/tag loc)) (or (construction-attrs loc) {})
-    :else {}))
-
-(defn- right-args [head]
-  (when-let [arg (z/right head)]
-    (cons arg (lazy-seq (right-args arg)))))
-
-(defn construction-attrs
-  "Return `{kw → value-zloc}` for the keys a map-building call definitely contributes.
-  Handles `(assoc base :k v …)`, `(merge base {:k v} …)` and `(assoc-in base [:k …] v)`,
-  nesting through each other. Returns nil when the call is not one of those.
-
-  The base may be opaque and computed keys are skipped, so the result is a floor on
-  what the map holds: it can answer that a key is present, never that one is absent."
-  [list-loc]
-  (when (= :list (z/tag list-loc))
-    (when-let [head (z/down list-loc)]
-      (let [head-str (parser/raw head)]
-        (when (contains? attr-construction-heads head-str)
-          (let [args (right-args head)]
-            (case head-str
-              "merge"
-              (reduce (fn [acc arg] (merge acc (contributed-attrs arg))) {} args)
-
-              "assoc"
-              (reduce (fn [acc [key-loc value-loc]]
-                        (if (parser/kw-node? key-loc)
-                          (assoc acc (z/sexpr key-loc) value-loc)
-                          acc))
-                      (contributed-attrs (first args))
-                      (partition 2 (rest args)))
-
-              "assoc-in"
-              (let [[base path-loc value-loc] args
-                    outer-key (when (and path-loc (= :vector (z/tag path-loc)))
-                                (z/down path-loc))]
-                (cond-> (contributed-attrs base)
-                  (and outer-key (parser/kw-node? outer-key))
-                  (assoc (z/sexpr outer-key) value-loc))))))))))
-
 (def ^:private map-binding-heads
   "Binding forms whose `[name init]` pairs we read a literal map out of.
   All of them bind left to right and shadow what encloses them, so the nearest
@@ -286,11 +236,12 @@
       (when (some #(mentions-symbol? % symbol-name) (parameter-vectors list-loc)) ::shadowed))))
 
 (defn- lexically-bound-value
-  "Return the zloc an enclosing binding form binds symbol-name to, or nil.
-  Innermost first, and a binding whose value we cannot read ends the search rather
-  than letting an outer form answer for a symbol it no longer names. A fn is followed
+  "Return the zloc an enclosing binding form binds symbol-name to.
+  `::shadowed` when a form binds the name to something we cannot read, nil when no
+  enclosing form binds it at all — callers need the difference, since only the second
+  leaves a var of the same name free to answer. Innermost first. A fn is followed
   through, since a closure really does see the binding around it; what stops the
-  search is a form that binds the name itself. Nothing crosses a namespace."
+  search is a form that binds the name itself."
   [loc symbol-name]
   (loop [inner nil
          child loc
@@ -298,21 +249,153 @@
     (when (some? parent)
       (let [found (when (= :list (z/tag parent))
                     (binder-lookup parent child inner symbol-name))]
-        (cond
-          (= ::shadowed found) nil
-          (some? found) found
-          :else (recur child parent (z/up parent)))))))
+        (if (some? found)
+          found
+          (recur child parent (z/up parent)))))))
 
-(defn- bound-value
-  "Return the zloc a symbol in the attrs slot was bound to, or nil for anything else."
+(def ^:private top-level-def-heads #{"def" "defonce"})
+
+(defn- defined-name [list-loc]
+  (let [name-loc (some-> list-loc z/down z/right)
+        symbol-loc (if (= :meta (some-> name-loc z/tag))
+                     (some-> name-loc z/down z/rightmost)
+                     name-loc)]
+    (when (= :token (some-> symbol-loc z/tag))
+      (parser/raw symbol-loc))))
+
+(defn- first-top-level-form [loc]
+  (let [root (loop [current loc]
+               (if-let [parent (z/up current)]
+                 (recur parent)
+                 current))]
+    (if (= :forms (z/tag root))
+      (z/down root)
+      (z/leftmost root))))
+
+(defn- top-level-def-value
+  "Return the value a `def` in the same file binds symbol-name to, or nil.
+  A file is where a var is visible, so a `def` answers wherever no local binding
+  does. Nothing is read across a namespace: a symbol another file defines stays
+  unknown, as it was before anything was looked up at all.
+
+  The first `def` of a name wins, the way it does at load time. Heads are compared as
+  raw source so a file's worth of top-level forms can be passed over without building
+  an sexpr for each one."
+  [loc symbol-name]
+  (loop [form (first-top-level-form loc)]
+    (cond
+      (nil? form) nil
+
+      (and (= :list (z/tag form))
+           (contains? top-level-def-heads (some-> form z/down parser/raw))
+           (= symbol-name (defined-name form)))
+      (let [name-loc (some-> form z/down z/right)
+            value (some-> form z/down z/rightmost)]
+        (if (same-node? name-loc value)
+          (recur (z/right form))
+          value))
+
+      :else (recur (z/right form)))))
+
+(defn- resolved-value
+  "Return what a bare symbol names, or nil when nothing here answers for it.
+  A local binding answers first, and a same-file `def` only when none does — a local
+  that binds the name to something unreadable answers by stopping the search, so a
+  shadowed symbol never falls through to a var that happens to share its name."
   [loc]
   (when-let [symbol-name (unqualified-symbol-name loc)]
-    (lexically-bound-value loc symbol-name)))
+    (let [local (lexically-bound-value loc symbol-name)]
+      (cond
+        (= ::shadowed local) nil
+        (some? local) local
+        :else (top-level-def-value loc symbol-name)))))
 
-(defn- bound-attrs-map [loc]
-  (let [value (bound-value loc)]
+(defn- resolved-map
+  "Return the map literal a bare symbol names, or nil."
+  [loc]
+  (let [value (resolved-value loc)]
     (when (= :map (some-> value z/tag))
       value)))
+
+(def ^:private attr-construction-heads
+  "Calls that build a map from a base plus literal keys we can still read."
+  #{"assoc" "merge" "assoc-in"})
+
+(declare construction-attrs)
+
+(defn- contributed
+  "Return `{:attrs {kw → value-loc} :complete? bool}` for one argument of such a call.
+  `:complete?` says the argument's whole key set is known, not merely a floor of it."
+  [loc]
+  (let [literal (fn [map-loc]
+                  (let [attrs (literal-map map-loc)]
+                    {:attrs (or attrs {})
+                     :complete? (some? attrs)}))]
+    (cond
+      (nil? loc) {:attrs {}
+                  :complete? true}
+      (= :map (z/tag loc)) (literal loc)
+      (= :list (z/tag loc)) (or (construction-attrs loc) {:attrs {}
+                                                          :complete? false})
+      (= :token (z/tag loc)) (if-let [resolved (resolved-map loc)]
+                               (literal resolved)
+                               {:attrs {}
+                                :complete? false})
+      :else {:attrs {}
+             :complete? false})))
+
+(defn- right-args [head]
+  (when-let [arg (z/right head)]
+    (cons arg (lazy-seq (right-args arg)))))
+
+(defn construction-attrs
+  "Return `{:attrs {kw → value-loc} :complete? bool}` for a map-building call.
+  Handles `(assoc base :k v …)`, `(merge base {:k v} …)` and `(assoc-in base [:k] v)`,
+  nesting through each other and through a symbol naming a map literal. Returns nil
+  when the call is not one of those.
+
+  `:complete?` is the whole point of the distinction: with an opaque base or a
+  computed key the attrs are a floor, enough to answer that a key is present and
+  never that one is absent. With every part readable the call states the whole map,
+  and reads the same as one written out."
+  [list-loc]
+  (when (= :list (z/tag list-loc))
+    (when-let [head (z/down list-loc)]
+      (let [head-str (parser/raw head)]
+        (when (contains? attr-construction-heads head-str)
+          (let [args (right-args head)]
+            (case head-str
+              "merge"
+              (reduce (fn [acc arg]
+                        (let [{:keys [attrs complete?]} (contributed arg)]
+                          {:attrs (merge (:attrs acc) attrs)
+                           :complete? (and (:complete? acc) complete?)}))
+                      {:attrs {}
+                       :complete? true}
+                      args)
+
+              "assoc"
+              (reduce (fn [acc [key-loc value-loc]]
+                        (if (parser/kw-node? key-loc)
+                          (assoc-in acc [:attrs (z/sexpr key-loc)] value-loc)
+                          (assoc acc :complete? false)))
+                      (contributed (first args))
+                      (partition 2 (rest args)))
+
+              "assoc-in"
+              (let [[base path-loc value-loc] args
+                    path-keys (when (= :vector (some-> path-loc z/tag))
+                                (vec (take-while some? (iterate z/right (z/down path-loc)))))
+                    outer-key (first path-keys)
+                    readable-key? (and outer-key (parser/kw-node? outer-key))]
+                (cond-> (contributed base)
+                  readable-key?
+                  (assoc-in [:attrs (z/sexpr outer-key)] value-loc)
+
+                  ;; A deeper path leaves the outer key holding a map we did not
+                  ;; read, so the key is known to be there and its value is not.
+                  (or (not readable-key?) (next path-keys))
+                  (assoc :complete? false))))))))))
 
 (defn attrs-info
   "Classify the second child of a Hiccup vector.
@@ -326,54 +409,57 @@
     {:kind :dynamic}                      ; non-literal (e.g. (build-attrs))
 
   `:dynamic-map` carries a partial view, so it answers only that a key is present.
-  Rules asserting something is missing need `:map`.
+  Rules asserting something is missing need `:map` — which a built map earns too, once
+  every part of the call is readable: `(assoc {:class \"c\"} :on-click f)` states its
+  whole key set, while `(assoc opaque :on-click f)` states a floor of it.
 
-  A symbol in the slot is looked up in the binding forms enclosing it, and classifies
-  as what it was bound to: a map literal reads as that literal, since the binding is
-  the whole of what the slot holds, and a map-building call reads as the keys it names,
-  exactly as the same expression written in the slot would. Naming a form in a `let`
+  A symbol in the slot is looked up in the binding forms enclosing it and in the
+  file's own `def`s, and classifies as what it names: a map literal reads as that
+  literal, and a map-building call as the call would where it stands. Naming a form
   costs nothing either way. Every other symbol stays `:non-map`."
   [vec-loc]
-  (let [second-child (some-> vec-loc z/down z/right)]
+  (let [second-child (some-> vec-loc z/down z/right)
+        built (fn [construction]
+                (let [{:keys [attrs complete?]} construction]
+                  (cond
+                    complete? {:kind :map
+                               :attrs attrs}
+                    (seq attrs) {:kind :dynamic-map
+                                 :attrs attrs}
+                    :else {:kind :dynamic})))]
     (cond
       (nil? second-child) {:kind :absent}
       (= :map (z/tag second-child)) {:kind :map
                                      :attrs (literal-map second-child)}
       (contains? dynamic-attr-tags (z/tag second-child))
-      (if-let [built (seq (construction-attrs second-child))]
-        {:kind :dynamic-map
-         :attrs (into {} built)}
+      (if-let [construction (construction-attrs second-child)]
+        (built construction)
         {:kind :dynamic})
 
       :else
-      (let [bound (bound-value second-child)]
-        (case (some-> bound z/tag)
+      (let [value (resolved-value second-child)]
+        (case (some-> value z/tag)
           :map {:kind :map
-                :attrs (literal-map bound)}
+                :attrs (literal-map value)}
 
-          ;; A call we cannot read at all stays `:non-map`, the way an unbound symbol
-          ;; does. A construction we can read answers with the keys it names, and with
-          ;; `:dynamic` when it names none: `(merge defaults opts)` holds an unknown
-          ;; map, which is not the same as holding nothing.
-          :list (if-let [built (construction-attrs bound)]
-                  (if (seq built)
-                    {:kind :dynamic-map
-                     :attrs built}
-                    {:kind :dynamic})
+          ;; A call we cannot read at all stays `:non-map`, the way an unresolved
+          ;; symbol does. A construction we can read answers as it would in the slot.
+          :list (if-let [construction (construction-attrs value)]
+                  (built construction)
                   {:kind :non-map})
 
           {:kind :non-map})))))
 
 (defn attrs-slot
   "Return the zloc occupying the element's attrs slot, or nil when nothing does.
-  A symbol an enclosing scope binds to a map literal occupies the slot exactly as a
-  written map does, so the body begins after it either way. A slot we cannot read —
-  a call, an unresolved symbol — is left where it was: callers have always treated it
-  as body content, and narrowing that is a separate question from reading attrs."
+  A symbol naming a map literal occupies the slot exactly as a written map does, so
+  the body begins after it either way. A slot we cannot read — a call, an unresolved
+  symbol — is left where it was: callers have always treated it as body content, and
+  narrowing that is a separate question from reading attrs."
   [vec-loc]
   (when-let [second-child (some-> vec-loc z/down z/right)]
     (when (or (= :map (z/tag second-child))
-              (some? (bound-attrs-map second-child)))
+              (some? (resolved-map second-child)))
       second-child)))
 
 (defn inside-quoted-form? [loc]

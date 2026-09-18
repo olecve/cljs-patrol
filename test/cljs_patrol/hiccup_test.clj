@@ -215,6 +215,53 @@
       (is (= :map (:kind info)))
       (is (nil? (:attrs info))))))
 
+(deftest attrs-info-construction-completeness-test
+  (testing "a construction whose every part is readable states the whole map"
+    (is (= :map (:kind (img-attrs-info "[:img (assoc {:class \"c\"} :alt \"cat\")]")))
+        "a literal base and literal keys leave nothing unknown")
+    (is (= :map (:kind (img-attrs-info "[:img (merge {:src \"a\"} {:alt \"cat\"})]")))
+        "merging literals states the whole map too"))
+
+  (testing "a construction with an unreadable part states only a floor"
+    (is (= :dynamic-map (:kind (img-attrs-info "(defn v [base] [:img (assoc base :alt \"cat\")])")))
+        "an opaque base may still hold keys of its own")
+    (is (= :dynamic-map (:kind (img-attrs-info "(defn v [o] [:img (merge {:src \"a\"} o)])")))
+        "merging something opaque in")
+    (is (= :dynamic-map (:kind (img-attrs-info "[:img (assoc {:src \"a\"} k v)]")))
+        "a computed key names something we cannot read")
+    (is (= :dynamic-map (:kind (img-attrs-info "[:img (assoc-in {:src \"a\"} [:a :b] 1)]")))
+        "a deeper path leaves the outer key holding a map we did not read"))
+
+  (testing "a one-key assoc-in path is an assoc"
+    (is (= :map (:kind (img-attrs-info "[:img (assoc-in {:src \"a\"} [:alt] \"cat\")]"))))))
+
+(deftest attrs-info-def-test
+  (testing "a def in the same file names a map"
+    (let [info (img-attrs-info "(def props {:src \"a\" :alt \"cat\"}) (defn v [] [:img props])")]
+      (is (= :map (:kind info)))
+      (is (= #{:src :alt} (set (keys (:attrs info))))))
+    (is (= :map (:kind (img-attrs-info "(defonce props {:alt \"cat\"}) (defn v [] [:img props])")))
+        "defonce binds a var the same way")
+    (is (= :map (:kind (img-attrs-info "(def ^:private props {:alt \"cat\"}) (defn v [] [:img props])")))
+        "metadata sits between the head and the name")
+    (is (= :map (:kind (img-attrs-info "(def props \"doc\" {:alt \"cat\"}) (defn v [] [:img props])")))
+        "a docstring sits between the name and the value"))
+
+  (testing "a local of the same name wins, and never falls through to the var"
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defn v [props] [:img props])")))
+        "a parameter shadows the var")
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defn v [] (let [props (f)] [:img props]))")))
+        "a let binding shadows the var, unreadable value and all"))
+
+  (testing "a def of something other than a map literal answers nothing"
+    (is (= :non-map (:kind (img-attrs-info "(def props (make-props)) (defn v [] [:img props])")))))
+
+  (testing "a construction over a defined base is readable end to end"
+    (let [info (img-attrs-info "(def base {:src \"a\"}) (defn v [] [:img (assoc base :alt \"cat\")])")]
+      (is (= :map (:kind info))
+          "nothing about the map is unknown, so absence can be asserted from it")
+      (is (= #{:src :alt} (set (keys (:attrs info))))))))
+
 (deftest attrs-slot-test
   (testing "a literal map occupies the attrs slot"
     (is (some? (hiccup/attrs-slot (vec-zloc "[:button {:on-click f}]")))))

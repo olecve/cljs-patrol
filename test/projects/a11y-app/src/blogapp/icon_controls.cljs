@@ -80,3 +80,13 @@
 (defn ok-icon-with-opaque-props [base-icon-props]
   ;; nothing literal to read: no construction call, so no claim either way
   [icons/square base-icon-props])
+
+(def clickable-icon-props
+  {:role "button"
+   :tabIndex 0
+   :on-key-down activate})
+
+(defn ok-icon-role-and-keyboard-from-a-def [on-select]
+  ;; the base is a def in this file, so the whole map is readable: it already
+  ;; carries the role and the keyboard handler the assoc does not repeat
+  [icons/square (assoc clickable-icon-props :on-click on-select)])
