@@ -886,6 +886,15 @@
       (is (contains? by-row 112)
           "bad-let-bound-props, resolved and found unnamed"))
 
+    (testing "an attrs symbol is the attrs slot, not a body child"
+      (let [{:keys [empty-interactive-element]} (first group-results)
+            empty-rows (rows (filter #(str/ends-with? (:file %) "interactive_content.cljs")
+                                     empty-interactive-element))]
+        (is (contains? empty-rows 124)
+            "bad-let-bound-props-no-body, a button whose only child is its own props")
+        (is (not (contains? empty-rows 129))
+            "ok-let-bound-props-with-name, the bound map names it")))
+
     (testing "flags a binding whose value cannot be read"
       (is (contains? by-row 136)
           "bad-let-bound-call, bound to a call")

@@ -126,9 +126,9 @@ Shared props are usually named once and reused:
      [notification-list]]))
 ```
 
-Every a11y rule follows a symbol in the props slot to the form that binds it — `let`, `let*`, `when-let`, `if-let`, `when-some`, `if-some`, `when-first` — and reads a map literal bound there exactly as if it had been written inline. So the popover above is named, and one bound to a map without `:aria-label` is still reported.
+Every a11y rule follows a symbol in the props slot to the form that binds it — `let`, `let*`, `when-let`, `if-let`, `when-some`, `if-some` — and reads a map literal bound there exactly as if it had been written inline. So the popover above is named, and one bound to a map without `:aria-label` is still reported.
 
-Resolution is lexical and innermost-first: the nearest binding answers, a parameter or a destructuring form of the same name shadows an outer `let`, and nothing crosses a namespace or a function boundary. A symbol bound to anything other than a map literal — a call, another symbol — leaves the props slot as opaque as it was before.
+Resolution is lexical and innermost-first: the nearest binding answers, and anything that binds the name itself stops the search rather than letting an outer `let` answer for a symbol it no longer names — a `fn` / `defn` / protocol-method parameter, a destructuring form, a `for` / `doseq` / `loop` / `dotimes` binding, a `catch` / `as->` / `this-as` name. A closure is followed through, since it really does see the binding around it, and an `if-let` else branch is not, since it runs with the symbol unbound. Nothing crosses a namespace, and a symbol bound to anything other than a map literal — a call, another symbol — leaves the props slot as opaque as it was before.
 
 ### Example: reg-event-db returning effects
 

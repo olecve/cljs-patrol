@@ -122,18 +122,41 @@
   "Binding forms whose `[name init]` pairs we read a literal map out of.
   All of them bind left to right and shadow what encloses them, so the nearest
   binding of a symbol is the one that reaches the usage."
-  #{"let" "let*" "when-let" "if-let" "when-some" "if-some" "when-first"})
+  #{"let" "let*" "when-let" "if-let" "when-some" "if-some"})
+
+(def ^:private then-branch-binding-heads
+  "Binding forms whose binding reaches only one of their branches.
+  In the else branch the symbol is whatever an enclosing scope says it is, so the
+  search has to carry on past the form rather than answer from its binding."
+  #{"if-let" "if-some"})
 
 (def ^:private opaque-binding-heads
   "Binding forms whose bound values we never read, but which still shadow.
   Their binding vectors hold shapes a pairwise scan would misread — `for` clauses,
-  `letfn` fn specs, a `loop` name `recur` rebinds — so any mention of the symbol
-  inside one ends the search instead of letting an enclosing `let` answer for it."
-  #{"loop" "for" "doseq" "letfn" "binding" "with-open" "with-redefs" "with-local-vars"})
+  `letfn` fn specs, a `loop` name `recur` rebinds, the first element of a collection
+  `when-first` takes — so any mention of the symbol inside one ends the search
+  instead of letting an enclosing `let` answer for it."
+  #{"loop" "for" "doseq" "dotimes" "when-first" "letfn" "binding" "with-open"
+    "with-redefs" "with-local-vars"})
 
 (def ^:private parameter-binding-heads
   "Forms whose parameter vectors bind symbols for the body that follows."
   #{"fn" "fn*" "defn" "defn-" "defmethod" "defmacro"})
+
+(def ^:private method-holder-heads
+  "Forms whose bodies are `(name [params] …)` method implementations.
+  A method's parameter vector binds for its body exactly as a `fn`'s does, and
+  `this` plus the arguments routinely carry the same names as a surrounding `let`."
+  #{"reify" "specify" "specify!" "deftype" "defrecord" "definterface"
+    "extend-type" "extend-protocol" "proxy"})
+
+(def ^:private symbol-binding-heads
+  "Forms binding one symbol written a fixed number of children after the head.
+  `(catch js/Error error …)`, `(as-> expr name …)` and `(this-as me …)` each bind a
+  name no binding vector holds, and each shadows the body that follows."
+  {"catch" 1
+   "as->" 1
+   "this-as" 0})
 
 (def ^:private parameter-list-offsets
   "Children to skip after the head before a parameter vector can appear.
@@ -159,6 +182,9 @@
 (defn- same-node? [a b]
   (boolean (and a b (identical? (z/node a) (z/node b)))))
 
+(defn- skip-right [loc n]
+  (reduce (fn [current _] (some-> current z/right)) loc (range n)))
+
 (defn- parameter-vectors
   "Return the vectors binding parameters in a fn-like form.
   The first vector after the head is the parameter list of a single-arity form; in a
@@ -166,25 +192,23 @@
   is never mistaken for either, since a parameter list always precedes the body."
   [list-loc]
   (let [head (z/down list-loc)
-        start (reduce (fn [loc _] (some-> loc z/right))
-                      (some-> head z/right)
-                      (range (get parameter-list-offsets (some-> head parser/sym-name) 0)))]
+        start (skip-right (some-> head z/right)
+                          (get parameter-list-offsets (some-> head parser/sym-name) 0))]
     (loop [child start
-           found []
-           parameters-seen? false]
+           arity-vectors []]
       (cond
-        (nil? child) found
+        (nil? child) arity-vectors
 
-        (and (not parameters-seen?) (= :vector (z/tag child)))
-        (recur (z/right child) (conj found child) true)
+        ;; A single-arity form states its parameters directly, and then everything
+        ;; after them is body — including a body that begins with a vector.
+        (= :vector (z/tag child)) [child]
 
         (= :list (z/tag child))
         (let [first-child (z/down child)]
           (recur (z/right child)
-                 (cond-> found (= :vector (some-> first-child z/tag)) (conj first-child))
-                 parameters-seen?))
+                 (cond-> arity-vectors (= :vector (some-> first-child z/tag)) (conj first-child))))
 
-        :else (recur (z/right child) found parameters-seen?)))))
+        :else (recur (z/right child) arity-vectors)))))
 
 (defn- binding-pairs [vector-loc]
   (loop [form (z/down vector-loc)
@@ -209,6 +233,25 @@
           (cond->> (binding-pairs bindings-loc)
             cut (take-while (fn [[form init]] (not (or (same-node? form cut) (same-node? init cut))))))))
 
+(defn- method-form?
+  "True when list-loc is a `(name [params] …)` method inside a form that holds methods.
+  Its head is the method name rather than anything we can recognize on its own, so
+  the enclosing form is what identifies it."
+  [list-loc]
+  (let [holder (z/up list-loc)]
+    (and (some? (some-> list-loc z/down parser/sym-name))
+         (= :list (some-> holder z/tag))
+         (contains? method-holder-heads (some-> holder z/down parser/sym-name)))))
+
+(defn- in-scope-branch?
+  "True when child is a branch the binding of a binding form reaches.
+  Only `if-let` and `if-some` leave one out: their else branch runs with the symbol
+  unbound, so a binding there is not the one the usage sees."
+  [head-name child bindings]
+  (or (not (contains? then-branch-binding-heads head-name))
+      (same-node? child bindings)
+      (same-node? child (z/right bindings))))
+
 (defn- binder-lookup
   "Look up symbol-name in the bindings one enclosing form makes.
   `child` is that form's own child the usage descends from and `inner` the one below
@@ -221,19 +264,25 @@
         binding-vector? (= :vector (some-> bindings z/tag))]
     (cond
       (and binding-vector? (contains? map-binding-heads head-name))
-      (bound-init bindings symbol-name (when (same-node? child bindings) inner))
+      (when (in-scope-branch? head-name child bindings)
+        (bound-init bindings symbol-name (when (same-node? child bindings) inner)))
 
       (and binding-vector? (contains? opaque-binding-heads head-name))
       (when (mentions-symbol? bindings symbol-name) ::shadowed)
 
-      (contains? parameter-binding-heads head-name)
+      (contains? symbol-binding-heads head-name)
+      (let [bound (skip-right bindings (get symbol-binding-heads head-name))]
+        (when (= symbol-name (unqualified-symbol-name bound)) ::shadowed))
+
+      (or (contains? parameter-binding-heads head-name) (method-form? list-loc))
       (when (some #(mentions-symbol? % symbol-name) (parameter-vectors list-loc)) ::shadowed))))
 
 (defn- lexically-bound-value
   "Return the zloc an enclosing binding form binds symbol-name to, or nil.
   Innermost first, and a binding whose value we cannot read ends the search rather
-  than letting an outer form answer for a symbol it no longer names. Nothing crosses
-  a fn or a namespace boundary."
+  than letting an outer form answer for a symbol it no longer names. A fn is followed
+  through, since a closure really does see the binding around it; what stops the
+  search is a form that binds the name itself. Nothing crosses a namespace."
   [loc symbol-name]
   (loop [inner nil
          child loc
@@ -290,6 +339,18 @@
         {:kind :map
          :attrs (literal-map bound)}
         {:kind :non-map}))))
+
+(defn attrs-slot
+  "Return the zloc occupying the element's attrs slot, or nil when nothing does.
+  A symbol an enclosing scope binds to a map literal occupies the slot exactly as a
+  written map does, so the body begins after it either way. A slot we cannot read —
+  a call, an unresolved symbol — is left where it was: callers have always treated it
+  as body content, and narrowing that is a separate question from reading attrs."
+  [vec-loc]
+  (when-let [second-child (some-> vec-loc z/down z/right)]
+    (when (or (= :map (z/tag second-child))
+              (some? (bound-attrs-map second-child)))
+      second-child)))
 
 (defn inside-quoted-form? [loc]
   (some-> loc z/up z/tag quoted-parent-tags boolean))

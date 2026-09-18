@@ -147,7 +147,34 @@
     (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (let [{:keys [props]} x] [:img props]))")))
         "a destructuring form shadows")
     (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (doseq [props items] [:img props]))")))
-        "a doseq binding shadows"))
+        "a doseq binding shadows")
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (dotimes [props 3] [:img props]))")))
+        "a dotimes binding shadows")
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (reify Object (render [this props] [:img props])))")))
+        "a method parameter shadows")
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (extend-type X P (render [this props] [:img props])))")))
+        "a method parameter of an extend-type shadows")
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (try 1 (catch js/Error props [:img props])))")))
+        "a catch binding shadows")
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (as-> (f) props [:img props]))")))
+        "an as-> binding shadows")
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (this-as props [:img props]))")))
+        "a this-as binding shadows"))
+
+  (testing "a binding that reaches only one branch does not answer for the other"
+    (is (= :map (:kind (img-attrs-info "(if-let [props {:alt \"cat\"}] [:img props] nil)")))
+        "the then branch sees the binding")
+    (is (= :non-map (:kind (img-attrs-info "(if-let [props {:src \"x\"}] nil [:img props])")))
+        "the else branch runs with the symbol unbound"))
+
+  (testing "when-first binds the first element of a collection, not the collection"
+    (is (= :non-map (:kind (img-attrs-info "(when-first [props {:alt \"cat\"}] [:img props])")))))
+
+  (testing "a body that begins with a vector is not a parameter list"
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (fn [] ([:img props])))")))
+        "the arity scan stops once a parameter vector is found")
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (fn ([] [:img props]) ([x] nil)))")))
+        "no arity of the fn binds props"))
 
   (testing "only bindings already made when the usage is read are in scope"
     (is (= :non-map (:kind (img-attrs-info "(let [thumb [:img props] props {:alt \"cat\"}] thumb)")))
@@ -165,6 +192,21 @@
     (let [info (img-attrs-info "(let [props {(compute) 1}] [:img props])")]
       (is (= :map (:kind info)))
       (is (nil? (:attrs info))))))
+
+(deftest attrs-slot-test
+  (testing "a literal map occupies the attrs slot"
+    (is (some? (hiccup/attrs-slot (vec-zloc "[:button {:on-click f}]")))))
+
+  (testing "a symbol bound to a map literal occupies it too"
+    (let [loc (-> (z/of-string "(let [props {:on-click f}] [:button props])") z/down z/rightmost)]
+      (is (some? (hiccup/attrs-slot loc))
+          "the body starts after the props symbol, so the button counts as empty")))
+
+  (testing "nothing occupies the slot when it cannot be read"
+    (is (nil? (hiccup/attrs-slot (vec-zloc "[:button]"))))
+    (is (nil? (hiccup/attrs-slot (vec-zloc "[:button \"Save\"]"))))
+    (is (nil? (hiccup/attrs-slot (vec-zloc "[:button (build-props)]"))))
+    (is (nil? (hiccup/attrs-slot (vec-zloc "[:button props]"))))))
 
 (deftest inside-quoted-form?-test
   (testing "true when the vector's immediate parent is a quote-family node"

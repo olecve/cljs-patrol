@@ -221,12 +221,10 @@
     (literal-string-loc? loc) true
 
     (= :vector (z/tag loc))
-    (let [second-child (some-> loc z/down z/right)
-          attrs-map (when (and second-child (= :map (z/tag second-child)))
-                      second-child)
-          body-start (if attrs-map (z/right attrs-map) second-child)]
-      (or (when attrs-map
-            (let [attrs (hiccup/literal-map attrs-map)]
+    (let [attrs-loc (hiccup/attrs-slot loc)
+          body-start (if attrs-loc (z/right attrs-loc) (some-> loc z/down z/right))]
+      (or (when attrs-loc
+            (let [attrs (:attrs (hiccup/attrs-info loc))]
               (or (meaningful-text-name? attrs)
                   (image-alt-name? loc attrs))))
           (loop [cur body-start]
@@ -265,10 +263,10 @@
   False for structurally empty vectors, and for icon-only markup like
   `[:button [icons/x]]`."
   [vec-loc]
-  (let [second-child (some-> vec-loc z/down z/right)
-        body-start (if (and second-child (= :map (z/tag second-child)))
-                     (z/right second-child)
-                     second-child)]
+  (let [attrs-loc (hiccup/attrs-slot vec-loc)
+        body-start (if attrs-loc
+                     (z/right attrs-loc)
+                     (some-> vec-loc z/down z/right))]
     (loop [cur body-start]
       (cond
         (nil? cur) false

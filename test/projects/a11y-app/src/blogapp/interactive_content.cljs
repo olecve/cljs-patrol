@@ -117,3 +117,13 @@
   [:button {:on-click handler}
    [:svg]
    "Close"])
+
+(defn bad-let-bound-props-no-body [handler]
+  ;; props resolve to a map with no name, and the symbol is the attrs slot, not a child
+  (let [props {:on-click handler}]
+    [:button props]))
+
+(defn ok-let-bound-props-with-name [handler]
+  (let [props {:aria-label "Close"
+               :on-click handler}]
+    [:button props]))
