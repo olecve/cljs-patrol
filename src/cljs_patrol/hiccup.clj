@@ -172,11 +172,17 @@
     (when (and symbol-name (= symbol-name (parser/raw loc)))
       symbol-name)))
 
-(defn- mentions-symbol? [loc symbol-name]
+(defn- mentions-symbol?
+  "True when symbol-name appears anywhere in the form loc holds.
+  symbol-name is known to be a bare symbol, and every other token prints with
+  something a symbol cannot start with — a colon, a quote, a digit — so comparing
+  raw source is the same test as reading the token, without building an sexpr for
+  every node of every binding vector we scan."
+  [loc symbol-name]
   (loop [current (z/subzip loc)]
     (cond
       (z/end? current) false
-      (= symbol-name (unqualified-symbol-name current)) true
+      (and (= :token (z/tag current)) (= symbol-name (parser/raw current))) true
       :else (recur (z/next current)))))
 
 (defn- same-node? [a b]
