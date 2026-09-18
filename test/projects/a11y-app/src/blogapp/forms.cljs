@@ -91,8 +91,6 @@
   [ui/dialog-root {:aria-label "Export"
                    :open? true}])
 
-;; Props shared by several dialogs ------------------------------------
-
 ;; `let`-bound map literal carrying the name -> resolved, OK.
 (defn ok-let-bound-props []
   (let [dialog-props {:aria-label "Export"
