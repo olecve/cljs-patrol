@@ -253,6 +253,24 @@
     (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defn v [] (let [props (f)] [:img props]))")))
         "a let binding shadows the var, unreadable value and all"))
 
+  (testing "a def-shaped macro we do not know still binds its parameters"
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defnc row [props] [:img props])")))
+        "a defnc parameter shadows the var of the same name")
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (rum/defc row < rum/static [props] [:img props])")))
+        "the name is read past the namespace and past the mixin")
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defui App [this props] [:img props])")))
+        "an unknown macro leaves the symbol unknown rather than letting the var answer"))
+
+  (testing "the last def of a name wins, the way a re-def rebinds the var"
+    (let [info (img-attrs-info "(def props {:alt \"cat\"}) (def props {:src \"a\"}) (defn v [] [:img props])")]
+      (is (= #{:src} (set (keys (:attrs info)))))))
+
+  (testing "metadata stacks in front of the name"
+    (is (= :map (:kind (img-attrs-info "(def ^:private ^:const props {:alt \"cat\"}) (defn v [] [:img props])")))
+        "two metadata layers")
+    (is (= :map (:kind (img-attrs-info "(def ^{:doc \"d\"} ^:private props {:alt \"cat\"}) (defn v [] [:img props])")))
+        "a metadata map and a shorthand layer"))
+
   (testing "a def of something other than a map literal answers nothing"
     (is (= :non-map (:kind (img-attrs-info "(def props (make-props)) (defn v [] [:img props])")))))
 

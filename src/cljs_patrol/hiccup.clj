@@ -191,6 +191,15 @@
           (cond->> (binding-pairs bindings-loc)
             cut (take-while (fn [[form init]] (not (or (same-node? form cut) (same-node? init cut))))))))
 
+(defn- def-macro-head?
+  "True for a `def`-shaped head we do not otherwise recognize.
+  Component macros — `defnc`, `defui`, `rum/defc`, and whatever a project rolls
+  itself — bind parameters like a `defn` does. Reading their parameter vectors as
+  binding is what keeps an unrecognized macro an unknown rather than a wrong answer:
+  without it a parameter would look unbound and a var of the same name would answer."
+  [head-name]
+  (and head-name (str/starts-with? head-name "def")))
+
 (defn- method-form?
   "True when list-loc is a `(name [params] …)` method inside a form that holds methods.
   Its head is the method name rather than anything we can recognize on its own, so
@@ -232,7 +241,9 @@
       (let [bound (skip-right bindings (get symbol-binding-heads head-name))]
         (when (= symbol-name (unqualified-symbol-name bound)) ::shadowed))
 
-      (or (contains? parameter-binding-heads head-name) (method-form? list-loc))
+      (or (contains? parameter-binding-heads head-name)
+          (def-macro-head? head-name)
+          (method-form? list-loc))
       (when (some #(mentions-symbol? % symbol-name) (parameter-vectors list-loc)) ::shadowed))))
 
 (defn- lexically-bound-value
@@ -255,13 +266,16 @@
 
 (def ^:private top-level-def-heads #{"def" "defonce"})
 
-(defn- defined-name [list-loc]
-  (let [name-loc (some-> list-loc z/down z/right)
-        symbol-loc (if (= :meta (some-> name-loc z/tag))
-                     (some-> name-loc z/down z/rightmost)
-                     name-loc)]
-    (when (= :token (some-> symbol-loc z/tag))
-      (parser/raw symbol-loc))))
+(defn- defined-name
+  "Return the name a `def` form defines, or nil.
+  Metadata stacks — `(def ^:private ^:const x …)` nests one `:meta` node inside
+  another — so the name is whatever is left once every layer is peeled off."
+  [list-loc]
+  (loop [name-loc (some-> list-loc z/down z/right)]
+    (case (some-> name-loc z/tag)
+      :meta (recur (some-> name-loc z/down z/rightmost))
+      :token (parser/raw name-loc)
+      nil)))
 
 (defn- first-top-level-form [loc]
   (let [root (loop [current loc]
@@ -272,30 +286,52 @@
       (z/down root)
       (z/leftmost root))))
 
+(defn- scan-top-level-defs
+  "Return `{name → value-loc}` for every `def` in the file.
+  The last `def` of a name wins, the way it does at load time: a re-`def` rebinds the
+  var, and a function body called afterwards sees the value that rebinding left."
+  [first-form]
+  (loop [form first-form
+         defs {}]
+    (if (nil? form)
+      defs
+      (recur (z/right form)
+             (or (when (and (= :list (z/tag form))
+                            (contains? top-level-def-heads (some-> form z/down parser/raw)))
+                   (let [name-loc (some-> form z/down z/right)
+                         value (some-> form z/down z/rightmost)
+                         defined (defined-name form)]
+                     (when (and defined (not (same-node? name-loc value)))
+                       (assoc defs defined value))))
+                 defs)))))
+
+(def ^:private def-index
+  "The `def`s of the file being read, held one file at a time.
+  Files are walked one after another, and a file's vectors ask about its vars over
+  and over, so this turns a scan per question into a scan per file — the difference
+  between linear and quadratic on a namespace with a thousand `def`s. Keyed by
+  identity of the file's own root node, so a file this never saw rebuilds it."
+  (atom {:root nil
+         :defs {}}))
+
+(defn- top-level-defs [loc]
+  (let [first-form (first-top-level-form loc)
+        root (some-> first-form z/node)
+        {:keys [cached-root defs]} @def-index]
+    (if (and root (identical? root cached-root))
+      defs
+      (let [scanned (scan-top-level-defs first-form)]
+        (reset! def-index {:cached-root root
+                           :defs scanned})
+        scanned))))
+
 (defn- top-level-def-value
   "Return the value a `def` in the same file binds symbol-name to, or nil.
   A file is where a var is visible, so a `def` answers wherever no local binding
   does. Nothing is read across a namespace: a symbol another file defines stays
-  unknown, as it was before anything was looked up at all.
-
-  The first `def` of a name wins, the way it does at load time. Heads are compared as
-  raw source so a file's worth of top-level forms can be passed over without building
-  an sexpr for each one."
+  unknown, as it was before anything was looked up at all."
   [loc symbol-name]
-  (loop [form (first-top-level-form loc)]
-    (cond
-      (nil? form) nil
-
-      (and (= :list (z/tag form))
-           (contains? top-level-def-heads (some-> form z/down parser/raw))
-           (= symbol-name (defined-name form)))
-      (let [name-loc (some-> form z/down z/right)
-            value (some-> form z/down z/rightmost)]
-        (if (same-node? name-loc value)
-          (recur (z/right form))
-          value))
-
-      :else (recur (z/right form)))))
+  (get (top-level-defs loc) symbol-name))
 
 (defn- resolved-value
   "Return what a bare symbol names, or nil when nothing here answers for it.
