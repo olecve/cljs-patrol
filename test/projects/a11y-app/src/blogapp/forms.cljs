@@ -145,3 +145,9 @@
   (let [dialog-props {:aria-label "Export"}]
     (fn [dialog-props]
       [:dialog dialog-props])))
+
+;; Bound to a map-building call -> the keys the call names are read, exactly as
+;; they are when the same call is written in the slot.
+(defn ok-let-bound-construction []
+  (let [dialog-props (merge base-props {:aria-label "Export"})]
+    [:dialog dialog-props]))

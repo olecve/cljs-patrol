@@ -131,9 +131,19 @@
     (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (for [item items] [:img props]))")))
         "for binds item, not props"))
 
+  (testing "a bound map-building call is read like the same call written in the slot"
+    (let [info (img-attrs-info "(let [props (merge base {:alt \"cat\"})] [:img props])")]
+      (is (= :dynamic-map (:kind info)))
+      (is (= #{:alt} (set (keys (:attrs info))))
+          "a partial view: it answers that :alt is present, never that a key is absent"))
+    (is (= :dynamic-map (:kind (img-attrs-info "(let [props (assoc base :alt \"cat\")] [:img props])")))
+        "assoc names the key too"))
+
   (testing "a binding that is not a map literal leaves the slot as it was"
     (is (= :non-map (:kind (img-attrs-info "(let [props (build-props)] [:img props])")))
-        "bound to a call")
+        "bound to a call naming no keys")
+    (is (= :non-map (:kind (img-attrs-info "(let [props (dissoc base :side)] [:img props])")))
+        "dissoc says nothing about what is left")
     (is (= :non-map (:kind (img-attrs-info "(let [props other] [:img props])")))
         "bound to another symbol")
     (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"} props (build-props)] [:img props])")))

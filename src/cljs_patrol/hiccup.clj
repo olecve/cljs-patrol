@@ -295,15 +295,16 @@
           (some? found) found
           :else (recur child parent (z/up parent)))))))
 
-(defn- bound-attrs-map
-  "Return the map literal a symbol in the attrs slot was bound to, or nil.
-  Only a map literal answers: a call or another symbol leaves the slot as opaque as
-  it was before the lookup."
+(defn- bound-value
+  "Return the zloc a symbol in the attrs slot was bound to, or nil for anything else."
   [loc]
   (when-let [symbol-name (unqualified-symbol-name loc)]
-    (let [value (lexically-bound-value loc symbol-name)]
-      (when (= :map (some-> value z/tag))
-        value))))
+    (lexically-bound-value loc symbol-name)))
+
+(defn- bound-attrs-map [loc]
+  (let [value (bound-value loc)]
+    (when (= :map (some-> value z/tag))
+      value)))
 
 (defn attrs-info
   "Classify the second child of a Hiccup vector.
@@ -319,9 +320,11 @@
   `:dynamic-map` carries a partial view, so it answers only that a key is present.
   Rules asserting something is missing need `:map`.
 
-  A symbol in the slot is looked up in the binding forms enclosing it: one bound to a
-  map literal classifies as that literal, since the binding is the whole of what the
-  slot holds. Every other symbol stays `:non-map`."
+  A symbol in the slot is looked up in the binding forms enclosing it, and classifies
+  as what it was bound to: a map literal reads as that literal, since the binding is
+  the whole of what the slot holds, and a map-building call reads as the keys it names,
+  exactly as the same expression written in the slot would. Naming a form in a `let`
+  costs nothing either way. Every other symbol stays `:non-map`."
   [vec-loc]
   (let [second-child (some-> vec-loc z/down z/right)]
     (cond
@@ -335,10 +338,19 @@
         {:kind :dynamic})
 
       :else
-      (if-let [bound (bound-attrs-map second-child)]
-        {:kind :map
-         :attrs (literal-map bound)}
-        {:kind :non-map}))))
+      (let [bound (bound-value second-child)]
+        (case (some-> bound z/tag)
+          :map {:kind :map
+                :attrs (literal-map bound)}
+
+          ;; A call we cannot read stays `:non-map`, the way an unbound symbol does:
+          ;; only the keys a construction names are knowable from the binding.
+          :list (if-let [built (seq (construction-attrs bound))]
+                  {:kind :dynamic-map
+                   :attrs (into {} built)}
+                  {:kind :non-map})
+
+          {:kind :non-map})))))
 
 (defn attrs-slot
   "Return the zloc occupying the element's attrs slot, or nil when nothing does.

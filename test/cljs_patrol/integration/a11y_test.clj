@@ -895,9 +895,13 @@
         (is (not (contains? empty-rows 129))
             "ok-let-bound-props-with-name, the bound map names it")))
 
+    (testing "reads the keys a bound map-building call names"
+      (is (not (contains? by-row 153))
+          "ok-let-bound-construction, (merge base {:aria-label …}) names the key"))
+
     (testing "flags a binding whose value cannot be read"
       (is (contains? by-row 136)
-          "bad-let-bound-call, bound to a call")
+          "bad-let-bound-call, bound to an opaque call")
       (is (contains? by-row 141)
           "bad-let-bound-symbol, bound to another symbol"))
 
