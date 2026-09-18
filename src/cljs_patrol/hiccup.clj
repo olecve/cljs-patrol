@@ -201,27 +201,41 @@
           (cond->> (binding-pairs bindings-loc)
             cut (take-while (fn [[form init]] (not (or (same-node? form cut) (same-node? init cut))))))))
 
+(defn- fn-like-head?
+  "True for a head that plausibly defines a function, and so binds a parameter list.
+  Only the name can say so: `[props on-select]` and the Reagent `[photo-props alt]`
+  in `(if wide? [wide-photo props] [:img props])` are the same vector of symbols, so
+  reading contents alone would take an `if` arm for a parameter list and abandon a
+  name it could have resolved. A macro naming itself neither `def…` nor `…fn…` —
+  `(component [props] …)` — is left unread rather than read wrongly: a var then
+  answers for a parameter only when one of that exact name is defined in the file."
+  [head-name]
+  (and head-name
+       (or (str/starts-with? head-name "def")
+           (str/includes? head-name "fn"))))
+
 (defn- parameter-list?
   "True when a vector reads as a parameter list rather than as data.
   Parameters are binding forms — a symbol, a destructuring map or vector, `&` — and
-  never a keyword, a string or a number, so `[props on-select]` is a parameter list
-  where the Hiccup `[:dialog props]` beside it in the same form is not. Deciding by
-  what the vector holds is what lets an unrecognized macro be read at all: the head
-  says nothing, since a project names its own component macro whatever it likes."
+  never a keyword, a string or a number, so the Hiccup value of `(def thumbnail
+  [:img props])` is not one. Metadata rides along on a parameter (`^js props`) and a
+  discarded one is not there at all, so neither disqualifies the list."
   [vector-loc]
   (loop [element (z/down vector-loc)]
-    (cond
-      (nil? element) true
-      (contains? #{:map :vector} (z/tag element)) (recur (z/right element))
-      (some? (unqualified-symbol-name element)) (recur (z/right element))
-      :else false)))
+    (let [value (some-> element unwrap-meta)]
+      (cond
+        (nil? element) true
+        (= :uneval (z/tag element)) (recur (z/right element))
+        (contains? #{:map :vector} (z/tag value)) (recur (z/right element))
+        (some? (unqualified-symbol-name value)) (recur (z/right element))
+        :else false))))
 
 (defn- unknown-form-parameters
-  "Return the parameter lists an unrecognized form binds for the body holding `child`.
-  A form this does not know is the dangerous case: reading it as binding nothing lets
-  a var of the same name answer for what is really a parameter. So any vector of it
-  that reads as a parameter list counts — except the one the usage itself sits in,
-  which is the form's body rather than its parameters."
+  "Return the parameter lists a fn-like form binds for the body holding `child`.
+  A form that defines a function is the dangerous case: reading it as binding nothing
+  lets a var of the same name answer for what is really a parameter. Its vectors count
+  except the one the usage itself sits in, which is the form's body, and except those
+  holding something no parameter list holds, which are data it was handed."
   [list-loc child]
   (->> (parameter-vectors list-loc)
        (remove #(same-node? % child))
@@ -271,7 +285,7 @@
       (or (contains? parameter-binding-heads head-name) (method-form? list-loc))
       (when (some #(mentions-symbol? % symbol-name) (parameter-vectors list-loc)) ::shadowed)
 
-      :else
+      (fn-like-head? head-name)
       (when (some #(mentions-symbol? % symbol-name) (unknown-form-parameters list-loc child))
         ::shadowed))))
 

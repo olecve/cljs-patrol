@@ -233,7 +233,12 @@
         "a deeper path leaves the outer key holding a map we did not read"))
 
   (testing "a one-key assoc-in path is an assoc"
-    (is (= :map (:kind (img-attrs-info "[:img (assoc-in {:src \"a\"} [:alt] \"cat\")]"))))))
+    (is (= :map (:kind (img-attrs-info "[:img (assoc-in {:src \"a\"} [:alt] \"cat\")]")))))
+
+  (testing "a deeper assoc-in path states no value for the key it nests under"
+    (let [info (img-attrs-info "[:img (assoc-in {:src \"a\"} [:alt :text] \"cat\")]")]
+      (is (= #{:src} (set (keys (:attrs info))))
+          "recording the nested value under :alt would read as the alt text itself"))))
 
 (deftest attrs-info-def-test
   (testing "a def in the same file names a map"
@@ -262,8 +267,20 @@
         "an unknown macro leaves the symbol unknown rather than letting the var answer")
     (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (fn-traced [props] [:img props])")))
         "a head that looks nothing like a definition binds all the same")
-    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (component [props on-select] [:img props])")))
-        "a project's own component macro"))
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defnc row (^:x [props] [:img props]))")))
+        "one arity of a multi-arity macro, with metadata on its parameter list")
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defnc row [^js props] [:img props])")))
+        "metadata rides along on a parameter without hiding it")
+    (is (= :map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (component [props on-select] [:img props])")))
+        "known limit: a macro named neither def… nor …fn… is left unread, so the var answers"))
+
+  (testing "a vector of symbols in a form that defines nothing is data"
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (if wide? [wide-photo props] [:img props]))")))
+        "a Reagent component vector in an if arm is not a parameter list")
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (use-memo (fn [] x) [props]) [:img props])")))
+        "nor is a hook dependency vector")
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (into [[card props]] [[:img props]]))")))
+        "nor a nested component vector"))
 
   (testing "a vector holding something no parameter list holds is data, not parameters"
     (let [info (img-attrs-info "(def props {:alt \"cat\"}) (def thumbnail [:img props])")]
