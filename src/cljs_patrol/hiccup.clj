@@ -353,6 +353,10 @@
     (when (= :map (some-> value z/tag))
       value)))
 
+(def ^:private attrs-slot-kinds
+  "Classifications whose second child holds attrs rather than body content."
+  #{:map :dynamic-map})
+
 (def ^:private attr-construction-heads
   "Calls that build a map from a base plus literal keys we can still read."
   #{"assoc" "merge" "assoc-in"})
@@ -444,6 +448,10 @@
     {:kind :dynamic-map :attrs {kw → …}}  ; (assoc base :k v) — the keys still readable
     {:kind :dynamic}                      ; non-literal (e.g. (build-attrs))
 
+  Every classification that carries attrs also carries `:slot`, the child holding
+  them, so a caller splitting attrs from body children asks once and gets both
+  answers from the same reading.
+
   `:dynamic-map` carries a partial view, so it answers only that a key is present.
   Rules asserting something is missing need `:map` — which a built map earns too, once
   every part of the call is readable: `(assoc {:class \"c\"} :on-click f)` states its
@@ -455,6 +463,9 @@
   costs nothing either way. Every other symbol stays `:non-map`."
   [vec-loc]
   (let [second-child (some-> vec-loc z/down z/right)
+        with-slot (fn [info]
+                    (cond-> info
+                      (contains? attrs-slot-kinds (:kind info)) (assoc :slot second-child)))
         built (fn [construction]
                 (let [{:keys [attrs complete?]} construction]
                   (cond
@@ -463,40 +474,38 @@
                     (seq attrs) {:kind :dynamic-map
                                  :attrs attrs}
                     :else {:kind :dynamic})))]
-    (cond
-      (nil? second-child) {:kind :absent}
-      (= :map (z/tag second-child)) {:kind :map
-                                     :attrs (literal-map second-child)}
-      (contains? dynamic-attr-tags (z/tag second-child))
-      (if-let [construction (construction-attrs second-child)]
-        (built construction)
-        {:kind :dynamic})
+    (with-slot
+      (cond
+        (nil? second-child) {:kind :absent}
+        (= :map (z/tag second-child)) {:kind :map
+                                       :attrs (literal-map second-child)}
+        (contains? dynamic-attr-tags (z/tag second-child))
+        (if-let [construction (construction-attrs second-child)]
+          (built construction)
+          {:kind :dynamic})
 
-      :else
-      (let [value (resolved-value second-child)]
-        (case (some-> value z/tag)
-          :map {:kind :map
-                :attrs (literal-map value)}
+        :else
+        (let [value (resolved-value second-child)]
+          (case (some-> value z/tag)
+            :map {:kind :map
+                  :attrs (literal-map value)}
 
-          ;; A call we cannot read at all stays `:non-map`, the way an unresolved
-          ;; symbol does. A construction we can read answers as it would in the slot.
-          :list (if-let [construction (construction-attrs value)]
-                  (built construction)
-                  {:kind :non-map})
+            ;; A call we cannot read at all stays `:non-map`, the way an unresolved
+            ;; symbol does. A construction we can read answers as it would in the slot.
+            :list (if-let [construction (construction-attrs value)]
+                    (built construction)
+                    {:kind :non-map})
 
-          {:kind :non-map})))))
+            {:kind :non-map}))))))
 
 (defn attrs-slot
   "Return the zloc occupying the element's attrs slot, or nil when nothing does.
-  A symbol naming a map literal occupies the slot exactly as a written map does, so
-  the body begins after it either way. A slot we cannot read — a call, an unresolved
-  symbol — is left where it was: callers have always treated it as body content, and
-  narrowing that is a separate question from reading attrs."
+  Whatever [[attrs-info]] read attrs out of occupies the slot, so the body begins
+  after it — a symbol naming a map and a call building one included. A slot nothing
+  could be read from is left where it was: callers have always treated it as body
+  content, and narrowing that is a separate question from reading attrs."
   [vec-loc]
-  (when-let [second-child (some-> vec-loc z/down z/right)]
-    (when (or (= :map (z/tag second-child))
-              (some? (resolved-map second-child)))
-      second-child)))
+  (:slot (attrs-info vec-loc)))
 
 (defn inside-quoted-form? [loc]
   (some-> loc z/up z/tag quoted-parent-tags boolean))

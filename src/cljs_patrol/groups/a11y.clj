@@ -221,12 +221,11 @@
     (literal-string-loc? loc) true
 
     (= :vector (z/tag loc))
-    (let [attrs-loc (hiccup/attrs-slot loc)
-          body-start (if attrs-loc (z/right attrs-loc) (some-> loc z/down z/right))]
-      (or (when attrs-loc
-            (let [attrs (:attrs (hiccup/attrs-info loc))]
-              (or (meaningful-text-name? attrs)
-                  (image-alt-name? loc attrs))))
+    (let [{:keys [slot attrs]} (hiccup/attrs-info loc)
+          body-start (if slot (z/right slot) (some-> loc z/down z/right))]
+      (or (when slot
+            (or (meaningful-text-name? attrs)
+                (image-alt-name? loc attrs)))
           (loop [cur body-start]
             (cond
               (nil? cur) false

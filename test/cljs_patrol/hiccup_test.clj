@@ -289,6 +289,13 @@
       (is (some? (hiccup/attrs-slot loc))
           "the body starts after the props symbol, so the button counts as empty")))
 
+  (testing "a call the attrs were read from occupies the slot, not the body"
+    (is (some? (hiccup/attrs-slot (vec-zloc "[:button (assoc {:class \"c\"} :on-click f)]")))
+        "a construction read whole is the attrs slot, so the button counts as empty")
+    (let [loc (-> (z/of-string "(defn v [base f] [:button (assoc base :on-click f)])") z/down z/rightmost)]
+      (is (some? (hiccup/attrs-slot loc))
+          "a floor is still attrs — what it cannot answer is a separate question")))
+
   (testing "nothing occupies the slot when it cannot be read"
     (is (nil? (hiccup/attrs-slot (vec-zloc "[:button]"))))
     (is (nil? (hiccup/attrs-slot (vec-zloc "[:button \"Save\"]"))))
