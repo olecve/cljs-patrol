@@ -139,6 +139,12 @@
     (is (= :dynamic-map (:kind (img-attrs-info "(let [props (assoc base :alt \"cat\")] [:img props])")))
         "assoc names the key too"))
 
+  (testing "a bound construction naming no key holds an unknown map, not an empty one"
+    (is (= :dynamic (:kind (img-attrs-info "(let [props (merge defaults opts)] [:img props])")))
+        "the same expression written in the slot classifies the same way")
+    (is (= :dynamic (:kind (img-attrs-info "(let [props (assoc base k v)] [:img props])")))
+        "a computed key names nothing we can read"))
+
   (testing "a binding that is not a map literal leaves the slot as it was"
     (is (= :non-map (:kind (img-attrs-info "(let [props (build-props)] [:img props])")))
         "bound to a call naming no keys")
@@ -169,7 +175,13 @@
     (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (as-> (f) props [:img props]))")))
         "an as-> binding shadows")
     (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (this-as props [:img props]))")))
-        "a this-as binding shadows"))
+        "a this-as binding shadows")
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (r/with-let [props (r/atom nil)] [:img props]))")))
+        "a with-let binding shadows, qualified or not")
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (go-loop [props 1] [:img props]))")))
+        "a go-loop binding shadows")
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (deftype T [props] P (render [this] [:img props])))")))
+        "a deftype field binds for every method of the type"))
 
   (testing "a binding that reaches only one branch does not answer for the other"
     (is (= :map (:kind (img-attrs-info "(if-let [props {:alt \"cat\"}] [:img props] nil)")))

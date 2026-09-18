@@ -136,12 +136,14 @@
   `letfn` fn specs, a `loop` name `recur` rebinds, the first element of a collection
   `when-first` takes — so any mention of the symbol inside one ends the search
   instead of letting an enclosing `let` answer for it."
-  #{"loop" "for" "doseq" "dotimes" "when-first" "letfn" "binding" "with-open"
-    "with-redefs" "with-local-vars"})
+  #{"loop" "go-loop" "for" "doseq" "dotimes" "when-first" "letfn" "with-let"
+    "binding" "with-open" "with-redefs" "with-local-vars"})
 
 (def ^:private parameter-binding-heads
-  "Forms whose parameter vectors bind symbols for the body that follows."
-  #{"fn" "fn*" "defn" "defn-" "defmethod" "defmacro"})
+  "Forms whose parameter vectors bind symbols for the body that follows.
+  A `deftype` / `defrecord` field vector binds for every method of the type, so it
+  reaches a Hiccup vector the same way a parameter list does."
+  #{"fn" "fn*" "defn" "defn-" "defmethod" "defmacro" "deftype" "defrecord"})
 
 (def ^:private method-holder-heads
   "Forms whose bodies are `(name [params] …)` method implementations.
@@ -349,11 +351,15 @@
           :map {:kind :map
                 :attrs (literal-map bound)}
 
-          ;; A call we cannot read stays `:non-map`, the way an unbound symbol does:
-          ;; only the keys a construction names are knowable from the binding.
-          :list (if-let [built (seq (construction-attrs bound))]
-                  {:kind :dynamic-map
-                   :attrs (into {} built)}
+          ;; A call we cannot read at all stays `:non-map`, the way an unbound symbol
+          ;; does. A construction we can read answers with the keys it names, and with
+          ;; `:dynamic` when it names none: `(merge defaults opts)` holds an unknown
+          ;; map, which is not the same as holding nothing.
+          :list (if-let [built (construction-attrs bound)]
+                  (if (seq built)
+                    {:kind :dynamic-map
+                     :attrs built}
+                    {:kind :dynamic})
                   {:kind :non-map})
 
           {:kind :non-map})))))

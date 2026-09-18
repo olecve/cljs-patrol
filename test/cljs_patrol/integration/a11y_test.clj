@@ -897,7 +897,9 @@
 
     (testing "reads the keys a bound map-building call names"
       (is (not (contains? by-row 153))
-          "ok-let-bound-construction, (merge base {:aria-label …}) names the key"))
+          "ok-let-bound-construction, (merge base {:aria-label …}) names the key")
+      (is (not (contains? by-row 159))
+          "ok-let-bound-opaque-merge, a call naming no key holds an unknown map"))
 
     (testing "flags a binding whose value cannot be read"
       (is (contains? by-row 136)

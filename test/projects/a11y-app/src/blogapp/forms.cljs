@@ -151,3 +151,8 @@
 (defn ok-let-bound-construction []
   (let [dialog-props (merge base-props {:aria-label "Export"})]
     [:dialog dialog-props]))
+
+;; Bound to a call naming no key of its own -> an unknown map, not an empty one.
+(defn ok-let-bound-opaque-merge [opts]
+  (let [dialog-props (merge base-props opts)]
+    [:dialog dialog-props]))
