@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.0.25] - 2026-09-18
+
+## What's Changed
+
+* Resolve :aria-label through let-bound map literals so shared props helpers stop tripping missing-accessible-name by @olecve in https://github.com/olecve/cljs-patrol/pull/55
+* Read a built map as complete when every part of it is readable by @olecve in https://github.com/olecve/cljs-patrol/pull/56
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.24...v0.0.25
+
+
 ## [v0.0.24] - 2026-09-14
 
 ## What's Changed
