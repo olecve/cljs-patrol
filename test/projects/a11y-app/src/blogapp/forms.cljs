@@ -90,3 +90,69 @@
 (defn ok-wrapper-dialog-with-aria-label []
   [ui/dialog-root {:aria-label "Export"
                    :open? true}])
+
+;; `let`-bound map literal carrying the name -> resolved, OK.
+(defn ok-let-bound-props []
+  (let [dialog-props {:aria-label "Export"
+                      :open true}]
+    [:dialog dialog-props
+     [:p "Pick a format."]]))
+
+;; Same binding reused by two dialogs -> both resolved, both OK.
+(defn ok-let-bound-props-reused []
+  (let [dialog-props {:aria-label "Export"
+                      :open true}]
+    [:div
+     [:dialog dialog-props [:p "Pick a format."]]
+     [:dialog dialog-props [:p "Nothing to export."]]]))
+
+;; `let`-bound map literal without a name -> flagged, as if written inline.
+(defn bad-let-bound-props []
+  (let [dialog-props {:open true}]
+    [:dialog dialog-props
+     [:p "Pick a format."]]))
+
+;; `when-let` and `if-let` bind the same way.
+(defn ok-when-let-bound-props []
+  (when-let [dialog-props {:aria-label "Export"}]
+    [:dialog dialog-props]))
+
+(defn ok-if-let-bound-props []
+  (if-let [dialog-props {:aria-label "Export"}]
+    [:dialog dialog-props]
+    [:p "Loading"]))
+
+;; Inner binding shadows the unnamed outer one -> the inner map answers, OK.
+(defn ok-shadowing-let-bound-props []
+  (let [dialog-props {:open true}]
+    [:div
+     (let [dialog-props {:aria-label "Export"
+                         :open true}]
+       [:dialog dialog-props])]))
+
+;; Bound to a call -> unreadable, flagged as before.
+(defn bad-let-bound-call []
+  (let [dialog-props (build-dialog-props)]
+    [:dialog dialog-props]))
+
+;; Bound to another symbol -> unreadable, flagged as before.
+(defn bad-let-bound-symbol [incoming]
+  (let [dialog-props incoming]
+    [:dialog dialog-props]))
+
+;; A parameter of the same name shadows the outer binding -> flagged.
+(defn bad-parameter-shadows-let-bound-props []
+  (let [dialog-props {:aria-label "Export"}]
+    (fn [dialog-props]
+      [:dialog dialog-props])))
+
+;; Bound to a map-building call -> the keys the call names are read, exactly as
+;; they are when the same call is written in the slot.
+(defn ok-let-bound-construction []
+  (let [dialog-props (merge base-props {:aria-label "Export"})]
+    [:dialog dialog-props]))
+
+;; Bound to a call naming no key of its own -> an unknown map, not an empty one.
+(defn ok-let-bound-opaque-merge [opts]
+  (let [dialog-props (merge base-props opts)]
+    [:dialog dialog-props]))

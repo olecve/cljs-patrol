@@ -221,12 +221,10 @@
     (literal-string-loc? loc) true
 
     (= :vector (z/tag loc))
-    (let [second-child (some-> loc z/down z/right)
-          attrs-map (when (and second-child (= :map (z/tag second-child)))
-                      second-child)
-          body-start (if attrs-map (z/right attrs-map) second-child)]
-      (or (when attrs-map
-            (let [attrs (hiccup/literal-map attrs-map)]
+    (let [attrs-loc (hiccup/attrs-slot loc)
+          body-start (if attrs-loc (z/right attrs-loc) (some-> loc z/down z/right))]
+      (or (when attrs-loc
+            (let [attrs (:attrs (hiccup/attrs-info loc))]
               (or (meaningful-text-name? attrs)
                   (image-alt-name? loc attrs))))
           (loop [cur body-start]
@@ -265,10 +263,10 @@
   False for structurally empty vectors, and for icon-only markup like
   `[:button [icons/x]]`."
   [vec-loc]
-  (let [second-child (some-> vec-loc z/down z/right)
-        body-start (if (and second-child (= :map (z/tag second-child)))
-                     (z/right second-child)
-                     second-child)]
+  (let [attrs-loc (hiccup/attrs-slot vec-loc)
+        body-start (if attrs-loc
+                     (z/right attrs-loc)
+                     (some-> vec-loc z/down z/right))]
     (loop [cur body-start]
       (cond
         (nil? cur) false
@@ -287,22 +285,24 @@
   (or (some (fn [k] (not= ::absent (literal-sexpr (get attrs k)))) widget-state-attrs)
       (contains? checkbox-role-values (literal-sexpr (get attrs :role)))))
 
-(defn- empty-interactive? [{:keys [kind attrs]} tag loc]
-  (when (not (has-visible-body? loc))
-    (cond
-      (contains? empty-interactive-tags tag)
-      (case kind
-        :absent true
-        :map (and (some? attrs)
-                  (not (meaningful-text-name? attrs))
-                  (not (stateful-widget? attrs)))
-        false)
-
-      (and (= :map kind) (some? attrs) (interactive-via-role? attrs))
-      (and (not (meaningful-text-name? attrs))
-           (not (stateful-widget? attrs)))
-
-      :else false)))
+(defn- empty-interactive?
+  "True when an interactive element announces nothing at all.
+  The body scan walks the whole subtree, so what the element is gets settled first:
+  a `:div` that is not a control can never be flagged, whatever it contains."
+  [{:keys [kind attrs]} tag loc]
+  (let [interactive-tag? (contains? empty-interactive-tags tag)
+        interactive-role? (and (= :map kind) (some? attrs) (interactive-via-role? attrs))]
+    (when (and (or interactive-tag? interactive-role?)
+               (not (has-visible-body? loc)))
+      (if interactive-tag?
+        (case kind
+          :absent true
+          :map (and (some? attrs)
+                    (not (meaningful-text-name? attrs))
+                    (not (stateful-widget? attrs)))
+          false)
+        (and (not (meaningful-text-name? attrs))
+             (not (stateful-widget? attrs)))))))
 
 (def ^:private accessible-name-required-tags
   "Native tags whose element has no intrinsic accessible name.

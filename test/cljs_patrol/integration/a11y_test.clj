@@ -857,3 +857,56 @@
       (testing "flags [ui/button {:aria-label \"...\"}] once the wrapper is mapped"
         (is (contains? by-row 44)
             "bad-aliased-button-in-for")))))
+
+(deftest let-bound-attrs-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        {:keys [missing-accessible-name]} (first group-results)
+        by-row (rows (filter #(str/ends-with? (:file %) "forms.cljs")
+                             missing-accessible-name))]
+
+    (testing "does not flag a name reached through a let-bound map literal"
+      (is (not (contains? by-row 98))
+          "ok-let-bound-props")
+      (is (not (contains? by-row 106))
+          "ok-let-bound-props-reused, first site")
+      (is (not (contains? by-row 107))
+          "ok-let-bound-props-reused, second site"))
+
+    (testing "when-let and if-let bind the same way"
+      (is (not (contains? by-row 118))
+          "ok-when-let-bound-props")
+      (is (not (contains? by-row 122))
+          "ok-if-let-bound-props"))
+
+    (testing "the innermost binding answers"
+      (is (not (contains? by-row 131))
+          "ok-shadowing-let-bound-props, the inner map carries the name the outer one lacks"))
+
+    (testing "flags a let-bound map literal that carries no name"
+      (is (contains? by-row 112)
+          "bad-let-bound-props, resolved and found unnamed"))
+
+    (testing "an attrs symbol is the attrs slot, not a body child"
+      (let [{:keys [empty-interactive-element]} (first group-results)
+            empty-rows (rows (filter #(str/ends-with? (:file %) "interactive_content.cljs")
+                                     empty-interactive-element))]
+        (is (contains? empty-rows 124)
+            "bad-let-bound-props-no-body, a button whose only child is its own props")
+        (is (not (contains? empty-rows 129))
+            "ok-let-bound-props-with-name, the bound map names it")))
+
+    (testing "reads the keys a bound map-building call names"
+      (is (not (contains? by-row 153))
+          "ok-let-bound-construction, (merge base {:aria-label …}) names the key")
+      (is (not (contains? by-row 158))
+          "ok-let-bound-opaque-merge, a call naming no key holds an unknown map"))
+
+    (testing "flags a binding whose value cannot be read"
+      (is (contains? by-row 136)
+          "bad-let-bound-call, bound to an opaque call")
+      (is (contains? by-row 141)
+          "bad-let-bound-symbol, bound to another symbol"))
+
+    (testing "a parameter of the same name shadows the enclosing binding"
+      (is (contains? by-row 147)
+          "bad-parameter-shadows-let-bound-props, the fn parameter is what the body sees"))))
