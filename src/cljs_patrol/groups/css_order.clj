@@ -4,10 +4,9 @@
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.css-order.orders :as orders]
    [cljs-patrol.parser :as parser]
+   [cljs-patrol.style-blocks :as blocks]
    [clojure.string :as str]
    [rewrite-clj.zip :as z]))
-
-(def ^:private style-decl-fns #{"defclass" "defattrs"})
 
 (def ^:private min-properties
   "Smallest map worth ordering. Below this there is no meaningful outside-to-inside shape."
@@ -20,28 +19,6 @@
     (if (> (count collapsed) snippet-max-length)
       (str (subs collapsed 0 (- snippet-max-length 3)) "...")
       collapsed)))
-
-(defn- children [loc]
-  (take-while some? (iterate z/right (z/down loc))))
-
-(defn- selector-label [vector-loc]
-  (->> (children vector-loc)
-       (take-while #(not= :map (z/tag %)))
-       (map parser/raw)
-       (str/join " ")))
-
-(defn- style-maps
-  "Every map literal Spade reads as a style body, tagged with the selector path it sits under.
-  Only literals nested directly in the declaration or in a selector vector are collected —
-  a map a call produces, `(merge …)` or `(case …)`, is not something this can read."
-  [loc selector]
-  (mapcat (fn [child]
-            (case (z/tag child)
-              :map [{:map-loc child
-                     :selector selector}]
-              :vector (style-maps child (str/trim (str selector " " (selector-label child))))
-              nil))
-          (children loc)))
 
 (defn- property-name
   "CSS property a map key names, or nil when the key is not one.
@@ -59,7 +36,7 @@
 (defn- properties
   "The rankable keys of a style map, in source order."
   [order map-loc]
-  (for [key-loc (take-nth 2 (children map-loc))
+  (for [key-loc (blocks/map-key-locs map-loc)
         :let [property (property-name key-loc)]
         :when property]
     {:property property
@@ -116,21 +93,11 @@
          :file file
          :row (:row property)}))))
 
-(defn- declared-name-loc
-  "Return the symbol naming the declaration, reached through metadata when the name carries any.
-  `(defclass ^:private foo …)` puts a meta node where the bare symbol would otherwise sit, and
-  reading that slot directly would skip the whole declaration."
-  [list-loc]
-  (loop [loc (some-> list-loc z/down z/right)]
-    (if (and loc (= :meta (z/tag loc)))
-      (recur (last (children loc)))
-      loc)))
-
 (defn- handle-list [order loc {:keys [ns-name]} file]
-  (when (contains? style-decl-fns (parser/sym-name (z/down loc)))
-    (when-let [style-name (parser/sym-name (declared-name-loc loc))]
+  (when (blocks/style-decl? loc)
+    (when-let [style-name (parser/sym-name (parser/declared-name-loc loc))]
       (let [style-kw (keyword ns-name style-name)]
-        {:decls (vec (keep #(block-finding order % style-kw file) (style-maps loc "")))
+        {:decls (vec (keep #(block-finding order % style-kw file) (blocks/style-maps loc)))
          :usages []
          :dynamics []}))))
 

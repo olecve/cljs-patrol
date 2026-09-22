@@ -40,11 +40,14 @@
     :redundant-into-hiccup})
 
 (def ^:private selector-keyed-rules
-  "Spade rules identified by the declaration plus the one selector at fault."
+  "Spade rules identified by the declaration plus the one selector at fault.
+  A finding in a nested block adds `:block`, the selector path above it; one in the base map
+  carries no such path, so identities recorded before these rules read nested blocks still match."
   #{:pseudo-in-main-map :spade-ampersand-not-at-start})
 
 (def ^:private selector-list-keyed-rules
-  "Spade rules identified by the declaration plus the whole selector head at fault."
+  "Spade rules identified by the declaration plus the whole selector head at fault.
+  `:block` distinguishes nesting levels, as for `selector-keyed-rules`."
   #{:consecutive-self-selectors :spade-keyword-combinator-selector})
 
 (def ^:private style-block-rules
@@ -83,16 +86,18 @@
         :line (:row issue)}
 
        (contains? selector-keyed-rules rule)
-       {:rule rule
-        :ns (namespace (:kw issue))
-        :var (name (:kw issue))
-        :selector (:selector issue)}
+       (cond-> {:rule rule
+                :ns (namespace (:kw issue))
+                :var (name (:kw issue))
+                :selector (:selector issue)}
+         (seq (:block issue)) (assoc :block (:block issue)))
 
        (contains? selector-list-keyed-rules rule)
-       {:rule rule
-        :ns (namespace (:kw issue))
-        :var (name (:kw issue))
-        :selectors (str/join "," (:selectors issue))}
+       (cond-> {:rule rule
+                :ns (namespace (:kw issue))
+                :var (name (:kw issue))
+                :selectors (str/join "," (:selectors issue))}
+         (seq (:block issue)) (assoc :block (:block issue)))
 
        (contains? style-block-rules rule)
        {:rule rule
@@ -146,7 +151,7 @@
   findings contiguous for readable diffs."
   [identity]
   (mapv #(str (get identity % ""))
-        [:rule :file :ns :key :var :effect :tag :form :selector :selectors :line]))
+        [:rule :file :ns :key :var :effect :tag :form :selector :selectors :block :line]))
 
 (defn- sort-issues [issues]
   (vec (sort-by sort-key issues)))

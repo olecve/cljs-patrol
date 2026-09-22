@@ -58,7 +58,7 @@
   (let [op-token (z/down loc)
         operator (parser/sym-name op-token)]
     (when (contains? style-decl-fns operator)
-      (let [name-loc (z/right op-token)
+      (let [name-loc (parser/declared-name-loc loc)
             style-name (parser/sym-name name-loc)
             decl-kw (when style-name (keyword ns-name style-name))
             tokens (collect-style-token-refs loc file decl-kw)]

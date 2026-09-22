@@ -131,6 +131,33 @@
                                       :file "src/app/ui.cljs"
                                       :row 12}))
         "pseudo-in-main-map identifies by ns + var + selector")
+    (is (= {:rule :pseudo-in-main-map
+            :ns "app.ui"
+            :var "menu-item-style"
+            :selector ":&:focus"
+            :block ":.icon"}
+           (baseline/issue->identity :pseudo-in-main-map
+                                     {:kw :app.ui/menu-item-style
+                                      :type :pseudo-in-main-map
+                                      :selector ":&:focus"
+                                      :block ":.icon"
+                                      :form ":app.ui/menu-item-style :.icon :&:focus"
+                                      :file "src/app/ui.cljs"
+                                      :row 14}))
+        "a finding in a nested block adds the selector path above it")
+    (is (= {:rule :pseudo-in-main-map
+            :ns "app.ui"
+            :var "menu-item-style"
+            :selector ":&:hover"}
+           (baseline/issue->identity :pseudo-in-main-map
+                                     {:kw :app.ui/menu-item-style
+                                      :type :pseudo-in-main-map
+                                      :selector ":&:hover"
+                                      :block ""
+                                      :form ":app.ui/menu-item-style :&:hover"
+                                      :file "src/app/ui.cljs"
+                                      :row 12}))
+        "a base-map finding carries no path, so identities recorded before nesting still match")
     (is (= {:rule :consecutive-self-selectors
             :ns "app.ui"
             :var "badge-marker-attrs"
