@@ -93,6 +93,7 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **Consecutive self-selectors** — Spade sibling vector begins with 2+ `:&`-prefixed keywords (e.g. `[:&:before :&:after {…}]`); Garden compiles this as a descendant selector (`elem:before elem:after`), not the comma-joined selector the author intended
 - **Ampersand not at start** — a string selector inside `defclass`/`defattrs` carries `&` anywhere but position 0 (e.g. `["li:focus-within &" {…}]`). Garden substitutes the parent-class reference only at the front of a string selector; elsewhere the `&` survives into the stylesheet as a literal character, and the rule matches nothing. Checked at every nesting depth; `"&"`, `"&:hover"` and `"&[data-x]"` are correct
 - **Keyword combinator selector** — a Spade selector vector holds a combinator keyword (`:>`, `:+`) alongside another selector, e.g. `[:> :span {…}]`. Garden reads a selector vector as a comma-separated list, so this compiles to `.parent >, .parent span {…}` — the first half invalid, the second matching every descendant. Use the string form, `["> span" {…}]`. Single-element vectors (`[:&:hover {…}]`), string selectors and plain descendant chains (`[:svg :path {…}]`) are left alone
+- **CSS property order (outside-in)** — a Spade style map writes its properties out of outside-to-inside order: position, then display and layout, then size and spacing, then overflow, then typography and color, then background and border, then transform/transition/animation. The order is [stylelint-config-recess-order](https://github.com/stormwarning/stylelint-config-recess-order) verbatim (496 properties, embedded as a resource), so typography precedes background and border there. Each style map is judged on its own — the base map and every nested selector block, at any depth — and only maps written as literals in the declaration body are read, so a map that `(merge …)` or `(case …)` builds is left alone. A property the list does not name, a custom property (`--*`) included, is unordered; it only reads as a problem when a ranked property follows it. Maps under four ranked properties are not judged, and only the first property out of place in each block is reported
 - **Docstring summary** — first line of a multi-line docstring is not a self-contained sentence ending in `.`, `!`, `?`, or `:`
 - **Docstring indentation** — continuation lines of a multi-line docstring are indented less than the opening-quote column
 - **Docstring leading/trailing whitespace** — docstring starts or ends with whitespace
@@ -325,6 +326,7 @@ By default, any issue causes CI to fail. For incremental adoption — or just to
 - `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events`
 - `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `redundant-into-hiccup`
 - `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace`
+- `css-property-order-outside-in`
 
 `dynamic-sites` is info-only — it never affects the exit code.
 

@@ -10,6 +10,7 @@
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
+   [cljs-patrol.groups.css-order :as css-order]
    [cljs-patrol.groups.docstrings :as docstrings]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
@@ -30,7 +31,8 @@
    reagent/group
    typography/group
    (a11y/make-group (get config :a11y))
-   docstrings/group])
+   docstrings/group
+   css-order/group])
 
 (defn- filter-groups [all-groups {:keys [disable only]}]
   (cond
