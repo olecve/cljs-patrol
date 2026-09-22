@@ -86,6 +86,20 @@
     (testing "a block already in order is not flagged"
       (is (not (contains? styles :webapp.order-styles/card-style))))))
 
+(deftest order-choice-test
+  (testing "the chosen table decides what reads as out of order"
+    (let [flagged (fn [order]
+                    (set (map :kw (:css-property-order-outside-in
+                                   (first (:group-results
+                                           (core/run fixture-dir [(css-order/make-group {:order order})])))))))
+          recess (flagged :recess)
+          concentric (flagged :concentric)]
+      (is (not (contains? recess :webapp.order-styles/card-style))
+          "recess puts typography before background, so :color then :background is in order")
+      (is (contains? concentric :webapp.order-styles/card-style)
+          "concentric puts background before text, so the same block is out of order")
+      (is (not= recess concentric)))))
+
 (deftest tier-test
   (is (every? #(= :cleanup (:tier %)) (findings))))
 

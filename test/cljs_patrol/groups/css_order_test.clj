@@ -2,7 +2,7 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.css-order :as css-order]
-   [cljs-patrol.groups.css-order.recess :as recess]
+   [cljs-patrol.groups.css-order.orders :as orders]
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private order-finding {:kw :webapp.styles/banner-style
@@ -16,21 +16,47 @@
                               :file "order_styles.cljs"
                               :row 16})
 
-(deftest recess-table-test
-  (testing "the table is the full stylelint-config-recess-order property list"
-    (is (= 496 recess/property-count)))
+(deftest order-tables-test
+  (testing "every table named in the docs loads, at the size its package publishes"
+    (is (= [:recess :clean :concentric :smacss :idiomatic] orders/names))
+    (is (= {:recess 496
+            :clean 468
+            :concentric 330
+            :smacss 225
+            :idiomatic 64}
+           (into {} (map (fn [order] [order (count (orders/ranks order))])) orders/names))))
 
-  (testing "ranks follow the table's own order, outside first"
-    (is (< (recess/rank "position") (recess/rank "display")))
-    (is (< (recess/rank "display") (recess/rank "padding")))
-    (is (< (recess/rank "padding") (recess/rank "color")))
-    (is (< (recess/rank "color") (recess/rank "background"))
-        "the table puts typography ahead of background and border"))
+  (testing "recess ranks outside first, typography ahead of background"
+    (is (< (orders/rank :recess "position") (orders/rank :recess "display")))
+    (is (< (orders/rank :recess "display") (orders/rank :recess "padding")))
+    (is (< (orders/rank :recess "padding") (orders/rank :recess "color")))
+    (is (< (orders/rank :recess "color") (orders/rank :recess "background"))))
 
-  (testing "a property the table does not name sorts after every one it does"
-    (is (= recess/unknown-rank (recess/rank "--custom-gap")))
-    (is (= recess/unknown-rank (recess/rank "not-a-property")))
-    (is (> (recess/rank "--custom-gap") (recess/rank "break-inside")))))
+  (testing "concentric is the other way round — border and background ahead of text"
+    (is (< (orders/rank :concentric "border") (orders/rank :concentric "color")))
+    (is (< (orders/rank :concentric "background") (orders/rank :concentric "color"))))
+
+  (testing "a property the chosen table does not name sorts after every one it does"
+    (is (= orders/unknown-rank (orders/rank :recess "--custom-gap")))
+    (is (= orders/unknown-rank (orders/rank :recess "not-a-property")))
+    (is (> (orders/rank :recess "--custom-gap") (orders/rank :recess "break-inside")))
+    (is (= orders/unknown-rank (orders/rank :idiomatic "color"))
+        "idiomatic deliberately ranks only structural properties"))
+
+  (testing "an unknown table name falls back to the default rather than stopping the run"
+    (is (= :recess (orders/resolve-order nil)))
+    (is (= :smacss (orders/resolve-order :smacss)))
+    (is (= orders/default-order (orders/resolve-order :no-such-order)))))
+
+(deftest make-group-test
+  (testing "the group reports which table it is using"
+    (is (= "CSS order (recess)" (group/group-name (css-order/make-group))))
+    (is (= "CSS order (smacss)" (group/group-name (css-order/make-group {:order :smacss})))))
+
+  (testing "the suggestion names the package the order came from"
+    (let [text (:css-property-order-outside-in (group/suggestions (css-order/make-group {:order :concentric})))]
+      (is (re-find #"stylelint-config-concentric-order" text))
+      (is (re-find #"recess, clean, concentric, smacss, idiomatic" text)))))
 
 (deftest analyze-test
   (testing "surfaces order findings from declarations"

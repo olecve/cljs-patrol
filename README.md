@@ -93,11 +93,47 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **Consecutive self-selectors** — Spade sibling vector begins with 2+ `:&`-prefixed keywords (e.g. `[:&:before :&:after {…}]`); Garden compiles this as a descendant selector (`elem:before elem:after`), not the comma-joined selector the author intended
 - **Ampersand not at start** — a string selector inside `defclass`/`defattrs` carries `&` anywhere but position 0 (e.g. `["li:focus-within &" {…}]`). Garden substitutes the parent-class reference only at the front of a string selector; elsewhere the `&` survives into the stylesheet as a literal character, and the rule matches nothing. Checked at every nesting depth; `"&"`, `"&:hover"` and `"&[data-x]"` are correct
 - **Keyword combinator selector** — a Spade selector vector holds a combinator keyword (`:>`, `:+`) alongside another selector, e.g. `[:> :span {…}]`. Garden reads a selector vector as a comma-separated list, so this compiles to `.parent >, .parent span {…}` — the first half invalid, the second matching every descendant. Use the string form, `["> span" {…}]`. Single-element vectors (`[:&:hover {…}]`), string selectors and plain descendant chains (`[:svg :path {…}]`) are left alone
-- **CSS property order (outside-in)** — a Spade style map writes its properties out of outside-to-inside order: position, then display and layout, then size and spacing, then overflow, then typography and color, then background and border, then transform/transition/animation. The order is [stylelint-config-recess-order](https://github.com/stormwarning/stylelint-config-recess-order) verbatim (496 properties, embedded as a resource), so typography precedes background and border there. Each style map is judged on its own — the base map and every nested selector block, at any depth — and only maps written as literals in the declaration body are read, so a map that `(merge …)` or `(case …)` builds is left alone. A property the list does not name, a custom property (`--*`) included, is unordered; it only reads as a problem when a ranked property follows it. Maps under four ranked properties are not judged, and only the first property out of place in each block is reported
+- **CSS property order (outside-in)** — a Spade style map writes its properties out of the order the chosen table defines. Each style map is judged on its own — the base map and every nested selector block, at any depth — and only maps written as literals in the declaration body are read, so a map that `(merge …)` or `(case …)` builds is left alone. A property the table does not name, a custom property (`--*`) included, is unordered; it only reads as a problem when a ranked property follows it. Maps under four ranked properties are not judged, and only the first property out of place in each block is reported. See [Property-order tables](#property-order-tables) for the choice of table
 - **Docstring summary** — first line of a multi-line docstring is not a self-contained sentence ending in `.`, `!`, `?`, or `:`
 - **Docstring indentation** — continuation lines of a multi-line docstring are indented less than the opening-quote column
 - **Docstring leading/trailing whitespace** — docstring starts or ends with whitespace
 - **Dynamic dispatch/subscribe sites** — dispatch or subscribe calls with a non-literal keyword (manual review needed)
+
+### Property-order tables
+
+The `css-order` group ranks properties with one of five [stylelint](https://stylelint.io) property-order configs,
+each embedded verbatim from its npm package. These are the same lists
+[`stylelint-order`](https://github.com/hudochenkov/stylelint-order) applies to CSS, so a project already running one
+of them in stylelint gets the matching order here.
+
+| Table | Package | Properties | Character |
+| --- | --- | --- | --- |
+| `recess` (default) | [stylelint-config-recess-order](https://github.com/stormwarning/stylelint-config-recess-order) | 496 | Bootstrap's Recess heritage. Positioning, box model, **typography, then background and border**, effects |
+| `clean` | [stylelint-config-clean-order](https://github.com/kutsan/stylelint-config-clean-order) | 468 | A modern re-cut: interaction first, then positioning, layout, box model (border included), typography, appearance |
+| `concentric` | [stylelint-config-concentric-order](https://github.com/ream88/stylelint-config-concentric-order) | 330 | Visual layers outside-in — what the element is, **then border and background, then the text inside** |
+| `smacss` | [stylelint-config-property-sort-order-smacss](https://github.com/cahamilton/stylelint-config-property-sort-order-smacss) | 225 | Grouped by purpose: content, box, animation, border, background, text |
+| `idiomatic` | [stylelint-config-idiomatic-order](https://github.com/ream88/stylelint-config-idiomatic-order) | 64 | Deliberately minimal — orders only structural properties and leaves the rest unranked |
+
+They disagree most about where layout ends and looks begin: `recess` puts typography ahead of background and border,
+`concentric` does the opposite. Read a finding against the table in use.
+
+Pick one on the command line:
+
+```bash
+clojure -M:run --css-order smacss <src-dir>
+```
+
+or in `.cljs-patrol/config.edn`, where it persists for the project and for CI:
+
+```clojure
+{:css-order {:order :smacss}}
+```
+
+An unrecognized name warns on stderr and falls back to `recess` rather than stopping the run.
+
+Two deviations from `stylelint-order` worth knowing. A property the chosen table does not name is left unordered
+here; `idiomatic` in particular asks stylelint to sort its unlisted properties alphabetically at the bottom, which
+this does not do. And nothing is auto-fixed — property order is a write-time review decision.
 
 ### A11y component aliases
 

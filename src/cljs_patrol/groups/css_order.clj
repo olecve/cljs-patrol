@@ -2,7 +2,7 @@
   "CSS property-order rule group: flags Spade style maps written out of outside-to-inside order."
   (:require
    [cljs-patrol.group :as group]
-   [cljs-patrol.groups.css-order.recess :as recess]
+   [cljs-patrol.groups.css-order.orders :as orders]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [rewrite-clj.zip :as z]))
@@ -58,12 +58,12 @@
 
 (defn- properties
   "The rankable keys of a style map, in source order."
-  [map-loc]
+  [order map-loc]
   (for [key-loc (take-nth 2 (children map-loc))
         :let [property (property-name key-loc)]
         :when property]
     {:property property
-     :rank (recess/rank property)
+     :rank (orders/rank order property)
      :key (parser/raw key-loc)
      :row (parser/position-row key-loc)}))
 
@@ -81,8 +81,8 @@
          :found-after (peek seen)}
         (recur remaining (conj seen property))))))
 
-(defn- block-finding [{:keys [map-loc selector]} style-kw file]
-  (let [ordered (properties map-loc)]
+(defn- block-finding [order {:keys [map-loc selector]} style-kw file]
+  (let [ordered (properties order map-loc)]
     (when (>= (count ordered) min-properties)
       (when-let [{:keys [property expected-before found-after]} (first-violation ordered)]
         {:kw style-kw
@@ -106,11 +106,11 @@
       (recur (last (children loc)))
       loc)))
 
-(defn- handle-list [loc {:keys [ns-name]} file]
+(defn- handle-list [order loc {:keys [ns-name]} file]
   (when (contains? style-decl-fns (parser/sym-name (z/down loc)))
     (when-let [style-name (parser/sym-name (declared-name-loc loc))]
       (let [style-kw (keyword ns-name style-name)]
-        {:decls (vec (keep #(block-finding % style-kw file) (style-maps loc "")))
+        {:decls (vec (keep #(block-finding order % style-kw file) (style-maps loc "")))
          :usages []
          :dynamics []}))))
 
@@ -121,26 +121,38 @@
 (defn- summary-lines* [{:keys [css-property-order-outside-in]}]
   [["CSS property order:" (count css-property-order-outside-in)]])
 
-(defrecord CssOrderGroup []
+(defn- suggestion [order]
+  (let [{:keys [package url]} (get orders/sources order)]
+    (str "Style map keys run out of the order " package " defines (" url "), embedded here verbatim "
+         "and applied the way stylelint-order applies it to CSS. Each config draws the line between "
+         "layout and looks differently — recess puts typography ahead of background and border, "
+         "concentric puts border and background ahead of text — so read a finding against the table "
+         "in use. Pick another with {:css-order {:order :smacss}} in .cljs-patrol/config.edn or "
+         "--css-order smacss; available: " (str/join ", " (map name orders/names)) ". A property the "
+         "table does not name — a custom property included — is left unordered and only reads as a "
+         "problem when a ranked property follows it. Blocks under four properties are not judged, and "
+         "only the first property out of place in each block is reported: resequencing the rest is a "
+         "write-time call.")))
+
+(defrecord CssOrderGroup [order]
   group/RuleGroup
   (group-id [_] :css-order)
-  (group-name [_] "CSS order")
-  (parse-handlers [_] {:handle-list handle-list})
+  (group-name [_] (str "CSS order (" (name order) ")"))
+  (parse-handlers [_] {:handle-list (partial handle-list order)})
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ _] false)
-  (suggestions [_]
-    {:css-property-order-outside-in
-     (str "Style map keys run out of outside-to-inside order — position, then display and layout, "
-          "then size and spacing, then overflow, then typography and color, then background and "
-          "border, then transform, transition and animation. Order follows "
-          "stylelint-config-recess-order (https://github.com/stormwarning/stylelint-config-recess-order) "
-          "verbatim, so typography precedes background and border there. A property that list does not "
-          "name — a custom property included — is left unordered and only reads as a problem when a "
-          "ranked property follows it. Blocks under four properties are not judged, and only the first "
-          "property out of place in each block is reported: resequencing the rest is a write-time call.")})
+  (suggestions [_] {:css-property-order-outside-in (suggestion order)})
   (rule->tier [_]
     {:css-property-order-outside-in :cleanup})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
-(def group (->CssOrderGroup))
+(defn make-group
+  "Return a css-order RuleGroup using the named property-order table.
+  Supported keys:
+    :order — one of cljs-patrol.groups.css-order.orders/names; defaults to :recess."
+  ([] (make-group nil))
+  ([{:keys [order]}]
+   (->CssOrderGroup (orders/resolve-order order))))
+
+(def group (make-group))
