@@ -143,6 +143,30 @@
                                       :file "src/app/ui.cljs"
                                       :row 20}))
         "consecutive-self-selectors identifies by ns + var + joined selectors")
+    (is (= {:rule :spade-ampersand-not-at-start
+            :ns "app.ui"
+            :var "focus-within-style"
+            :selector "li:focus-within &"}
+           (baseline/issue->identity :spade-ampersand-not-at-start
+                                     {:kw :app.ui/focus-within-style
+                                      :type :spade-ampersand-not-at-start
+                                      :selector "li:focus-within &"
+                                      :form ":app.ui/focus-within-style \"li:focus-within &\""
+                                      :file "src/app/ui.cljs"
+                                      :row 24}))
+        "spade-ampersand-not-at-start identifies by ns + var + selector")
+    (is (= {:rule :spade-keyword-combinator-selector
+            :ns "app.ui"
+            :var "child-combinator-style"
+            :selectors ":>,:span"}
+           (baseline/issue->identity :spade-keyword-combinator-selector
+                                     {:kw :app.ui/child-combinator-style
+                                      :type :spade-keyword-combinator-selector
+                                      :selectors [":>" ":span"]
+                                      :form ":app.ui/child-combinator-style [:> :span]"
+                                      :file "src/app/ui.cljs"
+                                      :row 30}))
+        "spade-keyword-combinator-selector identifies by ns + var + joined selectors")
     (is (= {:rule :dynamic-sites
             :form "(rf/dispatch [ev])"
             :file "src/app/handlers.cljs"

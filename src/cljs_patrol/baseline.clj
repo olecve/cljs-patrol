@@ -39,6 +39,14 @@
     :on-click-on-non-interactive
     :redundant-into-hiccup})
 
+(def ^:private selector-keyed-rules
+  "Spade rules identified by the declaration plus the one selector at fault."
+  #{:pseudo-in-main-map :spade-ampersand-not-at-start})
+
+(def ^:private selector-list-keyed-rules
+  "Spade rules identified by the declaration plus the whole selector head at fault."
+  #{:consecutive-self-selectors :spade-keyword-combinator-selector})
+
 (defn- relativize-path
   "Strip source-dir prefix from path to produce a portable relative path.
   Falls back to the original path if source-dir is nil or not a prefix."
@@ -70,13 +78,13 @@
         :file (rel (:file issue))
         :line (:row issue)}
 
-       (= :pseudo-in-main-map rule)
+       (contains? selector-keyed-rules rule)
        {:rule rule
         :ns (namespace (:kw issue))
         :var (name (:kw issue))
         :selector (:selector issue)}
 
-       (= :consecutive-self-selectors rule)
+       (contains? selector-list-keyed-rules rule)
        {:rule rule
         :ns (namespace (:kw issue))
         :var (name (:kw issue))

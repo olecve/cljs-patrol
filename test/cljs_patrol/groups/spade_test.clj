@@ -44,6 +44,19 @@
                                          :file "pseudo_styles.cljs"
                                          :row 26})
 
+(def ^:private ampersand-mid {:kw :webapp.styles/focus-within-style
+                              :type :spade-ampersand-not-at-start
+                              :selector "li:focus-within &"
+                              :form ":webapp.styles/focus-within-style \"li:focus-within &\""
+                              :file "selector_styles.cljs"
+                              :row 8})
+(def ^:private keyword-combinator {:kw :webapp.styles/child-combinator-style
+                                   :type :spade-keyword-combinator-selector
+                                   :selectors [":>" ":span"]
+                                   :form ":webapp.styles/child-combinator-style [:> :span]"
+                                   :file "selector_styles.cljs"
+                                   :row 14})
+
 (deftest analyze-test
   (testing "no styles declared — nothing unused"
     (is (empty? (:unused-styles (group/analyze spade/group {:declarations []
@@ -106,7 +119,29 @@
                                  :usages [style-usage]})]
       (is (= 1 (count (:consecutive-self-selectors result))))
       (is (= [":&:before" ":&:after"]
-             (:selectors (first (:consecutive-self-selectors result))))))))
+             (:selectors (first (:consecutive-self-selectors result)))))))
+
+  (testing "spade-ampersand-not-at-start: surfaces findings from declarations"
+    (let [result (group/analyze spade/group
+                                {:declarations [defclass-decl ampersand-mid]
+                                 :usages [style-usage]})]
+      (is (= 1 (count (:spade-ampersand-not-at-start result))))
+      (is (= "li:focus-within &"
+             (:selector (first (:spade-ampersand-not-at-start result)))))))
+
+  (testing "spade-keyword-combinator-selector: surfaces findings from declarations"
+    (let [result (group/analyze spade/group
+                                {:declarations [defclass-decl keyword-combinator]
+                                 :usages [style-usage]})]
+      (is (= 1 (count (:spade-keyword-combinator-selector result))))
+      (is (= [":>" ":span"]
+             (:selectors (first (:spade-keyword-combinator-selector result)))))))
+
+  (testing "selector findings do not double-count the style as unused"
+    (let [result (group/analyze spade/group
+                                {:declarations [ampersand-mid keyword-combinator]
+                                 :usages []})]
+      (is (empty? (:unused-styles result))))))
 
 (deftest failed?-test
   (testing "fails when unused styles exist"
@@ -125,15 +160,27 @@
 
   (testing "fails when consecutive-self-selectors findings exist"
     (is (group/failed? spade/group {:unused-styles []
-                                    :consecutive-self-selectors [consecutive-before-after]}))))
+                                    :consecutive-self-selectors [consecutive-before-after]})))
+
+  (testing "fails when spade-ampersand-not-at-start findings exist"
+    (is (group/failed? spade/group {:unused-styles []
+                                    :spade-ampersand-not-at-start [ampersand-mid]})))
+
+  (testing "fails when spade-keyword-combinator-selector findings exist"
+    (is (group/failed? spade/group {:unused-styles []
+                                    :spade-keyword-combinator-selector [keyword-combinator]}))))
 
 (deftest summary-lines-test
   (let [lines (group/summary-lines spade/group {:unused-styles [defclass-decl defattrs-decl]
                                                 :defattrs-in-merge [defattrs-merged]
                                                 :pseudo-in-main-map [pseudo-hover pseudo-first-child]
-                                                :consecutive-self-selectors [consecutive-before-after]})]
-    (is (= 4 (count lines)))
+                                                :consecutive-self-selectors [consecutive-before-after]
+                                                :spade-ampersand-not-at-start [ampersand-mid]
+                                                :spade-keyword-combinator-selector [keyword-combinator]})]
+    (is (= 6 (count lines)))
     (is (= 2 (second (nth lines 0))))
     (is (= 1 (second (nth lines 1))))
     (is (= 2 (second (nth lines 2))))
-    (is (= 1 (second (nth lines 3))))))
+    (is (= 1 (second (nth lines 3))))
+    (is (= 1 (second (nth lines 4))))
+    (is (= 1 (second (nth lines 5))))))
