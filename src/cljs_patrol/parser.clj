@@ -34,6 +34,17 @@
     (let [sexpr-value (try (z/sexpr zloc) (catch Exception _ nil))]
       (when (symbol? sexpr-value) (name sexpr-value)))))
 
+(defn declared-name-loc
+  "Return the zloc of the symbol a `def`-like form names, or nil.
+  Metadata stacks — `(defclass ^:private ^:const x …)` nests one `:meta` node inside another —
+  so the name is whatever is left once every layer is peeled off. Reading the slot after the
+  operator directly finds a `:meta` node instead, and skips the whole form."
+  [list-loc]
+  (loop [loc (some-> list-loc z/down z/right)]
+    (if (= :meta (some-> loc z/tag))
+      (recur (some-> loc z/down z/rightmost))
+      loc)))
+
 (defn position-row
   "Return the line number of zloc, or 0 on error."
   [zloc]

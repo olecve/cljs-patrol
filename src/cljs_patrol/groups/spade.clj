@@ -4,48 +4,29 @@
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.spade.selectors :as selectors]
    [cljs-patrol.parser :as parser]
+   [cljs-patrol.style-blocks :as blocks]
    [clojure.string :as str]
    [rewrite-clj.zip :as z]))
-
-(def ^:private style-decl-fns #{"defclass" "defattrs"})
-
-(defn- body-siblings
-  "Return zlocs for every body form of a defclass/defattrs, in source order."
-  [list-loc]
-  (loop [loc (some-> list-loc z/down z/right z/right z/right)
-         acc []]
-    (if (nil? loc)
-      acc
-      (recur (z/right loc) (conj acc loc)))))
-
-(defn- main-map-loc [list-loc]
-  (let [map-loc (first (body-siblings list-loc))]
-    (when (and map-loc (= :map (z/tag map-loc)))
-      map-loc)))
-
-(defn- map-key-locs [map-loc]
-  (loop [loc (z/down map-loc)
-         acc []]
-    (if (nil? loc)
-      acc
-      (recur (some-> loc z/right z/right)
-             (conj acc loc)))))
 
 (defn- pseudo-selector-key? [kw-str]
   (str/starts-with? kw-str ":&"))
 
-(defn- pseudo-findings [list-loc style-kw file]
-  (when-let [map-loc (main-map-loc list-loc)]
-    (for [key-loc (map-key-locs map-loc)
-          :when (parser/kw-node? key-loc)
-          :let [selector (parser/raw key-loc)]
-          :when (pseudo-selector-key? selector)]
-      {:kw style-kw
-       :type :pseudo-in-main-map
-       :selector selector
-       :form (str style-kw " " selector)
-       :file file
-       :row (parser/position-row key-loc)})))
+(defn- pseudo-findings
+  "A `:&`-prefixed key belongs to a selector, not to a style map, wherever the map sits.
+  Nested blocks carry the same defect as the base map, so every one of them is read."
+  [list-loc style-kw file]
+  (for [{:keys [map-loc selector]} (blocks/style-maps list-loc)
+        key-loc (blocks/map-key-locs map-loc)
+        :when (parser/kw-node? key-loc)
+        :let [pseudo (parser/raw key-loc)]
+        :when (pseudo-selector-key? pseudo)]
+    {:kw style-kw
+     :type :pseudo-in-main-map
+     :selector pseudo
+     :block selector
+     :form (str style-kw " " (if (str/blank? selector) pseudo (str selector " " pseudo)))
+     :file file
+     :row (parser/position-row key-loc)}))
 
 (defn- leading-self-selectors [vector-loc]
   (loop [loc (z/down vector-loc)
@@ -56,17 +37,27 @@
       (recur (z/right loc) (conj acc (parser/raw loc)))
       acc)))
 
-(defn- consecutive-self-selector-findings [list-loc style-kw file]
-  (for [sibling (body-siblings list-loc)
-        :when (= :vector (z/tag sibling))
-        :let [selectors (leading-self-selectors sibling)]
+(defn- parent-selector
+  "The selector path above `block`, empty at the top level of the declaration."
+  [list-loc block]
+  (let [parent (z/up block)]
+    (when-not (= (z/node parent) (z/node list-loc))
+      (blocks/selector-label parent))))
+
+(defn- consecutive-self-selector-findings
+  "Garden reads [:a :b {…}] as a descendant selector at every depth, not only at the top."
+  [list-loc style-kw file]
+  (for [block (blocks/selector-blocks list-loc)
+        :let [selectors (leading-self-selectors block)
+              parent (parent-selector list-loc block)]
         :when (>= (count selectors) 2)]
     {:kw style-kw
      :type :consecutive-self-selectors
      :selectors selectors
-     :form (str style-kw " [" (str/join " " selectors) "]")
+     :block (or parent "")
+     :form (str style-kw " " (when parent (str parent " ")) "[" (str/join " " selectors) "]")
      :file file
-     :row (parser/position-row sibling)}))
+     :row (parser/position-row block)}))
 
 (defn- class-only-map?
   "True if `value-loc` is the value of `:class` in a map with no other keys."
@@ -89,8 +80,8 @@
         op-raw (when (and op-token (= :token (z/tag op-token))) (parser/raw op-token))
         row (parser/position-row loc)]
     (cond
-      (contains? style-decl-fns operator)
-      (let [name-loc (z/right (z/down loc))]
+      (contains? blocks/style-decl-fns operator)
+      (let [name-loc (parser/declared-name-loc loc)]
         (when (and name-loc (= :token (z/tag name-loc)))
           (when-let [style-name (parser/sym-name name-loc)]
             (let [style-kw (keyword ns-name style-name)]

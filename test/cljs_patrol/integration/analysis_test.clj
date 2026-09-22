@@ -50,12 +50,19 @@
 
     (testing "detects pseudo-selectors misplaced inside the main style map"
       (let [findings (:pseudo-in-main-map spade-result)]
-        (is (= 4 (count findings)))
-        (is (= #{[:webapp.pseudo-styles/menu-item-style ":&:hover"]
-                 [:webapp.pseudo-styles/card-section-attrs ":&:first-child"]
-                 [:webapp.pseudo-styles/card-section-attrs ":&:last-child"]
-                 [:webapp.pseudo-styles/tab-style ":&:focus-visible>svg"]}
-               (set (map (juxt :kw :selector) findings))))))
+        (is (= 5 (count findings)))
+        (is (= #{[:webapp.pseudo-styles/menu-item-style ":&:hover" ""]
+                 [:webapp.pseudo-styles/menu-item-style ":&:focus" ":.icon"]
+                 [:webapp.pseudo-styles/card-section-attrs ":&:first-child" ""]
+                 [:webapp.pseudo-styles/card-section-attrs ":&:last-child" ""]
+                 [:webapp.pseudo-styles/tab-style ":&:focus-visible>svg" ""]}
+               (set (map (juxt :kw :selector :block) findings)))
+            "the map of a nested selector block carries the same fault as the base map")))
+
+    (testing "reads a style declaration whose name carries metadata"
+      (is (contains? (set (map :kw (:pseudo-in-main-map spade-result)))
+                     :webapp.pseudo-styles/tab-style)
+          "(defclass ^:private tab-style …) — the name sits behind a meta node"))
 
     (testing "does not flag pseudo-selectors placed correctly in their own vector"
       (is (not (contains? (set (map :kw (:pseudo-in-main-map spade-result)))
@@ -63,10 +70,12 @@
 
     (testing "detects consecutive self-selectors in a sibling vector"
       (let [findings (:consecutive-self-selectors spade-result)]
-        (is (= 2 (count findings)))
-        (is (= #{[:webapp.pseudo-styles/badge-marker-attrs [":&:before" ":&:after"]]
-                 [:webapp.pseudo-styles/callout-style [":&:hover" ":&:focus" ":&:focus-visible"]]}
-               (set (map (juxt :kw :selectors) findings))))))
+        (is (= 3 (count findings)))
+        (is (= #{[:webapp.pseudo-styles/badge-marker-attrs [":&:before" ":&:after"] ""]
+                 [:webapp.pseudo-styles/menu-item-style [":&:before" ":&:after"] ":.icon"]
+                 [:webapp.pseudo-styles/callout-style [":&:hover" ":&:focus" ":&:focus-visible"] ""]}
+               (set (map (juxt :kw :selectors :block) findings)))
+            "a self-pseudo chain nested under another selector is the same defect")))
 
     (testing "does not flag a self-selector chained with a descendant class"
       (is (not (contains? (set (map :kw (:consecutive-self-selectors spade-result)))
