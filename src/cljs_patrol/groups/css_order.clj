@@ -81,6 +81,24 @@
          :found-after (peek seen)}
         (recur remaining (conj seen property))))))
 
+(def ^:private hint-order-limit
+  "How many properties the hint spells out before trailing off.
+  The full sequence stays on the finding for the EDN and HTML reports to use."
+  10)
+
+(defn- expected-order
+  "The block's own keys in the order the table wants them.
+  Sorting is stable, so properties the table does not rank keep their relative places at the end
+  rather than being shuffled into an order nothing actually asked for."
+  [ordered]
+  (mapv :key (sort-by :rank ordered)))
+
+(defn- order-hint [ordered]
+  (let [keys (expected-order ordered)
+        shown (take hint-order-limit keys)]
+    (str "Order for this block: " (str/join " " shown)
+         (when (> (count keys) hint-order-limit) " …"))))
+
 (defn- block-finding [order {:keys [map-loc selector]} style-kw file]
   (let [ordered (properties order map-loc)]
     (when (>= (count ordered) min-properties)
@@ -91,8 +109,10 @@
          :property (:key property)
          :expected-before (:key expected-before)
          :found-after (:key found-after)
+         :expected-order (expected-order ordered)
          :form (str style-kw " " (source-snippet map-loc))
-         :hint (str "Move " (:key property) " before " (:key expected-before) ".")
+         :hint (str "Move " (:key property) " before " (:key expected-before) ". "
+                    (order-hint ordered))
          :file file
          :row (:row property)}))))
 

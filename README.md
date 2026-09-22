@@ -93,7 +93,7 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **Consecutive self-selectors** — Spade sibling vector begins with 2+ `:&`-prefixed keywords (e.g. `[:&:before :&:after {…}]`); Garden compiles this as a descendant selector (`elem:before elem:after`), not the comma-joined selector the author intended
 - **Ampersand not at start** — a string selector inside `defclass`/`defattrs` carries `&` anywhere but position 0 (e.g. `["li:focus-within &" {…}]`). Garden substitutes the parent-class reference only at the front of a string selector; elsewhere the `&` survives into the stylesheet as a literal character, and the rule matches nothing. Checked at every nesting depth; `"&"`, `"&:hover"` and `"&[data-x]"` are correct
 - **Keyword combinator selector** — a Spade selector vector holds a combinator keyword (`:>`, `:+`) alongside another selector, e.g. `[:> :span {…}]`. Garden reads a selector vector as a comma-separated list, so this compiles to `.parent >, .parent span {…}` — the first half invalid, the second matching every descendant. Use the string form, `["> span" {…}]`. Single-element vectors (`[:&:hover {…}]`), string selectors and plain descendant chains (`[:svg :path {…}]`) are left alone
-- **CSS property order (outside-in)** — a Spade style map writes its properties out of the order the chosen table defines. Each style map is judged on its own — the base map and every nested selector block, at any depth — and only maps written as literals in the declaration body are read, so a map that `(merge …)` or `(case …)` builds is left alone. A property the table does not name, a custom property (`--*`) included, is unordered; it only reads as a problem when a ranked property follows it. Maps under four ranked properties are not judged, and only the first property out of place in each block is reported. See [Property-order tables](#property-order-tables) for the choice of table
+- **CSS property order (outside-in)** — a Spade style map writes its properties out of the order the chosen table defines. Each style map is judged on its own — the base map and every nested selector block, at any depth — and only maps written as literals in the declaration body are read, so a map that `(merge …)` or `(case …)` builds is left alone. A property the table does not name, a custom property (`--*`) included, is unordered; it only reads as a problem when a ranked property follows it. Maps under four ranked properties are not judged, and only the first property out of place in each block is reported — alongside the whole block's target order, so the fix needs no guessing. See [Property-order tables](#property-order-tables) for the choice of table
 - **Docstring summary** — first line of a multi-line docstring is not a self-contained sentence ending in `.`, `!`, `?`, or `:`
 - **Docstring indentation** — continuation lines of a multi-line docstring are indented less than the opening-quote column
 - **Docstring leading/trailing whitespace** — docstring starts or ends with whitespace
@@ -130,6 +130,17 @@ or in `.cljs-patrol/config.edn`, where it persists for the project and for CI:
 ```
 
 An unrecognized name warns on stderr and falls back to `recess` rather than stopping the run.
+
+Every finding carries the target order for its own block, so neither a reader nor another tool has to work out
+what the table wants:
+
+```
+styles.cljs:16  :app.ui/banner-style {:color "#333" :display :block :padding "4px" :background "#eee"}
+      → Move :display before :color. Order for this block: :display :padding :color :background
+```
+
+The console and HTML reports print that line; the EDN report carries the full sequence as `:expected-order`, which
+stays complete even where the printed hint trails off.
 
 Two deviations from `stylelint-order` worth knowing. A property the chosen table does not name is left unordered
 here; `idiomatic` in particular asks stylelint to sort its unlisted properties alphabetically at the bottom, which

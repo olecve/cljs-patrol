@@ -34,7 +34,14 @@
         (is (= ":display" (:property banner)))
         (is (= ":color" (:expected-before banner)))
         (is (= ":color" (:found-after banner)))
-        (is (= "Move :display before :color." (:hint banner)))))
+        (is (= [":display" ":padding" ":color" ":background"] (:expected-order banner))
+            "the whole block's target order, so the fix needs no guessing")
+        (is (= "Move :display before :color. Order for this block: :display :padding :color :background"
+               (:hint banner)))))
+
+    (testing "properties the table does not rank keep their relative places at the end"
+      (let [widget (get styles :webapp.order-styles/widget-style)]
+        (is (= [":display" ":padding" ":color" ":--widget-gap"] (:expected-order widget)))))
 
     (testing "reads defattrs the same way as defclass"
       (is (= ":display" (:property (get styles :webapp.order-styles/row-attrs)))))
