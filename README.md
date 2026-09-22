@@ -33,11 +33,12 @@ Native binaries (`cljs-patrol-<version>-linux-x86_64`, `cljs-patrol-<version>-ma
 Analysis is split into independent rule groups. By default all groups run.
 
 - **`re-frame`** — unused/phantom re-frame subscriptions and events
-- **`spade`** — unused Spade style declarations, defattrs in merge, pseudo-selector keys inside the main style map, consecutive self-selectors that compile to descendant selectors
+- **`spade`** — unused Spade style declarations, defattrs in merge, pseudo-selector keys inside the main style map, consecutive self-selectors that compile to descendant selectors, `&` away from the front of a string selector, combinators written as keywords
 - **`reagent`** — defclass used as sole attr (should be defattrs); redundant `(into [:tag …] …)` around Hiccup vectors
 - **`typography`** — mixed Figma typography token groups in a single style
 - **`a11y`** — accessibility issues in Hiccup: `:img` missing `:alt`, invalid `:tabIndex`, `:on-click` on non-interactive tags, empty interactive elements without an accessible name, form controls missing an accessible name, one constant name shared by every item of a repeated list
 - **`docstrings`** — bbatsov style-guide violations on every def (summary, indent, whitespace)
+- **`css-order`** — Spade style maps whose properties run out of the [property order](#property-order-tables) the chosen stylelint config defines
 
 Run only specific groups:
 
@@ -450,10 +451,13 @@ This blocks on real problems while leaving cleanup items as visible warnings.
 {:fail-on [:bugs :deprecated-effects]
  :baseline {:path ".cljs-patrol/baseline.edn"
             :strict false
-            :quiet false}}
+            :quiet false}
+ :css-order {:order :recess}
+ :a11y {:component-aliases {my.ui/drawer :dialog}}}
 ```
 
-CLI flag overrides config file setting.
+CLI flag overrides config file setting. See [Property-order tables](#property-order-tables) for `:css-order` and
+[A11y component aliases](#a11y-component-aliases) for `:a11y`.
 
 ## Build
 
