@@ -47,6 +47,10 @@
   "Spade rules identified by the declaration plus the whole selector head at fault."
   #{:consecutive-self-selectors :spade-keyword-combinator-selector})
 
+(def ^:private style-block-rules
+  "Rules reported once per style block, identified by the declaration plus the selector it sits under."
+  #{:css-property-order-outside-in})
+
 (defn- relativize-path
   "Strip source-dir prefix from path to produce a portable relative path.
   Falls back to the original path if source-dir is nil or not a prefix."
@@ -89,6 +93,12 @@
         :ns (namespace (:kw issue))
         :var (name (:kw issue))
         :selectors (str/join "," (:selectors issue))}
+
+       (contains? style-block-rules rule)
+       {:rule rule
+        :ns (namespace (:kw issue))
+        :var (name (:kw issue))
+        :selector (:selector issue)}
 
        (contains? hiccup-site-rules rule)
        {:rule rule

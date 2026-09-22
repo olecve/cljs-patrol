@@ -10,6 +10,8 @@
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
+   [cljs-patrol.groups.css-order :as css-order]
+   [cljs-patrol.groups.css-order.orders :as orders]
    [cljs-patrol.groups.docstrings :as docstrings]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
@@ -30,7 +32,8 @@
    reagent/group
    typography/group
    (a11y/make-group (get config :a11y))
-   docstrings/group])
+   docstrings/group
+   (css-order/make-group (get config :css-order))])
 
 (defn- filter-groups [all-groups {:keys [disable only]}]
   (cond
@@ -53,6 +56,10 @@
    [nil "--quiet-baseline" "Only print new issues, suppress baseline issues"]
    [nil "--fail-on TIERS_OR_RULES"
     "Comma-separated list of tiers (bugs/deprecations/cleanup), rule keys, or 'all'"]
+   [nil "--css-order ORDER"
+    (str "Property-order table for the css-order group: "
+         (str/join ", " (map name orders/names)) " (default " (name orders/default-order) ")")
+    :parse-fn keyword]
    [nil "--list-rules" "Print all rules grouped by tier and exit"]
    ["-h" "--help"]])
 
@@ -247,7 +254,8 @@
     (when (and (:baseline-write options) (:files options))
       (println "Error: --baseline-write cannot be used with --files (would write a partial baseline).")
       (System/exit 1))
-    (let [config (baseline/read-config)
+    (let [config (cond-> (baseline/read-config)
+                   (:css-order options) (assoc-in [:css-order :order] (:css-order options)))
           base-opts (baseline/merge-config
                      config
                      (select-keys options [:only :disable :output :files

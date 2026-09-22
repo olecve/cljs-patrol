@@ -2,6 +2,7 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
+   [cljs-patrol.groups.css-order :as css-order]
    [cljs-patrol.groups.docstrings :as docstrings]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
@@ -11,7 +12,8 @@
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private all-groups
-  [re-frame/group spade/group reagent/group typography/group a11y/group docstrings/group])
+  [re-frame/group spade/group reagent/group typography/group a11y/group docstrings/group
+   css-order/group])
 
 (def ^:private rule->tier
   (severity/collect-rule->tier all-groups))
@@ -119,7 +121,8 @@
            :reg-sub-=>-1-arity :reg-event-fx-db-only
            :redundant-into-hiccup
            :docstring-summary :docstring-indentation
-           :docstring-leading-trailing-whitespace}
+           :docstring-leading-trailing-whitespace
+           :css-property-order-outside-in}
          (severity/tier->rules rule->tier :cleanup)))
   (is (= #{} (severity/tier->rules rule->tier :unknown))
       "unknown tier returns empty set"))
@@ -211,7 +214,8 @@
                :reg-sub-=>-1-arity :reg-event-fx-db-only
                :redundant-into-hiccup
                :docstring-summary :docstring-indentation
-               :docstring-leading-trailing-whitespace}
+               :docstring-leading-trailing-whitespace
+               :css-property-order-outside-in}
              (set (map :rule (:cleanup tiered))))))
 
     (testing "info-only contains rules without a tier"
