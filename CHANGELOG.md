@@ -10,6 +10,25 @@
 
 **Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.25...v0.0.26
 
+## What's Changed
+
+* Flag Spade selectors that Garden compiles into CSS matching nothing by @olecve in https://github.com/olecve/cljs-patrol/pull/57
+* Flag Spade style maps written out of CSS property order by @olecve in https://github.com/olecve/cljs-patrol/pull/58
+* Read a style declaration whole: through its metadata and into its nesting by @olecve in https://github.com/olecve/cljs-patrol/pull/59
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.25...v0.0.26
+
+
+## [v0.0.26] - 2026-09-22
+
+## What's Changed
+
+* Flag Spade selectors that Garden compiles into CSS matching nothing by @olecve in https://github.com/olecve/cljs-patrol/pull/57
+* Flag Spade style maps written out of CSS property order by @olecve in https://github.com/olecve/cljs-patrol/pull/58
+* Read a style declaration whole: through its metadata and into its nesting by @olecve in https://github.com/olecve/cljs-patrol/pull/59
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.25...v0.0.26
+
 
 ## [v0.0.25] - 2026-09-18
 
