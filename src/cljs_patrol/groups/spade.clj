@@ -2,6 +2,7 @@
   "Spade rule group: detects unused CSS-in-CLJS style declarations."
   (:require
    [cljs-patrol.group :as group]
+   [cljs-patrol.groups.spade.selectors :as selectors]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [rewrite-clj.zip :as z]))
@@ -98,7 +99,8 @@
                             :file file
                             :row (parser/position-row name-loc)}]
                           (into (pseudo-findings loc style-kw file))
-                          (into (consecutive-self-selector-findings loc style-kw file)))
+                          (into (consecutive-self-selector-findings loc style-kw file))
+                          (into (selectors/findings loc style-kw file)))
                :usages []
                :dynamics []}))))
 
@@ -135,6 +137,8 @@
   (let [style-decls (filter #(contains? #{:defclass :defattrs} (:type %)) declarations)
         pseudo-in-main-map (filter #(= :pseudo-in-main-map (:type %)) declarations)
         consecutive-self-selectors (filter #(= :consecutive-self-selectors (:type %)) declarations)
+        ampersand-not-at-start (filter #(= :spade-ampersand-not-at-start (:type %)) declarations)
+        keyword-combinator (filter #(= :spade-keyword-combinator-selector (:type %)) declarations)
         style-calls (filter #(= :style-call (:type %)) usages)
         style-call-kws (set (map :kw style-calls))
         unused-styles (remove #(contains? style-call-kws (:kw %)) style-decls)
@@ -147,16 +151,26 @@
     {:unused-styles (parser/distinct-by :kw unused-styles)
      :defattrs-in-merge (vec defattrs-in-merge)
      :pseudo-in-main-map (vec pseudo-in-main-map)
-     :consecutive-self-selectors (vec consecutive-self-selectors)}))
+     :consecutive-self-selectors (vec consecutive-self-selectors)
+     :spade-ampersand-not-at-start (vec ampersand-not-at-start)
+     :spade-keyword-combinator-selector (vec keyword-combinator)}))
 
-(defn- summary-lines* [{:keys [unused-styles defattrs-in-merge pseudo-in-main-map consecutive-self-selectors]}]
+(defn- summary-lines* [{:keys [unused-styles defattrs-in-merge pseudo-in-main-map consecutive-self-selectors
+                               spade-ampersand-not-at-start spade-keyword-combinator-selector]}]
   [["Unused styles:" (count unused-styles)]
    ["defattrs in merge:" (count defattrs-in-merge)]
    ["Pseudo-selector in main map:" (count pseudo-in-main-map)]
-   ["Consecutive self-selectors:" (count consecutive-self-selectors)]])
+   ["Consecutive self-selectors:" (count consecutive-self-selectors)]
+   ["Ampersand not at start:" (count spade-ampersand-not-at-start)]
+   ["Keyword combinator selector:" (count spade-keyword-combinator-selector)]])
 
-(defn- failed?* [{:keys [unused-styles pseudo-in-main-map consecutive-self-selectors]}]
-  (or (seq unused-styles) (seq pseudo-in-main-map) (seq consecutive-self-selectors)))
+(defn- failed?* [{:keys [unused-styles pseudo-in-main-map consecutive-self-selectors
+                         spade-ampersand-not-at-start spade-keyword-combinator-selector]}]
+  (boolean (or (seq unused-styles)
+               (seq pseudo-in-main-map)
+               (seq consecutive-self-selectors)
+               (seq spade-ampersand-not-at-start)
+               (seq spade-keyword-combinator-selector))))
 
 (defrecord SpadeGroup []
   group/RuleGroup
@@ -174,12 +188,18 @@
      :pseudo-in-main-map
      "Pseudo-selector key placed inside the main style map. Spade emits it as an invalid CSS property, so the rule is silently dropped. Move it out into its own vector, e.g. [:&:hover {...}], after the main map."
      :consecutive-self-selectors
-     "Two or more self-selector keywords (e.g. :&:before :&:after) appear consecutively before the style map. Garden treats [:a :b {...}] as a descendant selector (a b), not the comma-joined selector the author intended. Split into separate sibling vectors ([:&:before {...}] [:&:after {...}]) or use a set for comma-join (#{:&:before :&:after})."})
+     "Two or more self-selector keywords (e.g. :&:before :&:after) appear consecutively before the style map. Garden treats [:a :b {...}] as a descendant selector (a b), not the comma-joined selector the author intended. Split into separate sibling vectors ([:&:before {...}] [:&:after {...}]) or use a set for comma-join (#{:&:before :&:after})."
+     :spade-ampersand-not-at-start
+     "Garden only substitutes & at the start of a string selector; move & to position 0 or restructure the selector."
+     :spade-keyword-combinator-selector
+     "Combinators inside Spade selector vectors are treated as separate selectors joined by ,, not applied to the following element. Use the string form, e.g. [\"> span\" {...}] for the child combinator."})
   (rule->tier [_]
     {:unused-styles :cleanup
      :defattrs-in-merge :deprecations
      :pseudo-in-main-map :bugs
-     :consecutive-self-selectors :bugs})
+     :consecutive-self-selectors :bugs
+     :spade-ampersand-not-at-start :bugs
+     :spade-keyword-combinator-selector :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->SpadeGroup))

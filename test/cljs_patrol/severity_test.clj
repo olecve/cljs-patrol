@@ -106,6 +106,8 @@
            :empty-interactive-element
            :pseudo-in-main-map
            :consecutive-self-selectors
+           :spade-ampersand-not-at-start
+           :spade-keyword-combinator-selector
            :missing-accessible-name :repeated-accessible-name
            :aria-live-contradicts-role}
          (severity/tier->rules rule->tier :bugs)))
@@ -131,6 +133,8 @@
                   :empty-interactive-element
                   :pseudo-in-main-map
                   :consecutive-self-selectors
+                  :spade-ampersand-not-at-start
+                  :spade-keyword-combinator-selector
                   :missing-accessible-name :repeated-accessible-name
                   :aria-live-contradicts-role}}
            (severity/parse-fail-on "bugs" rule->tier)))
@@ -194,6 +198,8 @@
                :empty-interactive-element
                :pseudo-in-main-map
                :consecutive-self-selectors
+               :spade-ampersand-not-at-start
+               :spade-keyword-combinator-selector
                :missing-accessible-name :repeated-accessible-name
                :aria-live-contradicts-role}
              (set (map :rule (:bugs tiered)))))
