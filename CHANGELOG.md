@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.0.27] - 2026-09-23
+
+## What's Changed
+
+* Flag a redundant into around hiccup only when the mapped body keys its elements by @olecve in https://github.com/olecve/cljs-patrol/pull/60
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.26...v0.0.27
+
+
 ## [v0.0.26] - 2026-09-22
 
 ## What's Changed
