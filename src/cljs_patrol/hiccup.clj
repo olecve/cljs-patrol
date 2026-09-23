@@ -27,6 +27,43 @@
   selector + property map, not a Hiccup element."
   #{"defclass" "defattrs" "defglobal" "defkeyframes"})
 
+(def html-tags
+  "Element names a Hiccup tag keyword can name, plus the `:<>` fragment.
+  Written out rather than inferred, because a keyword heading a vector is Hiccup only
+  some of the time: `[:enum …]` is a Malli schema, `[:cart :items]` a re-frame db path,
+  `[:checkout :submit]` an event vector. Only a name HTML actually has says element.
+
+  `:map` is left out on purpose. The HTML `<map>` element is vanishingly rare in
+  application code, while `[:map {:closed true} …]` is the everyday shape of a Malli
+  schema, so reading one as Hiccup costs more than missing the other."
+  #{:<>
+    ;; document and sections
+    :html :head :body :header :footer :main :nav :aside :article :section :address :hgroup
+    :h1 :h2 :h3 :h4 :h5 :h6 :div :span :p :hr :br :wbr :pre :blockquote
+    ;; text
+    :a :em :strong :b :i :u :s :small :mark :sub :sup :q :cite :abbr :dfn :time :data
+    :code :kbd :samp :var :ruby :rt :rp :bdi :bdo :ins :del
+    ;; lists
+    :ul :ol :li :dl :dt :dd :menu
+    ;; tables
+    :table :thead :tbody :tfoot :tr :td :th :caption :colgroup :col
+    ;; forms
+    :form :input :textarea :select :option :optgroup :button :label :fieldset :legend
+    :datalist :output :progress :meter
+    ;; embedded content
+    :img :picture :source :video :audio :track :canvas :svg :iframe :embed :object :param
+    :figure :figcaption :area
+    ;; interactive and metadata
+    :details :summary :dialog :template :slot :noscript :script :style :link :title :base
+    ;; svg
+    :g :path :circle :ellipse :rect :line :polyline :polygon :defs :use :text :tspan
+    :mask :pattern :clipPath :linearGradient :radialGradient :stop :marker :symbol :foreignObject})
+
+(defn html-tag?
+  "True when `tag` names an HTML/SVG element or the fragment."
+  [tag]
+  (contains? html-tags tag))
+
 (defn parse-tag
   "Return the base HTML tag keyword from a Hiccup tag string.
   Handles plain (`:img`), class (`:img.hero`), id (`:img#logo`), and mixed

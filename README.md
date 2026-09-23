@@ -34,7 +34,7 @@ Analysis is split into independent rule groups. By default all groups run.
 
 - **`re-frame`** — unused/phantom re-frame subscriptions and events
 - **`spade`** — unused Spade style declarations, defattrs in merge, pseudo-selector keys inside the main style map, consecutive self-selectors that compile to descendant selectors, `&` away from the front of a string selector, combinators written as keywords
-- **`reagent`** — defclass used as sole attr (should be defattrs); redundant `(into [:tag …] …)` around Hiccup vectors
+- **`reagent`** — defclass used as sole attr (should be defattrs); a redundant `(into [:tag …] (map …))` around a mapping body that already keys its elements
 - **`typography`** — mixed Figma typography token groups in a single style
 - **`a11y`** — accessibility issues in Hiccup: `:img` missing `:alt`, invalid `:tabIndex`, `:on-click` on non-interactive tags, empty interactive elements without an accessible name, form controls missing an accessible name, one constant name shared by every item of a repeated list
 - **`docstrings`** — bbatsov style-guide violations on every def (summary, indent, whitespace)
@@ -80,7 +80,12 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **reg-event-db returning effects** — `reg-event-db` handler returns an effects-style `{:db ... :dispatch ...}` map; the whole map silently replaces app-db and extra effects are dropped (use `reg-event-fx` instead)
 - **Deprecated effects** — use of `:dispatch-n` (replaced by `:fx`)
 - **defclass as sole attr** — `defclass` where every usage is `{:class (style-fn)}` with no other props; should be `defattrs` instead
-- **Redundant into-hiccup** — `(into [:tag …] …)` or `(into [component …] …)` where the first argument is a literal hiccup vector; Reagent inlines top-level seqs in hiccup, so `[:tag children]` renders identically. Drop the `into` wrapper
+- **Redundant into-hiccup** — `(into [:tag …] (map …))` or `(into [component …] (for …))` where the mapping body already attaches a `:key` to each element it produces. React then has the keys it needs without the `into` splicing the elements in as positional children, so the sequence can sit inside the Hiccup vector: `[:<> (for [x xs] ^{:key x} [item x])]`. A key counts in any of its three live forms — reader metadata `^{:key k}`, an explicit `(with-meta … {:key k})`, and `:key` in the props map of an element the body writes out. Three shapes are left alone on purpose:
+  - **A keyless sequence** — `(into [:<>] (map render) nodes)`. There the `into` is load-bearing: it splices the elements in as positional children, which React accepts, where the same sequence inside the vector draws a missing-key warning
+  - **A vector that is not Hiccup** — the head keyword has to name an HTML/SVG element or the `:<>` fragment. `(into [:enum] sections)` is a Malli schema, `(into [:cart] ks)` a re-frame db path; `:map` is excluded from the tag set, since `[:map {:closed true} …]` is a schema far more often than it is the HTML `<map>` element
+  - **A body that derefs** — `(into [:span] (map-indexed (fn [i seg] … @state …) segs))`. Reagent's caveat is a ratom deref inside a lazy seq, and the eager `into` is what keeps it out of one
+
+  A `:key` in the props of the container being spliced into — `(into [:div {:class c :key k}] children)` — belongs to the container, not to its children, and is not read as one
 - **defattrs in merge** — `defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class` without merge
 - **Mixed typography token groups** — typography tokens from different Figma token groups mixed in a single style definition
 - **`:img` missing `:alt`** — `[:img {...}]` without an `:alt` attribute; use `:alt ""` for decorative images
