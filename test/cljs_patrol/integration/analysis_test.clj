@@ -92,10 +92,10 @@
       (is (not (contains? (set (map :kw (:defclass-as-sole-attr reagent-result)))
                           :webapp.styles/vector-multi-class-style))))
 
-    (testing "detects redundant `into` around hiccup vectors"
+    (testing "detects redundant `into` around a keyed mapping body"
       (let [findings (:redundant-into-hiccup reagent-result)]
-        (is (= 3 (count findings)))
-        (is (= #{:ul (symbol "card-body") (symbol "pseudo-styles/panel-style")}
+        (is (= 7 (count findings)))
+        (is (= #{:ul :<> :p :tbody (symbol "card-body") (symbol "pseudo-styles/panel-style")}
                (set (map :kw findings))))))
 
     (testing "does not flag plain-Clojure into forms"
@@ -106,6 +106,28 @@
             "literal-head into not flagged")
         (is (not-any? #(re-find #"\(into \[:span\]\)" %) forms)
             "arity-1 into not flagged")))
+
+    (testing "does not flag the shapes an into around hiccup is allowed to take"
+      (let [forms (set (map :form (:redundant-into-hiccup reagent-result)))
+            flagged? (fn [pattern] (some #(re-find pattern %) forms))]
+        (is (not (flagged? #"node->hiccup"))
+            "keyless transducer keeps the into that splices its elements in")
+        (is (not (flagged? #"\(into \[:ol\]"))
+            "keyless for keeps the into that splices its elements in")
+        (is (not (flagged? #"\(into \[:enum\]"))
+            "malli enum schema is not hiccup")
+        (is (not (flagged? #"\(into \[:map "))
+            "malli map schema is not hiccup")
+        (is (not (flagged? #"\(into \[:cart\]"))
+            "re-frame db path is not hiccup")
+        (is (not (flagged? #"content-key"))
+            "a :key in the container's own props is not a key on the children")
+        (is (not (flagged? #"expanded\?"))
+            "a deref in the mapping body must not be made lazy")
+        (is (not (flagged? #":special\? row"))
+            "a body keying only one of its branches still needs the into")
+        (is (not (flagged? #"\[:tr \[:td"))
+            "a key on an element nested inside the produced one keys nothing")))
 
     (testing "detects duplicate subscription registration"
       (is (= 2 (count (:duplicate-subs re-frame-result))))
