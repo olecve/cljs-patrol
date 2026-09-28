@@ -29,7 +29,14 @@
   Line and column are recorded on the finding for the report but are not part
   of the identity — reformatting a file must not turn every baselined Hiccup
   finding into a new one. Two identical Hiccup vectors in the same file
-  collapse to a single identity (rare in practice)."
+  collapse to a single identity (rare in practice).
+
+  A rule reporting a container adds `:inner-form`, the snippet of the element found
+  inside it. Those rules report the wrapper, whose own snippet runs past the truncation
+  nearly every time, so without it two wrappers differing only past the cut collapse into
+  one — the case above calls that rare, and for a container rule it is the normal one.
+  The finding's `:hint` names the same element and its line, and is deliberately not what
+  is stored: a line moves whenever anything above it does."
   #{:aria-live-contradicts-role
     :empty-interactive-element
     :repeated-accessible-name
@@ -108,15 +115,12 @@
         :selector (:selector issue)}
 
        (contains? hiccup-site-rules rule)
-       (cond-> {:rule rule
-                :tag (:kw issue)
-                :file (rel (:file issue))
-                :form (str/replace (str/trim (str (:form issue))) #"\s+" " ")}
-         ;; A rule reporting a container reports a truncated snippet almost every time,
-         ;; so two wrappers differing only past the cut collapse to one identity — the
-         ;; case the docstring above calls rare is the normal one for those rules. The
-         ;; hint names the inner element and its line, which tells them apart.
-         (:hint issue) (assoc :hint (:hint issue)))
+       (let [normalize #(str/replace (str/trim (str %)) #"\s+" " ")]
+         (cond-> {:rule rule
+                  :tag (:kw issue)
+                  :file (rel (:file issue))
+                  :form (normalize (:form issue))}
+           (:inner-form issue) (assoc :inner-form (normalize (:inner-form issue)))))
 
        (= :dynamic-sites rule)
        {:rule rule
@@ -139,7 +143,7 @@
                      (map #(issue->identity rule-key % source-dir) items))))
          result)))
 
-(def baseline-version 2)
+(def baseline-version 3)
 
 (def default-baseline-path ".cljs-patrol/baseline.edn")
 

@@ -725,11 +725,19 @@
       (first-matching-descendant #(content-loc? % ns-info component-aliases)
                                  (take-while some? (iterate #(some-> % z/right) body-start))))))
 
-(defn- inner-element-hint [inner-loc ns-info component-aliases suffix]
-  (format "%s on line %d %s"
-          (pr-str (vector-tag inner-loc ns-info component-aliases))
-          (parser/position-row inner-loc)
-          suffix))
+(defn- inner-element-marks
+  "Return the display hint and the identity snippet for an element found inside another.
+  Two things a reader and a baseline need differently. The hint names the line, which is
+  what someone opening the file wants and what an identity must never hold: a line moves
+  whenever anything above it does, and a baseline keyed on one turns every accepted
+  finding new after a blank line is added. The snippet moves with the code it describes,
+  so it tells two findings in one file apart without tying either to a position."
+  [inner-loc ns-info component-aliases suffix]
+  {:hint (format "%s on line %d %s"
+                 (pr-str (vector-tag inner-loc ns-info component-aliases))
+                 (parser/position-row inner-loc)
+                 suffix)
+   :inner-form (source-snippet inner-loc)})
 
 (defn- control? [loc ns-info component-aliases]
   (and (= :vector (z/tag loc))
@@ -839,14 +847,13 @@
                        (or hidden-self? hidden-descendant)
                        (conj (cond-> (assoc base :type :aria-hidden-focusable)
                                hidden-descendant
-                               (assoc :hint (inner-element-hint hidden-descendant ns-info component-aliases
-                                                                "is hidden with it and still takes focus."))))
+                               (merge (inner-element-marks hidden-descendant ns-info component-aliases
+                                                           "is hidden with it and still takes focus."))))
 
                        nested-control
-                       (conj (assoc base
-                                    :type :nested-interactive-element
-                                    :hint (inner-element-hint nested-control ns-info component-aliases
-                                                              "is nested inside it.")))
+                       (conj (merge (assoc base :type :nested-interactive-element)
+                                    (inner-element-marks nested-control ns-info component-aliases
+                                                         "is nested inside it.")))
 
                        repeated-name
                        (conj (assoc base
