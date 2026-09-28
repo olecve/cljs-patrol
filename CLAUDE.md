@@ -18,16 +18,26 @@ Exits with code 1 when issues are found (CI-friendly).
 
 ```
 src/cljs_patrol/
-├── core.clj           # CLI entry point, argument parsing
-├── parser.clj         # AST walking, namespace resolution, file discovery
-├── reporter.clj       # Console output formatting
-├── html_reporter.clj  # Self-contained HTML report generation
-└── groups/
-    ├── re_frame.clj   # Re-frame analysis rules
-    ├── spade.clj      # Spade analysis rules
-    └── a11y.clj       # Accessibility rules on literal Hiccup vectors
-build.clj              # tools.build uberjar config
-deps.edn               # Dependencies and aliases
+├── core.clj            # CLI entry point, argument parsing, group assembly
+├── parser.clj          # AST walking, namespace resolution, file discovery
+├── group.clj           # RuleGroup protocol every group implements
+├── hiccup.clj          # Shared Hiccup-shape helpers (attrs, tags, result positions)
+├── style_blocks.clj    # Shared reading of Spade/Garden selector blocks
+├── baseline.clj        # Baseline identities, read/write, comparison
+├── severity.clj        # Tier classification and --fail-on parsing
+├── fs.clj              # File discovery and path helpers
+├── groups/             # One namespace per rule group
+│   ├── re_frame.clj    #   subs/events: unused, phantom, duplicate, effects
+│   ├── spade.clj       #   styles: unused, defattrs-in-merge, selector shapes
+│   ├── reagent.clj     #   defclass-as-sole-attr, redundant into-hiccup
+│   ├── a11y.clj        #   accessibility on literal Hiccup vectors
+│   ├── css_order.clj   #   CSS property order, with orders/ holding the tables
+│   ├── typography.clj  #   mixed Figma typography token groups
+│   └── docstrings.clj  #   bbatsov docstring rules
+└── reporters/          # console.clj, html.clj, edn.clj, markdown.clj
+build.clj               # tools.build uberjar + native-image config
+deps.edn                # Dependencies and aliases
+docs/                   # Reference pages the README links to (see Documentation)
 ```
 
 ## Running the Tool
@@ -81,6 +91,31 @@ npm run format  # rewrite, or `npm run format:check` to verify
 Prose wraps at **120 characters** (`.prettierrc.json`). `CHANGELOG.md` is excluded because the release workflow prepends
 to it on every tag, and `test/projects/` because the Clojure linters skip it too.
 
+## Documentation
+
+The README is for someone who has not decided to use the tool yet: what it is, how to install and run it, the rule
+groups one line each, and the config file. It is kept short on purpose — it was 671 lines before the reference moved
+out, and the failure mode is appending to it until nobody reads it.
+
+Everything that a reader consults **after** deciding lives under `docs/`:
+
+| Page               | Holds                                                                        |
+| ------------------ | ---------------------------------------------------------------------------- |
+| `docs/rules.md`    | What every rule flags, what it leaves alone, and the per-group configuration |
+| `docs/baseline.md` | Snapshotting an existing codebase and blocking only what is new              |
+| `docs/severity.md` | Tiers, `--fail-on`, and composing the two                                    |
+
+So when a change needs documenting:
+
+- **A new rule, or a change to what one flags** — `docs/rules.md`. Add one line to the README's rule-group list only if
+  the group itself is new.
+- **A new flag** — the page for the feature it belongs to; the README only if it is one a first-time reader needs.
+- **A new config key** — the example in the README's Configuration file section, and the page that explains it.
+
+Two things that keep the split honest: every page links back to the README, and a cross-reference between pages is a
+relative link with an anchor (`[Property-order tables](rules.md#property-order-tables)`), never a bare `#anchor`, which
+silently resolves to the wrong page.
+
 ## Docstrings
 
 The `docstrings` group in this tool enforces the
@@ -114,7 +149,8 @@ Each group is a map with a fixed interface:
  :html-sections [{:title "..." :description "..." :columns [...] :data-fn fn}]}
 ```
 
-Register the group in `core.clj` in the `all-groups` vector.
+Register the group in `core.clj` in the `all-groups` vector, then document it: the rules themselves in `docs/rules.md`,
+and one line in the README's rule-group list naming the group.
 
 ## Key Architectural Notes
 
