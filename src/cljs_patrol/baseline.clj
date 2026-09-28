@@ -33,11 +33,9 @@
   collapse to a single identity (rare in practice).
 
   A rule reporting a container adds `:inner-form`, the snippet of the element found
-  inside it. Those rules report the wrapper, whose own snippet runs past the truncation
-  nearly every time, so without it two wrappers differing only past the cut collapse into
-  one — the case above calls that rare, and for a container rule it is the normal one.
-  The finding's `:hint` names the same element and its line, and is deliberately not what
-  is stored: a line moves whenever anything above it does."
+  inside it, because the collapse above is rare only for element-level rules: a wrapper's
+  own snippet runs past the truncation nearly every time, so two differing only past the
+  cut would be one identity."
   #{:aria-live-contradicts-role
     :empty-interactive-element
     :repeated-accessible-name

@@ -657,20 +657,17 @@
 (defn props-slot
   "Return the child occupying the element's props slot, readable or not.
 
-  [[attrs-slot]] answers only for a slot attrs could be read out of, because its callers
-  have always treated an unreadable one as body content. A rule asking what an element
-  *renders* needs the other answer: `[:button (build-props) …]` hands its props to a
-  call, and Hiccup inside that call is markup passed to the element rather than markup
-  the element renders.
+  Markup handed to an element as a prop is rendered wherever that element puts it, not
+  where the prop is written, so a rule asking what an element renders must skip the whole
+  slot — which [[attrs-slot]] cannot answer for, since it reports only a slot attrs can be
+  read out of.
 
-  Only a call counts here. `attrs-info` also reads a quoted or metadata-wrapped second
-  child as a dynamic attrs slot, and those are far more often a first body child than
-  they are props.
-
-  A call yielding Hiccup is a body child rather than props, and [[result-locs]] is what
-  tells the two apart: `(when open? [:a …])` yields that vector, while `(build {:tooltip
-  [:a …]})` yields whatever the call returns and holds its vector as a map value. Reagent
-  draws the same line at runtime — a second child that is not a map is a child."
+  A call in the slot is the hard case, and [[result-locs]] separates them: `(when open?
+  [:a …])` yields that vector, so it is a body child, while `(build {:tooltip [:a …]})`
+  yields whatever the call returns and merely holds a vector as a map value. Reagent draws
+  the same line at runtime — a second child that is not a map is a child. Only a call is
+  weighed this way; a quoted or metadata-wrapped second child is far more often the first
+  body child than it is props."
   [vec-loc]
   (let [{:keys [kind slot]} (attrs-info vec-loc)
         second-child (some-> vec-loc z/down z/right)]

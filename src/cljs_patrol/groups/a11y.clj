@@ -717,9 +717,8 @@
 (defn- descend-locs
   "Return what to search inside `loc`.
 
-  A Hiccup vector contributes its body: markup handed to an element as a prop is
-  rendered wherever that element puts it, not where the prop is written, and that holds
-  for a descendant exactly as it holds for the element being reported. Anything else
+  A Hiccup vector contributes its body, for the reason [[hiccup/props-slot]] gives, and a
+  descendant is no different from the element being reported in that. Anything else
   contributes its children."
   [loc]
   (if (= :vector (z/tag loc))
@@ -770,9 +769,7 @@
 
   `aria-hidden` applies to the whole subtree, so a control inside a hidden wrapper is
   hidden from assistive technology while keeping its place in the tab order — the same
-  defect as on the wrapper itself, and the more common way to write it. The props the
-  wrapper is handed are not searched, for the reason the nesting walk does not search
-  them: markup passed to an element is rendered wherever that element puts it."
+  defect as on the wrapper itself, and the more common way to write it."
   [{:keys [kind attrs]} loc ns-info component-aliases]
   (when (and (= :map kind) (some? attrs) (aria-hidden? attrs))
     (first-matching-descendant {:match? #(focusable-loc? % ns-info component-aliases)
@@ -782,13 +779,10 @@
 (defn- nested-interactive-loc
   "Return the first interactive element inside a control's body, or nil.
 
-  The body is searched rather than the whole vector: Hiccup handed to the element as a
-  prop — `[:button {:tooltip [:a …]} …]` — is markup the element passes on, not markup
-  nested inside it, and [[hiccup/props-slot]] answers for a props call the same way it
-  answers for a props map. Below the body the whole subtree counts, since a control
-  wrapped in positioning `:div`s or produced by a `for` is nested just the same.
-  The walk stays on the file's own zipper — `z/subzip` restarts position tracking, and
-  the hint names the line the nested control is written on."
+  The body, not the whole vector: see [[hiccup/props-slot]] for why props are skipped.
+  Below the body the whole subtree counts, since a control wrapped in positioning `:div`s
+  or produced by a `for` is nested just the same. The walk stays on the file's own zipper,
+  because `z/subzip` restarts position tracking and the hint names a line."
   [info loc tag ns-info component-aliases]
   (when (interactive-container? info tag)
     (let [slot (hiccup/props-slot loc)
@@ -799,11 +793,9 @@
 (defn- inner-element-marks
   "Return the display hint and the identity snippet for an element found inside another.
 
-  Two things a reader and a baseline need differently. The hint names the line, which is
-  what someone opening the file wants and what an identity must never hold: a line moves
-  whenever anything above it does, and a baseline keyed on one turns every accepted
-  finding new after a blank line is added. The snippet moves with the code it describes,
-  so it tells two findings in one file apart without tying either to a position."
+  A reader wants the line; an identity must never hold one, since a line moves whenever
+  anything above it does. So the hint names the line and the snippet does not — and the
+  snippet is what tells two findings in one file apart."
   [inner-loc ns-info component-aliases suffix]
   {:hint (format "%s on line %d %s"
                  (pr-str (vector-tag inner-loc ns-info component-aliases))
