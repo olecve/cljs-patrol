@@ -18,11 +18,11 @@
   [:div {:role "alertdialog"
          :aria-label "Delete post"}])
 
-(defn ok-tablist-unnamed []
-  ;; the spec does not require a name on tablist, so this is not reported
+(defn bad-tablist-unnamed []
+  ;; stricter than the spec: announced on entry like any other container
   [:div {:role "tablist"}])
 
-(defn ok-menu-unnamed []
+(defn bad-menu-unnamed []
   ;; likewise for menu and menubar
   [:div {:role "menu"}])
 
@@ -77,3 +77,11 @@
   [:table {:role "grid"}
    [:caption ""]
    [:tbody]])
+
+(defn ok-tablist-with-label []
+  [:div {:role "tablist"
+         :aria-label "Post sections"}])
+
+(defn ok-menubar-with-label []
+  [:div {:role "menubar"
+         :aria-label "Editor actions"}])

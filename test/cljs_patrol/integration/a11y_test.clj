@@ -1140,11 +1140,15 @@
       (is (not (contains? by-row 18))
           "ok-alertdialog-with-label"))
 
-    (testing "leaves roles the spec does not require a name on alone"
-      (is (not (contains? by-row 23))
-          "ok-tablist-unnamed")
-      (is (not (contains? by-row 27))
-          "ok-menu-unnamed"))
+    (testing "asks a name of the container roles the spec permits none on"
+      (is (contains? by-row 23)
+          "bad-tablist-unnamed — stricter than WAI-ARIA, and said to be")
+      (is (contains? by-row 27)
+          "bad-menu-unnamed")
+      (is (not (contains? by-row 82))
+          "ok-tablist-with-label")
+      (is (not (contains? by-row 86))
+          "ok-menubar-with-label"))
 
     (testing "leaves a non-literal role alone"
       (is (not (contains? by-row 31))
@@ -1167,8 +1171,8 @@
           "bad-empty-caption — an empty caption names no more than :aria-label \"\" does"))
 
     (testing "flags exactly the bad- cases"
-      (is (= 9 (count in-containers))
-          "nine bad- cases in the fixture, no more"))))
+      (is (= 11 (count in-containers))
+          "eleven bad- cases in the fixture, no more"))))
 
 (deftest unrendered-markup-fixture-test
   (testing "nothing inside a quoted or discarded form is reported, at any depth"
