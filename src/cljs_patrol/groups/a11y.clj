@@ -621,44 +621,75 @@
         (or (hiccup/parse-tag head-str)
             (resolve-component-tag head-str ns-info component-aliases))))))
 
-(defn- interactive-element?
-  "True when the vector is a control the user can operate.
-  A link counts only once it has an `:href` that reaches the DOM: without one `<a>` is
-  neither interactive nor focusable. A `:role` of button or link counts too — ARIA says
-  the element then behaves as that control, and the nesting restriction follows the
-  behaviour rather than the tag."
-  [loc tag]
-  (let [{:keys [kind attrs]} (hiccup/attrs-info loc)
-        readable? (and (contains? attrs-readable-kinds kind) (some? attrs))]
+(def ^:private interactive-content-tags
+  "Tags HTML counts as interactive content.
+  This is the category the content model of `<button>` and `<a href>` bans inside them.
+  `:a` is absent because a link joins it only with an `:href`, and `:audio` / `:video`
+  because they join it only with `controls` — both are asked separately. `:img` with a
+  `usemap` is left out: the attribute is vanishingly rare and reading it wrong would
+  make every image inside a link a finding."
+  #{:button :input :select :textarea :details :embed :iframe :label})
+
+(defn- interactive-content?
+  "True when the element is interactive content HTML forbids inside a control.
+  An `:input` of type hidden renders nothing and is the one member of the tag set that
+  can opt out, so its type is read where it is written out."
+  [{:keys [kind attrs]} tag]
+  (let [readable? (and (contains? attrs-readable-kinds kind) (some? attrs))]
+    (or (and (contains? interactive-content-tags tag)
+             (not (and (= :input tag) readable? (= "hidden" (literal-sexpr (get attrs :type))))))
+        (and (= :a tag) readable? (attr-written? attrs :href))
+        (and readable? (interactive-via-role? attrs)))))
+
+(defn- interactive-container?
+  "True when the element is one that may not contain interactive content.
+  Only `<button>` and `<a href>` carry the restriction in HTML; ARIA extends it in
+  effect to anything claiming their roles, since assistive technology then has two
+  overlapping controls to announce and keyboard activation is ambiguous."
+  [{:keys [kind attrs]} tag]
+  (let [readable? (and (contains? attrs-readable-kinds kind) (some? attrs))]
     (or (= :button tag)
         (and (= :a tag) readable? (attr-written? attrs :href))
         (and readable? (interactive-via-role? attrs)))))
 
-(defn- interactive-loc? [loc ns-info component-aliases]
+(defn- child-locs [loc]
+  (when-let [first-child (z/down loc)]
+    (take-while some? (iterate #(some-> % z/right) first-child))))
+
+(defn- content-loc? [loc ns-info component-aliases]
   (and (= :vector (z/tag loc))
        (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
-                  (interactive-element? loc tag)))))
+                  (interactive-content? (hiccup/attrs-info loc) tag)))))
+
+(defn- first-interactive-content
+  "Return the first interactive element among `locs` and their descendants, or nil.
+  A plain descent through children: a quoting or discarding node is not entered at all,
+  so nothing has to be re-climbed at each node to ask whether it still counts, and the
+  walk costs one visit per node rather than one visit times the depth."
+  [locs ns-info component-aliases]
+  (some (fn [child]
+          (when-not (hiccup/unrendered-form? child)
+            (if (content-loc? child ns-info component-aliases)
+              child
+              (first-interactive-content (child-locs child) ns-info component-aliases))))
+        locs))
 
 (defn- nested-interactive-loc
-  "Return the first interactive descendant in an interactive element's body, or nil.
-  The body is searched rather than the whole vector: a Hiccup vector handed to the
-  element as a prop — `[:button {:tooltip [:a …]} …]` — is markup the element passes on,
-  not markup nested inside it. Below that, the whole subtree counts, since a control
-  wrapped in positioning `:div`s or produced by a `for` is nested just the same; quoted
-  or discarded markup does not, being data rather than something that renders. A component whose
-  markup lives in another file stays invisible, as everywhere else.
+  "Return the first interactive element inside a control's body, or nil.
+  The body is searched rather than the whole vector: Hiccup handed to the element as a
+  prop — `[:button {:tooltip [:a …]} …]` — is markup the element passes on, not markup
+  nested inside it, and [[hiccup/props-slot]] answers for a props call the same way it
+  answers for a props map. Below the body the whole subtree counts, since a control
+  wrapped in positioning `:div`s or produced by a `for` is nested just the same.
   The walk stays on the file's own zipper — `z/subzip` restarts position tracking, and
   the hint names the line the nested control is written on."
-  [loc tag ns-info component-aliases]
-  (when (interactive-element? loc tag)
-    (let [attrs-loc (hiccup/attrs-slot loc)
-          body-start (if attrs-loc (z/right attrs-loc) (some-> loc z/down z/right))]
-      (loop [current body-start]
-        (cond
-          (or (nil? current) (z/end? current) (not (descendant-of? loc current))) nil
-          (and (interactive-loc? current ns-info component-aliases)
-               (not (hiccup/inside-unrendered-form? current))) current
-          :else (recur (z/next current)))))))
+  [info loc tag ns-info component-aliases]
+  (when (interactive-container? info tag)
+    (let [slot (hiccup/props-slot loc)
+          body-start (if slot (z/right slot) (some-> loc z/down z/right))]
+      (first-interactive-content (take-while some? (iterate #(some-> % z/right) body-start))
+                                 ns-info
+                                 component-aliases))))
 
 (defn- nested-interactive-hint [inner-loc ns-info component-aliases]
   (let [row (parser/position-row inner-loc)
@@ -744,7 +775,7 @@
         (let [info (hiccup/attrs-info loc)
               aria-live-conflict (contradicting-aria-live info)
               repeated-name (repeated-accessible-name info tag loc ns-info component-aliases)
-              nested-control (nested-interactive-loc loc tag ns-info component-aliases)
+              nested-control (nested-interactive-loc info loc tag ns-info component-aliases)
               [row col] (try (z/position loc) (catch Exception _ [0 1]))
               base {:kw tag
                     :form (source-snippet loc)

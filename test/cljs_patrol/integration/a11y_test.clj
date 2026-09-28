@@ -1047,9 +1047,25 @@
       (is (not (contains? by-row 76))
           "ok-nil-href-container — an :a whose :href is nil is not a container"))
 
+    (testing "reads props the element is handed, written out or built by a call"
+      (is (not (contains? by-row 82))
+          "ok-props-built-by-a-call — the markup goes to the props, not the body")
+      (is (not (contains? by-row 85))
+          "ok-discarded-child — #_ markup renders even less than quoted markup")
+      (is (not (contains? by-row 91))
+          "ok-hidden-input — an input of type hidden is not interactive content"))
+
+    (testing "covers the rest of the interactive-content category"
+      (is (contains? by-row 97)
+          "bad-input-in-button")
+      (is (contains? by-row 102)
+          "bad-select-in-link")
+      (is (contains? by-row 107)
+          "bad-label-in-button"))
+
     (testing "flags exactly the bad- cases"
-      (is (= 6 (count in-nesting))
-          "six bad- cases in the fixture, no more"))))
+      (is (= 9 (count in-nesting))
+          "nine bad- cases in the fixture, no more"))))
 
 (deftest name-required-container-role-fixture-test
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])

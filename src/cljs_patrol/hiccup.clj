@@ -591,6 +591,30 @@
   [vec-loc]
   (:slot (attrs-info vec-loc)))
 
+(defn unrendered-form?
+  "True when loc is itself a quoting or discarding node."
+  [loc]
+  (contains? unrendered-parent-tags (some-> loc z/tag)))
+
+(defn props-slot
+  "Return the child occupying the element's props slot, readable or not.
+  [[attrs-slot]] answers only for a slot attrs could be read out of, because its callers
+  have always treated an unreadable one as body content. A rule asking what an element
+  *renders* needs the other answer: `[:button (build-props) …]` hands its props to a
+  call, and Hiccup inside that call is markup passed to the element rather than markup
+  the element renders.
+
+  Only a call counts here. `attrs-info` also reads a quoted or metadata-wrapped second
+  child as a dynamic attrs slot, and those are far more often a first body child than
+  they are props — the cost is that `[:button (when open? [:a …])]` reads as props, a
+  shape a props map written out would have settled."
+  [vec-loc]
+  (let [{:keys [kind slot]} (attrs-info vec-loc)
+        second-child (some-> vec-loc z/down z/right)]
+    (or slot
+        (when (and (= :dynamic kind) (= :list (some-> second-child z/tag)))
+          second-child))))
+
 (defn inside-unrendered-form?
   "True when a quoting or discarding form encloses loc at any depth.
   Every ancestor is asked, not just the parent: the vectors inside `'[:div [:img …]]`
@@ -601,7 +625,7 @@
   (loop [current (some-> loc z/up)]
     (cond
       (nil? current) false
-      (contains? unrendered-parent-tags (z/tag current)) true
+      (unrendered-form? current) true
       :else (recur (z/up current)))))
 
 (defn inside-style-decl?
