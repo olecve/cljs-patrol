@@ -108,10 +108,15 @@
         :selector (:selector issue)}
 
        (contains? hiccup-site-rules rule)
-       {:rule rule
-        :tag (:kw issue)
-        :file (rel (:file issue))
-        :form (str/replace (str/trim (str (:form issue))) #"\s+" " ")}
+       (cond-> {:rule rule
+                :tag (:kw issue)
+                :file (rel (:file issue))
+                :form (str/replace (str/trim (str (:form issue))) #"\s+" " ")}
+         ;; A rule reporting a container reports a truncated snippet almost every time,
+         ;; so two wrappers differing only past the cut collapse to one identity — the
+         ;; case the docstring above calls rare is the normal one for those rules. The
+         ;; hint names the inner element and its line, which tells them apart.
+         (:hint issue) (assoc :hint (:hint issue)))
 
        (= :dynamic-sites rule)
        {:rule rule

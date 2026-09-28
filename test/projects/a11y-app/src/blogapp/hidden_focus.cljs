@@ -123,3 +123,24 @@
   [:button {:aria-hidden true
             :tab-index false}
    "Publish"])
+
+(defn ok-hidden-wrapper-child-removed [on-scrub]
+  [:div {:aria-hidden true}
+   [:button {:on-click on-scrub
+             :tab-index -1}
+    "Scrub"]])
+
+(defn ok-hidden-wrapper-opaque-child [props]
+  ;; the child's props cannot be read, so its way out cannot be called missing
+  [:div {:aria-hidden true}
+   [:button props "Scrub"]])
+
+(defn bad-hidden-wrapper [on-scrub]
+  [:div {:aria-hidden true}
+   [:button {:on-click on-scrub} "Duplicate for layout"]])
+
+(defn bad-hidden-wrapper-deep [url]
+  [:div {:aria-hidden true}
+   [:div {:class "row"}
+    [:span "text"]
+    [:a {:href url} "Link"]]])

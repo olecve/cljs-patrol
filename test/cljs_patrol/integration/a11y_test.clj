@@ -848,8 +848,6 @@
             "ok-hidden-from-assistive-tech, nothing is announced at all"))
 
       (testing "flags exactly the bad- cases"
-        (is (contains? by-row 180)
-            "bad-labelledby-nil — Reagent omits the nil attribute, so nothing overrides")
         (is (= #{8 15 22 31 56 85 114 116 124 146 180} (set (map :row in-lists)))
             "every bad- case and nothing else"))))
 
@@ -995,9 +993,25 @@
       (is (contains? by-row 123)
           "bad-tabindex-false — React drops a boolean from a numeric attribute"))
 
+    (testing "reads a hidden wrapper through to what it hides"
+      (is (contains? by-row 139)
+          "bad-hidden-wrapper — aria-hidden applies to the subtree, the button keeps its tab stop")
+      (is (contains? by-row 143)
+          "bad-hidden-wrapper-deep — the focusable element is two levels down")
+      (is (not (contains? by-row 128))
+          "ok-hidden-wrapper-child-removed — the child is out of the tab order")
+      (is (not (contains? by-row 134))
+          "ok-hidden-wrapper-opaque-child — the child's way out cannot be called missing")
+      (is (not (contains? by-row 9))
+          "ok-hidden-wrapper — nothing inside it can take focus"))
+
+    (testing "names the hidden element that still takes focus"
+      (is (= ":button on line 140 is hidden with it and still takes focus."
+             (:hint (first (filter #(= 139 (:row %)) in-hidden))))))
+
     (testing "flags exactly the bad- cases"
-      (is (= 12 (count in-hidden))
-          "twelve bad- cases in the fixture, no more"))))
+      (is (= 14 (count in-hidden))
+          "fourteen bad- cases in the fixture, no more"))))
 
 (deftest nested-interactive-element-fixture-test
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])

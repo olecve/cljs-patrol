@@ -272,7 +272,27 @@
                                       :file "src/views.cljs"
                                       :row 12
                                       :col 3}))
-        "redundant-into-hiccup keyed by tag + file + form"))
+        "redundant-into-hiccup keyed by tag + file + form")
+    (let [wrapper "[:button {:on-click f :class \"post-card post-card--open\"} [:div {:cla..."
+          identity-of (fn [hint]
+                        (baseline/issue->identity :nested-interactive-element
+                                                  {:type :nested-interactive-element
+                                                   :kw :button
+                                                   :form wrapper
+                                                   :hint hint
+                                                   :file "src/views.cljs"
+                                                   :row 12
+                                                   :col 3}))]
+      (is (= {:rule :nested-interactive-element
+              :tag :button
+              :file "src/views.cljs"
+              :form wrapper
+              :hint ":a on line 18 is nested inside it."}
+             (identity-of ":a on line 18 is nested inside it."))
+          "a container rule adds the hint, which names the inner element")
+      (is (not= (identity-of ":a on line 18 is nested inside it.")
+                (identity-of ":button on line 24 is nested inside it."))
+          "two findings on wrappers truncating alike stay apart")))
 
   (testing "unknown rule throws"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown rule"
