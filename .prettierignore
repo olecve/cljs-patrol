@@ -1,0 +1,11 @@
+# Written by the release workflow, which prepends a section on every tag.
+# Reformatting it here would put the next bot commit immediately out of format.
+CHANGELOG.md
+
+# Fixture projects are deliberately malformed; the Clojure linters skip them too.
+test/projects/
+
+node_modules/
+target/
+out/
+.cpcache/

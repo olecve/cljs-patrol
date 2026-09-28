@@ -1,0 +1,12 @@
+{
+  "name": "cljs-patrol",
+  "private": true,
+  "description": "Markdown formatting for the cljs-patrol docs. The tool itself is Clojure; npm is here only for prettier.",
+  "scripts": {
+    "format": "prettier --write \"**/*.md\"",
+    "format:check": "prettier --check \"**/*.md\""
+  },
+  "devDependencies": {
+    "prettier": "3.9.9"
+  }
+}
