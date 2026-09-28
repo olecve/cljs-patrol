@@ -164,4 +164,5 @@
   ;; nothing is announced at all, so there is no repeated name
   (for [post posts]
     [:button {:aria-hidden true
+              :tab-index -1
               :aria-label "Remove post"} "x"]))

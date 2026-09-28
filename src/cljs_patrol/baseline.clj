@@ -37,6 +37,8 @@
     :invalid-tabindex
     :missing-accessible-name
     :on-click-on-non-interactive
+    :aria-hidden-focusable
+    :nested-interactive-element
     :redundant-into-hiccup})
 
 (def ^:private selector-keyed-rules
