@@ -106,3 +106,18 @@
 (defn bad-label-in-button [on-save]
   [:button {:on-click on-save}
    [:label "Name"]])
+
+(defn ok-conditional-props-map [dark? on-save]
+  ;; the branch yields a map, so it is props
+  [:button (when dark? {:class "dark"}) "Save"])
+
+(defn ok-markup-in-a-descendant-prop [on-save]
+  ;; the :tooltip vector is the span's to place, not the button's body
+  [:button {:on-click on-save}
+   [:span {:tooltip [:a {:href "/help"} "Help"]} "Save"]])
+
+(defn bad-conditional-first-child [open?]
+  [:button (when open? [:a {:href "/x"} "Open"]) "Save"])
+
+(defn bad-if-branches-first-child [compact? url]
+  [:button (if compact? [:a {:href url} "Open"] [:span "Open"]) "Save"])
