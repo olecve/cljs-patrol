@@ -87,35 +87,6 @@
           :list (function-body-locs argument)
           nil)))))
 
-(def ^:private tail-result-heads
-  "Forms whose value is the value of the last form written inside them."
-  #{"do" "let" "let*" "letfn" "when" "when-not" "when-let" "when-some" "when-first"
-    "binding" "with-let" "with-redefs"})
-
-(def ^:private branch-result-heads
-  "Forms whose value is the value of one of two branches, written after a test or bindings."
-  #{"if" "if-not" "if-let" "if-some"})
-
-(defn- result-locs
-  "Return the locs whose value can become the value of `loc`.
-  An element written in one of these positions is an element the mapping produces; one
-  written anywhere else — an argument, the target of a `with-meta` — is not, and asking
-  about it would read a key off the wrong element. A form this does not recognize
-  answers for itself, which is right for a call, a literal, or a symbol."
-  [loc]
-  (let [head-name (when (= :list (z/tag loc)) (some-> loc z/down parser/sym-name))
-        args (when head-name (locs-right (z/down loc)))
-        branches (cond
-                   (contains? tail-result-heads head-name) (take-last 1 args)
-                   (contains? branch-result-heads head-name) (take 2 (rest args))
-                   (= "cond" head-name) (take-nth 2 (rest args))
-                   (= "case" head-name) (let [clauses (rest args)]
-                                          (concat (take-nth 2 (rest clauses))
-                                                  (when (odd? (count clauses)) (take-last 1 clauses)))))]
-    (if (seq branches)
-      (mapcat result-locs branches)
-      [loc])))
-
 (defn- key-meta-map?
   "True when a literal map attaches a `:key`."
   [map-loc]
@@ -163,7 +134,7 @@
   sitting inside the vector would draw a missing-key warning."
   [loc]
   (boolean (when-let [bodies (seq (mapping-body-locs loc))]
-             (let [results (result-locs (last bodies))]
+             (let [results (hiccup/result-locs (last bodies))]
                (and (some attaches-key? results)
                     (not-any? unkeyed-element? results)
                     (not-any? #(first-in-subtree reactive-deref? %) bodies))))))

@@ -1009,9 +1009,23 @@
       (is (= ":button on line 140 is hidden with it and still takes focus."
              (:hint (first (filter #(= 139 (:row %)) in-hidden))))))
 
+    (testing "does not follow a hidden wrapper into what cannot take focus"
+      (is (not (contains? by-row 150))
+          "ok-hidden-wrapper-hidden-input — an input of type hidden renders nothing")
+      (is (not (contains? by-row 156))
+          "ok-hidden-wrapper-descendant-prop — the :tooltip button is the span's to place")
+      (is (not (contains? by-row 161))
+          "ok-hidden-wrapper-disabled-fieldset — the fieldset empties the tab order below it"))
+
+    (testing "stacked hidden wrappers report once, on the innermost"
+      (is (not (contains? by-row 167))
+          "ok-outer-of-stacked-hidden-wrappers — the outer defers")
+      (is (contains? by-row 168)
+          "the inner wrapper is the one that answers"))
+
     (testing "flags exactly the bad- cases"
-      (is (= 14 (count in-hidden))
-          "fourteen bad- cases in the fixture, no more"))))
+      (is (= 15 (count in-hidden))
+          "fifteen bad- cases in the fixture, no more"))))
 
 (deftest nested-interactive-element-fixture-test
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
@@ -1077,9 +1091,21 @@
       (is (contains? by-row 107)
           "bad-label-in-button"))
 
+    (testing "reads a call in the props slot by what it yields"
+      (is (contains? by-row 120)
+          "bad-conditional-first-child — (when open? [:a …]) yields the anchor, so it is body")
+      (is (contains? by-row 123)
+          "bad-if-branches-first-child — both arms are results")
+      (is (not (contains? by-row 112))
+          "ok-conditional-props-map — the branch yields a map, so it is props"))
+
+    (testing "does not search a descendant's props either"
+      (is (not (contains? by-row 116))
+          "ok-markup-in-a-descendant-prop — the :tooltip vector is the span's to place"))
+
     (testing "flags exactly the bad- cases"
-      (is (= 9 (count in-nesting))
-          "nine bad- cases in the fixture, no more"))))
+      (is (= 11 (count in-nesting))
+          "eleven bad- cases in the fixture, no more"))))
 
 (deftest name-required-container-role-fixture-test
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
