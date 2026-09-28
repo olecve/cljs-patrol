@@ -207,7 +207,7 @@
 (defn- handle-into
   "Emit a :redundant-into-hiccup finding when `loc` matches the anti-pattern."
   [loc _ns-info file]
-  (when (and (not (hiccup/inside-quoted-form? loc))
+  (when (and (not (hiccup/inside-unrendered-form? loc))
              (not (hiccup/inside-style-decl? loc))
              (not (hiccup/inside-ns-form? loc))
              (redundant-into? loc))

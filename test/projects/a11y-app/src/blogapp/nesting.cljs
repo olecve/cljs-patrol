@@ -76,3 +76,33 @@
   [:a {:href nil}
    "Draft"
    [:button {:on-click on-remove} "Remove"]])
+
+(defn ok-props-built-by-a-call [build on-save]
+  ;; the markup goes to the props the call builds, not to the button's body
+  [:button (build {:tooltip [:a {:href "/help"} "Help"]}) "Save"])
+
+(defn ok-discarded-child [on-save]
+  [:button {:on-click on-save}
+   #_[:a {:href "/x"} "gone"]
+   "Save"])
+
+(defn ok-hidden-input [on-save]
+  ;; an input of type hidden renders nothing and is not interactive content
+  [:button {:on-click on-save}
+   "Save"
+   [:input {:type "hidden"
+            :name "post-id"}]])
+
+(defn bad-input-in-button [on-save]
+  [:button {:on-click on-save}
+   "Save"
+   [:input {:type "text"}]])
+
+(defn bad-select-in-link [url]
+  [:a {:href url}
+   "Sort"
+   [:select [:option "Newest"]]])
+
+(defn bad-label-in-button [on-save]
+  [:button {:on-click on-save}
+   [:label "Name"]])

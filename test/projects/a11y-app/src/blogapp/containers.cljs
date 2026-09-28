@@ -62,3 +62,18 @@
   [:table {:role "grid"}
    []
    [:tbody]])
+
+(defn ok-caption-carrying-metadata []
+  [:table {:role "grid"}
+   ^{:key 1} [:caption "Quarterly stats"]
+   [:tbody]])
+
+(defn bad-caption-under-dialog []
+  ;; nothing but a <table> is named by a caption
+  [:div {:role "dialog"}
+   [:caption "Not a name for a dialog"]])
+
+(defn bad-empty-caption []
+  [:table {:role "grid"}
+   [:caption ""]
+   [:tbody]])

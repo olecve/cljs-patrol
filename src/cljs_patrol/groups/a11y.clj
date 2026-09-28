@@ -332,14 +332,17 @@
          "menuitemcheckbox" "menuitemradio" "textbox" "searchbox" "combobox"
          "slider" "spinbutton" "treeitem"]))
 
-(defn- attr-written?
-  "True when attrs give `k` a value that actually reaches the DOM.
-  Reagent omits an attribute whose value is nil or false, so `[:a {:href nil}]` renders
-  an `<a>` with no href and is not a link. A value that cannot be read is written: the
-  question here is whether the attribute is there, not what it says."
+(defn- written-value
+  "Return the value attrs give `k` when it reaches the DOM, or `::absent`.
+  Reagent omits an attribute whose value is nil or false, so both answer `::absent`:
+  `[:a {:href nil}]` renders an `<a>` with no href. A value that cannot be read is
+  written — the question is whether the attribute is there, not what it says."
   [attrs k]
   (let [v (literal-sexpr (get attrs k))]
-    (and (not= ::absent v) (some? v) (not (false? v)))))
+    (if (or (= ::absent v) (nil? v) (false? v)) ::absent v)))
+
+(defn- attr-written? [attrs k]
+  (not= ::absent (written-value attrs k)))
 
 (defn- tabindex-reading
   "Return how attrs place the element in the tab order.
@@ -348,39 +351,52 @@
   roving-tabindex idiom `:tab-index (if active? 0 -1)` is exactly that last case, and
   it is the escape hatch as often as it is not — so it is answered for neither way."
   [attrs]
-  (let [written (keep (fn [k]
-                        (let [v (literal-sexpr (get attrs k))]
-                          (when (and (not= ::absent v) (some? v)) v)))
-                      [:tab-index :tabIndex])]
+  (let [written (remove #{::absent} (map #(written-value attrs %) [:tab-index :tabIndex]))]
     (cond
       (empty? written) :none
       (not (every? integer? written)) :unknown
       (some neg? written) :removed
       :else :tab-stop)))
 
-(defn- disabled?
-  "True unless attrs leave the control enabled.
-  A disabled control is out of the tab order, so hiding it from assistive technology
-  breaks nothing — the same reasoning that makes a negative tabindex the escape hatch.
-  A value that cannot be read counts as disabled: it is the answer that reports less."
-  [attrs]
-  (let [v (literal-sexpr (get attrs :disabled))]
-    (and (not= ::absent v) (some? v) (not (false? v)))))
+(def ^:private disableable-tags
+  "Tags whose elements a `disabled` attribute really takes out of the tab order.
+  It is a form-control attribute: on a `:div` or an `:a` React renders it as a no-op and
+  the element keeps its tab stop, so reading it as a way out there would switch the rule
+  off on something that stays focusable."
+  #{:button :input :select :textarea :fieldset :optgroup :option})
+
+(defn- out-of-tab-order-when-disabled?
+  "True when a `disabled` attribute takes this element out of the tab order.
+  A value that cannot be read counts as disabled: that is the answer reporting less,
+  the same posture the tabindex reading takes."
+  [attrs tag]
+  (and (contains? disableable-tags tag) (attr-written? attrs :disabled)))
+
+(defn- focusable?
+  "True when the element can take focus.
+  Answered only from attrs that are absent or readable whole: a partial or computed map
+  may hold the negative tabindex or the `disabled` that is the way out, and calling one
+  missing from a partial view is what produces false reports."
+  [{:keys [kind attrs]} tag]
+  (let [readable (case kind
+                   :map attrs
+                   (:absent :non-map) {}
+                   nil)]
+    (boolean
+     (when (some? readable)
+       (let [tabindex (tabindex-reading readable)]
+         (and (not (out-of-tab-order-when-disabled? readable tag))
+              (contains? #{:none :tab-stop} tabindex)
+              (or (contains? focusable-tags tag)
+                  (and (= :a tag) (attr-written? readable :href))
+                  (contains? focusable-roles (literal-sexpr (get readable :role)))
+                  (= :tab-stop tabindex))))))))
 
 (defn- aria-hidden-focusable?
-  "True when an element hidden from assistive tech can still take focus.
-  Every way out has to be readable before one can be called missing, so a tabindex that
-  cannot be read, a `:disabled` that cannot be read, and an attrs map that is not a
-  whole literal all end the question rather than answer it."
-  [{:keys [kind attrs]} tag]
-  (when (and (= :map kind) (some? attrs) (aria-hidden? attrs) (not (disabled? attrs)))
-    (let [tabindex (tabindex-reading attrs)]
-      (and (contains? #{:none :tab-stop} tabindex)
-           (boolean
-            (or (contains? focusable-tags tag)
-                (and (= :a tag) (attr-written? attrs :href))
-                (contains? focusable-roles (literal-sexpr (get attrs :role)))
-                (= :tab-stop tabindex)))))))
+  "True when an element hidden from assistive tech can still take focus itself."
+  [{:keys [kind attrs]
+    :as info} tag]
+  (and (= :map kind) (some? attrs) (aria-hidden? attrs) (focusable? info tag)))
 
 (def ^:private accessible-name-required-tags
   "Native tags whose element has no intrinsic accessible name.
@@ -430,21 +446,38 @@
   (or (contains? name-required-roles (literal-sexpr (get attrs :role)))
       (true? (literal-sexpr (get attrs :aria-modal)))))
 
+(defn- body-locs
+  "Return the element's body children, the attrs slot dropped."
+  [vec-loc]
+  (let [attrs-loc (hiccup/attrs-slot vec-loc)
+        body-start (if attrs-loc (z/right attrs-loc) (some-> vec-loc z/down z/right))]
+    (take-while some? (iterate #(some-> % z/right) body-start))))
+
+(defn- announces-something?
+  "True when a `[:caption …]` carries anything to announce.
+  An empty caption names no more than `:aria-label \"\"` does, which `has-accessible-name?`
+  already rejects — the same emptiness has to be judged the same way in both places."
+  [caption-loc]
+  (boolean (some (fn [child]
+                   (not (and (literal-string-loc? child) (empty? (z/sexpr child)))))
+                 (body-locs caption-loc))))
+
 (defn- named-by-caption?
-  "True when the element holds a `[:caption …]` child.
+  "True when a `<table>` holds a `[:caption …]` child that announces something.
   HTML-AAM names a `<table>` from its caption element, so `[:table {:role \"grid\"}
-  [:caption \"Quarterly stats\"] …]` is named without an aria attribute. Only a direct
-  child counts: a caption belongs to the table it opens, and one further down names
-  whatever table is nested there instead. A child with no head at all — an empty vector,
-  a string, a call — reads as not a caption rather than ending the run."
-  [loc]
-  (let [attrs-loc (hiccup/attrs-slot loc)
-        body-start (if attrs-loc (z/right attrs-loc) (some-> loc z/down z/right))]
-    (loop [current body-start]
-      (cond
-        (nil? current) false
-        (= :caption (some-> current z/down parser/raw hiccup/parse-tag)) true
-        :else (recur (z/right current))))))
+  [:caption \"Quarterly stats\"] …]` is named without an aria attribute. Only a table:
+  nothing else HTML defines is named by a caption, so a `[:caption …]` under a `:role
+  \"dialog\"` div names nothing and must not end the check. Only a direct child, since a
+  caption belongs to the table it opens and one further down names a nested table. A
+  child with no head at all — an empty vector, a string, a call — reads as not a caption
+  rather than ending the run, and Reagent metadata on the caption is read through."
+  [loc tag]
+  (and (= :table tag)
+       (boolean (some (fn [child]
+                        (let [value (hiccup/unwrap-meta child)]
+                          (and (= :caption (some-> value z/down parser/raw hiccup/parse-tag))
+                               (announces-something? value))))
+                      (body-locs loc)))))
 
 (defn- missing-accessible-name? [{:keys [kind attrs]} tag loc]
   (cond
@@ -457,7 +490,7 @@
 
     (and (= kind :map) attrs (name-required-attrs? attrs))
     (and (not (has-accessible-name? attrs))
-         (not (named-by-caption? loc)))
+         (not (named-by-caption? loc tag)))
 
     :else nil))
 
@@ -596,61 +629,107 @@
         (or (hiccup/parse-tag head-str)
             (resolve-component-tag head-str ns-info component-aliases))))))
 
-(defn- interactive-element?
-  "True when the vector is a control the user can operate.
-  A link counts only once it has an `:href` that reaches the DOM: without one `<a>` is
-  neither interactive nor focusable. A `:role` of button or link counts too — ARIA says
-  the element then behaves as that control, and the nesting restriction follows the
-  behaviour rather than the tag."
-  [loc tag]
-  (let [{:keys [kind attrs]} (hiccup/attrs-info loc)
-        readable? (and (contains? attrs-readable-kinds kind) (some? attrs))]
+(def ^:private interactive-content-tags
+  "Tags HTML counts as interactive content.
+  This is the category the content model of `<button>` and `<a href>` bans inside them.
+  `:a` is absent because a link joins it only with an `:href`, and `:audio` / `:video`
+  because they join it only with `controls` — both are asked separately. `:img` with a
+  `usemap` is left out: the attribute is vanishingly rare and reading it wrong would
+  make every image inside a link a finding."
+  #{:button :input :select :textarea :details :embed :iframe :label})
+
+(defn- interactive-content?
+  "True when the element is interactive content HTML forbids inside a control.
+  An `:input` of type hidden renders nothing and is the one member of the tag set that
+  can opt out, so its type is read where it is written out."
+  [{:keys [kind attrs]} tag]
+  (let [readable? (and (contains? attrs-readable-kinds kind) (some? attrs))]
+    (or (and (contains? interactive-content-tags tag)
+             (not (and (= :input tag) readable? (= "hidden" (literal-sexpr (get attrs :type))))))
+        (and (= :a tag) readable? (attr-written? attrs :href))
+        (and readable? (interactive-via-role? attrs)))))
+
+(defn- interactive-container?
+  "True when the element is one that may not contain interactive content.
+  Only `<button>` and `<a href>` carry the restriction in HTML; ARIA extends it in
+  effect to anything claiming their roles, since assistive technology then has two
+  overlapping controls to announce and keyboard activation is ambiguous."
+  [{:keys [kind attrs]} tag]
+  (let [readable? (and (contains? attrs-readable-kinds kind) (some? attrs))]
     (or (= :button tag)
         (and (= :a tag) readable? (attr-written? attrs :href))
         (and readable? (interactive-via-role? attrs)))))
 
-(defn- quoted-between?
-  "True when a quoting form sits anywhere between `ancestor` and `loc`.
-  `hiccup/inside-quoted-form?` reads one level, which is all `handle-vector*` needs for
-  a vector quoted directly. A descendant deep inside `'[:div [:a …]]` has an ordinary
-  vector for a parent, so every level up to the element being reported has to be asked."
-  [ancestor loc]
-  (loop [current loc]
-    (cond
-      (or (nil? current) (identical? (z/node current) (z/node ancestor))) false
-      (hiccup/inside-quoted-form? current) true
-      :else (recur (z/up current)))))
+(defn- child-locs [loc]
+  (when-let [first-child (z/down loc)]
+    (take-while some? (iterate #(some-> % z/right) first-child))))
 
-(defn- interactive-loc? [loc ns-info component-aliases]
-  (and (= :vector (z/tag loc))
-       (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
-                  (interactive-element? loc tag)))))
+(defn- content-loc? [loc ns-info component-aliases]
+  (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
+             (interactive-content? (hiccup/attrs-info loc) tag))))
+
+(defn- names-unreadable-props?
+  "True when the element's second child may name props this cannot read.
+  `attrs-info` answers `:non-map` both for `[:button \"Save\"]`, which really carries no
+  attrs, and for `[:button props \"Save\"]`, where a symbol nothing in the file defines
+  may name a map holding the very way out being called missing."
+  [loc]
+  (let [second-child (some-> loc z/down z/right)]
+    (and (some? second-child)
+         (= :token (z/tag second-child))
+         (some? (parser/sym-name second-child))
+         (not= :map (:kind (hiccup/attrs-info loc))))))
+
+(defn- focusable-loc? [loc ns-info component-aliases]
+  (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
+             (and (not (names-unreadable-props? loc))
+                  (focusable? (hiccup/attrs-info loc) tag)))))
+
+(defn- first-matching-descendant
+  "Return the first vector among `locs` and their descendants satisfying pred, or nil.
+  A plain descent through children: a quoting or discarding node is not entered at all,
+  so nothing has to be re-climbed at each node to ask whether it still counts."
+  [pred locs]
+  (some (fn [child]
+          (when-not (hiccup/unrendered-form? child)
+            (if (and (= :vector (z/tag child)) (pred child))
+              child
+              (first-matching-descendant pred (child-locs child)))))
+        locs))
+
+(defn- hidden-focusable-descendant
+  "Return the first focusable element under an `:aria-hidden true` wrapper, or nil.
+  `aria-hidden` applies to the whole subtree, so a control inside a hidden wrapper is
+  hidden from assistive technology while keeping its place in the tab order — the same
+  defect as on the wrapper itself, and the more common way to write it. The props the
+  wrapper is handed are not searched, for the reason the nesting walk does not search
+  them: markup passed to an element is rendered wherever that element puts it."
+  [{:keys [kind attrs]} loc ns-info component-aliases]
+  (when (and (= :map kind) (some? attrs) (aria-hidden? attrs))
+    (first-matching-descendant #(focusable-loc? % ns-info component-aliases)
+                               (body-locs loc))))
 
 (defn- nested-interactive-loc
-  "Return the first interactive descendant in an interactive element's body, or nil.
-  The body is searched rather than the whole vector: a Hiccup vector handed to the
-  element as a prop — `[:button {:tooltip [:a …]} …]` — is markup the element passes on,
-  not markup nested inside it. Below that, the whole subtree counts, since a control
-  wrapped in positioning `:div`s or produced by a `for` is nested just the same; quoted
-  markup does not, being data rather than something that renders. A component whose
-  markup lives in another file stays invisible, as everywhere else.
+  "Return the first interactive element inside a control's body, or nil.
+  The body is searched rather than the whole vector: Hiccup handed to the element as a
+  prop — `[:button {:tooltip [:a …]} …]` — is markup the element passes on, not markup
+  nested inside it, and [[hiccup/props-slot]] answers for a props call the same way it
+  answers for a props map. Below the body the whole subtree counts, since a control
+  wrapped in positioning `:div`s or produced by a `for` is nested just the same.
   The walk stays on the file's own zipper — `z/subzip` restarts position tracking, and
   the hint names the line the nested control is written on."
-  [loc tag ns-info component-aliases]
-  (when (interactive-element? loc tag)
-    (let [attrs-loc (hiccup/attrs-slot loc)
-          body-start (if attrs-loc (z/right attrs-loc) (some-> loc z/down z/right))]
-      (loop [current body-start]
-        (cond
-          (or (nil? current) (z/end? current) (not (descendant-of? loc current))) nil
-          (and (interactive-loc? current ns-info component-aliases)
-               (not (quoted-between? loc current))) current
-          :else (recur (z/next current)))))))
+  [info loc tag ns-info component-aliases]
+  (when (interactive-container? info tag)
+    (let [slot (hiccup/props-slot loc)
+          body-start (if slot (z/right slot) (some-> loc z/down z/right))]
+      (first-matching-descendant #(content-loc? % ns-info component-aliases)
+                                 (take-while some? (iterate #(some-> % z/right) body-start))))))
 
-(defn- nested-interactive-hint [inner-loc ns-info component-aliases]
-  (let [row (parser/position-row inner-loc)
-        tag (vector-tag inner-loc ns-info component-aliases)]
-    (format "%s on line %d is nested inside it." (pr-str tag) row)))
+(defn- inner-element-hint [inner-loc ns-info component-aliases suffix]
+  (format "%s on line %d %s"
+          (pr-str (vector-tag inner-loc ns-info component-aliases))
+          (parser/position-row inner-loc)
+          suffix))
 
 (defn- control? [loc ns-info component-aliases]
   (and (= :vector (z/tag loc))
@@ -693,7 +772,7 @@
   per-item id there names the item however stale the `aria-label` beside it is, and
   `aria-hidden` removes the element from the tree altogether."
   [attrs]
-  (or (not= ::absent (literal-sexpr (get attrs :aria-labelledby)))
+  (or (attr-written? attrs :aria-labelledby)
       (aria-hidden? attrs)))
 
 (defn- repeated-accessible-name
@@ -724,14 +803,17 @@
   (let [first-child (z/down loc)]
     (when (and first-child
                (= :token (z/tag first-child))
-               (not (hiccup/inside-quoted-form? loc))
+               (not (hiccup/inside-unrendered-form? loc))
                (not (hiccup/inside-style-decl? loc))
                (not (hiccup/inside-ns-form? loc)))
       (when-let [tag (vector-tag loc ns-info component-aliases)]
         (let [info (hiccup/attrs-info loc)
               aria-live-conflict (contradicting-aria-live info)
               repeated-name (repeated-accessible-name info tag loc ns-info component-aliases)
-              nested-control (nested-interactive-loc loc tag ns-info component-aliases)
+              nested-control (nested-interactive-loc info loc tag ns-info component-aliases)
+              hidden-self? (aria-hidden-focusable? info tag)
+              hidden-descendant (when-not hidden-self?
+                                  (hidden-focusable-descendant info loc ns-info component-aliases))
               [row col] (try (z/position loc) (catch Exception _ [0 1]))
               base {:kw tag
                     :form (source-snippet loc)
@@ -754,13 +836,17 @@
                        (missing-accessible-name? info tag loc)
                        (conj (assoc base :type :missing-accessible-name))
 
-                       (aria-hidden-focusable? info tag)
-                       (conj (assoc base :type :aria-hidden-focusable))
+                       (or hidden-self? hidden-descendant)
+                       (conj (cond-> (assoc base :type :aria-hidden-focusable)
+                               hidden-descendant
+                               (assoc :hint (inner-element-hint hidden-descendant ns-info component-aliases
+                                                                "is hidden with it and still takes focus."))))
 
                        nested-control
                        (conj (assoc base
                                     :type :nested-interactive-element
-                                    :hint (nested-interactive-hint nested-control ns-info component-aliases)))
+                                    :hint (inner-element-hint nested-control ns-info component-aliases
+                                                              "is nested inside it.")))
 
                        repeated-name
                        (conj (assoc base
@@ -902,23 +988,28 @@
           "https://www.w3.org/WAI/WCAG21/Understanding/headings-and-labels")
      :aria-hidden-focusable
      (str "An element carries :aria-hidden true while keyboard or mouse focus can still "
-          "land on it. Assistive technology is told the element is not there, so a screen "
-          "reader announces nothing when focus arrives — the user lands on something "
-          "silent. Flagged on natively focusable tags (:button, :input, :textarea, "
+          "land on it — on the element itself, or on something inside it, since "
+          ":aria-hidden applies to the whole subtree and a hidden wrapper keeps every tab "
+          "stop under it. Assistive technology is told the element is not there, so a "
+          "screen reader announces nothing when focus arrives — the user lands on "
+          "something silent. Flagged on natively focusable tags (:button, :input, :textarea, "
           ":select, :details, :summary, and :a carrying an :href), on a widget :role "
           "(\"button\", \"link\", \"checkbox\", \"tab\", \"option\", \"menuitem\", "
           "\"switch\", ...), and on any element given a non-negative :tabIndex / "
           ":tab-index. If the element exists purely as a mouse affordance, take it out of "
           "the tab order with :tabIndex -1 and block mouse focus with an :on-mouse-down "
           "that calls .preventDefault — a negative literal tabindex is what stops this "
-          "being reported. Otherwise drop the :aria-hidden and give the element a name. "
+          "being reported, on the element itself or on the one inside it that the report "
+          "names. Otherwise drop the :aria-hidden and give the element a name. "
           "Note an attrs map that cannot be read whole is skipped — a computed map, or a "
           "built one such as (assoc props :aria-hidden true) whose base is opaque, since "
           "the escape hatch may sit in the part that cannot be read. A built map every "
           "part of which is readable states its whole key set and is treated as written "
           "out. A tabindex that cannot be read, such as the roving (if active? 0 -1), a "
-          ":disabled that cannot be read, and a disabled control all end the question "
-          "the same way. "
+          ":disabled that cannot be read, and a disabled form control all end the question "
+          "the same way — `disabled` only where it governs, since on a :div or an :a it "
+          "is inert and the tab stop survives it. A child whose own props cannot be read "
+          "is passed over for the same reason the element's would be. "
           "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
           "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")
      :nested-interactive-element
@@ -930,8 +1021,14 @@
           "assistive technology two overlapping controls to announce and leaves keyboard "
           "activation ambiguous. Restructure so the wrapper is a plain :div doing the "
           "positioning and the two controls are siblings, or drop the outer one. The "
-          "whole subtree is searched, so a control nested inside layout :divs or produced "
-          "by a `for` counts; markup living in another component does not. "
+          "element's body is searched, not the props it is handed: `[:button {:tooltip "
+          "[:a …]} …]` passes that markup on rather than rendering it there, and a props "
+          "map built by a call is read the same way. Below the body the whole subtree "
+          "counts, so a control under layout :divs or produced by a `for` is found; "
+          "quoted or discarded markup is not, and markup living in another component "
+          "stays invisible. Interactive content is the HTML category — :button, :input "
+          "that is not hidden, :select, :textarea, :label, :details, :embed, :iframe, "
+          "and :a carrying an :href — plus anything claiming a button or link role. "
           "See: HTML content model of <button> — "
           "https://html.spec.whatwg.org/multipage/form-elements.html#the-button-element")
      :aria-live-contradicts-role

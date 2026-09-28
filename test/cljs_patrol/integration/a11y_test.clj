@@ -848,9 +848,7 @@
             "ok-hidden-from-assistive-tech, nothing is announced at all"))
 
       (testing "flags exactly the bad- cases"
-        (is (not (contains? by-row 173))
-            "ok-hidden-string-spelling — :aria-hidden \"true\" removes it from the tree too")
-        (is (= #{8 15 22 31 56 85 114 116 124 146} (set (map :row in-lists)))
+        (is (= #{8 15 22 31 56 85 114 116 124 146 180} (set (map :row in-lists)))
             "every bad- case and nothing else"))))
 
   (testing "with :component-aliases config: wrapper calls also participate"
@@ -987,9 +985,33 @@
       (is (contains? by-row 104)
           "bad-complete-built-attrs — the call states its whole key set"))
 
+    (testing "reads a way out only where it is really a way out"
+      (is (contains? by-row 108)
+          "bad-disabled-non-form-tag — `disabled` is inert on a :div")
+      (is (contains? by-row 116)
+          "bad-disabled-anchor — and on an :a")
+      (is (contains? by-row 123)
+          "bad-tabindex-false — React drops a boolean from a numeric attribute"))
+
+    (testing "reads a hidden wrapper through to what it hides"
+      (is (contains? by-row 139)
+          "bad-hidden-wrapper — aria-hidden applies to the subtree, the button keeps its tab stop")
+      (is (contains? by-row 143)
+          "bad-hidden-wrapper-deep — the focusable element is two levels down")
+      (is (not (contains? by-row 128))
+          "ok-hidden-wrapper-child-removed — the child is out of the tab order")
+      (is (not (contains? by-row 134))
+          "ok-hidden-wrapper-opaque-child — the child's way out cannot be called missing")
+      (is (not (contains? by-row 9))
+          "ok-hidden-wrapper — nothing inside it can take focus"))
+
+    (testing "names the hidden element that still takes focus"
+      (is (= ":button on line 140 is hidden with it and still takes focus."
+             (:hint (first (filter #(= 139 (:row %)) in-hidden))))))
+
     (testing "flags exactly the bad- cases"
-      (is (= 9 (count in-hidden))
-          "nine bad- cases in the fixture, no more"))))
+      (is (= 14 (count in-hidden))
+          "fourteen bad- cases in the fixture, no more"))))
 
 (deftest nested-interactive-element-fixture-test
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
@@ -1039,9 +1061,25 @@
       (is (not (contains? by-row 76))
           "ok-nil-href-container — an :a whose :href is nil is not a container"))
 
+    (testing "reads props the element is handed, written out or built by a call"
+      (is (not (contains? by-row 82))
+          "ok-props-built-by-a-call — the markup goes to the props, not the body")
+      (is (not (contains? by-row 85))
+          "ok-discarded-child — #_ markup renders even less than quoted markup")
+      (is (not (contains? by-row 91))
+          "ok-hidden-input — an input of type hidden is not interactive content"))
+
+    (testing "covers the rest of the interactive-content category"
+      (is (contains? by-row 97)
+          "bad-input-in-button")
+      (is (contains? by-row 102)
+          "bad-select-in-link")
+      (is (contains? by-row 107)
+          "bad-label-in-button"))
+
     (testing "flags exactly the bad- cases"
-      (is (= 6 (count in-nesting))
-          "six bad- cases in the fixture, no more"))))
+      (is (= 9 (count in-nesting))
+          "nine bad- cases in the fixture, no more"))))
 
 (deftest name-required-container-role-fixture-test
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
@@ -1094,6 +1132,26 @@
       (is (contains? by-row 62)
           "bad-grid-empty-child — an empty [] child must not end the run"))
 
+    (testing "reads a caption the way an aria name is read"
+      (is (not (contains? by-row 67))
+          "ok-caption-carrying-metadata — Reagent metadata on the caption is read through")
+      (is (contains? by-row 73)
+          "bad-caption-under-dialog — nothing but a <table> is named by a caption")
+      (is (contains? by-row 77)
+          "bad-empty-caption — an empty caption names no more than :aria-label \"\" does"))
+
     (testing "flags exactly the bad- cases"
-      (is (= 7 (count in-containers))
-          "seven bad- cases in the fixture, no more"))))
+      (is (= 9 (count in-containers))
+          "nine bad- cases in the fixture, no more"))))
+
+(deftest unrendered-markup-fixture-test
+  (testing "nothing inside a quoted or discarded form is reported, at any depth"
+    (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+          result (first group-results)
+          in-unrendered (->> (vals result)
+                             (filter sequential?)
+                             (apply concat)
+                             (filter #(str/ends-with? (:file %) "unrendered.cljs")))]
+      (is (empty? in-unrendered)
+          (str "every rule skips markup that never reaches the DOM; reported: "
+               (pr-str (map (juxt :type :row) in-unrendered)))))))

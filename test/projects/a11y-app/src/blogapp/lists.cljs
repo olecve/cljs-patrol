@@ -173,3 +173,9 @@
     [:button {:aria-hidden "true"
               :tab-index -1
               :aria-label "Remove post"} "x"]))
+
+(defn bad-labelledby-nil [posts]
+  ;; Reagent omits the nil attribute, so nothing overrides the constant label
+  (for [post posts]
+    [:button {:aria-labelledby nil
+              :aria-label "Remove post"} "x"]))
