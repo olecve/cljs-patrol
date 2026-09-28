@@ -372,6 +372,11 @@
   [attrs tag]
   (and (contains? disableable-tags tag) (attr-written? attrs :disabled)))
 
+(defn- hidden-input?
+  "True when the element is an `<input type=\"hidden\">`, which renders nothing at all."
+  [attrs tag]
+  (and (= :input tag) (= "hidden" (literal-sexpr (get attrs :type)))))
+
 (defn- focusable?
   "True when the element can take focus.
   Answered only from attrs that are absent or readable whole: a partial or computed map
@@ -386,6 +391,7 @@
      (when (some? readable)
        (let [tabindex (tabindex-reading readable)]
          (and (not (out-of-tab-order-when-disabled? readable tag))
+              (not (hidden-input? readable tag))
               (contains? #{:none :tab-stop} tabindex)
               (or (contains? focusable-tags tag)
                   (and (= :a tag) (attr-written? readable :href))
@@ -447,11 +453,13 @@
       (true? (literal-sexpr (get attrs :aria-modal)))))
 
 (defn- body-locs
-  "Return the element's body children, the attrs slot dropped."
+  "Return the element's body children, the props slot dropped.
+  [[hiccup/props-slot]] rather than `attrs-slot`, so a props map built by a call is
+  dropped too: markup handed to an element is rendered wherever that element puts it."
   [vec-loc]
-  (let [attrs-loc (hiccup/attrs-slot vec-loc)
-        body-start (if attrs-loc (z/right attrs-loc) (some-> vec-loc z/down z/right))]
-    (take-while some? (iterate #(some-> % z/right) body-start))))
+  (let [slot (hiccup/props-slot vec-loc)
+        body-start (if slot (z/right slot) (some-> vec-loc z/down z/right))]
+    (hiccup/right-siblings (some-> body-start z/left))))
 
 (defn- announces-something?
   "True when a `[:caption …]` carries anything to announce.
@@ -685,17 +693,54 @@
              (and (not (names-unreadable-props? loc))
                   (focusable? (hiccup/attrs-info loc) tag)))))
 
+(defn- descend-locs
+  "Return what to search inside `loc`.
+  A Hiccup vector contributes its body: markup handed to an element as a prop is
+  rendered wherever that element puts it, not where the prop is written, and that holds
+  for a descendant exactly as it holds for the element being reported. Anything else
+  contributes its children."
+  [loc]
+  (if (= :vector (z/tag loc))
+    (body-locs loc)
+    (child-locs loc)))
+
 (defn- first-matching-descendant
-  "Return the first vector among `locs` and their descendants satisfying pred, or nil.
-  A plain descent through children: a quoting or discarding node is not entered at all,
-  so nothing has to be re-climbed at each node to ask whether it still counts."
-  [pred locs]
+  "Return the first vector among `locs` and their descendants satisfying `match?`, or nil.
+  A plain descent: a quoting or discarding node is not entered at all, nor is a branch
+  `prune?` rejects, so nothing has to be re-climbed at each node to ask whether it still
+  counts. `prune?` is asked before `match?`, since a branch that should answer for itself
+  should not answer here first."
+  [{:keys [match? prune?]
+    :as search} locs]
   (some (fn [child]
-          (when-not (hiccup/unrendered-form? child)
-            (if (and (= :vector (z/tag child)) (pred child))
+          (when-not (or (hiccup/unrendered-form? child)
+                        (and prune? (prune? child)))
+            (if (and (= :vector (z/tag child)) (match? child))
               child
-              (first-matching-descendant pred (child-locs child)))))
+              (first-matching-descendant search (descend-locs child)))))
         locs))
+
+(defn- readable-attrs
+  "Return the element's attrs when they can be read whole, or nil."
+  [loc]
+  (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
+    (when (= :map kind) attrs)))
+
+(defn- hidden-subtree?
+  "True when the element carries `:aria-hidden true` of its own.
+  The search stops there: that element runs the same search over its own subtree, and
+  reporting both would count nesting depth rather than defects."
+  [loc]
+  (boolean (some-> (readable-attrs loc) aria-hidden?)))
+
+(defn- disabled-fieldset?
+  "True when the element is a `<fieldset disabled>`.
+  A disabled fieldset takes every form control under it out of the tab order, so nothing
+  in that branch is focusable and hiding it from assistive technology breaks nothing."
+  [loc]
+  (boolean (when-let [attrs (readable-attrs loc)]
+             (and (= :fieldset (hiccup/parse-tag (parser/raw (z/down loc))))
+                  (attr-written? attrs :disabled)))))
 
 (defn- hidden-focusable-descendant
   "Return the first focusable element under an `:aria-hidden true` wrapper, or nil.
@@ -706,7 +751,8 @@
   them: markup passed to an element is rendered wherever that element puts it."
   [{:keys [kind attrs]} loc ns-info component-aliases]
   (when (and (= :map kind) (some? attrs) (aria-hidden? attrs))
-    (first-matching-descendant #(focusable-loc? % ns-info component-aliases)
+    (first-matching-descendant {:match? #(focusable-loc? % ns-info component-aliases)
+                                :prune? #(or (hidden-subtree? %) (disabled-fieldset? %))}
                                (body-locs loc))))
 
 (defn- nested-interactive-loc
@@ -722,8 +768,8 @@
   (when (interactive-container? info tag)
     (let [slot (hiccup/props-slot loc)
           body-start (if slot (z/right slot) (some-> loc z/down z/right))]
-      (first-matching-descendant #(content-loc? % ns-info component-aliases)
-                                 (take-while some? (iterate #(some-> % z/right) body-start))))))
+      (first-matching-descendant {:match? #(content-loc? % ns-info component-aliases)}
+                                 (hiccup/right-siblings (some-> body-start z/left))))))
 
 (defn- inner-element-marks
   "Return the display hint and the identity snippet for an element found inside another.

@@ -596,6 +596,49 @@
   [loc]
   (contains? unrendered-parent-tags (some-> loc z/tag)))
 
+(defn right-siblings
+  "Return the locs to the right of loc, loc itself excluded."
+  [loc]
+  (take-while some? (rest (iterate #(some-> % z/right) loc))))
+
+(def ^:private tail-result-heads
+  "Forms whose value is the value of the last form written inside them."
+  #{"do" "let" "let*" "letfn" "when" "when-not" "when-let" "when-some" "when-first"
+    "binding" "with-let" "with-redefs"})
+
+(def ^:private branch-result-heads
+  "Forms whose value is the value of one of two branches, written after a test or bindings."
+  #{"if" "if-not" "if-let" "if-some"})
+
+(defn result-locs
+  "Return the locs whose value can become the value of `loc`.
+  A form written in one of these positions is one the expression yields; one written
+  anywhere else — an argument, a map value, the target of a `with-meta` — is not, and
+  reading it as a result answers about the wrong form. A form this does not recognize
+  answers for itself, which is right for a call, a literal, or a symbol."
+  [loc]
+  (let [head-name (when (= :list (z/tag loc)) (some-> loc z/down parser/sym-name))
+        args (when head-name (right-siblings (z/down loc)))
+        branches (cond
+                   (contains? tail-result-heads head-name) (take-last 1 args)
+                   (contains? branch-result-heads head-name) (take 2 (rest args))
+                   (= "cond" head-name) (take-nth 2 (rest args))
+                   (= "case" head-name) (let [clauses (rest args)]
+                                          (concat (take-nth 2 (rest clauses))
+                                                  (when (odd? (count clauses)) (take-last 1 clauses)))))]
+    (if (seq branches)
+      (mapcat result-locs branches)
+      [loc])))
+
+(defn- yields-hiccup?
+  "True when the expression can yield a Hiccup vector rather than a value.
+  Only the positions whose value becomes the expression's own are read: a vector held as
+  an argument or a map value is data the call is given, not markup the call renders."
+  [loc]
+  (boolean (some #(and (= :vector (z/tag %))
+                       (= :token (some-> % z/down z/tag)))
+                 (result-locs loc))))
+
 (defn props-slot
   "Return the child occupying the element's props slot, readable or not.
   [[attrs-slot]] answers only for a slot attrs could be read out of, because its callers
@@ -606,13 +649,19 @@
 
   Only a call counts here. `attrs-info` also reads a quoted or metadata-wrapped second
   child as a dynamic attrs slot, and those are far more often a first body child than
-  they are props — the cost is that `[:button (when open? [:a …])]` reads as props, a
-  shape a props map written out would have settled."
+  they are props.
+
+  A call yielding Hiccup is a body child rather than props, and [[result-locs]] is what
+  tells the two apart: `(when open? [:a …])` yields that vector, while `(build {:tooltip
+  [:a …]})` yields whatever the call returns and holds its vector as a map value. Reagent
+  draws the same line at runtime — a second child that is not a map is a child."
   [vec-loc]
   (let [{:keys [kind slot]} (attrs-info vec-loc)
         second-child (some-> vec-loc z/down z/right)]
     (or slot
-        (when (and (= :dynamic kind) (= :list (some-> second-child z/tag)))
+        (when (and (= :dynamic kind)
+                   (= :list (some-> second-child z/tag))
+                   (not (yields-hiccup? second-child)))
           second-child))))
 
 (defn inside-unrendered-form?

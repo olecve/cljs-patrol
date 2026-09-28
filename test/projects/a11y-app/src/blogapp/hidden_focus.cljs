@@ -144,3 +144,26 @@
    [:div {:class "row"}
     [:span "text"]
     [:a {:href url} "Link"]]])
+
+(defn ok-hidden-wrapper-hidden-input []
+  ;; an input of type hidden renders nothing and can never take focus
+  [:div {:aria-hidden true}
+   [:input {:type "hidden"
+            :name "post-id"}]])
+
+(defn ok-hidden-wrapper-descendant-prop []
+  ;; the :tooltip button is the span's to place, not part of this subtree
+  [:div {:aria-hidden true}
+   [:span {:tooltip [:button "Help"]} "text"]])
+
+(defn ok-hidden-wrapper-disabled-fieldset [on-save]
+  ;; a disabled fieldset takes every control under it out of the tab order
+  [:div {:aria-hidden true}
+   [:fieldset {:disabled true}
+    [:button {:on-click on-save} "Save"]]])
+
+(defn ok-outer-of-stacked-hidden-wrappers [on-save]
+  ;; the inner wrapper answers for this subtree, so the outer does not report twice
+  [:div {:aria-hidden true}
+   [:section {:aria-hidden true}
+    [:button {:on-click on-save} "Save"]]])
