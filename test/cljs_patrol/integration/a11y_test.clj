@@ -920,3 +920,148 @@
     (testing "a parameter of the same name shadows the enclosing binding"
       (is (contains? by-row 147)
           "bad-parameter-shadows-let-bound-props, the fn parameter is what the body sees"))))
+
+(deftest aria-hidden-focusable-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        {:keys [aria-hidden-focusable]} (first group-results)
+        in-hidden (filter #(str/ends-with? (:file %) "hidden_focus.cljs") aria-hidden-focusable)
+        by-row (rows in-hidden)]
+
+    (testing "flags natively focusable tags hidden from assistive tech"
+      (is (contains? by-row 42)
+          "bad-hidden-button")
+      (is (contains? by-row 47)
+          "bad-hidden-link — an :a with :href is focusable")
+      (is (contains? by-row 52)
+          "bad-hidden-input")
+      (is (contains? by-row 56)
+          "bad-hidden-select"))
+
+    (testing "flags a widget role and an author-given tab stop"
+      (is (contains? by-row 60)
+          "bad-hidden-role-widget — :role \"switch\"")
+      (is (contains? by-row 67)
+          "bad-hidden-tabbable-div — :tab-index 0 puts it in the tab order"))
+
+    (testing "reads every spelling Reagent sends to the DOM as aria-hidden=\"true\""
+      (is (contains? by-row 72)
+          "bad-hidden-string-true")
+      (is (contains? by-row 75)
+          "bad-hidden-keyword-true"))
+
+    (testing "a negative tabindex is the escape hatch"
+      (is (not (contains? by-row 14))
+          "ok-mouse-only-affordance — :tab-index -1 plus a preventDefault on mouse down")
+      (is (not (contains? by-row 21))
+          "ok-camel-case-escape-hatch — :tabIndex spelling counts too"))
+
+    (testing "leaves elements nothing can focus alone"
+      (is (not (contains? by-row 5))
+          "ok-decorative-icon — an :svg with no role and no tab stop")
+      (is (not (contains? by-row 9))
+          "ok-hidden-wrapper — a plain :div")
+      (is (not (contains? by-row 39))
+          "ok-link-without-href — an :a with no :href is not focusable"))
+
+    (testing "leaves values it cannot read alone"
+      (is (not (contains? by-row 27))
+          "ok-aria-hidden-false")
+      (is (not (contains? by-row 31))
+          "ok-computed-aria-hidden — the value is a symbol")
+      (is (not (contains? by-row 35))
+          "ok-built-attrs — a negative tabindex may sit in the unreadable part"))
+
+    (testing "flags exactly the bad- cases"
+      (is (= 8 (count in-hidden))
+          "eight bad- cases in the fixture, no more"))))
+
+(deftest nested-interactive-element-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        {:keys [nested-interactive-element]} (first group-results)
+        in-nesting (filter #(str/ends-with? (:file %) "nesting.cljs") nested-interactive-element)
+        by-row (rows in-nesting)]
+
+    (testing "flags what the HTML content model forbids"
+      (is (contains? by-row 29)
+          "bad-button-in-button")
+      (is (contains? by-row 41)
+          "bad-link-in-link")
+      (is (contains? by-row 46)
+          "bad-button-in-link"))
+
+    (testing "finds a control nested below layout markup or built by a for"
+      (is (contains? by-row 34)
+          "bad-button-under-layout-divs — two :divs and a for in between"))
+
+    (testing "flags the ARIA form of the same mistake"
+      (is (contains? by-row 51)
+          "bad-role-button-wrapper — :role \"button\" holding real buttons")
+      (is (contains? by-row 58)
+          "bad-role-link-inside-button — :role \"link\" nested in a :button"))
+
+    (testing "names the nested control and the line it sits on"
+      (is (= ":button on line 31 is nested inside it."
+             (:hint (first (filter #(= 29 (:row %)) in-nesting))))))
+
+    (testing "leaves correct structures alone"
+      (is (not (contains? by-row 5))
+          "ok-siblings-in-wrapper — the controls are siblings, not nested")
+      (is (not (contains? by-row 10))
+          "ok-button-with-icon-markup — a :span is not a control")
+      (is (not (contains? by-row 16))
+          "ok-anchor-without-href — an :a with no :href is not interactive")
+      (is (not (contains? by-row 20))
+          "ok-presentational-role-wrapper — :role \"presentation\" confers nothing")
+      (is (not (contains? by-row 25))
+          "ok-computed-wrapper-attrs — the wrapper's role cannot be read"))
+
+    (testing "flags exactly the bad- cases"
+      (is (= 6 (count in-nesting))
+          "six bad- cases in the fixture, no more"))))
+
+(deftest name-required-container-role-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        {:keys [missing-accessible-name]} (first group-results)
+        in-containers (filter #(str/ends-with? (:file %) "containers.cljs")
+                              missing-accessible-name)
+        by-row (rows in-containers)]
+
+    (testing "flags the container roles WAI-ARIA marks name-required"
+      (is (contains? by-row 34)
+          "bad-listbox-unnamed")
+      (is (contains? by-row 39)
+          "bad-grid-unnamed")
+      (is (contains? by-row 42)
+          "bad-tree-unnamed")
+      (is (contains? by-row 45)
+          "bad-alertdialog-unnamed"))
+
+    (testing "reads the keyword spelling and an empty name"
+      (is (contains? by-row 48)
+          "bad-listbox-keyword-spelling")
+      (is (contains? by-row 51)
+          "bad-listbox-empty-label"))
+
+    (testing "leaves named containers alone"
+      (is (not (contains? by-row 4))
+          "ok-listbox-with-label")
+      (is (not (contains? by-row 10))
+          "ok-grid-with-labelledby")
+      (is (not (contains? by-row 14))
+          "ok-tree-with-title")
+      (is (not (contains? by-row 18))
+          "ok-alertdialog-with-label"))
+
+    (testing "leaves roles the spec does not require a name on alone"
+      (is (not (contains? by-row 23))
+          "ok-tablist-unnamed")
+      (is (not (contains? by-row 27))
+          "ok-menu-unnamed"))
+
+    (testing "leaves a non-literal role alone"
+      (is (not (contains? by-row 31))
+          "ok-dynamic-container-role"))
+
+    (testing "flags exactly the bad- cases"
+      (is (= 6 (count in-containers))
+          "six bad- cases in the fixture, no more"))))

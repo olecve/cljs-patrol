@@ -303,6 +303,58 @@
         (and (not (meaningful-text-name? attrs))
              (not (stateful-widget? attrs)))))))
 
+(def ^:private aria-hidden-true-values
+  "Values that take an element out of the accessibility tree.
+  Reagent stringifies keyword attribute values, so all three spellings reach the DOM
+  as `aria-hidden=\"true\"`."
+  #{true "true" :true})
+
+(defn- aria-hidden? [attrs]
+  (contains? aria-hidden-true-values (literal-sexpr (get attrs :aria-hidden))))
+
+(def ^:private focusable-tags
+  "Tags the browser puts in the tab order with no authoring at all.
+  `:a` is absent because a link earns its place there only once it has an `:href`,
+  which is checked separately. `:details` is present for the `:summary` it always
+  renders, which is the focusable part of a disclosure."
+  #{:button :input :textarea :select :details :summary})
+
+(def ^:private focusable-roles
+  "Widget roles claiming an element the user can reach and operate.
+  A role does not by itself put an element in the tab order, but claiming one and then
+  hiding the element from assistive technology is the same contradiction either way:
+  the role is an announcement nobody can hear. Non-widget roles are left out — `img`
+  especially, since a decorative icon written `[:svg {:aria-hidden true}]` is correct
+  markup and the existing missing-accessible-name rule already asks for the role to go."
+  (into #{}
+        (mapcat (juxt identity keyword))
+        ["button" "link" "checkbox" "radio" "switch" "tab" "option" "menuitem"
+         "menuitemcheckbox" "menuitemradio" "textbox" "searchbox" "combobox"
+         "slider" "spinbutton" "treeitem"]))
+
+(defn- literal-tabindex
+  "Return the literal tabindex integer attrs carry, or nil when absent or computed."
+  [attrs]
+  (some (fn [k]
+          (let [v (literal-sexpr (get attrs k))]
+            (when (integer? v) v)))
+        [:tab-index :tabIndex]))
+
+(defn- aria-hidden-focusable?
+  "True when an element hidden from assistive tech can still take focus.
+  A negative tabindex is the escape hatch: it takes the element out of the tab order,
+  which is what makes a mouse-only affordance safe to hide. Its absence has to be
+  readable to claim one is missing, so only a whole literal attrs map is answered for."
+  [{:keys [kind attrs]} tag]
+  (when (and (= :map kind) (some? attrs) (aria-hidden? attrs))
+    (let [tabindex (literal-tabindex attrs)]
+      (and (not (and tabindex (neg? tabindex)))
+           (boolean
+            (or (contains? focusable-tags tag)
+                (and (= :a tag) (not= ::absent (literal-sexpr (get attrs :href))))
+                (contains? focusable-roles (literal-sexpr (get attrs :role)))
+                (and tabindex (not (neg? tabindex)))))))))
+
 (def ^:private accessible-name-required-tags
   "Native tags whose element has no intrinsic accessible name.
   A visible `<label>` associated by id, `:aria-label`, or `:aria-labelledby` is
@@ -317,12 +369,18 @@
   #{:aria-label :aria-labelledby :title})
 
 (def ^:private name-required-roles
-  "Roles that WAI-ARIA requires to carry an accessible name of their own.
-  `img` opts an element into the accessibility tree with nothing to announce, and
-  `dialog` needs a name to be identifiable once focus moves into it. The name has to
-  sit on the element itself, so a purely local check is correct for both. Reagent
-  stringifies keyword attribute values at runtime, so both spellings count."
-  #{"dialog" :dialog "img" :img})
+  "Roles WAI-ARIA marks \"Accessible Name Required: True\".
+  `img` opts an element into the accessibility tree with nothing to announce; `dialog`
+  and `alertdialog` need a name to stay identifiable once focus moves into them; and
+  `listbox`, `grid` and `tree` are containers a screen reader announces on entry, with
+  nothing but the name to say which one the user has landed in. `tablist`, `menu` and
+  `menubar` are left out on purpose: a name helps there too, but the spec marks them
+  name-not-required and this rule reports only what it can call a violation. The name
+  has to sit on the element itself, so a purely local check is correct for all of them.
+  Reagent stringifies keyword attribute values at runtime, so both spellings count."
+  (into #{}
+        (mapcat (juxt identity keyword))
+        ["dialog" "alertdialog" "img" "listbox" "grid" "tree"]))
 
 (defn- has-accessible-name? [attrs]
   (some (fn [k]
@@ -493,6 +551,44 @@
         (or (hiccup/parse-tag head-str)
             (resolve-component-tag head-str ns-info component-aliases))))))
 
+(defn- interactive-element?
+  "True when the vector is a control the user can operate.
+  A link counts only once it has an `:href`: without one `<a>` is neither interactive
+  nor focusable. A `:role` of button or link counts too — ARIA says the element then
+  behaves as that control, and the nesting restriction follows the behaviour rather
+  than the tag."
+  [loc tag]
+  (let [{:keys [kind attrs]} (hiccup/attrs-info loc)
+        readable? (and (contains? attrs-readable-kinds kind) (some? attrs))]
+    (or (= :button tag)
+        (and (= :a tag) readable? (not= ::absent (literal-sexpr (get attrs :href))))
+        (and readable? (interactive-via-role? attrs)))))
+
+(defn- interactive-loc? [loc ns-info component-aliases]
+  (and (= :vector (z/tag loc))
+       (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
+                  (interactive-element? loc tag)))))
+
+(defn- nested-interactive-loc
+  "Return the first interactive descendant of an interactive element, or nil.
+  The whole subtree is searched rather than the direct children, since a control
+  wrapped in positioning `:div`s or produced by a `for` is nested just the same. A
+  component whose markup lives in another file stays invisible, as everywhere else.
+  The walk stays on the file's own zipper — `z/subzip` restarts position tracking, and
+  the hint names the line the nested control is written on."
+  [loc tag ns-info component-aliases]
+  (when (interactive-element? loc tag)
+    (loop [current (z/next loc)]
+      (cond
+        (or (nil? current) (z/end? current) (not (descendant-of? loc current))) nil
+        (interactive-loc? current ns-info component-aliases) current
+        :else (recur (z/next current))))))
+
+(defn- nested-interactive-hint [inner-loc ns-info component-aliases]
+  (let [row (parser/position-row inner-loc)
+        tag (vector-tag inner-loc ns-info component-aliases)]
+    (format "%s on line %d is nested inside it." (pr-str tag) row)))
+
 (defn- control? [loc ns-info component-aliases]
   (and (= :vector (z/tag loc))
        (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
@@ -572,6 +668,7 @@
         (let [info (hiccup/attrs-info loc)
               aria-live-conflict (contradicting-aria-live info)
               repeated-name (repeated-accessible-name info tag loc ns-info component-aliases)
+              nested-control (nested-interactive-loc loc tag ns-info component-aliases)
               [row col] (try (z/position loc) (catch Exception _ [0 1]))
               base {:kw tag
                     :form (source-snippet loc)
@@ -593,6 +690,14 @@
 
                        (missing-accessible-name? info tag)
                        (conj (assoc base :type :missing-accessible-name))
+
+                       (aria-hidden-focusable? info tag)
+                       (conj (assoc base :type :aria-hidden-focusable))
+
+                       nested-control
+                       (conj (assoc base
+                                    :type :nested-interactive-element
+                                    :hint (nested-interactive-hint nested-control ns-info component-aliases)))
 
                        repeated-name
                        (conj (assoc base
@@ -619,30 +724,38 @@
      :on-click-on-non-interactive (vec (:on-click-on-non-interactive by-type))
      :empty-interactive-element (vec (:empty-interactive-element by-type))
      :missing-accessible-name (vec (:missing-accessible-name by-type))
+     :aria-hidden-focusable (vec (:aria-hidden-focusable by-type))
+     :nested-interactive-element (vec (:nested-interactive-element by-type))
      :repeated-accessible-name (vec (:repeated-accessible-name by-type))
      :aria-live-contradicts-role (vec (:aria-live-contradicts-role by-type))}))
 
 (defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
                                empty-interactive-element missing-accessible-name
-                               repeated-accessible-name aria-live-contradicts-role]}]
+                               repeated-accessible-name aria-live-contradicts-role
+                               aria-hidden-focusable nested-interactive-element]}]
   [["Img missing alt:" (count img-alt-missing)]
    ["Invalid tabindex:" (count invalid-tabindex)]
    ["Onclick on non-interactive:" (count on-click-on-non-interactive)]
    ["Empty interactive element:" (count empty-interactive-element)]
    ["Missing accessible name:" (count missing-accessible-name)]
    ["Repeated accessible name:" (count repeated-accessible-name)]
-   ["Aria-live contradicts role:" (count aria-live-contradicts-role)]])
+   ["Aria-live contradicts role:" (count aria-live-contradicts-role)]
+   ["Aria-hidden focusable:" (count aria-hidden-focusable)]
+   ["Nested interactive element:" (count nested-interactive-element)]])
 
 (defn- failed?* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
                          empty-interactive-element missing-accessible-name
-                         repeated-accessible-name aria-live-contradicts-role]}]
+                         repeated-accessible-name aria-live-contradicts-role
+                         aria-hidden-focusable nested-interactive-element]}]
   (or (seq img-alt-missing)
       (seq invalid-tabindex)
       (seq on-click-on-non-interactive)
       (seq empty-interactive-element)
       (seq missing-accessible-name)
       (seq repeated-accessible-name)
-      (seq aria-live-contradicts-role)))
+      (seq aria-live-contradicts-role)
+      (seq aria-hidden-focusable)
+      (seq nested-interactive-element)))
 
 (defrecord A11yGroup [component-aliases]
   group/RuleGroup
@@ -689,8 +802,13 @@
           "announce these as the element's name). :placeholder is a hint, not "
           "a name — it disappears when the user types and is not universally "
           "announced. Triggered by native form controls (`[:textarea …]`), "
-          "modal-dialog shapes (`[:div {:role \"dialog\"}]`, `:aria-modal true`, "
-          "or `[:dialog …]`), `:role \"img\"` — which opts an element into the "
+          "modal-dialog shapes (`[:div {:role \"dialog\"}]`, `:role \"alertdialog\"`, "
+          "`:aria-modal true`, or `[:dialog …]`), the container roles WAI-ARIA marks "
+          "name-required — `:role \"listbox\"`, `\"grid\"`, `\"tree\"`, which a screen "
+          "reader announces on entry with nothing but the name to say which container "
+          "the user has landed in (`\"tablist\"`, `\"menu\"` and `\"menubar\"` are not "
+          "flagged: a name helps there too, but the spec does not require one), "
+          "`:role \"img\"` — which opts an element into the "
           "accessibility tree and then leaves a screen reader nothing to announce, "
           "so a decorative icon wants `:aria-hidden true` instead of a role — "
           "and any wrapper listed under `:a11y "
@@ -719,6 +837,35 @@
           "surroundings, which an authored :aria-label overrides. "
           "See: WCAG 2.1 SC 2.4.6 Headings and Labels — "
           "https://www.w3.org/WAI/WCAG21/Understanding/headings-and-labels")
+     :aria-hidden-focusable
+     (str "An element carries :aria-hidden true while keyboard or mouse focus can still "
+          "land on it. Assistive technology is told the element is not there, so a screen "
+          "reader announces nothing when focus arrives — the user lands on something "
+          "silent. Flagged on natively focusable tags (:button, :input, :textarea, "
+          ":select, :details, :summary, and :a carrying an :href), on a widget :role "
+          "(\"button\", \"link\", \"checkbox\", \"tab\", \"option\", \"menuitem\", "
+          "\"switch\", ...), and on any element given a non-negative :tabIndex / "
+          ":tab-index. If the element exists purely as a mouse affordance, take it out of "
+          "the tab order with :tabIndex -1 and block mouse focus with an :on-mouse-down "
+          "that calls .preventDefault — a negative literal tabindex is what stops this "
+          "being reported. Otherwise drop the :aria-hidden and give the element a name. "
+          "Note a computed or built attrs map is skipped: a negative tabindex may be in "
+          "the part that cannot be read. "
+          "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
+          "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")
+     :nested-interactive-element
+     (str "An interactive element contains another one. The HTML content model bans "
+          "interactive content inside <button> and inside <a href>, React logs a "
+          "validateDOMNesting warning for it, and browsers recover by restructuring the "
+          "markup in ways that differ between them. The ARIA form of the same mistake — "
+          ":role \"button\" or :role \"link\" on a wrapper holding real controls — gives "
+          "assistive technology two overlapping controls to announce and leaves keyboard "
+          "activation ambiguous. Restructure so the wrapper is a plain :div doing the "
+          "positioning and the two controls are siblings, or drop the outer one. The "
+          "whole subtree is searched, so a control nested inside layout :divs or produced "
+          "by a `for` counts; markup living in another component does not. "
+          "See: HTML content model of <button> — "
+          "https://html.spec.whatwg.org/multipage/form-elements.html#the-button-element")
      :aria-live-contradicts-role
      (str "An element sets :aria-live to a different politeness than its :role "
           "implies, and the attribute wins: browsers read :aria-live first and fall "
@@ -738,7 +885,9 @@
      :empty-interactive-element :bugs
      :missing-accessible-name :bugs
      :repeated-accessible-name :bugs
-     :aria-live-contradicts-role :bugs})
+     :aria-live-contradicts-role :bugs
+     :aria-hidden-focusable :bugs
+     :nested-interactive-element :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (defn make-group

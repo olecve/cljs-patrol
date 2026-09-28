@@ -148,8 +148,10 @@
                                     :empty-interactive-element [(empty-interactive-finding 6)]
                                     :missing-accessible-name []
                                     :repeated-accessible-name [(repeated-name-finding 7)]
-                                    :aria-live-contradicts-role [(contradicting-aria-live-finding 8)]})]
-    (is (= 7 (count lines)))
+                                    :aria-live-contradicts-role [(contradicting-aria-live-finding 8)]
+                                    :aria-hidden-focusable []
+                                    :nested-interactive-element []})]
+    (is (= 9 (count lines)))
     (is (= 2 (second (first lines))))
     (is (= 1 (second (second lines))))
     (is (= 2 (second (nth lines 2))))
