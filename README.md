@@ -1,6 +1,10 @@
 # cljs-patrol
 
-Static analysis tool for ClojureScript UI codebases. Detects unused and phantom re-frame subscriptions and events, silently-broken Spade CSS (pseudo-selectors misplaced inside the main map, comma-vs-descendant selector confusion), accessibility issues in Hiccup (missing image alt text, invalid tabindex, click handlers on non-interactive tags, empty interactive elements, form controls without an accessible name), unused Spade CSS styles, and bbatsov docstring style-guide violations.
+Static analysis tool for ClojureScript UI codebases. Detects unused and phantom re-frame subscriptions and events,
+silently-broken Spade CSS (pseudo-selectors misplaced inside the main map, comma-vs-descendant selector confusion),
+accessibility issues in Hiccup (missing image alt text, invalid tabindex, click handlers on non-interactive tags, empty
+interactive elements, form controls without an accessible name), unused Spade CSS styles, and bbatsov docstring
+style-guide violations.
 
 ## Usage
 
@@ -15,7 +19,9 @@ Example:
 clojure -M:run src/cljs/myapp
 ```
 
-By default, exits with code `1` when any blocking issue is found, making it suitable for CI pipelines. The set of blocking issues can be narrowed with [`--fail-on`](#severity-tiers) and existing issues can be ignored with [`--baseline`](#baseline).
+By default, exits with code `1` when any blocking issue is found, making it suitable for CI pipelines. The set of
+blocking issues can be narrowed with [`--fail-on`](#severity-tiers) and existing issues can be ignored with
+[`--baseline`](#baseline).
 
 ### Standalone jar
 
@@ -26,19 +32,27 @@ curl -sL https://github.com/olecve/cljs-patrol/releases/download/v0.0.13/cljs-pa
 java -jar cljs-patrol.jar <source-dir>
 ```
 
-Native binaries (`cljs-patrol-<version>-linux-x86_64`, `cljs-patrol-<version>-macos-aarch64`) are attached to each release too — no JVM required.
+Native binaries (`cljs-patrol-<version>-linux-x86_64`, `cljs-patrol-<version>-macos-aarch64`) are attached to each
+release too — no JVM required.
 
 ## Rule groups
 
 Analysis is split into independent rule groups. By default all groups run.
 
 - **`re-frame`** — unused/phantom re-frame subscriptions and events
-- **`spade`** — unused Spade style declarations, defattrs in merge, pseudo-selector keys inside the main style map, consecutive self-selectors that compile to descendant selectors, `&` away from the front of a string selector, combinators written as keywords
-- **`reagent`** — defclass used as sole attr (should be defattrs); a redundant `(into [:tag …] (map …))` around a mapping body that already keys its elements
+- **`spade`** — unused Spade style declarations, defattrs in merge, pseudo-selector keys inside the main style map,
+  consecutive self-selectors that compile to descendant selectors, `&` away from the front of a string selector,
+  combinators written as keywords
+- **`reagent`** — defclass used as sole attr (should be defattrs); a redundant `(into [:tag …] (map …))` around a
+  mapping body that already keys its elements
 - **`typography`** — mixed Figma typography token groups in a single style
-- **`a11y`** — accessibility issues in Hiccup: `:img` missing `:alt`, invalid `:tabIndex`, `:on-click` on non-interactive tags, empty interactive elements without an accessible name, form controls and name-required roles missing an accessible name, one constant name shared by every item of a repeated list, `aria-hidden` on something that can still take focus, one interactive element nested inside another
+- **`a11y`** — accessibility issues in Hiccup: `:img` missing `:alt`, invalid `:tabIndex`, `:on-click` on
+  non-interactive tags, empty interactive elements without an accessible name, form controls and name-required roles
+  missing an accessible name, one constant name shared by every item of a repeated list, `aria-hidden` on something that
+  can still take focus, one interactive element nested inside another
 - **`docstrings`** — bbatsov style-guide violations on every def (summary, indent, whitespace)
-- **`css-order`** — Spade style maps whose properties run out of the [property order](#property-order-tables) the chosen stylelint config defines
+- **`css-order`** — Spade style maps whose properties run out of the [property order](#property-order-tables) the chosen
+  stylelint config defines
 
 Run only specific groups:
 
@@ -61,9 +75,8 @@ Generate a self-contained HTML report instead of console output:
 clojure -M:run --output html src/cljs/myapp
 ```
 
-Writes `report.html` in the current directory and prints the summary counts to stdout.
-File entries in the report are clickable VS Code links (`vscode://file/...`) that open the file at the exact line.
-Combinable with other flags:
+Writes `report.html` in the current directory and prints the summary counts to stdout. File entries in the report are
+clickable VS Code links (`vscode://file/...`) that open the file at the exact line. Combinable with other flags:
 
 ```bash
 clojure -M:run --only re-frame --output html src/cljs/myapp
@@ -76,51 +89,155 @@ clojure -M:run --only re-frame --output html src/cljs/myapp
 - **Unused styles** — declared with `defclass`/`defattrs` but never called
 - **Phantom subscriptions** — subscribed to but never declared
 - **Phantom events** — dispatched but never declared
-- **Duplicate registrations** — two `reg-sub` or `reg-event-*` calls with the same keyword (second silently overwrites the first)
-- **reg-event-db returning effects** — `reg-event-db` handler returns an effects-style `{:db ... :dispatch ...}` map; the whole map silently replaces app-db and extra effects are dropped (use `reg-event-fx` instead)
+- **Duplicate registrations** — two `reg-sub` or `reg-event-*` calls with the same keyword (second silently overwrites
+  the first)
+- **reg-event-db returning effects** — `reg-event-db` handler returns an effects-style `{:db ... :dispatch ...}` map;
+  the whole map silently replaces app-db and extra effects are dropped (use `reg-event-fx` instead)
 - **Deprecated effects** — use of `:dispatch-n` (replaced by `:fx`)
-- **defclass as sole attr** — `defclass` where every usage is `{:class (style-fn)}` with no other props; should be `defattrs` instead
-- **Redundant into-hiccup** — `(into [:tag …] (map …))` or `(into [component …] (for …))` where the mapping body already attaches a `:key` to each element it produces. React then has the keys it needs without the `into` splicing the elements in as positional children, so the sequence can sit inside the Hiccup vector: `[:<> (for [x xs] ^{:key x} [item x])]`. A key counts in any of its three live forms — reader metadata `^{:key k}`, an explicit `(with-meta … {:key k})`, and `:key` in the props map of an element the body writes out. Three shapes are left alone on purpose:
-  - **A keyless sequence** — `(into [:<>] (map render) nodes)`. There the `into` is load-bearing: it splices the elements in as positional children, which React accepts, where the same sequence inside the vector draws a missing-key warning
-  - **A vector that is not Hiccup** — the head keyword has to name an HTML/SVG element or the `:<>` fragment. `(into [:enum] sections)` is a Malli schema, `(into [:cart] ks)` a re-frame db path; `:map` is excluded from the tag set, since `[:map {:closed true} …]` is a schema far more often than it is the HTML `<map>` element
-  - **A body that derefs** — `(into [:span] (map-indexed (fn [i seg] … @state …) segs))`. Reagent's caveat is a ratom deref inside a lazy seq, and the eager `into` is what keeps it out of one
+- **defclass as sole attr** — `defclass` where every usage is `{:class (style-fn)}` with no other props; should be
+  `defattrs` instead
+- **Redundant into-hiccup** — `(into [:tag …] (map …))` or `(into [component …] (for …))` where the mapping body already
+  attaches a `:key` to each element it produces. React then has the keys it needs without the `into` splicing the
+  elements in as positional children, so the sequence can sit inside the Hiccup vector:
+  `[:<> (for [x xs] ^{:key x} [item x])]`. A key counts in any of its three live forms — reader metadata `^{:key k}`, an
+  explicit `(with-meta … {:key k})`, and `:key` in the props map of an element the body writes out. Three shapes are
+  left alone on purpose:
+  - **A keyless sequence** — `(into [:<>] (map render) nodes)`. There the `into` is load-bearing: it splices the
+    elements in as positional children, which React accepts, where the same sequence inside the vector draws a
+    missing-key warning
+  - **A vector that is not Hiccup** — the head keyword has to name an HTML/SVG element or the `:<>` fragment.
+    `(into [:enum] sections)` is a Malli schema, `(into [:cart] ks)` a re-frame db path; `:map` is excluded from the tag
+    set, since `[:map {:closed true} …]` is a schema far more often than it is the HTML `<map>` element
+  - **A body that derefs** — `(into [:span] (map-indexed (fn [i seg] … @state …) segs))`. Reagent's caveat is a ratom
+    deref inside a lazy seq, and the eager `into` is what keeps it out of one
 
-  A `:key` in the props of the container being spliced into — `(into [:div {:class c :key k}] children)` — belongs to the container, not to its children, and is not read as one
-- **defattrs in merge** — `defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class` without merge
-- **Mixed typography token groups** — typography tokens from different Figma token groups mixed in a single style definition
+  A `:key` in the props of the container being spliced into — `(into [:div {:class c :key k}] children)` — belongs to
+  the container, not to its children, and is not read as one
+
+- **defattrs in merge** — `defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class`
+  without merge
+- **Mixed typography token groups** — typography tokens from different Figma token groups mixed in a single style
+  definition
 - **`:img` missing `:alt`** — `[:img {...}]` without an `:alt` attribute; use `:alt ""` for decorative images
-- **Invalid tabindex** — `:tabIndex`/`:tab-index` with a value that isn't `0` or a negative integer (positive ints break natural focus order; non-int literals aren't valid tabindex values)
-- **`:on-click` on non-interactive tag** — `:on-click` on `:div`/`:span`/`:svg`/`:li`/`:p`/`:section` etc. without `:role` or a keyboard handler; keyboard users can't activate it. `:svg` counts because an icon rendered as a bare `<svg>` carrying its own handler is not focusable and has no button semantics. The handler is found even when the props are built rather than written out — `(assoc base :on-click f)`, `(merge base {:on-click f})`, `(assoc-in base [:on-click] f)` — since those calls name the key literally. Only what the call makes readable counts, so a props map that is wholly opaque (`[icon (build-props)]`) is still left alone, and a base the file itself defines is read for the role and keyboard handler it carries (see [Props named by a symbol](#props-named-by-a-symbol))
-- **Empty interactive element** — `:button`, `:a`, or `:role "button"`/`"link"` with no visible text and no `:aria-label`/`:aria-labelledby`/`:title`; screen readers announce nothing. A body that is only a `(cond …)`/`(if …)`/`(when …)` whose every branch renders an icon counts as no visible text, so an icon-only toggle is caught rather than mistaken for content. Non-empty `:alt` on a child `[:img …]` does name the control, and `:aria-pressed`/`:aria-checked`/`:role "checkbox"` mark a stateful widget and are left alone
-- **Missing accessible name** — native `[:textarea …]`, native `[:dialog …]`, any hiccup vector whose props carry `:role "dialog"` / `:role :dialog` / `:role "alertdialog"` / `:aria-modal true`, any vector carrying one of the container roles WAI-ARIA marks *Accessible Name Required* — `:role "listbox"`, `"grid"`, `"tree"` — which a screen reader announces on entry with nothing but the name to say which container the user has landed in (a `[:caption …]` child names its table, as HTML-AAM specifies, so `[:table {:role "grid"} [:caption …] …]` is not flagged), `:role "tablist"` / `"menu"` / `"menubar"` — stricter than WAI-ARIA, which permits these three to go unnamed; they are announced on entry exactly as the others are, and two on one page are indistinguishable without a name — and any wrapper component (`[my.ui/textarea …]`, `[my.ui/drawer …]`) mapped in [`:a11y :component-aliases`](#a11y-component-aliases), that lacks `:aria-label` or `:aria-labelledby`; `:placeholder` is a hint, not a name. Props named by a symbol are read through the `let` / `when-let` / `if-let` or the `def` that names them (see [Props named by a symbol](#props-named-by-a-symbol)), so a shared props binding is judged by the map it holds
-- **Repeated accessible name** — a control rendered once per collection item names every item with the same literal string, so a screen-reader user listing the page's controls hears "Remove, Remove, Remove" with nothing to tell them apart. Flagged on `:button` / `:a` / `:role "button"` / `:role "link"` carrying a literal `:aria-label` inside `for` / `map` / `mapv` / `mapcat` / `map-indexed` / `keep` / `keep-indexed`, and on `:img` carrying a literal `:alt` when it is the name of an enclosing control that supplies none itself. Left alone: a computed name like `(str "Figure " (inc i))`, which already varies; `:alt ""` on a decorative image; `:alt` on an image that names nothing, such as a status badge in a row; a built attrs map like `(assoc base :aria-label "…")` whose `base` cannot be read, since it may still supply a per-item name — one built entirely from maps this can read holds no such surprise, and is flagged; the one expression a `for` evaluates once, its first binding's collection; a name that something else overrides, since `:aria-labelledby` wins the name computation and `:aria-hidden true` removes the element from the tree; and repeated visible body text, since WCAG lets a control take its purpose from its surroundings where an authored `:aria-label` does not
-- **`aria-hidden` on a focusable element** — a hiccup vector carrying `:aria-hidden true` (or `"true"` / `:true`) that keyboard or mouse focus can still reach, on the element itself or on something inside it — `:aria-hidden` applies to the whole subtree, so a hidden wrapper keeps every tab stop under it, and the report names the element that still takes focus. Assistive technology is told the element is not there, so a screen-reader user who tabs onto it hears nothing at all. Triggered by a natively focusable tag (`:button`, `:input`, `:textarea`, `:select`, `:details`, `:summary`, and `:a` carrying an `:href`), by a widget `:role` (`"button"`, `"link"`, `"checkbox"`, `"radio"`, `"switch"`, `"tab"`, `"option"`, `"menuitem"`, `"combobox"`, `"slider"`, …), or by a non-negative `:tabIndex` / `:tab-index`. A literal negative tabindex is the escape hatch and stops the report: that is what takes a mouse-only affordance out of the tab order, and it should be paired with an `:on-mouse-down` calling `.preventDefault` to block mouse focus as well. Non-widget roles are not triggers — a decorative `[:svg {:aria-hidden true}]` is correct markup. Every way out has to be readable before one can be called missing, so nothing is reported when the attrs map is computed, when it is built on a base that cannot be read (`(assoc props :aria-hidden true)`), when the tabindex itself cannot be read — the roving `:tab-index (if active? 0 -1)` that every treeitem, tab and option widget uses — or when a form control is `:disabled` and so out of the tab order already. `disabled` counts only on the tags it governs (`:button`, `:input`, `:select`, `:textarea`, `:fieldset`, `:optgroup`, `:option`); on a `:div` or an `:a` it is inert and the tab stop survives it. A child whose own props are named by a symbol is passed over for the same reason the element's would be. A built map every part of which *is* readable states its whole key set and is treated as written out. An `:href` or `:disabled` whose literal value is `nil` or `false` counts as absent, since Reagent omits those attributes
-- **Nested interactive element** — an interactive element containing another one. The HTML content model bans interactive content inside `<button>` and inside `<a href>`; React logs a `validateDOMNesting` warning for it, and browsers recover by restructuring the markup differently from one another. The ARIA form of the same mistake — `:role "button"` or `:role "link"` on a wrapper holding real controls — gives assistive technology two overlapping controls to announce and leaves keyboard activation ambiguous. The element's **body** is searched, not its props: a Hiccup vector handed over as a prop (`[:button {:tooltip [:a …]} …]`) is markup the element passes on, not markup nested inside it, and a props map built by a call (`[:button (build-props) …]`) is read the same way. Below the body the whole subtree counts, so a control under layout `:div`s or produced by a `for` is found; quoted or discarded markup is not, being data rather than something that renders, and markup living in another component stays invisible. Interactive content is the HTML category — `:button`, `:input` that is not hidden, `:select`, `:textarea`, `:label`, `:details`, `:embed`, `:iframe`, and `:a` carrying an `:href` — plus anything claiming a button or link role. An `:a` whose `:href` is absent or literally `nil` is not interactive and neither nests nor counts as nested. Fix by making the wrapper a plain `:div` that does the positioning and the two controls siblings, or by dropping the outer one
-- **`aria-live` contradicts role** — a hiccup vector whose props set `:aria-live` to a different politeness than its `:role` implies (`"status"` and `"log"` imply `"polite"`, `"alert"` implies `"assertive"`). The attribute wins: browsers read `:aria-live` first and fall back to the role only when it is absent, so `:role "alert"` with `:aria-live "polite"` is an alert silently demoted to polite. A role carrying no `:aria-live` at all is **not** flagged — it is conformant markup, and on `:role "alert"` the redundant attribute is documented to double-speak in VoiceOver on iOS. `:aria-live "off"` is not flagged either; silencing a live region is a deliberate choice
-- **Pseudo-selector in Spade main map** — `defclass`/`defattrs` with a `:&`-prefixed key (e.g. `:&:hover`) inside a style map; Spade emits it as an invalid CSS property and silently drops the rule. Move the selector into its own sibling vector `[:&:hover {…}]`. Checked in the base map and in the map of every nested selector block, at any depth
-- **Consecutive self-selectors** — a Spade selector vector begins with 2+ `:&`-prefixed keywords (e.g. `[:&:before :&:after {…}]`); Garden compiles this as a descendant selector (`elem:before elem:after`), not the comma-joined selector the author intended. Checked at every nesting depth, not only on the declaration's own siblings
-- **Ampersand not at start** — a string selector inside `defclass`/`defattrs` carries `&` anywhere but position 0 (e.g. `["li:focus-within &" {…}]`). Garden substitutes the parent-class reference only at the front of a string selector; elsewhere the `&` survives into the stylesheet as a literal character, and the rule matches nothing. Checked at every nesting depth; `"&"`, `"&:hover"` and `"&[data-x]"` are correct
-- **Keyword combinator selector** — a Spade selector vector holds a combinator keyword (`:>`, `:+`) alongside another selector, e.g. `[:> :span {…}]`. Garden reads a selector vector as a comma-separated list, so this compiles to `.parent >, .parent span {…}` — the first half invalid, the second matching every descendant. Use the string form, `["> span" {…}]`. Single-element vectors (`[:&:hover {…}]`), string selectors and plain descendant chains (`[:svg :path {…}]`) are left alone
-- **CSS property order (outside-in)** — a Spade style map writes its properties out of the order the chosen table defines. Each style map is judged on its own — the base map and every nested selector block, at any depth — and only maps written as literals in the declaration body are read, so a map that `(merge …)` or `(case …)` builds is left alone. A property the table does not name, a custom property (`--*`) included, is unordered; it only reads as a problem when a ranked property follows it. Maps under four ranked properties are not judged, and only the first property out of place in each block is reported — alongside the whole block's target order, so the fix needs no guessing. See [Property-order tables](#property-order-tables) for the choice of table
-- **Docstring summary** — first line of a multi-line docstring is not a self-contained sentence ending in `.`, `!`, `?`, or `:`
-- **Docstring indentation** — continuation lines of a multi-line docstring are indented less than the opening-quote column
+- **Invalid tabindex** — `:tabIndex`/`:tab-index` with a value that isn't `0` or a negative integer (positive ints break
+  natural focus order; non-int literals aren't valid tabindex values)
+- **`:on-click` on non-interactive tag** — `:on-click` on `:div`/`:span`/`:svg`/`:li`/`:p`/`:section` etc. without
+  `:role` or a keyboard handler; keyboard users can't activate it. `:svg` counts because an icon rendered as a bare
+  `<svg>` carrying its own handler is not focusable and has no button semantics. The handler is found even when the
+  props are built rather than written out — `(assoc base :on-click f)`, `(merge base {:on-click f})`,
+  `(assoc-in base [:on-click] f)` — since those calls name the key literally. Only what the call makes readable counts,
+  so a props map that is wholly opaque (`[icon (build-props)]`) is still left alone, and a base the file itself defines
+  is read for the role and keyboard handler it carries (see [Props named by a symbol](#props-named-by-a-symbol))
+- **Empty interactive element** — `:button`, `:a`, or `:role "button"`/`"link"` with no visible text and no
+  `:aria-label`/`:aria-labelledby`/`:title`; screen readers announce nothing. A body that is only a
+  `(cond …)`/`(if …)`/`(when …)` whose every branch renders an icon counts as no visible text, so an icon-only toggle is
+  caught rather than mistaken for content. Non-empty `:alt` on a child `[:img …]` does name the control, and
+  `:aria-pressed`/`:aria-checked`/`:role "checkbox"` mark a stateful widget and are left alone
+- **Missing accessible name** — native `[:textarea …]`, native `[:dialog …]`, any hiccup vector whose props carry
+  `:role "dialog"` / `:role :dialog` / `:role "alertdialog"` / `:aria-modal true`, any vector carrying one of the
+  container roles WAI-ARIA marks _Accessible Name Required_ — `:role "listbox"`, `"grid"`, `"tree"` — which a screen
+  reader announces on entry with nothing but the name to say which container the user has landed in (a `[:caption …]`
+  child names its table, as HTML-AAM specifies, so `[:table {:role "grid"} [:caption …] …]` is not flagged),
+  `:role "tablist"` / `"menu"` / `"menubar"` — stricter than WAI-ARIA, which permits these three to go unnamed; they are
+  announced on entry exactly as the others are, and two on one page are indistinguishable without a name — and any
+  wrapper component (`[my.ui/textarea …]`, `[my.ui/drawer …]`) mapped in
+  [`:a11y :component-aliases`](#a11y-component-aliases), that lacks `:aria-label` or `:aria-labelledby`; `:placeholder`
+  is a hint, not a name. Props named by a symbol are read through the `let` / `when-let` / `if-let` or the `def` that
+  names them (see [Props named by a symbol](#props-named-by-a-symbol)), so a shared props binding is judged by the map
+  it holds
+- **Repeated accessible name** — a control rendered once per collection item names every item with the same literal
+  string, so a screen-reader user listing the page's controls hears "Remove, Remove, Remove" with nothing to tell them
+  apart. Flagged on `:button` / `:a` / `:role "button"` / `:role "link"` carrying a literal `:aria-label` inside `for` /
+  `map` / `mapv` / `mapcat` / `map-indexed` / `keep` / `keep-indexed`, and on `:img` carrying a literal `:alt` when it
+  is the name of an enclosing control that supplies none itself. Left alone: a computed name like
+  `(str "Figure " (inc i))`, which already varies; `:alt ""` on a decorative image; `:alt` on an image that names
+  nothing, such as a status badge in a row; a built attrs map like `(assoc base :aria-label "…")` whose `base` cannot be
+  read, since it may still supply a per-item name — one built entirely from maps this can read holds no such surprise,
+  and is flagged; the one expression a `for` evaluates once, its first binding's collection; a name that something else
+  overrides, since `:aria-labelledby` wins the name computation and `:aria-hidden true` removes the element from the
+  tree; and repeated visible body text, since WCAG lets a control take its purpose from its surroundings where an
+  authored `:aria-label` does not
+- **`aria-hidden` on a focusable element** — a hiccup vector carrying `:aria-hidden true` (or `"true"` / `:true`) that
+  keyboard or mouse focus can still reach, on the element itself or on something inside it — `:aria-hidden` applies to
+  the whole subtree, so a hidden wrapper keeps every tab stop under it, and the report names the element that still
+  takes focus. Assistive technology is told the element is not there, so a screen-reader user who tabs onto it hears
+  nothing at all. Triggered by a natively focusable tag (`:button`, `:input`, `:textarea`, `:select`, `:details`,
+  `:summary`, and `:a` carrying an `:href`), by a widget `:role` (`"button"`, `"link"`, `"checkbox"`, `"radio"`,
+  `"switch"`, `"tab"`, `"option"`, `"menuitem"`, `"combobox"`, `"slider"`, …), or by a non-negative `:tabIndex` /
+  `:tab-index`. A literal negative tabindex is the escape hatch and stops the report: that is what takes a mouse-only
+  affordance out of the tab order, and it should be paired with an `:on-mouse-down` calling `.preventDefault` to block
+  mouse focus as well. Non-widget roles are not triggers — a decorative `[:svg {:aria-hidden true}]` is correct markup.
+  Every way out has to be readable before one can be called missing, so nothing is reported when the attrs map is
+  computed, when it is built on a base that cannot be read (`(assoc props :aria-hidden true)`), when the tabindex itself
+  cannot be read — the roving `:tab-index (if active? 0 -1)` that every treeitem, tab and option widget uses — or when a
+  form control is `:disabled` and so out of the tab order already. `disabled` counts only on the tags it governs
+  (`:button`, `:input`, `:select`, `:textarea`, `:fieldset`, `:optgroup`, `:option`); on a `:div` or an `:a` it is inert
+  and the tab stop survives it. A child whose own props are named by a symbol is passed over for the same reason the
+  element's would be. A built map every part of which _is_ readable states its whole key set and is treated as written
+  out. An `:href` or `:disabled` whose literal value is `nil` or `false` counts as absent, since Reagent omits those
+  attributes
+- **Nested interactive element** — an interactive element containing another one. The HTML content model bans
+  interactive content inside `<button>` and inside `<a href>`; React logs a `validateDOMNesting` warning for it, and
+  browsers recover by restructuring the markup differently from one another. The ARIA form of the same mistake —
+  `:role "button"` or `:role "link"` on a wrapper holding real controls — gives assistive technology two overlapping
+  controls to announce and leaves keyboard activation ambiguous. The element's **body** is searched, not its props: a
+  Hiccup vector handed over as a prop (`[:button {:tooltip [:a …]} …]`) is markup the element passes on, not markup
+  nested inside it, and a props map built by a call (`[:button (build-props) …]`) is read the same way. Below the body
+  the whole subtree counts, so a control under layout `:div`s or produced by a `for` is found; quoted or discarded
+  markup is not, being data rather than something that renders, and markup living in another component stays invisible.
+  Interactive content is the HTML category — `:button`, `:input` that is not hidden, `:select`, `:textarea`, `:label`,
+  `:details`, `:embed`, `:iframe`, and `:a` carrying an `:href` — plus anything claiming a button or link role. An `:a`
+  whose `:href` is absent or literally `nil` is not interactive and neither nests nor counts as nested. Fix by making
+  the wrapper a plain `:div` that does the positioning and the two controls siblings, or by dropping the outer one
+- **`aria-live` contradicts role** — a hiccup vector whose props set `:aria-live` to a different politeness than its
+  `:role` implies (`"status"` and `"log"` imply `"polite"`, `"alert"` implies `"assertive"`). The attribute wins:
+  browsers read `:aria-live` first and fall back to the role only when it is absent, so `:role "alert"` with
+  `:aria-live "polite"` is an alert silently demoted to polite. A role carrying no `:aria-live` at all is **not**
+  flagged — it is conformant markup, and on `:role "alert"` the redundant attribute is documented to double-speak in
+  VoiceOver on iOS. `:aria-live "off"` is not flagged either; silencing a live region is a deliberate choice
+- **Pseudo-selector in Spade main map** — `defclass`/`defattrs` with a `:&`-prefixed key (e.g. `:&:hover`) inside a
+  style map; Spade emits it as an invalid CSS property and silently drops the rule. Move the selector into its own
+  sibling vector `[:&:hover {…}]`. Checked in the base map and in the map of every nested selector block, at any depth
+- **Consecutive self-selectors** — a Spade selector vector begins with 2+ `:&`-prefixed keywords (e.g.
+  `[:&:before :&:after {…}]`); Garden compiles this as a descendant selector (`elem:before elem:after`), not the
+  comma-joined selector the author intended. Checked at every nesting depth, not only on the declaration's own siblings
+- **Ampersand not at start** — a string selector inside `defclass`/`defattrs` carries `&` anywhere but position 0 (e.g.
+  `["li:focus-within &" {…}]`). Garden substitutes the parent-class reference only at the front of a string selector;
+  elsewhere the `&` survives into the stylesheet as a literal character, and the rule matches nothing. Checked at every
+  nesting depth; `"&"`, `"&:hover"` and `"&[data-x]"` are correct
+- **Keyword combinator selector** — a Spade selector vector holds a combinator keyword (`:>`, `:+`) alongside another
+  selector, e.g. `[:> :span {…}]`. Garden reads a selector vector as a comma-separated list, so this compiles to
+  `.parent >, .parent span {…}` — the first half invalid, the second matching every descendant. Use the string form,
+  `["> span" {…}]`. Single-element vectors (`[:&:hover {…}]`), string selectors and plain descendant chains
+  (`[:svg :path {…}]`) are left alone
+- **CSS property order (outside-in)** — a Spade style map writes its properties out of the order the chosen table
+  defines. Each style map is judged on its own — the base map and every nested selector block, at any depth — and only
+  maps written as literals in the declaration body are read, so a map that `(merge …)` or `(case …)` builds is left
+  alone. A property the table does not name, a custom property (`--*`) included, is unordered; it only reads as a
+  problem when a ranked property follows it. Maps under four ranked properties are not judged, and only the first
+  property out of place in each block is reported — alongside the whole block's target order, so the fix needs no
+  guessing. See [Property-order tables](#property-order-tables) for the choice of table
+- **Docstring summary** — first line of a multi-line docstring is not a self-contained sentence ending in `.`, `!`, `?`,
+  or `:`
+- **Docstring indentation** — continuation lines of a multi-line docstring are indented less than the opening-quote
+  column
 - **Docstring leading/trailing whitespace** — docstring starts or ends with whitespace
 - **Dynamic dispatch/subscribe sites** — dispatch or subscribe calls with a non-literal keyword (manual review needed)
 
 ### Property-order tables
 
-The `css-order` group ranks properties with one of five [stylelint](https://stylelint.io) property-order configs,
-each embedded verbatim from its npm package. These are the same lists
-[`stylelint-order`](https://github.com/hudochenkov/stylelint-order) applies to CSS, so a project already running one
-of them in stylelint gets the matching order here.
+The `css-order` group ranks properties with one of five [stylelint](https://stylelint.io) property-order configs, each
+embedded verbatim from its npm package. These are the same lists
+[`stylelint-order`](https://github.com/hudochenkov/stylelint-order) applies to CSS, so a project already running one of
+them in stylelint gets the matching order here.
 
-| Table | Package | Properties | Character |
-| --- | --- | --- | --- |
-| `recess` (default) | [stylelint-config-recess-order](https://github.com/stormwarning/stylelint-config-recess-order) | 496 | Bootstrap's Recess heritage. Positioning, box model, **typography, then background and border**, effects |
-| `clean` | [stylelint-config-clean-order](https://github.com/kutsan/stylelint-config-clean-order) | 468 | A modern re-cut: interaction first, then positioning, layout, box model (border included), typography, appearance |
-| `concentric` | [stylelint-config-concentric-order](https://github.com/ream88/stylelint-config-concentric-order) | 330 | Visual layers outside-in — what the element is, **then border and background, then the text inside** |
-| `smacss` | [stylelint-config-property-sort-order-smacss](https://github.com/cahamilton/stylelint-config-property-sort-order-smacss) | 225 | Grouped by purpose: content, box, animation, border, background, text |
-| `idiomatic` | [stylelint-config-idiomatic-order](https://github.com/ream88/stylelint-config-idiomatic-order) | 64 | Deliberately minimal — orders only structural properties and leaves the rest unranked |
+| Table              | Package                                                                                                                  | Properties | Character                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------ | ---------- | ----------------------------------------------------------------------------------------------------------------- |
+| `recess` (default) | [stylelint-config-recess-order](https://github.com/stormwarning/stylelint-config-recess-order)                           | 496        | Bootstrap's Recess heritage. Positioning, box model, **typography, then background and border**, effects          |
+| `clean`            | [stylelint-config-clean-order](https://github.com/kutsan/stylelint-config-clean-order)                                   | 468        | A modern re-cut: interaction first, then positioning, layout, box model (border included), typography, appearance |
+| `concentric`       | [stylelint-config-concentric-order](https://github.com/ream88/stylelint-config-concentric-order)                         | 330        | Visual layers outside-in — what the element is, **then border and background, then the text inside**              |
+| `smacss`           | [stylelint-config-property-sort-order-smacss](https://github.com/cahamilton/stylelint-config-property-sort-order-smacss) | 225        | Grouped by purpose: content, box, animation, border, background, text                                             |
+| `idiomatic`        | [stylelint-config-idiomatic-order](https://github.com/ream88/stylelint-config-idiomatic-order)                           | 64         | Deliberately minimal — orders only structural properties and leaves the rest unranked                             |
 
 They disagree most about where layout ends and looks begin: `recess` puts typography ahead of background and border,
 `concentric` does the opposite. Read a finding against the table in use.
@@ -139,24 +256,26 @@ or in `.cljs-patrol/config.edn`, where it persists for the project and for CI:
 
 An unrecognized name warns on stderr and falls back to `recess` rather than stopping the run.
 
-Every finding carries the target order for its own block, so neither a reader nor another tool has to work out
-what the table wants:
+Every finding carries the target order for its own block, so neither a reader nor another tool has to work out what the
+table wants:
 
 ```
 styles.cljs:16  :app.ui/banner-style {:color "#333" :display :block :padding "4px" :background "#eee"}
       → Move :display before :color. Order for this block: :display :padding :color :background
 ```
 
-The console and HTML reports print that line; the EDN report carries the full sequence as `:expected-order`, which
-stays complete even where the printed hint trails off.
+The console and HTML reports print that line; the EDN report carries the full sequence as `:expected-order`, which stays
+complete even where the printed hint trails off.
 
-Two deviations from `stylelint-order` worth knowing. A property the chosen table does not name is left unordered
-here; `idiomatic` in particular asks stylelint to sort its unlisted properties alphabetically at the bottom, which
-this does not do. And nothing is auto-fixed — property order is a write-time review decision.
+Two deviations from `stylelint-order` worth knowing. A property the chosen table does not name is left unordered here;
+`idiomatic` in particular asks stylelint to sort its unlisted properties alphabetically at the bottom, which this does
+not do. And nothing is auto-fixed — property order is a write-time review decision.
 
 ### A11y component aliases
 
-`:missing-accessible-name` and the other a11y rules only inspect native HTML tags (`[:textarea …]`, `[:button …]`) by default. Real codebases usually wrap those in a component library — `[my.ui/textarea …]`, `[my.ui/button …]` — which then slips past every check.
+`:missing-accessible-name` and the other a11y rules only inspect native HTML tags (`[:textarea …]`, `[:button …]`) by
+default. Real codebases usually wrap those in a component library — `[my.ui/textarea …]`, `[my.ui/button …]` — which
+then slips past every check.
 
 Map each wrapper to the native tag it renders in `.cljs-patrol/config.edn`:
 
@@ -168,9 +287,16 @@ Map each wrapper to the native tag it renders in `.cljs-patrol/config.edn`:
          my.ui.icons/* :svg}}}
 ```
 
-A `some.ns/*` key maps every var in that namespace, so a 200-icon namespace costs one line instead of 200. An exact symbol key wins over the glob when both match.
+A `some.ns/*` key maps every var in that namespace, so a 200-icon namespace costs one line instead of 200. An exact
+symbol key wins over the glob when both match.
 
-Any call whose head symbol resolves (via `:as` or `:refer` in the caller's `ns`) to a mapped fully-qualified symbol is then checked as if it were the native tag. `[my.ui/textarea {:placeholder "…"}]` participates in `:missing-accessible-name`; icon-only `[my.ui/button [icons/x]]` participates in `:empty-interactive-element`; `[my.ui/drawer {:open? true}]` participates in `:missing-accessible-name` via the `:dialog` mapping; `[my.ui.icons/x {:on-click f}]` participates in `:on-click-on-non-interactive` via the `:svg` mapping; `[my.ui/button {:aria-label "Remove"}]` inside a `for` participates in `:repeated-accessible-name`. All existing a11y rules compose the same way.
+Any call whose head symbol resolves (via `:as` or `:refer` in the caller's `ns`) to a mapped fully-qualified symbol is
+then checked as if it were the native tag. `[my.ui/textarea {:placeholder "…"}]` participates in
+`:missing-accessible-name`; icon-only `[my.ui/button [icons/x]]` participates in `:empty-interactive-element`;
+`[my.ui/drawer {:open? true}]` participates in `:missing-accessible-name` via the `:dialog` mapping;
+`[my.ui.icons/x {:on-click f}]` participates in `:on-click-on-non-interactive` via the `:svg` mapping;
+`[my.ui/button {:aria-label "Remove"}]` inside a `for` participates in `:repeated-accessible-name`. All existing a11y
+rules compose the same way.
 
 ### Props named by a symbol
 
@@ -184,13 +310,32 @@ Shared props are usually named once and reused:
      [notification-list]]))
 ```
 
-Every a11y rule follows a symbol in the props slot to the form that names it — `let`, `let*`, `when-let`, `if-let`, `when-some`, `if-some`, or a `def` in the same file — and reads a map literal found there exactly as if it had been written inline. So the popover above is named, and one bound to a map without `:aria-label` is still reported.
+Every a11y rule follows a symbol in the props slot to the form that names it — `let`, `let*`, `when-let`, `if-let`,
+`when-some`, `if-some`, or a `def` in the same file — and reads a map literal found there exactly as if it had been
+written inline. So the popover above is named, and one bound to a map without `:aria-label` is still reported.
 
-Resolution is innermost-first: the nearest local binding answers, a `def` only when no local does, and anything that binds the name itself stops the search rather than letting an outer `let` answer for a symbol it no longer names — a `fn` / `defn` / protocol-method parameter, a destructuring form, a `catch` / `as->` / `this-as` name. A form that names itself like a function definition — `defnc`, `rum/defc`, `fn-traced`, anything starting `def` or containing `fn` — has its parameter vector read as binding too, so an unfamiliar component macro leaves a symbol unknown rather than letting a var of the same name answer for one of its parameters. A `for` / `doseq` / `loop` / `dotimes` / `letfn` / `with-let` binding vector stops it too, and does so on any mention of the name inside it, not only on a binding: those vectors hold shapes a pairwise scan would misread, so `(for [x (:items props)] [:dialog props])` gives up on `props` rather than risk answering wrongly. A closure is followed through, since it really does see the binding around it, and an `if-let` else branch is not, since it runs with the symbol unbound. Nothing crosses a namespace: a symbol another file defines stays unknown.
+Resolution is innermost-first: the nearest local binding answers, a `def` only when no local does, and anything that
+binds the name itself stops the search rather than letting an outer `let` answer for a symbol it no longer names — a
+`fn` / `defn` / protocol-method parameter, a destructuring form, a `catch` / `as->` / `this-as` name. A form that names
+itself like a function definition — `defnc`, `rum/defc`, `fn-traced`, anything starting `def` or containing `fn` — has
+its parameter vector read as binding too, so an unfamiliar component macro leaves a symbol unknown rather than letting a
+var of the same name answer for one of its parameters. A `for` / `doseq` / `loop` / `dotimes` / `letfn` / `with-let`
+binding vector stops it too, and does so on any mention of the name inside it, not only on a binding: those vectors hold
+shapes a pairwise scan would misread, so `(for [x (:items props)] [:dialog props])` gives up on `props` rather than risk
+answering wrongly. A closure is followed through, since it really does see the binding around it, and an `if-let` else
+branch is not, since it runs with the symbol unbound. Nothing crosses a namespace: a symbol another file defines stays
+unknown.
 
-A binding to a map-building call is read for the keys it names — `(merge base {:aria-label "…"})` bound in a `let` answers the same way it does written in the slot, and `(merge defaults opts)`, which names none, holds an unknown map rather than an empty one — while a symbol bound to anything else, an opaque call or another symbol, leaves the props slot as opaque as it was before.
+A binding to a map-building call is read for the keys it names — `(merge base {:aria-label "…"})` bound in a `let`
+answers the same way it does written in the slot, and `(merge defaults opts)`, which names none, holds an unknown map
+rather than an empty one — while a symbol bound to anything else, an opaque call or another symbol, leaves the props
+slot as opaque as it was before.
 
-How much a built map can be asked depends on how much of it can be read. `(assoc base :on-click f)` over an opaque `base` is a **floor**: it answers that `:on-click` is there, never that `:role` is missing, so rules that report something absent leave it alone. Once every part is readable — a literal base, or a symbol a `let` or a `def` in the same file names a map literal with — the call states the **whole** map, and it is read exactly like a map written out, absence and all:
+How much a built map can be asked depends on how much of it can be read. `(assoc base :on-click f)` over an opaque
+`base` is a **floor**: it answers that `:on-click` is there, never that `:role` is missing, so rules that report
+something absent leave it alone. Once every part is readable — a literal base, or a symbol a `let` or a `def` in the
+same file names a map literal with — the call states the **whole** map, and it is read exactly like a map written out,
+absence and all:
 
 ```clojure
 (def clickable-icon-props {:role "button" :tabIndex 0 :on-key-down activate})
@@ -230,12 +375,13 @@ How much a built map can be asked depends on how much of it can be read. `(assoc
 
 Re-frame declarations: `reg-sub`, `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-fx`, `reg-cofx`
 
-Re-frame usages: `subscribe`, `dispatch`, `dispatch-sync`, `:<-` signal inputs, `:fx` vector tuples
-(`:dispatch`, `:dispatch-n`, `:dispatch-later`), `:on-success` / `:on-failure` / `:on-error` http callbacks
+Re-frame usages: `subscribe`, `dispatch`, `dispatch-sync`, `:<-` signal inputs, `:fx` vector tuples (`:dispatch`,
+`:dispatch-n`, `:dispatch-later`), `:on-success` / `:on-failure` / `:on-error` http callbacks
 
 Spade declarations: `defclass`, `defattrs`
 
-Spade usages: direct function calls, both qualified (`styles/container-style`) and unqualified (`container-style`) within the same namespace
+Spade usages: direct function calls, both qualified (`styles/container-style`) and unqualified (`container-style`)
+within the same namespace
 
 ## EDN output
 
@@ -245,9 +391,8 @@ Print structured EDN to stdout for programmatic or AI-assisted analysis:
 clojure -M:run --output edn src/cljs/myapp
 ```
 
-File paths in the output are absolute, making it easy to read files directly.
-The output includes a `:suggestions` map with fix guidance for each issue type, useful for AI-assisted remediation.
-Combinable with other flags:
+File paths in the output are absolute, making it easy to read files directly. The output includes a `:suggestions` map
+with fix guidance for each issue type, useful for AI-assisted remediation. Combinable with other flags:
 
 ```bash
 clojure -M:run --only re-frame --output edn src/cljs/myapp
@@ -261,10 +406,11 @@ Limit results to a subset of files while still analyzing the full codebase for c
 clojure -M:run --files src/app/subs.cljs,src/app/events.cljs src/cljs/myapp
 ```
 
-`--files` takes a **single comma-separated string** of file paths. The positional arguments after it are always the source directories to analyze. Do not pass file paths as positional source-dir arguments.
+`--files` takes a **single comma-separated string** of file paths. The positional arguments after it are always the
+source directories to analyze. Do not pass file paths as positional source-dir arguments.
 
-This is useful in CI to surface only issues in files changed by a pull request, while phantom/duplicate detection still considers the whole codebase.
-Combinable with other flags:
+This is useful in CI to surface only issues in files changed by a pull request, while phantom/duplicate detection still
+considers the whole codebase. Combinable with other flags:
 
 ```bash
 clojure -M:run --output edn --files src/app/subs.cljs src/cljs/myapp
@@ -272,7 +418,8 @@ clojure -M:run --output edn --files src/app/subs.cljs src/cljs/myapp
 
 ## Baseline
 
-Existing codebases often have many issues. The baseline feature lets you snapshot current issues so CI only fails on **new** ones.
+Existing codebases often have many issues. The baseline feature lets you snapshot current issues so CI only fails on
+**new** ones.
 
 ### Setup
 
@@ -282,7 +429,8 @@ Existing codebases often have many issues. The baseline feature lets you snapsho
 clojure -M:run --baseline-write src/cljs/myapp
 ```
 
-This creates `src/cljs/myapp/.cljs-patrol/baseline.edn` with all current issues. The baseline file is placed inside the source directory by default. Commit this file.
+This creates `src/cljs/myapp/.cljs-patrol/baseline.edn` with all current issues. The baseline file is placed inside the
+source directory by default. Commit this file.
 
 2. Use `--baseline` in CI:
 
@@ -296,11 +444,16 @@ Exits `0` if every found issue is in the baseline. Exits `1` only on **new** iss
 
 Every issue is identified by content, not by position:
 
-- **Re-frame** issues are keyed by their fully-qualified keyword (e.g. `:app.subs/users`), so baselines survive file moves and renames without regeneration — a real advantage over line-based baselines in JS/TS tools.
-- **Spade** issues are keyed by ns + var (plus selector, where relevant), so renaming a class within its ns is the only change that shifts identity.
-- **Hiccup a11y** issues are keyed by file + tag + whitespace-collapsed source snippet, so `cljfmt` or manual reformatting never rewrites the baseline. A truly new offending vector (with different source text) still counts as new.
+- **Re-frame** issues are keyed by their fully-qualified keyword (e.g. `:app.subs/users`), so baselines survive file
+  moves and renames without regeneration — a real advantage over line-based baselines in JS/TS tools.
+- **Spade** issues are keyed by ns + var (plus selector, where relevant), so renaming a class within its ns is the only
+  change that shifts identity.
+- **Hiccup a11y** issues are keyed by file + tag + whitespace-collapsed source snippet, so `cljfmt` or manual
+  reformatting never rewrites the baseline. A truly new offending vector (with different source text) still counts as
+  new.
 
-Note: bumping from an older baseline (`:version 1`) requires re-running `--baseline-write` once. The tool reports a clear error otherwise.
+Note: bumping from an older baseline (`:version 1`) requires re-running `--baseline-write` once. The tool reports a
+clear error otherwise.
 
 ### Output with baseline
 
@@ -320,7 +473,8 @@ clojure -M:run --baseline --output html src/cljs/myapp  # report.html with visua
 
 ### Strict mode
 
-By default, fixed issues (present in baseline but no longer found) don't cause CI failure. Use `--strict-baseline` to require baseline regeneration when issues disappear:
+By default, fixed issues (present in baseline but no longer found) don't cause CI failure. Use `--strict-baseline` to
+require baseline regeneration when issues disappear:
 
 ```bash
 clojure -M:run --baseline --strict-baseline src/cljs/myapp
@@ -361,16 +515,27 @@ CLI flags override config file settings.
 
 ## Severity tiers
 
-By default, any issue causes CI to fail. For incremental adoption — or just to focus signal on what matters most — `--fail-on` controls which rules block CI. Every issue is still reported regardless; only the exit code is gated.
+By default, any issue causes CI to fail. For incremental adoption — or just to focus signal on what matters most —
+`--fail-on` controls which rules block CI. Every issue is still reported regardless; only the exit code is gated.
 
 ### Tiers
 
-**`bugs`** — silent runtime breakage. Duplicate registrations overwrite, empty-effect handlers clobber app-db, effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen readers, an `:aria-live` that contradicts its role silently changes how urgently updates are announced, invalid `:tabIndex` values break the natural focus order, `:on-click` on non-interactive tags without keyboard support locks keyboard users out, empty interactive elements and unlabelled form controls have no accessible name, a list of controls sharing one constant name leaves a screen-reader user unable to tell them apart, and Spade selectors — pseudo-selectors misplaced inside the main map, chained without a comma, a `&` away from the front of a string selector, or a combinator written as a keyword — silently produce CSS that matches nothing.
+**`bugs`** — silent runtime breakage. Duplicate registrations overwrite, empty-effect handlers clobber app-db,
+effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen
+readers, an `:aria-live` that contradicts its role silently changes how urgently updates are announced, invalid
+`:tabIndex` values break the natural focus order, `:on-click` on non-interactive tags without keyboard support locks
+keyboard users out, empty interactive elements and unlabelled form controls have no accessible name, a list of controls
+sharing one constant name leaves a screen-reader user unable to tell them apart, and Spade selectors — pseudo-selectors
+misplaced inside the main map, chained without a comma, a `&` away from the front of a string selector, or a combinator
+written as a keyword — silently produce CSS that matches nothing.
 
 - `duplicate-subs`, `duplicate-events`
 - `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects`
-- `img-alt-missing`, `invalid-tabindex`, `on-click-on-non-interactive`, `empty-interactive-element`, `missing-accessible-name`, `repeated-accessible-name`, `aria-live-contradicts-role`, `aria-hidden-focusable`, `nested-interactive-element`
-- `pseudo-in-main-map`, `consecutive-self-selectors`, `spade-ampersand-not-at-start`, `spade-keyword-combinator-selector`
+- `img-alt-missing`, `invalid-tabindex`, `on-click-on-non-interactive`, `empty-interactive-element`,
+  `missing-accessible-name`, `repeated-accessible-name`, `aria-live-contradicts-role`, `aria-hidden-focusable`,
+  `nested-interactive-element`
+- `pseudo-in-main-map`, `consecutive-self-selectors`, `spade-ampersand-not-at-start`,
+  `spade-keyword-combinator-selector`
 
 **`deprecations`** — deprecated APIs and idiomatic violations that may break later.
 
@@ -398,7 +563,8 @@ Tier names, individual rule keys, and the meta value `all` can be mixed. Unknown
 
 ### Output with --fail-on
 
-Console output adds a `[BLOCKING]` marker to section headers for rules in the failing set, and a summary line shows the breakdown:
+Console output adds a `[BLOCKING]` marker to section headers for rules in the failing set, and a summary line shows the
+breakdown:
 
 ```
 === Duplicate subs (1) [BLOCKING] ===
@@ -411,7 +577,8 @@ Console output adds a `[BLOCKING]` marker to section headers for rules in the fa
 1 blocking, 3 warnings.
 ```
 
-EDN output adds `:blocking-count`, `:warning-count`, and (for baseline mode) `:tier` on each issue. HTML output shows the same blocking badge and a tier-summary panel at the top.
+EDN output adds `:blocking-count`, `:warning-count`, and (for baseline mode) `:tier` on each issue. HTML output shows
+the same blocking badge and a tier-summary panel at the top.
 
 ### Listing rules
 
@@ -424,7 +591,8 @@ clojure -M:run --only re-frame --list-rules    # scope to one group
 
 ### Composing with --baseline
 
-This is the headline combo. With both `--baseline` and `--fail-on`, an issue causes exit 1 only if it is **both new (not in baseline) and in a failing tier**:
+This is the headline combo. With both `--baseline` and `--fail-on`, an issue causes exit 1 only if it is **both new (not
+in baseline) and in a failing tier**:
 
 ```bash
 # Adopting on a messy codebase: snapshot once, then block only new bugs in CI.
@@ -438,7 +606,8 @@ What this means for CI:
 - New issues in failing tiers (here, `bugs`): block CI immediately.
 - New issues in non-failing tiers (deprecations, cleanup): printed with `[NEW]` but don't block.
 
-`--strict-baseline` still applies on top: fixed baseline issues always block when set, regardless of tier (forces baseline regeneration).
+`--strict-baseline` still applies on top: fixed baseline issues always block when set, regardless of tier (forces
+baseline regeneration).
 
 ### Greenfield project
 
@@ -491,7 +660,8 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-This runs tests, builds the jar as `cljs-patrol-0.2.0.jar` (version derived from the tag), and creates a [GitHub Release](https://github.com/olecve/cljs-patrol/releases) with the jar attached.
+This runs tests, builds the jar as `cljs-patrol-0.2.0.jar` (version derived from the tag), and creates a
+[GitHub Release](https://github.com/olecve/cljs-patrol/releases) with the jar attached.
 
 ## Formatting
 

@@ -33,6 +33,14 @@ jobs:
           key: deps-${{ hashFiles('deps.edn') }}
           restore-keys: deps-
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run format:check
+
       - run: clojure -M:cljfmt check src/ test/
       - run: clojure -M:clj-kondo --lint src test/cljs_patrol build.clj
       - run: clojure -M:test
