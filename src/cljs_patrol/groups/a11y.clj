@@ -418,19 +418,25 @@
   #{:aria-label :aria-labelledby :title})
 
 (def ^:private name-required-roles
-  "Roles WAI-ARIA marks \"Accessible Name Required: True\".
-  `img` opts an element into the accessibility tree with nothing to announce; `dialog`
-  and `alertdialog` need a name to stay identifiable once focus moves into them; and
-  `listbox`, `grid` and `tree` are containers a screen reader announces on entry, with
-  nothing but the name to say which one the user has landed in. `tablist`, `menu` and
-  `menubar` are left out on purpose: a name helps there too, but the spec marks them
-  name-not-required and this rule reports only what it can call a violation. The name
-  usually has to sit on the element itself; the one exception the check reads is a native
-  `<caption>`, which names the `<table>` a `grid` role is most often written on.
-  Reagent stringifies keyword attribute values at runtime, so both spellings count."
+  "Roles this rule requires to carry an accessible name of their own.
+  Most are what WAI-ARIA marks \"Accessible Name Required: True\": `img` opts an element
+  into the accessibility tree with nothing to announce; `dialog` and `alertdialog` need a
+  name to stay identifiable once focus moves into them; `listbox`, `grid` and `tree` are
+  containers a screen reader announces on entry, with nothing but the name to say which
+  one the user has landed in.
+
+  `tablist`, `menu` and `menubar` are stricter than the spec, which marks all three
+  name-not-required. They are announced on entry exactly as the other containers are,
+  and a page carrying two of them — a document's tabs beside a panel's — gives a screen
+  reader user no way to tell one from the other. The spec permits the omission; this
+  rule does not, and the report says so rather than citing a requirement.
+
+  The name usually has to sit on the element itself; the one exception the check reads
+  is a native `<caption>`, which names the `<table>` a `grid` role is most often written
+  on. Reagent stringifies keyword attribute values at runtime, so both spellings count."
   (into #{}
         (mapcat (juxt identity keyword))
-        ["dialog" "alertdialog" "img" "listbox" "grid" "tree"]))
+        ["dialog" "alertdialog" "img" "listbox" "grid" "tree" "tablist" "menu" "menubar"]))
 
 (defn- has-accessible-name? [attrs]
   (some (fn [k]
@@ -1008,8 +1014,9 @@
           "`:aria-modal true`, or `[:dialog …]`), the container roles WAI-ARIA marks "
           "name-required — `:role \"listbox\"`, `\"grid\"`, `\"tree\"`, which a screen "
           "reader announces on entry with nothing but the name to say which container "
-          "the user has landed in (`\"tablist\"`, `\"menu\"` and `\"menubar\"` are not "
-          "flagged: a name helps there too, but the spec does not require one), "
+          "the user has landed in, plus `\"tablist\"`, `\"menu\"` and `\"menubar\"`, which "
+          "this rule asks a name of although the spec permits none: they are announced "
+          "on entry the same way, and two on a page are indistinguishable without one, "
           "`:role \"img\"` — which opts an element into the "
           "accessibility tree and then leaves a screen reader nothing to announce, "
           "so a decorative icon wants `:aria-hidden true` instead of a role — "
