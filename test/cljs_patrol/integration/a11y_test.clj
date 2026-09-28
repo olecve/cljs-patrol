@@ -1090,6 +1090,10 @@
       (is (not (contains? by-row 56))
           "ok-grid-table-named-by-caption — HTML-AAM names a <table> from its caption"))
 
+    (testing "survives a child with no head to read"
+      (is (contains? by-row 62)
+          "bad-grid-empty-child — an empty [] child must not end the run"))
+
     (testing "flags exactly the bad- cases"
-      (is (= 6 (count in-containers))
-          "six bad- cases in the fixture, no more"))))
+      (is (= 7 (count in-containers))
+          "seven bad- cases in the fixture, no more"))))
