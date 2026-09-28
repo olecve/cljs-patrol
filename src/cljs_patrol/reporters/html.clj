@@ -62,6 +62,7 @@
 
 (defn- linkify
   "Return a seq of hiccup children for `s`, with any http(s) URL made an anchor.
+
   The URL is preserved as its own link text. The result is a Clojure sequence
   rather than a vector, so hiccup inlines it as siblings."
   [s]

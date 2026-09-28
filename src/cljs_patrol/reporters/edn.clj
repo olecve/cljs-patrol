@@ -21,7 +21,9 @@
   (apply merge-with (fn [a b] (if (sequential? a) (into a b) b)) results))
 
 (defn- count-by-tier
-  "Wraps severity/count-by-fail-on, renaming keys to the EDN schema."
+  "Return {:blocking-count n :warning-count m} for the merged issues.
+  The EDN report names these counts differently from the rest of the tool, so the keys are
+  renamed here rather than in the severity namespace every other reporter reads."
   [merged fail-on-rules]
   (set/rename-keys
    (severity/count-by-fail-on (vals merged) fail-on-rules)
@@ -30,6 +32,7 @@
 
 (defn print-report
   "Print analysis results as EDN to stdout.
+
   File paths are absolute for direct use with editor/tooling integrations.
   The output always includes :blocking-count and :warning-count. When
   fail-on-rules is empty, all issues are counted as blocking."
@@ -51,13 +54,12 @@
                        (count-by-tier merged fail-on-rules))]
      (println (pr-str output)))))
 
-(defn- with-tier
-  "Augment identity maps with :tier looked up from rule->tier."
-  [identities rule->tier]
+(defn- with-tier [identities rule->tier]
   (mapv #(assoc % :tier (get rule->tier (:rule %))) identities))
 
 (defn print-baseline-report
   "Print baseline-aware analysis results as EDN to stdout.
+
   Always includes :new-issues, :baseline-issues, :fixed-issues, :exit-code,
   :blocking-count, and :warning-count (counts apply to the new-issues
   partition; when fail-on-rules is empty, all new issues count as blocking).

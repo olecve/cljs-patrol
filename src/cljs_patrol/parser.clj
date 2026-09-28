@@ -7,9 +7,7 @@
    [rewrite-clj.node :as n]
    [rewrite-clj.zip :as z]))
 
-(defn distinct-by
-  "Return a collection with duplicates removed, using key-fn to determine identity."
-  [key-fn coll]
+(defn distinct-by [key-fn coll]
   (->> coll
        (map (juxt key-fn identity))
        (into {})
@@ -36,6 +34,7 @@
 
 (defn declared-name-loc
   "Return the zloc of the symbol a `def`-like form names, or nil.
+
   Metadata stacks — `(defclass ^:private ^:const x …)` nests one `:meta` node inside another —
   so the name is whatever is left once every layer is peeled off. Reading the slot after the
   operator directly finds a `:meta` node instead, and skips the whole form."
@@ -88,6 +87,7 @@
 
 (defn extract-kw-from-vector
   "Return {:kw resolved-kw :dynamic? bool} based on the first element of vec-zloc.
+
   Sets :dynamic? true when the first element is not a literal keyword."
   [vec-zloc ns-name aliases]
   (when (= :vector (z/tag vec-zloc))
@@ -144,6 +144,7 @@
 
 (defn- find-ns-info
   "Find and parse the ns form from a rewrite-clj zip.
+
   z/of-file positions at the first top-level form (not a :forms wrapper).
   Walk top-level siblings with z/right until the ns form is found."
   [zloc]
@@ -197,9 +198,7 @@
   (let [dot (.lastIndexOf path ".")]
     (when (pos? dot) (subs path dot))))
 
-(defn- groups-for-extension
-  "Return the subset of enabled-groups that opt into the given file extension."
-  [enabled-groups ext]
+(defn- groups-for-extension [enabled-groups ext]
   (filter #(contains? (group/file-extensions %) ext) enabled-groups))
 
 (defn analyze-file

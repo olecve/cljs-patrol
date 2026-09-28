@@ -50,6 +50,7 @@
 
 (defn style-maps
   "Every map literal Spade reads as a style body, tagged with the selector path above it.
+
   The base map's path is the empty string. Only literals nested directly in the declaration or
   in a selector vector are collected — a map a call produces, `(merge …)` or `(case …)`, is not
   something this can read."

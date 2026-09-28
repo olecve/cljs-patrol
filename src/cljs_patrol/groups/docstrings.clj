@@ -15,6 +15,7 @@
 
 (def ^:private name-title-abbreviations
   "Name- and place-title abbreviations stripped before run-on detection.
+
   Without stripping, `Mr. Smith` would look like two sentences. Excludes
   `e.g.`, `i.e.`, `etc.` — those legitimately introduce a second sentence
   and should remain detected."
@@ -56,6 +57,7 @@
 
 (defn- summary-violation?
   "Detect a missing or non-self-contained summary line in a multi-line docstring.
+
   The first line must end with a sentence terminator (`.`, `!`, `?`, or `:` for
   summaries that introduce an indented list/example) and not begin a new
   sentence on the same line. The run-on check also tolerates a closing bracket
@@ -76,6 +78,7 @@
 
 (defn- indentation-violation?
   "Detect under-indented continuation lines in a multi-line docstring.
+
   Each non-blank continuation line must have leading whitespace at least
   equal to `(column-of-opening-quote - 1)`. Tabs are expanded to `tab-width`
   spaces before counting."
@@ -181,6 +184,7 @@
 
 (defn- failed?*
   "Always return false; docstring rules are informational by design.
+
   Users opt into CI enforcement via `--fail-on cleanup` or per-rule
   (`--fail-on docstring-summary`). Other groups (re-frame, spade,
   typography) return truthy here because their issues are bugs or

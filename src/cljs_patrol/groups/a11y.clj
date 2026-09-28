@@ -19,6 +19,7 @@
 
 (defn- source-snippet
   "Return a display-friendly snippet of loc's source form.
+
   Whitespace is collapsed to single spaces, then truncated with an ellipsis
   so that `(pr-str snippet)` fits in `snippet-edn-max` chars — i.e. the
   finding's baseline line stays under 120 columns even after EDN escapes
@@ -47,6 +48,7 @@
 
 (defn- invalid-tabindex-value?
   "True when `value-loc` holds a literal value that is NOT a valid tabindex.
+
   Valid values are 0, negative integers, and nil (Reagent omits the attribute).
   Non-literal values (symbols, function calls, reader macros) are treated as
   unknown and skipped."
@@ -162,6 +164,7 @@
 
 (defn- meaningful-text-name?
   "True when attrs supplies a non-empty accessible name.
+
   Checks :aria-label, :aria-labelledby, and :title. Non-literal values are optimistically accepted."
   [attrs]
   (some (fn [k]
@@ -239,6 +242,7 @@
 
 (defn- icon-only-branches?
   "True when every branch a form could render is icon markup.
+
   A `(cond … [icons/a] … [icons/b])` in a button body reads as content to a
   reader and as nothing at all to a screen reader, so it must not count as a
   visible name. Anything else in a branch — a string, a symbol, a call that
@@ -314,6 +318,7 @@
 
 (def ^:private focusable-tags
   "Tags the browser puts in the tab order with no authoring at all.
+
   `:a` is absent because a link earns its place there only once it has an `:href`,
   which is checked separately. `:details` is present for the `:summary` it always
   renders, which is the focusable part of a disclosure."
@@ -321,6 +326,7 @@
 
 (def ^:private focusable-roles
   "Widget roles claiming an element the user can reach and operate.
+
   A role does not by itself put an element in the tab order, but claiming one and then
   hiding the element from assistive technology is the same contradiction either way:
   the role is an announcement nobody can hear. Non-widget roles are left out — `img`
@@ -334,6 +340,7 @@
 
 (defn- written-value
   "Return the value attrs give `k` when it reaches the DOM, or `::absent`.
+
   Reagent omits an attribute whose value is nil or false, so both answer `::absent`:
   `[:a {:href nil}]` renders an `<a>` with no href. A value that cannot be read is
   written — the question is whether the attribute is there, not what it says."
@@ -346,6 +353,7 @@
 
 (defn- tabindex-reading
   "Return how attrs place the element in the tab order.
+
   `:none` when no tabindex is written, `:removed` for a negative literal, `:tab-stop`
   for a non-negative one, and `:unknown` when one is written but cannot be read. The
   roving-tabindex idiom `:tab-index (if active? 0 -1)` is exactly that last case, and
@@ -406,6 +414,7 @@
 
 (def ^:private accessible-name-required-tags
   "Native tags whose element has no intrinsic accessible name.
+
   A visible `<label>` associated by id, `:aria-label`, or `:aria-labelledby` is
   required — `:placeholder` is a hint, not a name. `:dialog` matches native
   `<dialog>` and any wrapper aliased to `:dialog` via `:component-aliases`."
@@ -451,6 +460,7 @@
 
 (defn- name-required-attrs?
   "True when attrs claim a role that must carry its own accessible name.
+
   Either a literal `:role` in [[name-required-roles]], or `:aria-modal true`, which
   makes an element a dialog whatever its role says. Non-literal values are treated as
   unknown and skipped, matching the check's false-positive-free posture."
@@ -510,6 +520,7 @@
 
 (def ^:private role->implicit-aria-live
   "Live-region roles mapped to the `aria-live` politeness each implies.
+
   Both spellings count, since Reagent stringifies keyword values. `timer` and
   `marquee` are absent on purpose: they imply \"off\"."
   {"status" "polite"
@@ -537,6 +548,7 @@
 
 (defn- contradicting-aria-live
   "Return the role, the politeness it implies, and the declared one, when they conflict.
+
   The attribute wins: browsers read `aria-live` first and consult the role only when
   it is absent. An absent `:aria-live` is conformant and not reported, `\"off\"` is a
   deliberate opt-out, and non-literal values are skipped."
@@ -572,6 +584,7 @@
 
 (defn- resolve-component-tag
   "Return the native tag mapped to a resolved component symbol, or nil.
+
   A `some.ns/*` key maps every var in that namespace, so a large icon or widget
   namespace costs one entry rather than one per var. An exact symbol wins over it."
   [head-str ns-info component-aliases]
@@ -601,6 +614,7 @@
 
 (defn- repeats-child?
   "True when `loc` sits in the part of `form-loc` that runs once per item.
+
   `for` repeats everything except its first binding's collection expression. The
   map family takes the repeating function as its first argument, so its remaining
   arguments are collections that are evaluated once."
@@ -645,6 +659,7 @@
 
 (def ^:private interactive-content-tags
   "Tags HTML counts as interactive content.
+
   This is the category the content model of `<button>` and `<a href>` bans inside them.
   `:a` is absent because a link joins it only with an `:href`, and `:audio` / `:video`
   because they join it only with `controls` — both are asked separately. `:img` with a
@@ -701,9 +716,9 @@
 
 (defn- descend-locs
   "Return what to search inside `loc`.
-  A Hiccup vector contributes its body: markup handed to an element as a prop is
-  rendered wherever that element puts it, not where the prop is written, and that holds
-  for a descendant exactly as it holds for the element being reported. Anything else
+
+  A Hiccup vector contributes its body, for the reason [[hiccup/props-slot]] gives, and a
+  descendant is no different from the element being reported in that. Anything else
   contributes its children."
   [loc]
   (if (= :vector (z/tag loc))
@@ -712,6 +727,7 @@
 
 (defn- first-matching-descendant
   "Return the first vector among `locs` and their descendants satisfying `match?`, or nil.
+
   A plain descent: a quoting or discarding node is not entered at all, nor is a branch
   `prune?` rejects, so nothing has to be re-climbed at each node to ask whether it still
   counts. `prune?` is asked before `match?`, since a branch that should answer for itself
@@ -740,9 +756,9 @@
   (boolean (some-> (readable-attrs loc) aria-hidden?)))
 
 (defn- disabled-fieldset?
-  "True when the element is a `<fieldset disabled>`.
-  A disabled fieldset takes every form control under it out of the tab order, so nothing
-  in that branch is focusable and hiding it from assistive technology breaks nothing."
+  "True when the element empties the tab order beneath it.
+  Only a `<fieldset disabled>` does: it takes every form control under it out of the tab order, so
+  nothing in that branch is focusable and hiding it from assistive technology breaks nothing."
   [loc]
   (boolean (when-let [attrs (readable-attrs loc)]
              (and (= :fieldset (hiccup/parse-tag (parser/raw (z/down loc))))
@@ -750,11 +766,10 @@
 
 (defn- hidden-focusable-descendant
   "Return the first focusable element under an `:aria-hidden true` wrapper, or nil.
+
   `aria-hidden` applies to the whole subtree, so a control inside a hidden wrapper is
   hidden from assistive technology while keeping its place in the tab order — the same
-  defect as on the wrapper itself, and the more common way to write it. The props the
-  wrapper is handed are not searched, for the reason the nesting walk does not search
-  them: markup passed to an element is rendered wherever that element puts it."
+  defect as on the wrapper itself, and the more common way to write it."
   [{:keys [kind attrs]} loc ns-info component-aliases]
   (when (and (= :map kind) (some? attrs) (aria-hidden? attrs))
     (first-matching-descendant {:match? #(focusable-loc? % ns-info component-aliases)
@@ -763,13 +778,11 @@
 
 (defn- nested-interactive-loc
   "Return the first interactive element inside a control's body, or nil.
-  The body is searched rather than the whole vector: Hiccup handed to the element as a
-  prop — `[:button {:tooltip [:a …]} …]` — is markup the element passes on, not markup
-  nested inside it, and [[hiccup/props-slot]] answers for a props call the same way it
-  answers for a props map. Below the body the whole subtree counts, since a control
-  wrapped in positioning `:div`s or produced by a `for` is nested just the same.
-  The walk stays on the file's own zipper — `z/subzip` restarts position tracking, and
-  the hint names the line the nested control is written on."
+
+  The body, not the whole vector: see [[hiccup/props-slot]] for why props are skipped.
+  Below the body the whole subtree counts, since a control wrapped in positioning `:div`s
+  or produced by a `for` is nested just the same. The walk stays on the file's own zipper,
+  because `z/subzip` restarts position tracking and the hint names a line."
   [info loc tag ns-info component-aliases]
   (when (interactive-container? info tag)
     (let [slot (hiccup/props-slot loc)
@@ -779,11 +792,10 @@
 
 (defn- inner-element-marks
   "Return the display hint and the identity snippet for an element found inside another.
-  Two things a reader and a baseline need differently. The hint names the line, which is
-  what someone opening the file wants and what an identity must never hold: a line moves
-  whenever anything above it does, and a baseline keyed on one turns every accepted
-  finding new after a blank line is added. The snippet moves with the code it describes,
-  so it tells two findings in one file apart without tying either to a position."
+
+  A reader wants the line; an identity must never hold one, since a line moves whenever
+  anything above it does. So the hint names the line and the snippet does not — and the
+  snippet is what tells two findings in one file apart."
   [inner-loc ns-info component-aliases suffix]
   {:hint (format "%s on line %d %s"
                  (pr-str (vector-tag inner-loc ns-info component-aliases))
@@ -801,6 +813,7 @@
 
 (defn- known-unnamed-control?
   "True when `loc` is a control that demonstrably has no name of its own.
+
   An absent or non-map attrs slot holds nothing, so it names nothing. A literal map
   answers for itself. A built, opaque or unclassifiable map is unknown rather than
   unnamed, and counts as named: claiming a key is absent from a partial view is what
@@ -815,6 +828,7 @@
 
 (defn- names-an-unnamed-control?
   "True when the nearest enclosing control demonstrably has no name of its own.
+
   Alt text is only a control's name when the image sits inside a link or button
   supplying none itself. An image in a row names nothing, so a badge repeating the
   same alt across items is correct markup."

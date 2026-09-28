@@ -17,6 +17,7 @@
 
 (def ^:private unrendered-parent-tags
   "Parent tags whose children never reach the DOM.
+
   A quoting form turns its child vector into a data literal — Hiccup written as test
   data or in a macro body — and `#_` discards its child outright. Neither renders, so
   no rule should report what it finds inside one."
@@ -30,6 +31,7 @@
 
 (def html-tags
   "Element names a Hiccup tag keyword can name, plus the `:<>` fragment.
+
   Written out rather than inferred, because a keyword heading a vector is Hiccup only
   some of the time: `[:enum …]` is a Malli schema, `[:cart :items]` a re-frame db path,
   `[:checkout :submit]` an event vector. Only a name HTML actually has says element.
@@ -67,6 +69,7 @@
 
 (defn parse-tag
   "Return the base HTML tag keyword from a Hiccup tag string.
+
   Handles plain (`:img`), class (`:img.hero`), id (`:img#logo`), and mixed
   (`:img.a.b#c`) forms. Bare `:.class` / `:#id` shorthand — where the tag is
   omitted — is treated as `:div`, matching Hiccup's runtime convention.
@@ -91,6 +94,7 @@
 
 (defn literal-map
   "Return `{kw → value-zloc}` for a literal map zloc.
+
   Returns nil if any key is a non-keyword (e.g. computed keys), letting
   callers distinguish 'no such key' from 'unclassifiable map'."
   [map-loc]
@@ -193,6 +197,7 @@
 
 (defn- parameter-vectors
   "Return the vectors binding parameters in a fn-like form.
+
   The first vector after the head is the parameter list of a single-arity form; in a
   multi-arity one each arity is a list whose first child is that vector. A body vector
   is never mistaken for either, since a parameter list always precedes the body."
@@ -226,6 +231,7 @@
 
 (defn- bound-init
   "Return the init a let-style binding vector binds symbol-name to.
+
   `::shadowed` when a destructuring form binds it instead, nil when it is not bound
   here. Pairs from `cut` — the binding the usage itself sits in — on are not in scope
   yet, and the last binding left of it wins."
@@ -241,6 +247,7 @@
 
 (defn- fn-like-head?
   "True for a head that plausibly defines a function, and so binds a parameter list.
+
   Only the name can say so: `[props on-select]` and the Reagent `[photo-props alt]`
   in `(if wide? [wide-photo props] [:img props])` are the same vector of symbols, so
   reading contents alone would take an `if` arm for a parameter list and abandon a
@@ -254,6 +261,7 @@
 
 (defn- parameter-list?
   "True when a vector reads as a parameter list rather than as data.
+
   Parameters are binding forms — a symbol, a destructuring map or vector, `&` — and
   never a keyword, a string or a number, so the Hiccup value of `(def thumbnail
   [:img props])` is not one. Metadata rides along on a parameter (`^js props`) and a
@@ -270,6 +278,7 @@
 
 (defn- unknown-form-parameters
   "Return the parameter lists a fn-like form binds for the body holding `child`.
+
   A form that defines a function is the dangerous case: reading it as binding nothing
   lets a var of the same name answer for what is really a parameter. Its vectors count
   except the one the usage itself sits in, which is the form's body, and except those
@@ -329,6 +338,7 @@
 
 (defn- lexically-bound-value
   "Return the zloc an enclosing binding form binds symbol-name to.
+
   `::shadowed` when a form binds the name to something we cannot read, nil when no
   enclosing form binds it at all — callers need the difference, since only the second
   leaves a var of the same name free to answer. Innermost first. A fn is followed
@@ -388,6 +398,7 @@
 
 (def ^:private def-index
   "The `def`s of the file being read, held one file at a time.
+
   Files are walked one after another, and a file's vectors ask about its vars over
   and over, so this turns a scan per question into a scan per file — the difference
   between linear and quadratic on a namespace with a thousand `def`s. Keyed by
@@ -410,6 +421,7 @@
 
 (defn- top-level-def-value
   "Return the value a `def` in the same file binds symbol-name to, or nil.
+
   A file is where a var is visible, so a `def` answers wherever no local binding
   does. Nothing is read across a namespace: a symbol another file defines stays
   unknown, as it was before anything was looked up at all."
@@ -473,6 +485,7 @@
 
 (defn construction-attrs
   "Return `{:attrs {kw → value-loc} :complete? bool}` for a map-building call.
+
   Handles `(assoc base :k v …)`, `(merge base {:k v} …)` and `(assoc-in base [:k] v)`,
   nesting through each other and through a symbol naming a map literal. Returns nil
   when the call is not one of those.
@@ -584,6 +597,7 @@
 
 (defn attrs-slot
   "Return the zloc occupying the element's attrs slot, or nil when nothing does.
+
   Whatever [[attrs-info]] read attrs out of occupies the slot, so the body begins
   after it — a symbol naming a map and a call building one included. A slot nothing
   could be read from is left where it was: callers have always treated it as body
@@ -612,6 +626,7 @@
 
 (defn result-locs
   "Return the locs whose value can become the value of `loc`.
+
   A form written in one of these positions is one the expression yields; one written
   anywhere else — an argument, a map value, the target of a `with-meta` — is not, and
   reading it as a result answers about the wrong form. A form this does not recognize
@@ -641,20 +656,18 @@
 
 (defn props-slot
   "Return the child occupying the element's props slot, readable or not.
-  [[attrs-slot]] answers only for a slot attrs could be read out of, because its callers
-  have always treated an unreadable one as body content. A rule asking what an element
-  *renders* needs the other answer: `[:button (build-props) …]` hands its props to a
-  call, and Hiccup inside that call is markup passed to the element rather than markup
-  the element renders.
 
-  Only a call counts here. `attrs-info` also reads a quoted or metadata-wrapped second
-  child as a dynamic attrs slot, and those are far more often a first body child than
-  they are props.
+  Markup handed to an element as a prop is rendered wherever that element puts it, not
+  where the prop is written, so a rule asking what an element renders must skip the whole
+  slot — which [[attrs-slot]] cannot answer for, since it reports only a slot attrs can be
+  read out of.
 
-  A call yielding Hiccup is a body child rather than props, and [[result-locs]] is what
-  tells the two apart: `(when open? [:a …])` yields that vector, while `(build {:tooltip
-  [:a …]})` yields whatever the call returns and holds its vector as a map value. Reagent
-  draws the same line at runtime — a second child that is not a map is a child."
+  A call in the slot is the hard case, and [[result-locs]] separates them: `(when open?
+  [:a …])` yields that vector, so it is a body child, while `(build {:tooltip [:a …]})`
+  yields whatever the call returns and merely holds a vector as a map value. Reagent draws
+  the same line at runtime — a second child that is not a map is a child. Only a call is
+  weighed this way; a quoted or metadata-wrapped second child is far more often the first
+  body child than it is props."
   [vec-loc]
   (let [{:keys [kind slot]} (attrs-info vec-loc)
         second-child (some-> vec-loc z/down z/right)]
@@ -666,6 +679,7 @@
 
 (defn inside-unrendered-form?
   "True when a quoting or discarding form encloses loc at any depth.
+
   Every ancestor is asked, not just the parent: the vectors inside `'[:div [:img …]]`
   have an ordinary vector for a parent, and a rule reading one level would report the
   inner `[:img …]` while correctly skipping the outer one. This matches the two checks

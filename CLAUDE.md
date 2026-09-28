@@ -126,11 +126,23 @@ Our own `.clj` sources aren't scanned, but we hold them to the same standard by 
   an indented list/example). Put any additional prose on the next line, not as a continuation of the summary.
 - **Continuation lines** in a multi-line docstring must be indented at least to the column of the opening quote.
 - **No leading or trailing whitespace** inside the docstring.
+- **A body of more than one sentence starts after a blank line.** A single sentence continuing the summary may sit
+  directly beneath it; once there are two, the blank line is what keeps the summary readable as a summary.
 
 Beyond style: **prefer no docstring over a redundant one**. If a well-named function's contract is already clear from
-the name and signature, skip the docstring. Only write one when the docstring conveys something the reader can't derive:
-a non-obvious return contract (e.g. "returns nil vs. empty set has different meaning"), a hidden invariant, an
-enumerated shape, or the reason a conservative choice was made. Restating the name in prose is noise.
+the name and signature, skip the docstring — `:missing-docstring` is not enabled, so nothing will ask you for one, and
+the params then go inline with the name. Only write one when the docstring conveys something the reader can't derive: a
+non-obvious return contract (e.g. "returns nil vs. empty set has different meaning"), a hidden invariant, an enumerated
+shape, or the reason a conservative choice was made. Restating the name in prose is noise, and so is describing another
+var — "Wraps `severity/count-by-fail-on`" tells the reader to go and read something else.
+
+The three style rules are machine-checked by this tool's own `docstrings` group, which skips `.clj`. To run it over our
+sources, copy them to a scratch directory under `.cljs` names and point the tool at that:
+
+```bash
+d=$(mktemp -d) && (cd src && find . -name '*.clj' -exec sh -c 'mkdir -p "$0/$(dirname {})"; cp {} "$0/{}s"' $d \;)
+clojure -M:run --only docstrings $d
+```
 
 ## Adding a New Rule Group
 
