@@ -15,11 +15,12 @@
   Covers function calls, quoted / spliced forms, metadata-wrapped values, reader macros, etc."
   #{:list :fn :syntax-quote :unquote :unquote-splicing :reader-macro :meta})
 
-(def ^:private quoted-parent-tags
-  "Parent tags that turn their child vector into a data literal, not code.
-  Rule groups skip those to avoid flagging Hiccup used as test data or in
-  macro bodies."
-  #{:quote :syntax-quote :unquote :unquote-splicing})
+(def ^:private unrendered-parent-tags
+  "Parent tags whose children never reach the DOM.
+  A quoting form turns its child vector into a data literal — Hiccup written as test
+  data or in a macro body — and `#_` discards its child outright. Neither renders, so
+  no rule should report what it finds inside one."
+  #{:quote :syntax-quote :unquote :unquote-splicing :uneval})
 
 (def ^:private style-decl-forms
   "Spade / garden macros whose body contains CSS declarations, not Hiccup.
@@ -590,8 +591,18 @@
   [vec-loc]
   (:slot (attrs-info vec-loc)))
 
-(defn inside-quoted-form? [loc]
-  (some-> loc z/up z/tag quoted-parent-tags boolean))
+(defn inside-unrendered-form?
+  "True when a quoting or discarding form encloses loc at any depth.
+  Every ancestor is asked, not just the parent: the vectors inside `'[:div [:img …]]`
+  have an ordinary vector for a parent, and a rule reading one level would report the
+  inner `[:img …]` while correctly skipping the outer one. This matches the two checks
+  beside it, which have always walked the whole chain of ancestors."
+  [loc]
+  (loop [current (some-> loc z/up)]
+    (cond
+      (nil? current) false
+      (contains? unrendered-parent-tags (z/tag current)) true
+      :else (recur (z/up current)))))
 
 (defn inside-style-decl?
   "True when loc has any ancestor list beginning with defclass / defattrs.

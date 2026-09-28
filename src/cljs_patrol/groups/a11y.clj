@@ -609,18 +609,6 @@
         (and (= :a tag) readable? (attr-written? attrs :href))
         (and readable? (interactive-via-role? attrs)))))
 
-(defn- quoted-between?
-  "True when a quoting form sits anywhere between `ancestor` and `loc`.
-  `hiccup/inside-quoted-form?` reads one level, which is all `handle-vector*` needs for
-  a vector quoted directly. A descendant deep inside `'[:div [:a …]]` has an ordinary
-  vector for a parent, so every level up to the element being reported has to be asked."
-  [ancestor loc]
-  (loop [current loc]
-    (cond
-      (or (nil? current) (identical? (z/node current) (z/node ancestor))) false
-      (hiccup/inside-quoted-form? current) true
-      :else (recur (z/up current)))))
-
 (defn- interactive-loc? [loc ns-info component-aliases]
   (and (= :vector (z/tag loc))
        (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
@@ -632,7 +620,7 @@
   element as a prop — `[:button {:tooltip [:a …]} …]` — is markup the element passes on,
   not markup nested inside it. Below that, the whole subtree counts, since a control
   wrapped in positioning `:div`s or produced by a `for` is nested just the same; quoted
-  markup does not, being data rather than something that renders. A component whose
+  or discarded markup does not, being data rather than something that renders. A component whose
   markup lives in another file stays invisible, as everywhere else.
   The walk stays on the file's own zipper — `z/subzip` restarts position tracking, and
   the hint names the line the nested control is written on."
@@ -644,7 +632,7 @@
         (cond
           (or (nil? current) (z/end? current) (not (descendant-of? loc current))) nil
           (and (interactive-loc? current ns-info component-aliases)
-               (not (quoted-between? loc current))) current
+               (not (hiccup/inside-unrendered-form? current))) current
           :else (recur (z/next current)))))))
 
 (defn- nested-interactive-hint [inner-loc ns-info component-aliases]
@@ -724,7 +712,7 @@
   (let [first-child (z/down loc)]
     (when (and first-child
                (= :token (z/tag first-child))
-               (not (hiccup/inside-quoted-form? loc))
+               (not (hiccup/inside-unrendered-form? loc))
                (not (hiccup/inside-style-decl? loc))
                (not (hiccup/inside-ns-form? loc)))
       (when-let [tag (vector-tag loc ns-info component-aliases)]

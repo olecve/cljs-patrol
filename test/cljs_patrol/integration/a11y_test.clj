@@ -1097,3 +1097,15 @@
     (testing "flags exactly the bad- cases"
       (is (= 7 (count in-containers))
           "seven bad- cases in the fixture, no more"))))
+
+(deftest unrendered-markup-fixture-test
+  (testing "nothing inside a quoted or discarded form is reported, at any depth"
+    (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+          result (first group-results)
+          in-unrendered (->> (vals result)
+                             (filter sequential?)
+                             (apply concat)
+                             (filter #(str/ends-with? (:file %) "unrendered.cljs")))]
+      (is (empty? in-unrendered)
+          (str "every rule skips markup that never reaches the DOM; reported: "
+               (pr-str (map (juxt :type :row) in-unrendered)))))))

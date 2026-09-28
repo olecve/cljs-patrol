@@ -338,18 +338,28 @@
     (is (nil? (hiccup/attrs-slot (vec-zloc "[:button (build-props)]"))))
     (is (nil? (hiccup/attrs-slot (vec-zloc "[:button props]"))))))
 
-(deftest inside-quoted-form?-test
+(deftest inside-unrendered-form?-test
   (testing "true when the vector's immediate parent is a quote-family node"
     (let [zloc (-> (z/of-string "'[:img]") z/down)]
-      (is (hiccup/inside-quoted-form? zloc))))
+      (is (hiccup/inside-unrendered-form? zloc))))
 
   (testing "true for syntax-quoted vectors"
     (let [zloc (-> (z/of-string "`[:img]") z/down)]
-      (is (hiccup/inside-quoted-form? zloc))))
+      (is (hiccup/inside-unrendered-form? zloc))))
+
+  (testing "true for a discarded vector"
+    (let [zloc (-> (z/of-string "[#_[:img] \"shown\"]") z/down)]
+      (is (hiccup/inside-unrendered-form? (z/down zloc)))))
+
+  (testing "true for a vector nested below the quoted one"
+    (let [zloc (-> (z/of-string "'[:div [:img]]") z/down z/down z/right)]
+      (is (hiccup/inside-unrendered-form? zloc))
+      (is (= "[:img]" (z/string zloc))
+          "the loc under test is the inner vector, two levels below the quote")))
 
   (testing "false for a plain top-level vector"
-    (is (not (hiccup/inside-quoted-form? (z/of-string "[:img]")))))
+    (is (not (hiccup/inside-unrendered-form? (z/of-string "[:img]")))))
 
   (testing "false when parent is another vector"
     (let [zloc (-> (z/of-string "[[:img]]") z/down)]
-      (is (not (hiccup/inside-quoted-form? zloc))))))
+      (is (not (hiccup/inside-unrendered-form? zloc))))))
