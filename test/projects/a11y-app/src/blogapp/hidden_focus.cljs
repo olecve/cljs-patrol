@@ -73,3 +73,32 @@
 
 (defn bad-hidden-keyword-true []
   [:button {:aria-hidden :true} "Publish"])
+
+(defn ok-roving-tabindex [items active?]
+  ;; the roving-tabindex idiom: the tabindex cannot be read, so neither can the way out
+  (for [item items]
+    [:li {:role "treeitem"
+          :aria-hidden true
+          :tab-index (if (active? item) 0 -1)}
+     (:label item)]))
+
+(defn ok-symbol-tabindex [tabindex]
+  [:button {:aria-hidden true
+            :tab-index tabindex}
+   "Scrub"])
+
+(defn ok-disabled-control []
+  ;; a disabled control is out of the tab order already
+  [:button {:aria-hidden true
+            :disabled true}
+   "Publish"])
+
+(defn ok-nil-href []
+  ;; Reagent omits a nil attribute, so this renders <a> with no href
+  [:a {:aria-hidden true
+       :href nil}
+   "Draft"])
+
+(defn bad-complete-built-attrs []
+  ;; every part of the built map is readable, so it states its whole key set
+  [:button (assoc {:class "scrub"} :aria-hidden true) "Publish"])
