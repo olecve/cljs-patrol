@@ -274,12 +274,13 @@
                                       :col 3}))
         "redundant-into-hiccup keyed by tag + file + form")
     (let [wrapper "[:button {:on-click f :class \"post-card post-card--open\"} [:div {:cla..."
-          identity-of (fn [hint]
+          identity-of (fn [inner-form row]
                         (baseline/issue->identity :nested-interactive-element
                                                   {:type :nested-interactive-element
                                                    :kw :button
                                                    :form wrapper
-                                                   :hint hint
+                                                   :inner-form inner-form
+                                                   :hint (str "on line " row)
                                                    :file "src/views.cljs"
                                                    :row 12
                                                    :col 3}))]
@@ -287,12 +288,15 @@
               :tag :button
               :file "src/views.cljs"
               :form wrapper
-              :hint ":a on line 18 is nested inside it."}
-             (identity-of ":a on line 18 is nested inside it."))
-          "a container rule adds the hint, which names the inner element")
-      (is (not= (identity-of ":a on line 18 is nested inside it.")
-                (identity-of ":button on line 24 is nested inside it."))
-          "two findings on wrappers truncating alike stay apart")))
+              :inner-form "[:a {:href url} \"Share\"]"}
+             (identity-of "[:a {:href url} \"Share\"]" 18))
+          "a container rule adds the inner element's snippet, and never the hint")
+      (is (not= (identity-of "[:a {:href url} \"Share\"]" 18)
+                (identity-of "[:button {:on-click remove!} \"Remove\"]" 24))
+          "two findings on wrappers truncating alike stay apart")
+      (is (= (identity-of "[:a {:href url} \"Share\"]" 18)
+             (identity-of "[:a {:href url} \"Share\"]" 94))
+          "the same finding keeps its identity when the code above it moves")))
 
   (testing "unknown rule throws"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown rule"
