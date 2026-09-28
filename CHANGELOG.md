@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.0.28] - 2026-09-28
+
+## What's Changed
+
+* Flag aria-hidden on focusable elements, nested controls, and unnamed container roles by @olecve in https://github.com/olecve/cljs-patrol/pull/61
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.27...v0.0.28
+
+
 ## [v0.0.27] - 2026-09-23
 
 ## What's Changed
