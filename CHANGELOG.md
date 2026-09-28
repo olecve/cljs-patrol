@@ -1,5 +1,22 @@
 # Changelog
 
+## [v0.0.29] - 2026-09-28
+
+## What's Changed
+
+* Stop the focus rules reporting the ways out of them they cannot read by @olecve in https://github.com/olecve/cljs-patrol/pull/62
+* Read a caption candidate's head safely so an empty child cannot end the run by @olecve in https://github.com/olecve/cljs-patrol/pull/63
+* Fix the shared helpers the focus rules were working around by @olecve in https://github.com/olecve/cljs-patrol/pull/64
+* Keep the line a finding sits on out of what identifies it by @olecve in https://github.com/olecve/cljs-patrol/pull/66
+* Tell props from body by what a call yields, and stop following what cannot take focus by @olecve in https://github.com/olecve/cljs-patrol/pull/68
+* Ask a name of tablist, menu and menubar, and say that the spec does not by @olecve in https://github.com/olecve/cljs-patrol/pull/65
+* Wrap the markdown at 120 columns with prettier by @olecve in https://github.com/olecve/cljs-patrol/pull/69
+* Split the README into reference pages under docs/, and merge the duplicate config section by @olecve in https://github.com/olecve/cljs-patrol/pull/70
+* Drop the docstrings that only restate the name, and let summaries stand out by @olecve in https://github.com/olecve/cljs-patrol/pull/71
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.28...v0.0.29
+
+
 ## [v0.0.28] - 2026-09-28
 
 ## What's Changed
