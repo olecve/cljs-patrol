@@ -332,14 +332,17 @@
          "menuitemcheckbox" "menuitemradio" "textbox" "searchbox" "combobox"
          "slider" "spinbutton" "treeitem"]))
 
-(defn- attr-written?
-  "True when attrs give `k` a value that actually reaches the DOM.
-  Reagent omits an attribute whose value is nil or false, so `[:a {:href nil}]` renders
-  an `<a>` with no href and is not a link. A value that cannot be read is written: the
-  question here is whether the attribute is there, not what it says."
+(defn- written-value
+  "Return the value attrs give `k` when it reaches the DOM, or `::absent`.
+  Reagent omits an attribute whose value is nil or false, so both answer `::absent`:
+  `[:a {:href nil}]` renders an `<a>` with no href. A value that cannot be read is
+  written — the question is whether the attribute is there, not what it says."
   [attrs k]
   (let [v (literal-sexpr (get attrs k))]
-    (and (not= ::absent v) (some? v) (not (false? v)))))
+    (if (or (= ::absent v) (nil? v) (false? v)) ::absent v)))
+
+(defn- attr-written? [attrs k]
+  (not= ::absent (written-value attrs k)))
 
 (defn- tabindex-reading
   "Return how attrs place the element in the tab order.
@@ -348,24 +351,26 @@
   roving-tabindex idiom `:tab-index (if active? 0 -1)` is exactly that last case, and
   it is the escape hatch as often as it is not — so it is answered for neither way."
   [attrs]
-  (let [written (keep (fn [k]
-                        (let [v (literal-sexpr (get attrs k))]
-                          (when (and (not= ::absent v) (some? v)) v)))
-                      [:tab-index :tabIndex])]
+  (let [written (remove #{::absent} (map #(written-value attrs %) [:tab-index :tabIndex]))]
     (cond
       (empty? written) :none
       (not (every? integer? written)) :unknown
       (some neg? written) :removed
       :else :tab-stop)))
 
-(defn- disabled?
-  "True unless attrs leave the control enabled.
-  A disabled control is out of the tab order, so hiding it from assistive technology
-  breaks nothing — the same reasoning that makes a negative tabindex the escape hatch.
-  A value that cannot be read counts as disabled: it is the answer that reports less."
-  [attrs]
-  (let [v (literal-sexpr (get attrs :disabled))]
-    (and (not= ::absent v) (some? v) (not (false? v)))))
+(def ^:private disableable-tags
+  "Tags whose elements a `disabled` attribute really takes out of the tab order.
+  It is a form-control attribute: on a `:div` or an `:a` React renders it as a no-op and
+  the element keeps its tab stop, so reading it as a way out there would switch the rule
+  off on something that stays focusable."
+  #{:button :input :select :textarea :fieldset :optgroup :option})
+
+(defn- out-of-tab-order-when-disabled?
+  "True when a `disabled` attribute takes this element out of the tab order.
+  A value that cannot be read counts as disabled: that is the answer reporting less,
+  the same posture the tabindex reading takes."
+  [attrs tag]
+  (and (contains? disableable-tags tag) (attr-written? attrs :disabled)))
 
 (defn- aria-hidden-focusable?
   "True when an element hidden from assistive tech can still take focus.
@@ -373,7 +378,10 @@
   cannot be read, a `:disabled` that cannot be read, and an attrs map that is not a
   whole literal all end the question rather than answer it."
   [{:keys [kind attrs]} tag]
-  (when (and (= :map kind) (some? attrs) (aria-hidden? attrs) (not (disabled? attrs)))
+  (when (and (= :map kind)
+             (some? attrs)
+             (aria-hidden? attrs)
+             (not (out-of-tab-order-when-disabled? attrs tag)))
     (let [tabindex (tabindex-reading attrs)]
       (and (contains? #{:none :tab-stop} tabindex)
            (boolean
@@ -430,21 +438,38 @@
   (or (contains? name-required-roles (literal-sexpr (get attrs :role)))
       (true? (literal-sexpr (get attrs :aria-modal)))))
 
+(defn- body-locs
+  "Return the element's body children, the attrs slot dropped."
+  [vec-loc]
+  (let [attrs-loc (hiccup/attrs-slot vec-loc)
+        body-start (if attrs-loc (z/right attrs-loc) (some-> vec-loc z/down z/right))]
+    (take-while some? (iterate #(some-> % z/right) body-start))))
+
+(defn- announces-something?
+  "True when a `[:caption …]` carries anything to announce.
+  An empty caption names no more than `:aria-label \"\"` does, which `has-accessible-name?`
+  already rejects — the same emptiness has to be judged the same way in both places."
+  [caption-loc]
+  (boolean (some (fn [child]
+                   (not (and (literal-string-loc? child) (empty? (z/sexpr child)))))
+                 (body-locs caption-loc))))
+
 (defn- named-by-caption?
-  "True when the element holds a `[:caption …]` child.
+  "True when a `<table>` holds a `[:caption …]` child that announces something.
   HTML-AAM names a `<table>` from its caption element, so `[:table {:role \"grid\"}
-  [:caption \"Quarterly stats\"] …]` is named without an aria attribute. Only a direct
-  child counts: a caption belongs to the table it opens, and one further down names
-  whatever table is nested there instead. A child with no head at all — an empty vector,
-  a string, a call — reads as not a caption rather than ending the run."
-  [loc]
-  (let [attrs-loc (hiccup/attrs-slot loc)
-        body-start (if attrs-loc (z/right attrs-loc) (some-> loc z/down z/right))]
-    (loop [current body-start]
-      (cond
-        (nil? current) false
-        (= :caption (some-> current z/down parser/raw hiccup/parse-tag)) true
-        :else (recur (z/right current))))))
+  [:caption \"Quarterly stats\"] …]` is named without an aria attribute. Only a table:
+  nothing else HTML defines is named by a caption, so a `[:caption …]` under a `:role
+  \"dialog\"` div names nothing and must not end the check. Only a direct child, since a
+  caption belongs to the table it opens and one further down names a nested table. A
+  child with no head at all — an empty vector, a string, a call — reads as not a caption
+  rather than ending the run, and Reagent metadata on the caption is read through."
+  [loc tag]
+  (and (= :table tag)
+       (boolean (some (fn [child]
+                        (let [value (hiccup/unwrap-meta child)]
+                          (and (= :caption (some-> value z/down parser/raw hiccup/parse-tag))
+                               (announces-something? value))))
+                      (body-locs loc)))))
 
 (defn- missing-accessible-name? [{:keys [kind attrs]} tag loc]
   (cond
@@ -457,7 +482,7 @@
 
     (and (= kind :map) attrs (name-required-attrs? attrs))
     (and (not (has-accessible-name? attrs))
-         (not (named-by-caption? loc)))
+         (not (named-by-caption? loc tag)))
 
     :else nil))
 
@@ -681,7 +706,7 @@
   per-item id there names the item however stale the `aria-label` beside it is, and
   `aria-hidden` removes the element from the tree altogether."
   [attrs]
-  (or (not= ::absent (literal-sexpr (get attrs :aria-labelledby)))
+  (or (attr-written? attrs :aria-labelledby)
       (aria-hidden? attrs)))
 
 (defn- repeated-accessible-name

@@ -848,9 +848,9 @@
             "ok-hidden-from-assistive-tech, nothing is announced at all"))
 
       (testing "flags exactly the bad- cases"
-        (is (not (contains? by-row 173))
-            "ok-hidden-string-spelling — :aria-hidden \"true\" removes it from the tree too")
-        (is (= #{8 15 22 31 56 85 114 116 124 146} (set (map :row in-lists)))
+        (is (contains? by-row 180)
+            "bad-labelledby-nil — Reagent omits the nil attribute, so nothing overrides")
+        (is (= #{8 15 22 31 56 85 114 116 124 146 180} (set (map :row in-lists)))
             "every bad- case and nothing else"))))
 
   (testing "with :component-aliases config: wrapper calls also participate"
@@ -987,9 +987,17 @@
       (is (contains? by-row 104)
           "bad-complete-built-attrs — the call states its whole key set"))
 
+    (testing "reads a way out only where it is really a way out"
+      (is (contains? by-row 108)
+          "bad-disabled-non-form-tag — `disabled` is inert on a :div")
+      (is (contains? by-row 116)
+          "bad-disabled-anchor — and on an :a")
+      (is (contains? by-row 123)
+          "bad-tabindex-false — React drops a boolean from a numeric attribute"))
+
     (testing "flags exactly the bad- cases"
-      (is (= 9 (count in-hidden))
-          "nine bad- cases in the fixture, no more"))))
+      (is (= 12 (count in-hidden))
+          "twelve bad- cases in the fixture, no more"))))
 
 (deftest nested-interactive-element-fixture-test
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
@@ -1094,9 +1102,17 @@
       (is (contains? by-row 62)
           "bad-grid-empty-child — an empty [] child must not end the run"))
 
+    (testing "reads a caption the way an aria name is read"
+      (is (not (contains? by-row 67))
+          "ok-caption-carrying-metadata — Reagent metadata on the caption is read through")
+      (is (contains? by-row 73)
+          "bad-caption-under-dialog — nothing but a <table> is named by a caption")
+      (is (contains? by-row 77)
+          "bad-empty-caption — an empty caption names no more than :aria-label \"\" does"))
+
     (testing "flags exactly the bad- cases"
-      (is (= 7 (count in-containers))
-          "seven bad- cases in the fixture, no more"))))
+      (is (= 9 (count in-containers))
+          "nine bad- cases in the fixture, no more"))))
 
 (deftest unrendered-markup-fixture-test
   (testing "nothing inside a quoted or discarded form is reported, at any depth"

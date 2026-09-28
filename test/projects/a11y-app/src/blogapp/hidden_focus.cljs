@@ -102,3 +102,24 @@
 (defn bad-complete-built-attrs []
   ;; every part of the built map is readable, so it states its whole key set
   [:button (assoc {:class "scrub"} :aria-hidden true) "Publish"])
+
+(defn bad-disabled-non-form-tag [on-toggle]
+  ;; `disabled` is inert on a :div, so the tab stop survives it
+  [:div {:role "button"
+         :tab-index 0
+         :aria-hidden true
+         :disabled true
+         :on-click on-toggle}
+   "Toggle"])
+
+(defn bad-disabled-anchor [url]
+  [:a {:href url
+       :aria-hidden true
+       :disabled true}
+   "Read"])
+
+(defn bad-tabindex-false []
+  ;; React drops a boolean from a numeric attribute, so this is an ordinary tab stop
+  [:button {:aria-hidden true
+            :tab-index false}
+   "Publish"])

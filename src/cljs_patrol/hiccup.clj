@@ -181,7 +181,7 @@
 (defn- skip-right [loc n]
   (reduce (fn [current _] (some-> current z/right)) loc (range n)))
 
-(defn- unwrap-meta
+(defn unwrap-meta
   "Return the value a `:meta` node wraps, or loc itself.
   `(defn f ^:static [a b] …)` reads as a parameter list with something in front of it,
   and the parameters bind whether or not anything is attached to them."
