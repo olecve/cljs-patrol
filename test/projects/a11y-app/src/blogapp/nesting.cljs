@@ -60,3 +60,19 @@
    [:span {:role "link"
            :aria-label "Permalink"
            :tab-index 0}]])
+
+(defn ok-hiccup-passed-as-prop [on-save]
+  ;; the :tooltip vector is markup handed to the button, not markup nested in it
+  [:button {:on-click on-save
+            :tooltip [:a {:href "/help"} "Help"]}
+   "Save"])
+
+(defn ok-quoted-child [on-open render]
+  ;; quoted hiccup is data, not something that renders
+  [:button {:on-click on-open}
+   (render '[:div [:a {:href "/x"} "quoted"]])])
+
+(defn ok-nil-href-container [on-remove]
+  [:a {:href nil}
+   "Draft"
+   [:button {:on-click on-remove} "Remove"]])

@@ -50,3 +50,9 @@
 (defn bad-listbox-empty-label []
   [:ul {:role "listbox"
         :aria-label ""}])
+
+(defn ok-grid-table-named-by-caption []
+  ;; HTML-AAM names a <table> from its caption
+  [:table {:role "grid"}
+   [:caption "Quarterly stats"]
+   [:tbody]])

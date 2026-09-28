@@ -848,6 +848,8 @@
             "ok-hidden-from-assistive-tech, nothing is announced at all"))
 
       (testing "flags exactly the bad- cases"
+        (is (not (contains? by-row 173))
+            "ok-hidden-string-spelling — :aria-hidden \"true\" removes it from the tree too")
         (is (= #{8 15 22 31 56 85 114 116 124 146} (set (map :row in-lists)))
             "every bad- case and nothing else"))))
 
@@ -971,9 +973,23 @@
       (is (not (contains? by-row 35))
           "ok-built-attrs — a negative tabindex may sit in the unreadable part"))
 
+    (testing "abstains when the way out cannot be read"
+      (is (not (contains? by-row 80))
+          "ok-roving-tabindex — :tab-index (if active? 0 -1) is unreadable, not absent")
+      (is (not (contains? by-row 86))
+          "ok-symbol-tabindex — a bound tabindex is unreadable the same way")
+      (is (not (contains? by-row 92))
+          "ok-disabled-control — a disabled control is out of the tab order")
+      (is (not (contains? by-row 98))
+          "ok-nil-href — Reagent omits a nil attribute, so this <a> has no href"))
+
+    (testing "reads a built map every part of which is readable"
+      (is (contains? by-row 104)
+          "bad-complete-built-attrs — the call states its whole key set"))
+
     (testing "flags exactly the bad- cases"
-      (is (= 8 (count in-hidden))
-          "eight bad- cases in the fixture, no more"))))
+      (is (= 9 (count in-hidden))
+          "nine bad- cases in the fixture, no more"))))
 
 (deftest nested-interactive-element-fixture-test
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
@@ -1014,6 +1030,14 @@
           "ok-presentational-role-wrapper — :role \"presentation\" confers nothing")
       (is (not (contains? by-row 25))
           "ok-computed-wrapper-attrs — the wrapper's role cannot be read"))
+
+    (testing "searches the body, not the props the element is handed"
+      (is (not (contains? by-row 66))
+          "ok-hiccup-passed-as-prop — a :tooltip vector is markup passed on, not nested")
+      (is (not (contains? by-row 72))
+          "ok-quoted-child — quoted hiccup is data, not something that renders")
+      (is (not (contains? by-row 76))
+          "ok-nil-href-container — an :a whose :href is nil is not a container"))
 
     (testing "flags exactly the bad- cases"
       (is (= 6 (count in-nesting))
@@ -1061,6 +1085,10 @@
     (testing "leaves a non-literal role alone"
       (is (not (contains? by-row 31))
           "ok-dynamic-container-role"))
+
+    (testing "reads a native caption as the table's name"
+      (is (not (contains? by-row 56))
+          "ok-grid-table-named-by-caption — HTML-AAM names a <table> from its caption"))
 
     (testing "flags exactly the bad- cases"
       (is (= 6 (count in-containers))

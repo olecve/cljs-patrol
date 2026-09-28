@@ -166,3 +166,10 @@
     [:button {:aria-hidden true
               :tab-index -1
               :aria-label "Remove post"} "x"]))
+
+(defn ok-hidden-string-spelling [posts]
+  ;; aria-hidden="true" reaches the DOM the same way, so nothing is announced here either
+  (for [post posts]
+    [:button {:aria-hidden "true"
+              :tab-index -1
+              :aria-label "Remove post"} "x"]))
