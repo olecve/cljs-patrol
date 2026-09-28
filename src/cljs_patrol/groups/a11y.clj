@@ -435,15 +435,15 @@
   HTML-AAM names a `<table>` from its caption element, so `[:table {:role \"grid\"}
   [:caption \"Quarterly stats\"] …]` is named without an aria attribute. Only a direct
   child counts: a caption belongs to the table it opens, and one further down names
-  whatever table is nested there instead."
+  whatever table is nested there instead. A child with no head at all — an empty vector,
+  a string, a call — reads as not a caption rather than ending the run."
   [loc]
   (let [attrs-loc (hiccup/attrs-slot loc)
         body-start (if attrs-loc (z/right attrs-loc) (some-> loc z/down z/right))]
     (loop [current body-start]
       (cond
         (nil? current) false
-        (and (= :vector (z/tag current))
-             (= :caption (hiccup/parse-tag (parser/raw (z/down current))))) true
+        (= :caption (some-> current z/down parser/raw hiccup/parse-tag)) true
         :else (recur (z/right current))))))
 
 (defn- missing-accessible-name? [{:keys [kind attrs]} tag loc]

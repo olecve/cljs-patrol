@@ -56,3 +56,9 @@
   [:table {:role "grid"}
    [:caption "Quarterly stats"]
    [:tbody]])
+
+(defn bad-grid-empty-child []
+  ;; an empty child vector has no head to read; the scan must survive it
+  [:table {:role "grid"}
+   []
+   [:tbody]])
