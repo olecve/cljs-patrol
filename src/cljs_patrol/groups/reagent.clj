@@ -19,6 +19,7 @@
 
 (defn- hiccup-head-loc?
   "True when `loc` is a token that heads a Hiccup vector rather than a data one.
+
   A keyword counts only when it names an element: an arbitrary one heads a Malli
   schema, a re-frame db path or an event vector far more often than an element. Any
   symbol counts — Reagent components appear here as ordinary refs (bare or namespaced)."
@@ -52,6 +53,7 @@
 
 (defn- function-body-locs
   "Return the body forms of an `(fn [params] …)` literal, or nil for anything else.
+
   A name may sit between `fn` and the parameters, so the parameter list is whatever
   vector comes first. A multi-arity `fn` states no vector of its own and reads as nil,
   which costs only a finding this rule was never going to be sure of."
@@ -67,6 +69,7 @@
 
 (defn- mapping-body-locs
   "Return the body forms of a sequence expression, in order, or nil.
+
   `for` writes its body after the binding vector; `map` and friends hold theirs inside
   the function they are handed. A function named rather than written out — a bare ref
   or a transducer arity — has no body here, and nil is the honest answer: what that
@@ -87,14 +90,13 @@
           :list (function-body-locs argument)
           nil)))))
 
-(defn- key-meta-map?
-  "True when a literal map attaches a `:key`."
-  [map-loc]
+(defn- key-meta-map? [map-loc]
   (and (= :map (some-> map-loc z/tag))
        (contains? (hiccup/literal-map map-loc) :key)))
 
 (defn- attaches-key?
   "True when `loc` gives React a key for the element it produces.
+
   All three live forms count: reader metadata, an explicit `with-meta`, and a `:key` in
   the props map of an element written out here. The last is why this is asked only of
   the forms a mapping body produces — a `:key` in the props of the container being
@@ -116,11 +118,12 @@
        (not (key-meta-map? (some-> loc z/down z/right)))))
 
 (defn- reactive-deref?
-  "True when `loc` derefs something.
-  Reagent's documented caveat is a ratom deref inside a lazy seq: the deref then happens
-  outside the component's reactive context and the component stops re-rendering. Whether
-  the target is a ratom is not readable here, so every deref counts — a body that derefs
-  keeps the eager `into` rather than being turned into a lazy `for`."
+  "True when `loc` derefs anything at all, ratom or not.
+
+  Reagent's documented caveat is a ratom deref inside a lazy seq: the deref then happens outside
+  the component's reactive context and the component stops re-rendering. Whether the target is a
+  ratom is not readable here, so every deref counts — a body that derefs keeps the eager `into`
+  rather than being turned into a lazy `for`."
   [loc]
   (or (= :deref (z/tag loc))
       (and (= :list (z/tag loc))
@@ -128,6 +131,7 @@
 
 (defn- keyed-mapping-form?
   "True when `loc` maps a collection to elements that all carry their own `:key`.
+
   One keyed branch is not enough: a body keying only some of what it produces still
   needs the `into` for the rest. And without any key the `into` is load-bearing — it
   splices the elements in as positional children, which React accepts, where a sequence

@@ -26,6 +26,7 @@
 
 (def ^:private hiccup-site-rules
   "Hiccup-vector rules whose baseline identity is (rule + tag + file + form).
+
   Line and column are recorded on the finding for the report but are not part
   of the identity — reformatting a file must not turn every baselined Hiccup
   finding into a new one. Two identical Hiccup vectors in the same file
@@ -71,6 +72,7 @@
 
 (defn issue->identity
   "Extract the stable identity of an issue for baseline comparison.
+
   Returns a map with :rule and the minimum fields needed to uniquely identify
   the issue without depending on line numbers where possible.
   When source-dir is provided, file paths are made relative to it."
@@ -134,7 +136,6 @@
                         :issue issue}))))))
 
 (defn result->identities
-  "Extract identity maps for all issues in a single group's analysis result map."
   ([result] (result->identities result nil))
   ([result source-dir]
    (into #{}
@@ -148,9 +149,9 @@
 (def default-baseline-path ".cljs-patrol/baseline.edn")
 
 (defn resolve-baseline-path
-  "Resolve the baseline file path.
-  Uses `configured-path` as-is when supplied; otherwise places the default
-  path relative to the first source directory."
+  "Return `configured-path` when one is set, else the default under the first source directory.
+  Which directory that is matters: a run over several source roots keeps its baseline beside the
+  first, so the same invocation always reads and writes the same file."
   [configured-path source-dirs]
   (or configured-path
       (fs/join-path (first source-dirs) default-baseline-path)))
@@ -228,6 +229,7 @@
 
 (defn write-baseline
   "Write a baseline file at `path` with the given set of identity maps.
+
   `rule->tier` is used to compute `:summary :tier->total`; when absent, all
   tier counts are zero (tier info isn't part of the identity itself).
   The new content goes to a sibling temp file that is moved into place only
@@ -271,6 +273,7 @@
 
 (defn diff-baseline
   "Compare found issues against a baseline.
+
   `baseline` and `found` are both sets of identity maps.
   Returns {:new #{...} :present #{...} :fixed #{...}}."
   [baseline found]
@@ -280,6 +283,7 @@
 
 (defn collect-identities
   "Collect all issue identities from run-results across all groups.
+
   `run-results` is a seq of {:source-dir ... :group-results [...]}."
   [run-results]
   (into #{}
@@ -291,6 +295,7 @@
 
 (defn read-config
   "Read `.cljs-patrol/config.edn` and return the full map.
+
   Returns {} if the file is missing. On a malformed file, prints a
   warning to stderr and returns {} so the tool still runs against
   defaults — a broken config shouldn't crash CI, but silently
@@ -308,6 +313,7 @@
 
 (defn merge-config
   "Apply :baseline config-file settings to CLI opts, with CLI flags taking precedence.
+
   Always returns all baseline keys (:baseline-path, :strict-baseline, :quiet-baseline)
   so callers don't have to handle missing keys.
   Recognized :baseline keys: :path, :strict, :quiet."

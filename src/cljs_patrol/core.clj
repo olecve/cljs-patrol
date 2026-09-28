@@ -98,6 +98,7 @@
 
 (defn standalone-failed?
   "Decide whether to exit non-zero when not using --baseline.
+
   When fail-on-rules is empty/nil, falls back to each group's failed? method.
   When fail-on-rules is non-empty, fails iff any issue's rule is in that set."
   [{:keys [enabled-groups run-results fail-on-rules]}]
@@ -111,6 +112,7 @@
 
 (defn baseline-failed?
   "Return truthy if baseline comparison should cause a non-zero exit.
+
   - When fail-on-rules is empty/nil, fails on any new issue.
   - When fail-on-rules is set, fails only on new issues whose rule is in that set.
   - When strict-baseline is truthy, additionally fails on fixed issues
@@ -138,9 +140,7 @@
     {:source-dir source-dir
      :group-results group-results}))
 
-(defn- run-results->results
-  "Flatten run-results into a seq of group result maps."
-  [run-results]
+(defn- run-results->results [run-results]
   (mapcat :group-results run-results))
 
 (defn- run-baseline-write! [run-results opts dirs rule->tier]

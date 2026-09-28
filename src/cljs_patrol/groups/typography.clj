@@ -30,9 +30,7 @@
             (subs token-name 0 (- (count token-name) (count suffix)))))
         typography-suffixes))
 
-(defn- collect-children
-  "Apply f to each immediate child of loc, returning a flat vector of results."
-  [loc f]
+(defn- collect-children [loc f]
   (when-let [child (z/down loc)]
     (loop [c child results []]
       (let [new-results (into results (f c))]

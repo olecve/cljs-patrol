@@ -90,6 +90,7 @@
 
 (defn report-with-baseline
   "Print analysis results with [NEW] / [BASE] tags.
+
   `new-identities` is a set of identity maps for new issues.
   Options:
     :quiet? - if true, only print new issues

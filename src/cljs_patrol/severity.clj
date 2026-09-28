@@ -7,9 +7,7 @@
 
 (def tiers #{:bugs :deprecations :cleanup})
 
-(defn collect-rule->tier
-  "Merge the rule->tier maps from each group into a single map."
-  [groups]
+(defn collect-rule->tier [groups]
   (into {} (mapcat group/rule->tier groups)))
 
 (defn annotate-tiers
@@ -24,9 +22,7 @@
                             v)]))
          (into {}))))
 
-(defn tier->rules
-  "Return the set of rules in the given rule->tier map that belong to `tier`."
-  [rule->tier tier]
+(defn tier->rules [rule->tier tier]
   (->> rule->tier
        (filter (fn [[_ t]] (= t tier)))
        (map key)
@@ -48,6 +44,7 @@
 
 (defn parse-fail-on
   "Parse --fail-on input into a set of rule keys.
+
   Accepts tier names (bugs/deprecations/cleanup), individual rule keywords,
   or the meta value 'all'. Input may be a comma-separated string or a vector
   of keywords/strings. Validates against the given rule->tier map.
@@ -81,6 +78,7 @@
 
 (defn count-by-fail-on
   "Return {:blocking N :warning M} for issues across the given `results`.
+
   Each entry in `results` is a group result map (rule-key -> items vector).
   Issues whose rule is in `fail-on-rules` count as blocking; the rest as warning.
   An empty `fail-on-rules` counts every issue as blocking (matches the
@@ -128,9 +126,7 @@
 (defn- truncate [s n]
   (if (<= (count s) n) s (str (subs s 0 n) "...")))
 
-(defn format-rules
-  "Render the result of `list-rules` as a human-readable string."
-  [tiered]
+(defn format-rules [tiered]
   (str/join
    "\n"
    (for [tier tier-order

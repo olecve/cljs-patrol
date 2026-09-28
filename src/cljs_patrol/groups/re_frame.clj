@@ -69,9 +69,7 @@
       (recur (z/right cur)
              (if (fn-form? cur) cur found)))))
 
-(defn- last-sibling
-  "Walk to the rightmost sibling starting from `loc`."
-  [loc]
+(defn- last-sibling [loc]
   (loop [cur loc
          last-loc loc]
     (let [nxt (z/right cur)]
@@ -79,9 +77,7 @@
         last-loc
         (recur nxt nxt)))))
 
-(defn- fn-body-last
-  "Given a `(fn [args] body...)` zip loc, return the last body expression loc."
-  [fn-loc]
+(defn- fn-body-last [fn-loc]
   (when-let [args-loc (some-> (z/down fn-loc) z/right)]
     (when (= :vector (z/tag args-loc))
       (some-> (z/right args-loc) last-sibling))))
@@ -117,9 +113,7 @@
           (and (= :map (z/tag body-last))
                (empty? (z/child-sexprs body-last)))))))
 
-(defn- db-keyed-map?
-  "True if `loc` is a map literal containing `:db` as a key."
-  [loc]
+(defn- db-keyed-map? [loc]
   (and (= :map (z/tag loc))
        (try
          (contains? (->> (z/child-sexprs loc)
@@ -130,6 +124,7 @@
 
 (defn- collect-tail-locs
   "Return all tail-position locs reachable from `loc` through control-flow forms.
+
   Unwraps let, do, if, when at the structural top; does NOT recurse into
   nested fn forms, so the inner accumulator in `(reduce (fn [db item] ...) db
   items)` is not visited. Stops at the first non-control-flow form."
@@ -157,6 +152,7 @@
 
 (defn- reg-event-db-returning-effects?
   "True if a `reg-event-db` handler tail-returns a `:db`-keyed map literal.
+
   Such a handler returns an effects-style map: the map silently replaces
   app-db and every extra effect key (`:dispatch`, `:fx`, ...) is dropped.
   Almost always a bug; switch to `reg-event-fx`."
