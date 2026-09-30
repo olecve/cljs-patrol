@@ -112,7 +112,8 @@
            :spade-keyword-combinator-selector
            :missing-accessible-name :repeated-accessible-name
            :aria-live-contradicts-role
-           :aria-hidden-focusable :nested-interactive-element}
+           :aria-hidden-focusable :nested-interactive-element
+           :label-not-associated}
          (severity/tier->rules rule->tier :bugs)))
   (is (= #{:deprecated-effects :defclass-as-sole-attr
            :defattrs-in-merge :mixed-token-groups}
@@ -141,7 +142,8 @@
                   :spade-keyword-combinator-selector
                   :missing-accessible-name :repeated-accessible-name
                   :aria-live-contradicts-role
-                  :aria-hidden-focusable :nested-interactive-element}}
+                  :aria-hidden-focusable :nested-interactive-element
+                  :label-not-associated}}
            (severity/parse-fail-on "bugs" rule->tier)))
     (is (= {:ok (severity/tier->rules rule->tier :deprecations)}
            (severity/parse-fail-on "deprecations" rule->tier)))
@@ -207,7 +209,8 @@
                :spade-keyword-combinator-selector
                :missing-accessible-name :repeated-accessible-name
                :aria-live-contradicts-role
-               :aria-hidden-focusable :nested-interactive-element}
+               :aria-hidden-focusable :nested-interactive-element
+               :label-not-associated}
              (set (map :rule (:bugs tiered)))))
       (is (= #{:deprecated-effects :defclass-as-sole-attr
                :defattrs-in-merge :mixed-token-groups}

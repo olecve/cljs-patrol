@@ -97,6 +97,29 @@ Every rule, what it flags, and what it deliberately leaves alone. For the one-li
   element's would be. A built map every part of which _is_ readable states its whole key set and is treated as written
   out. An `:href` or `:disabled` whose literal value is `nil` or `false` counts as absent, since Reagent omits those
   attributes
+- **Label not associated** — a `[:label …]` that labels nothing that renders. HTML gives a label its control two ways:
+  the `for` attribute naming one by id, or the first labelable element among its descendants (`:input` that is not
+  hidden, `:select`, `:textarea`, `:button`, `:meter`, `:output`, `:progress`). ARIA gives it a third, running the other
+  way — a control pointing `aria-labelledby` at the label's id, which the rule finds by scanning the file. The id is
+  matched literally where both sides write one, and by source text where both compute one, so the field-component shape
+  `(str id "-label")` on the label and on the control is recognised; the `:label#notes-label` tag shorthand counts too.
+  `aria-describedby` does **not** exempt — it is a description, not a name. With none of the three, the element is text
+  that happens to be a `<label>`: clicking it focuses nothing and it contributes no accessible name, however much a
+  sighted reader takes it for the field's label. Naming the field with `:aria-label` instead is not a fix — the visible
+  text and the announced name then say different things, which a speech-input user cannot bridge (WCAG 2.5.3 Label in
+  Name).
+
+  The check **ends** rather than fails wherever the markup cannot be read: a component vector or a call in the body,
+  either of which may render the control; a props map named by a symbol, which holds something different per call site;
+  and a props map with a computed key. It does **not** end for a props _call_ — `for` holds one control's id, so a call
+  shared between call sites could only return a constant one, pointing every label it renders at the same element.
+  `(assoc (styles/field) :for id)` is read properly and passes.
+
+  A Malli entry is spelled the same way and is skipped. What tells markup apart is a DOM attribute in a literal props
+  map, or a body holding a string or a nested vector — so `[:label string?]`, `[:label {:optional true} string?]` and
+  `[:label (caption-schema)]` are all left alone, and a label whose only child is a bare symbol with no DOM attribute
+  beside it is left alone for the same reason
+
 - **Nested interactive element** — an interactive element containing another one. The HTML content model bans
   interactive content inside `<button>` and inside `<a href>`; React logs a `validateDOMNesting` warning for it, and
   browsers recover by restructuring the markup differently from one another. The ARIA form of the same mistake —

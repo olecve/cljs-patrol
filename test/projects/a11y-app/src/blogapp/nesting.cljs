@@ -105,7 +105,7 @@
 
 (defn bad-label-in-button [on-save]
   [:button {:on-click on-save}
-   [:label "Name"]])
+   [:label {:for "post-name"} "Name"]])
 
 (defn ok-conditional-props-map [dark? on-save]
   ;; the branch yields a map, so it is props
