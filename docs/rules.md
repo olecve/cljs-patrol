@@ -37,6 +37,13 @@ Every rule, what it flags, and what it deliberately leaves alone. For the one-li
 
 - **defattrs in merge** — `defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class`
   without merge
+- **Assertion message inline** — an `(is …)` whose message shares a line with the expression it describes. The two say
+  different things — one is what ran, the other why the answer matters — and a reader scanning a test body for either
+  has to read past the other to find it. Put the message on its own line under the expression, which is how the style
+  guide's own examples are written. The closing line of a multi-line expression counts as sharing, so
+  `(is (= 4\n (+ 2 2)) "…")` is flagged while the same message on the next line is not. Only a string written out is
+  flagged; a message named by a symbol is not the shape the convention is about, and an assertion with no message says
+  nothing either way
 - **Deftest leading article** — a test var whose name opens with `a-`, `an-` or `the-`. A test named after the claim it
   makes is a sentence, and the article at the front of one carries nothing an identifier needs: the reader is scanning
   for the subject, and the first word is not it. `the-status-label-is-rendered` becomes `status-label-is-rendered`. Only

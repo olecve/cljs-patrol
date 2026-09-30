@@ -50,7 +50,8 @@ Analysis is split into independent rule groups. By default all groups run.
   non-interactive tags, empty interactive elements without an accessible name, form controls and name-required roles
   missing an accessible name, one constant name shared by every item of a repeated list, `aria-hidden` on something that
   can still take focus, one interactive element nested inside another, a `<label>` that labels nothing
-- **`tests`** — naming conventions on test vars: a `deftest` whose name opens with `a-`, `an-` or `the-`
+- **`tests`** — conventions on test code: a `deftest` whose name opens with `a-`, `an-` or `the-`, an assertion message
+  sharing a line with its expression
 - **`docstrings`** — bbatsov style-guide violations on every def (summary, indent, whitespace)
 - **`css-order`** — Spade style maps whose properties run out of the
   [property order](docs/rules.md#property-order-tables) the chosen stylelint config defines
