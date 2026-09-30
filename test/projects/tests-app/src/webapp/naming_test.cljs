@@ -34,3 +34,16 @@
 
 (deftest ^:async the-panel-loads-lazily
   (is true))
+
+(deftest assertion-message-placement
+  (is (= 4 (+ 2 2))
+      "the message on its own line reads as its own thought")
+  (is (= 4 (+ 2 2)) "this one shares the line with the expression")
+  (is (= 4 (+ 2 2)))
+  (is (= 4 (+ 2 2))
+      message-from-a-symbol)
+  (is (= 4
+         (+ 2 2))
+      "a multi-line expression already puts the message on its own line")
+  (is (= 4
+         (+ 2 2)) "but the message can still share the closing line"))

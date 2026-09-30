@@ -7,8 +7,11 @@
 
 (def ^:private fixture-dir "test/projects/tests-app/src/webapp")
 
+(defn- result []
+  (-> (core/run fixture-dir [tests/group]) :group-results first))
+
 (defn- findings []
-  (-> (core/run fixture-dir [tests/group]) :group-results first :deftest-leading-article))
+  (:deftest-leading-article (result)))
 
 (deftest deftest-leading-article-fixture-test
   (let [found (findings)
@@ -54,3 +57,35 @@
       (is (= (identity-of 26) (identity-of 94))
           "the row moves whenever anything above the var does")
       (is (= #{:rule :name :file} (set (keys (identity-of 26))))))))
+
+(deftest assertion-message-inline-fixture-test
+  (let [found (:assertion-message-inline (result))
+        by-row (into {} (map (juxt :row identity)) found)]
+
+    (testing "flags a message sharing the expression's line"
+      (is (contains? by-row 41)
+          "a single-line expression with the message bolted on the end"))
+
+    (testing "flags a message on the closing line of a multi-line expression"
+      (is (contains? by-row 49)
+          "the expression spans lines, but the message still shares its last one"))
+
+    (testing "leaves a message on its own line alone"
+      (is (not (contains? by-row 39)))
+      (is (not (contains? by-row 46))
+          "a multi-line expression whose message follows it on a new line"))
+
+    (testing "says nothing about an assertion carrying no message"
+      (is (not (contains? by-row 42))))
+
+    (testing "only a string written out is the shape this is about"
+      (is (not (contains? by-row 44))
+          "a message named by a symbol is left alone"))
+
+    (testing "names what to do"
+      (is (= "Move the message to its own line, under the expression."
+             (:hint (by-row 41)))))
+
+    (testing "flags exactly the inline messages"
+      (is (= 2 (count found))
+          "two of the six assertions in the fixture share a line"))))
