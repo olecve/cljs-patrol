@@ -89,3 +89,36 @@
     (testing "flags exactly the inline messages"
       (is (= 2 (count found))
           "two of the six assertions in the fixture share a line"))))
+
+(deftest conditional-assertion-fixture-test
+  (let [found (:conditional-assertion (result))
+        by-row (into {} (map (juxt :row identity)) found)]
+
+    (testing "flags an expected value computed by a conditional"
+      (is (contains? by-row 58))
+      (is (= "The expected value is computed here. State it instead, one case per row of a table."
+             (:hint (by-row 58)))))
+
+    (testing "flags a conditional choosing between assertions"
+      (is (contains? by-row 60))
+      (is (= "The test chooses between assertions. Pair each input with its expected value instead."
+             (:hint (by-row 60)))))
+
+    (testing "flags a guard that can skip the assertion"
+      (is (contains? by-row 63))
+      (is (= "This guard can skip the assertion, and the test then passes having checked nothing."
+             (:hint (by-row 63)))))
+
+    (testing "a conditional inside a function literal is a predicate"
+      (is (not (contains? by-row 53))
+          "#(when (= 1 (:id %)) %) handed to some branches per element, not per assertion"))
+
+    (testing "leaves an assertion stating its expectation alone"
+      (is (not (contains? by-row 56))))
+
+    (testing "reports the row in the file, not in the form"
+      (is (every? #(> (:row %) 1) found)
+          "a z/subzip walk would name line 1 of the assertion instead"))
+
+    (testing "flags exactly the three shapes"
+      (is (= 3 (count found))))))
