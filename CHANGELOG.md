@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.0.31] - 2026-09-30
+
+## What's Changed
+
+* Flag a test var whose name opens with an article by @olecve in https://github.com/olecve/cljs-patrol/pull/73
+* Flag an assertion message sharing a line with its expression by @olecve in https://github.com/olecve/cljs-patrol/pull/74
+* Flag a test that decides what to assert while it runs by @olecve in https://github.com/olecve/cljs-patrol/pull/75
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.30...v0.0.31
+
+
 ## [v0.0.30] - 2026-09-30
 
 ## What's Changed
