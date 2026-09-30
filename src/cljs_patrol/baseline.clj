@@ -45,6 +45,7 @@
     :on-click-on-non-interactive
     :aria-hidden-focusable
     :nested-interactive-element
+    :label-not-associated
     :redundant-into-hiccup})
 
 (def ^:private selector-keyed-rules

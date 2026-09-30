@@ -97,6 +97,19 @@ Every rule, what it flags, and what it deliberately leaves alone. For the one-li
   element's would be. A built map every part of which _is_ readable states its whole key set and is treated as written
   out. An `:href` or `:disabled` whose literal value is `nil` or `false` counts as absent, since Reagent omits those
   attributes
+- **Label not associated** — a `[:label …]` that labels nothing that renders. HTML gives a label its control two ways:
+  the `for` attribute naming one by id, or the first labelable element among its descendants (`:input` that is not
+  hidden, `:select`, `:textarea`, `:button`, `:meter`, `:output`, `:progress`). ARIA gives it a third, running the other
+  way — a control pointing `aria-labelledby` at the label's id, which the rule finds by scanning the file. With none of
+  them the element is text that happens to be a `<label>`: clicking it focuses nothing and it contributes no accessible
+  name, however much a sighted reader takes it for the field's label. Naming the field with `:aria-label` instead is not
+  a fix — the visible text and the announced name then say different things, which a speech-input user cannot bridge
+  (WCAG 2.5.3 Label in Name). A component among the label's children **ends** the check rather than failing it, since a
+  wrapper may render the control. A props call that cannot be read does **not** end it: `for` holds one control's id, so
+  a call shared between call sites could only return a constant one, which would point every label it renders at the
+  same element. `(assoc (styles/field) :for id)` is read properly and passes. `[:label string?]` in a Malli schema is
+  not markup and is skipped — props, or a string written out, are what tell the two apart, so a label whose only child
+  is a bare symbol is left alone for the same reason
 - **Nested interactive element** — an interactive element containing another one. The HTML content model bans
   interactive content inside `<button>` and inside `<a href>`; React logs a `validateDOMNesting` warning for it, and
   browsers recover by restructuring the markup differently from one another. The ARIA form of the same mistake —

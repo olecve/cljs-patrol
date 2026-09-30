@@ -776,6 +776,123 @@
                                 :prune? #(or (hidden-subtree? %) (disabled-fieldset? %))}
                                (body-locs loc))))
 
+(def ^:private aria-reference-keys [:aria-labelledby :aria-describedby])
+
+(def ^:private aria-reference-index
+  "Ids that an `aria-labelledby` or `aria-describedby` in the file points at.
+
+  Held one file at a time.
+
+  A label naming a control through one of those is doing its job without a `for`, and
+  every label in a file asks the same question, so this turns a scan per label into a
+  scan per file. Keyed by identity of the file's root node, the way hiccup.clj keys its
+  own index, so a file this never saw rebuilds it."
+  (atom {:cached-root nil
+         :ids #{}}))
+
+(defn- file-root [loc]
+  (loop [current loc]
+    (if-let [parent (z/up current)] (recur parent) current)))
+
+(defn- scan-aria-references [root]
+  (loop [current (z/subzip root)
+         ids #{}]
+    (cond
+      (z/end? current) ids
+      (and (parser/kw-node? current)
+           (contains? (set aria-reference-keys) (literal-sexpr current)))
+      (let [value (literal-sexpr (z/right current))]
+        (recur (z/next current)
+               (cond-> ids (string? value) (into (str/split (str/trim value) #"\s+")))))
+      :else (recur (z/next current) ids))))
+
+(defn- aria-referenced-ids [loc]
+  (let [root (file-root loc)
+        node (z/node root)
+        {:keys [cached-root ids]} @aria-reference-index]
+    (if (identical? node cached-root)
+      ids
+      (let [scanned (scan-aria-references root)]
+        (reset! aria-reference-index {:cached-root node
+                                      :ids scanned})
+        scanned))))
+
+(defn- named-through-aria-reference?
+  "True when something in the file points `aria-labelledby` or `aria-describedby` here.
+
+  A `<label>` used that way is a name source rather than a `for`-style label, which is
+  conformant markup: the control it names carries the reference, so the association runs
+  the other way and there is nothing missing on the label."
+  [attrs loc]
+  (let [id (literal-sexpr (get attrs :id))]
+    (and (string? id) (contains? (aria-referenced-ids loc) id))))
+
+(def ^:private labelable-tags
+  "Tags a `<label>` can label.
+
+  HTML calls these labelable elements, and a label's control is the first of them among
+  its descendants when no `for` attribute names one instead. `:option` is absent: it is
+  not labelable, and `:label` itself cannot nest."
+  #{:input :select :textarea :button :meter :output :progress})
+
+(def ^:private label-for-keys
+  "Spellings of the `for` attribute Reagent sends to the DOM as `for`."
+  [:for :html-for :htmlFor])
+
+(defn- labelable-loc? [loc ns-info component-aliases]
+  (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
+             (and (contains? labelable-tags tag)
+                  (not (hidden-input? (:attrs (hiccup/attrs-info loc)) tag))))))
+
+(defn- unreadable-component? [loc ns-info component-aliases]
+  (nil? (vector-tag loc ns-info component-aliases)))
+
+(defn- hiccup-label?
+  "True when a `[:label …]` vector is markup rather than data.
+
+  A schema entry is spelled the same way — `[:label string?]` inside a Malli map — so the
+  tag alone does not settle it. Props, or a string written out, only ever belong to
+  markup. A label whose one child is a bare symbol is left out of the rule for the same
+  reason: nothing tells it apart from the schema entry."
+  [{:keys [kind]} loc]
+  (or (contains? #{:map :dynamic-map :dynamic} kind)
+      (boolean (some literal-string-loc? (body-locs loc)))))
+
+(defn- names-its-control?
+  "True when the label's props carry a `for`, in any spelling.
+
+  A props map that cannot be read whole is not a reason to abstain here. `for` holds the
+  id of one specific control, so a props call shared between call sites could only return
+  a constant id — which would point every label it renders at the same element, a defect
+  of its own. A call that does name one readably, `(assoc (styles/field) :for id)`, is
+  read by [[hiccup/attrs-info]] and answers here."
+  [attrs]
+  (boolean (some #(attr-written? attrs %) label-for-keys)))
+
+(defn- label-not-associated?
+  "True when a `<label>` labels nothing that renders.
+
+  HTML gives a label its control two ways: the `for` attribute, or the first labelable
+  element among its descendants. ARIA gives it a third, running the other way: a control
+  pointing `aria-labelledby` at the label's id. With none of them the element is text that
+  happens to be a `<label>` — clicking it focuses nothing, and it contributes no accessible
+  name, however much a sighted reader takes it for the field's label.
+
+  A component among its children ends the question rather than answering it: a wrapper
+  renders markup this cannot see, and an `<input>` inside one is associated exactly as a
+  written-out `<input>` would be."
+  [{:keys [attrs]
+    :as info} tag loc ns-info component-aliases]
+  (and (= :label tag)
+       (hiccup-label? info loc)
+       (not (names-its-control? (or attrs {})))
+       (not (named-through-aria-reference? (or attrs {}) loc))
+       (let [body (body-locs loc)]
+         (and (not (first-matching-descendant
+                    {:match? #(labelable-loc? % ns-info component-aliases)} body))
+              (not (first-matching-descendant
+                    {:match? #(unreadable-component? % ns-info component-aliases)} body))))))
+
 (defn- nested-interactive-loc
   "Return the first interactive element inside a control's body, or nil.
 
@@ -910,6 +1027,9 @@
                        (missing-accessible-name? info tag loc)
                        (conj (assoc base :type :missing-accessible-name))
 
+                       (label-not-associated? info tag loc ns-info component-aliases)
+                       (conj (assoc base :type :label-not-associated))
+
                        (or hidden-self? hidden-descendant)
                        (conj (cond-> (assoc base :type :aria-hidden-focusable)
                                hidden-descendant
@@ -946,6 +1066,7 @@
      :on-click-on-non-interactive (vec (:on-click-on-non-interactive by-type))
      :empty-interactive-element (vec (:empty-interactive-element by-type))
      :missing-accessible-name (vec (:missing-accessible-name by-type))
+     :label-not-associated (vec (:label-not-associated by-type))
      :aria-hidden-focusable (vec (:aria-hidden-focusable by-type))
      :nested-interactive-element (vec (:nested-interactive-element by-type))
      :repeated-accessible-name (vec (:repeated-accessible-name by-type))
@@ -954,7 +1075,8 @@
 (defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
                                empty-interactive-element missing-accessible-name
                                repeated-accessible-name aria-live-contradicts-role
-                               aria-hidden-focusable nested-interactive-element]}]
+                               aria-hidden-focusable nested-interactive-element
+                               label-not-associated]}]
   [["Img missing alt:" (count img-alt-missing)]
    ["Invalid tabindex:" (count invalid-tabindex)]
    ["Onclick on non-interactive:" (count on-click-on-non-interactive)]
@@ -963,12 +1085,14 @@
    ["Repeated accessible name:" (count repeated-accessible-name)]
    ["Aria-live contradicts role:" (count aria-live-contradicts-role)]
    ["Aria-hidden focusable:" (count aria-hidden-focusable)]
-   ["Nested interactive element:" (count nested-interactive-element)]])
+   ["Nested interactive element:" (count nested-interactive-element)]
+   ["Label not associated:" (count label-not-associated)]])
 
 (defn- failed?* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
                          empty-interactive-element missing-accessible-name
                          repeated-accessible-name aria-live-contradicts-role
-                         aria-hidden-focusable nested-interactive-element]}]
+                         aria-hidden-focusable nested-interactive-element
+                         label-not-associated]}]
   (or (seq img-alt-missing)
       (seq invalid-tabindex)
       (seq on-click-on-non-interactive)
@@ -977,7 +1101,8 @@
       (seq repeated-accessible-name)
       (seq aria-live-contradicts-role)
       (seq aria-hidden-focusable)
-      (seq nested-interactive-element)))
+      (seq nested-interactive-element)
+      (seq label-not-associated)))
 
 (defrecord A11yGroup [component-aliases]
   group/RuleGroup
@@ -1086,6 +1211,23 @@
           "is passed over for the same reason the element's would be. "
           "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
           "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")
+     :label-not-associated
+     (str "A <label> labels nothing that renders. HTML gives a label its control two ways: "
+          "the `for` attribute naming one by id, or the first labelable element among its "
+          "descendants (:input that is not hidden, :select, :textarea, :button, :meter, "
+          ":output, :progress). With neither, the element is text that happens to be a "
+          "<label> — clicking it focuses nothing and it contributes no accessible name, "
+          "however much a sighted reader takes it for the field's label. Give it :for with "
+          "the control's :id, or wrap the control in it. Note that naming the field with "
+          ":aria-label instead leaves the visible text and the announced name saying "
+          "different things, which speech-input users cannot bridge (WCAG 2.5.3). A "
+          "component among the label's children ends the check rather than failing it, "
+          "since a wrapper may render the control; a props call that cannot be read does "
+          "not, because `for` holds one control's id and a shared call could only return a "
+          "constant one. `[:label string?]` in a Malli schema is not markup and is skipped: "
+          "props, or a string written out, are what tell the two apart. "
+          "See: WCAG 2.1 SC 1.3.1 Info and Relationships — "
+          "https://www.w3.org/WAI/WCAG21/Understanding/info-and-relationships")
      :nested-interactive-element
      (str "An interactive element contains another one. The HTML content model bans "
           "interactive content inside <button> and inside <a href>, React logs a "
@@ -1126,7 +1268,8 @@
      :repeated-accessible-name :bugs
      :aria-live-contradicts-role :bugs
      :aria-hidden-focusable :bugs
-     :nested-interactive-element :bugs})
+     :nested-interactive-element :bugs
+     :label-not-associated :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (defn make-group

@@ -150,8 +150,9 @@
                                     :repeated-accessible-name [(repeated-name-finding 7)]
                                     :aria-live-contradicts-role [(contradicting-aria-live-finding 8)]
                                     :aria-hidden-focusable []
-                                    :nested-interactive-element []})]
-    (is (= 9 (count lines)))
+                                    :nested-interactive-element []
+                                    :label-not-associated []})]
+    (is (= 10 (count lines)))
     (is (= 2 (second (first lines))))
     (is (= 1 (second (second lines))))
     (is (= 2 (second (nth lines 2))))

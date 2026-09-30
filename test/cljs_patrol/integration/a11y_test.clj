@@ -1185,3 +1185,59 @@
       (is (empty? in-unrendered)
           (str "every rule skips markup that never reaches the DOM; reported: "
                (pr-str (map (juxt :type :row) in-unrendered)))))))
+
+(deftest label-not-associated-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        {:keys [label-not-associated]} (first group-results)
+        in-labels (filter #(str/ends-with? (:file %) "labels.cljs") label-not-associated)
+        by-row (rows in-labels)]
+
+    (testing "flags a label that labels nothing"
+      (is (contains? by-row 52)
+          "bad-label-beside-its-field — the field is a sibling, not a descendant")
+      (is (contains? by-row 60)
+          "bad-label-plain-text")
+      (is (contains? by-row 63)
+          "bad-label-around-non-controls — a :span and a :strong are not labelable"))
+
+    (testing "reads props it cannot see through"
+      (is (contains? by-row 57)
+          "bad-label-with-style-call-props — `for` names one control, so a shared call cannot supply it")
+      (is (not (contains? by-row 39))
+          "ok-label-with-built-for — (assoc base :for …) names one readably"))
+
+    (testing "a hidden input is not the control a label labels"
+      (is (contains? by-row 69)
+          "bad-label-wrapping-a-hidden-input — it renders nothing"))
+
+    (testing "leaves every way a label is associated alone"
+      (is (not (contains? by-row 6))
+          "ok-label-with-for")
+      (is (not (contains? by-row 9))
+          "ok-label-camel-case-for — Reagent sends :htmlFor as for")
+      (is (not (contains? by-row 12))
+          "ok-label-wrapping-its-input")
+      (is (not (contains? by-row 18))
+          "ok-label-wrapping-a-deep-control — the :select is two levels down")
+      (is (not (contains? by-row 25))
+          "ok-label-wrapping-a-mapped-control — the control is produced by a for"))
+
+    (testing "ends the question rather than answering it"
+      (is (not (contains? by-row 34))
+          "ok-label-holding-a-component — the wrapper may render the control"))
+
+    (testing "tells markup from a schema entry"
+      (is (not (contains? by-row 44))
+          "ok-label-schema-entry — [:label string?] in a Malli map")
+      (is (not (contains? by-row 49))
+          "ok-label-naming-a-symbol — one bare symbol reads the same as the schema entry"))
+
+    (testing "flags exactly the bad- cases"
+      (is (= 5 (count in-labels))
+          "five bad- cases in the fixture, no more")))
+
+  (testing "a label a control points aria-labelledby at is doing its job"
+    (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+          {:keys [label-not-associated]} (first group-results)]
+      (is (empty? (filter #(str/ends-with? (:file %) "forms.cljs") label-not-associated))
+          "forms.cljs ok-native-aria-labelledby — the textarea references the label's id"))))
