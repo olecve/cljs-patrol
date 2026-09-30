@@ -11,6 +11,12 @@
    (java.time
     Instant)))
 
+(def ^:private name-keyed-rules
+  "Rules identified by the var they name plus the file it is in.
+  A test var's name is what the finding is about, so it is the identity; the row moves
+  whenever anything above it does."
+  #{:deftest-leading-article})
+
 (def ^:private keyword-keyed-rules
   "Rules where the issue is uniquely identified by its keyword."
   #{:unused-subs :unused-events :phantom-subs :phantom-events
@@ -114,6 +120,11 @@
         :ns (namespace (:kw issue))
         :var (name (:kw issue))
         :selector (:selector issue)}
+
+       (contains? name-keyed-rules rule)
+       {:rule rule
+        :name (str (:kw issue))
+        :file (rel (:file issue))}
 
        (contains? hiccup-site-rules rule)
        (let [normalize #(str/replace (str/trim (str %)) #"\s+" " ")]

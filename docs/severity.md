@@ -35,7 +35,7 @@ written as a keyword — silently produce CSS that matches nothing.
 - `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events`
 - `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `redundant-into-hiccup`
 - `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace`
-- `css-property-order-outside-in`
+- `css-property-order-outside-in`, `deftest-leading-article`
 
 `dynamic-sites` is info-only — it never affects the exit code.
 
