@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.0.30] - 2026-09-30
+
+## What's Changed
+
+* Flag a label that labels nothing by @olecve in https://github.com/olecve/cljs-patrol/pull/72
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.29...v0.0.30
+
+
 ## [v0.0.29] - 2026-09-28
 
 ## What's Changed
