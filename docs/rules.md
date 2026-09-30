@@ -37,6 +37,15 @@ Every rule, what it flags, and what it deliberately leaves alone. For the one-li
 
 - **defattrs in merge** — `defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class`
   without merge
+- **Deftest leading article** — a test var whose name opens with `a-`, `an-` or `the-`. A test named after the claim it
+  makes is a sentence, and the article at the front of one carries nothing an identifier needs: the reader is scanning
+  for the subject, and the first word is not it. `the-status-label-is-rendered` becomes `status-label-is-rendered`. Only
+  the front is flagged — an article inside the name is grammar, so `escape-closes-the-modal` and
+  `without-on-select-the-row-is-not-a-button` are left alone, and a word that merely opens with those letters
+  (`another-claim-holds`, `theme-switches-to-dark`) is not an article: the hyphen is what tells them apart. The name is
+  read through metadata on the var, so `(deftest ^:async the-panel-loads-lazily …)` counts. Point the tool at the test
+  directory to use this group. On a codebase that predates the convention, `--baseline-write` snapshots what is there so
+  only new names are reported
 - **Mixed typography token groups** — typography tokens from different Figma token groups mixed in a single style
   definition
 - **`:img` missing `:alt`** — `[:img {...}]` without an `:alt` attribute; use `:alt ""` for decorative images
