@@ -47,3 +47,18 @@
       "a multi-line expression already puts the message on its own line")
   (is (= 4
          (+ 2 2)) "but the message can still share the closing line"))
+
+(deftest conditional-assertions
+  (let [owner? true
+        found (some #(when (= 1 (:id %)) %) [{:id 1}])]
+    (is (= found {:id 1})
+        "a when inside a function literal is a predicate, not the test choosing")
+    (is (= 4 (+ 2 2))
+        "a plain assertion states its expectation")
+    (is (= owner? (if owner? true false))
+        "the expected value is computed by a conditional")
+    (if owner?
+      (is (= 1 1))
+      (is (= 2 2)))
+    (when owner?
+      (is (= 3 3)))))

@@ -37,6 +37,20 @@ Every rule, what it flags, and what it deliberately leaves alone. For the one-li
 
 - **defattrs in merge** — `defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class`
   without merge
+- **Conditional assertion** — a test that decides what to assert while it runs. Three shapes, one defect: the test does
+  not state what it expects, it works it out.
+  - **The expected value is computed** — `(is (= actual (if owner? false true)))` re-derives the answer, so a mistake
+    shared with the code under test passes unnoticed, and a reader cannot see the expectation without simulating it
+  - **A conditional picks between assertions** — `(if owner? (is …) (is …))`, the same thing spread over two branches
+  - **A guard can skip the assertion** — `(when title-link (is …))`. When it does not hold the test runs no assertion at
+    all and reports success having checked nothing
+
+  Write a table instead: pair each input with the value it should produce and walk it with `doseq`, so every case states
+  its own expectation. A conditional inside a function literal is left alone — `#(when (= 1 (:id %)) %)` handed to
+  `some` branches per element of a collection, not per assertion. Reported rather than blocking, because the guard shape
+  has defensible uses: a `when` narrowing a `doseq` to the combination under test reads as deliberate. Enforce it with
+  `--fail-on` where a project wants it
+
 - **Assertion message inline** — an `(is …)` whose message shares a line with the expression it describes. The two say
   different things — one is what ran, the other why the answer matters — and a reader scanning a test body for either
   has to read past the other to find it. Put the message on its own line under the expression, which is how the style
