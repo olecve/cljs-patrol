@@ -1232,12 +1232,36 @@
       (is (not (contains? by-row 49))
           "ok-label-naming-a-symbol — one bare symbol reads the same as the schema entry"))
 
-    (testing "flags exactly the bad- cases"
-      (is (= 5 (count in-labels))
-          "five bad- cases in the fixture, no more")))
+    (testing "matches an id both sides compute, not only a literal one"
+      (is (not (contains? by-row 76))
+          "ok-label-with-computed-id — (str field-id \"-label\") on the label and the control")
+      (is (not (contains? by-row 82))
+          "ok-label-with-id-shorthand — :label#notes-label carries the id in the tag"))
 
-  (testing "a label a control points aria-labelledby at is doing its job"
-    (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
-          {:keys [label-not-associated]} (first group-results)]
+    (testing "abstains where the props could carry a for it cannot read"
+      (is (not (contains? by-row 87))
+          "ok-label-with-opaque-props — a symbol names a map per call site")
+      (is (not (contains? by-row 90))
+          "ok-label-with-computed-props-key — a computed key leaves the map unreadable"))
+
+    (testing "abstains where the body could render the control"
+      (is (not (contains? by-row 94))
+          "ok-label-with-a-call-in-its-body — the call may render it"))
+
+    (testing "reads a Malli entry as data however it is written"
+      (is (not (contains? by-row 98))
+          "ok-label-schema-entry-with-properties — {:optional true} is not a DOM attribute")
+      (is (not (contains? by-row 104))
+          "ok-label-schema-entry-computed — a computed schema renders nothing"))
+
+    (testing "aria-describedby is a description, not a name"
+      (is (contains? by-row 109)
+          "bad-label-referenced-only-by-describedby"))
+
+    (testing "a label a control points aria-labelledby at is doing its job"
       (is (empty? (filter #(str/ends-with? (:file %) "forms.cljs") label-not-associated))
-          "forms.cljs ok-native-aria-labelledby — the textarea references the label's id"))))
+          "forms.cljs ok-native-aria-labelledby — the textarea references the label's id"))
+
+    (testing "flags exactly the bad- cases"
+      (is (= 6 (count in-labels))
+          "six bad- cases in the fixture, no more"))))
