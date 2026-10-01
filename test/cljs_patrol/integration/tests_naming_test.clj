@@ -122,3 +122,18 @@
 
     (testing "flags exactly the three shapes"
       (is (= 3 (count found))))))
+
+(deftest assertion-identity-separates-same-message-test
+  (testing "two assertions sharing a message but not an expression stay apart in a baseline"
+    (let [finding (fn [expression]
+                    {:kw (symbol "is")
+                     :form (str "(is " expression " \"the row is shown\")")
+                     :file "src/views_test.cljs"
+                     :row 10})
+          identity-of #(baseline/issue->identity :assertion-message-inline (finding %))]
+      (is (not= (identity-of "(.-checked checkbox-1)")
+                (identity-of "(.-checked checkbox-3)"))
+          "the identity keys on the whole assertion, not the message alone")
+      (is (= (identity-of "(.-checked checkbox-1)")
+             (identity-of "(.-checked checkbox-1)"))
+          "the same assertion twice in one file is one identity, which no stable key can split"))))

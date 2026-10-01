@@ -51,10 +51,18 @@
                  (= (parser/position-row message) (end-row expression)))
         message))))
 
-(defn- assertion-finding [message-loc file]
+(defn- assertion-finding
+  "Build the finding for an assertion whose message shares the expression's line.
+
+  `:form` is the whole assertion, not the message alone. Two assertions in one file
+  often carry the same message over different expressions — `(is (.-checked checkbox-1)
+  \"…\")` beside `(is (.-checked checkbox-3) \"…\")` — and the baseline keys on the form,
+  so a message-only form would make them one entry: fix either and the other stays
+  suppressed."
+  [is-loc message-loc file]
   {:kw (symbol "is")
    :type :assertion-message-inline
-   :form (str/replace (str/trim (parser/raw message-loc)) #"\s+" " ")
+   :form (str/replace (str/trim (parser/raw is-loc)) #"\s+" " ")
    :file file
    :row (parser/position-row message-loc)
    :hint "Move the message to its own line, under the expression."})
@@ -151,7 +159,7 @@
 (defn- handle-list [loc _ns-info file]
   (when-not (hiccup/inside-unrendered-form? loc)
     (when-let [finding (or (leading-article-finding loc file)
-                           (some-> (inline-assertion-message loc) (assertion-finding file))
+                           (when-let [message (inline-assertion-message loc)] (assertion-finding loc message file))
                            (when-let [conditional (conditional-in-assertion loc)]
                              (conditional-finding conditional :computes
                                                   (parser/sym-name (z/down conditional)) file))
