@@ -37,12 +37,23 @@ Every rule, what it flags, and what it deliberately leaves alone. For the one-li
 
 - **defattrs in merge** — `defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class`
   without merge
-- **Private var deref** — a test reading a var through its var quote, `@#'some.ns/fn` or `(deref #'some.ns/fn)`. That
-  reaches past a namespace's public surface to something deliberately not exported, so the test is coupled to an
-  implementation detail and a refactor that breaks nothing real breaks the test. Test it through the public entry point
-  that calls it, or move it to its own namespace where it can be public. A plain var quote handed to `with-redefs` or a
-  fixture is left alone — that is how a test replaces a dependency — as is a deref of an atom or a subscription: only a
-  deref _of a var quote_ is flagged
+- **Var deref in test** — a test reading a var through its var quote: `@#'ns/x`, `(deref #'ns/x)`, `@(var ns/x)` or
+  `(deref (var ns/x))`, with metadata on either part read through. Reaching for the var object rather than calling the
+  thing couples the test to how the namespace is put together, and a var that is `^:private` is reached this way
+  precisely because it was not meant to be. Call it through the public entry point that uses it, or move it somewhere it
+  can be public.
+
+  Only in a namespace whose name ends in `-test`. Every other rule in this group is anchored to a test construct by its
+  shape; a var deref is legal anywhere, so without an anchor the rule reports production code — and the group runs by
+  default. The anchor is the namespace rather than an enclosing `deftest`, because the reads that matter sit in a
+  fixture or a helper beside the tests as often as inside one. Left alone: a var quote that is **not** dereferenced,
+  which is how `with-redefs-fn` and `use-fixtures` take one; a deref of anything that is not a var quote; a call to
+  another function whose name merely ends in `deref`, since the head is compared in full; and anything inside a quoted
+  or discarded form, written out or in reader syntax.
+
+  Privacy itself is not checked — nothing here resolves a var across namespaces — so a public var read this way is
+  reported too. That is deliberate: it is a var deref whichever it is, and the fix is the same
+
 - **Conditional assertion** — a test that decides what to assert while it runs. Three shapes, one defect: the test does
   not state what it expects, it works it out.
   - **The expected value is computed** — `(is (= actual (if owner? false true)))` re-derives the answer, so a mistake

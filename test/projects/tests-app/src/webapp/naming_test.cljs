@@ -63,13 +63,27 @@
     (when owner?
       (is (= 3 3)))))
 
-(deftest private-var-access
+(defn reads-a-var-in-a-helper []
+  ;; a helper beside the tests, where most real reads sit
+  @#'other.ns/seen-ids)
+
+(deftest var-deref-spellings
   (is (= 1 @#'other.ns/seen-ids)
-      "the reader spelling of a var deref")
+      "the reader spelling")
+  (is (= 1 @(var other.ns/seen-ids))
+      "the var written out")
   (is (= 1 (deref #'other.ns/seen-ids))
-      "the same thing written out")
-  (with-redefs [other.ns/handler (constantly nil)]
-    (is (nil? (other.ns/handler))
-        "a plain var quote handed to with-redefs is left alone"))
+      "the deref written out")
+  (is (= 1 @^:tag #'other.ns/seen-ids)
+      "metadata between the two"))
+
+(deftest var-quote-without-a-deref
+  (is (= 1 (with-redefs-fn {#'other.ns/handler (constantly 1)}
+             (fn [] 1)))
+      "a var quote handed to with-redefs-fn is how a test replaces a dependency")
   (is (= 1 @some-atom)
-      "a deref of an atom is not a var deref"))
+      "a deref of an atom is not a var deref")
+  (is (= 1 (helpers/deref #'other.ns/seen-ids))
+      "another function whose name merely ends in deref")
+  (is (= 1 (count (quote [@#'other.ns/seen-ids])))
+      "a written-out quote renders nothing"))
