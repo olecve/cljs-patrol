@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.0.32] - 2026-10-01
+
+## What's Changed
+
+* Give every rule a baseline identity, and fail the build when one lacks it by @olecve in https://github.com/olecve/cljs-patrol/pull/76
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.31...v0.0.32
+
+
 ## [v0.0.31] - 2026-09-30
 
 ## What's Changed
