@@ -3,6 +3,7 @@
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.core :as core]
    [cljs-patrol.groups.tests :as tests]
+   [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private fixture-dir "test/projects/tests-app/src/webapp")
@@ -154,3 +155,60 @@
           "the row is not part of it, so a line moving above the finding changes nothing")
       (is (not-any? #{:row :line} (keys (identity-of "(is x \"m\")" 10)))
           "no row-shaped key reaches the stored identity"))))
+
+(deftest var-deref-in-test-fixture-test
+  (let [found (:var-deref-in-test (result))
+        by-row (into {} (map (juxt :row identity)) found)]
+
+    (testing "reads every spelling of a var quote through a deref"
+      (is (contains? by-row 71) "@#'ns/x, the reader spelling")
+      (is (contains? by-row 73) "@(var ns/x), the var written out")
+      (is (contains? by-row 75) "(deref #'ns/x), the deref written out")
+      (is (contains? by-row 77) "@^:tag #'ns/x, metadata between the two"))
+
+    (testing "reports one finding per deref, not one per token"
+      (is (= 1 (count (filter #(= 77 (:row %)) found)))
+          "a metadata node holds two tokens that climb to the same var"))
+
+    (testing "reads a helper beside the tests, where most real reads sit"
+      (is (some #(= "reads-a-var-in-a-helper" (str (:test %))) found)
+          "anchoring on deftest would miss the fixtures and helpers in a test namespace"))
+
+    (testing "says nothing in a production namespace"
+      (is (not-any? #(str/ends-with? (:file %) "views.cljs") found)
+          "webapp.views does not end in -test, so the rule does not run there"))
+
+    (testing "leaves a var quote that is not dereferenced alone"
+      (is (not (contains? by-row 81))
+          "with-redefs-fn takes var quotes, and that is how a test replaces a dependency"))
+
+    (testing "leaves a deref that is not of a var alone"
+      (is (not (contains? by-row 84))
+          "an atom")
+      (is (not (contains? by-row 86))
+          "a function whose name merely ends in deref"))
+
+    (testing "says nothing about markup that does not render"
+      (is (not (contains? by-row 88))
+          "a written-out (quote …)"))
+
+    (testing "names the test each finding sits in"
+      (is (= "var-deref-spellings" (str (:test (by-row 71))))))
+
+    (testing "flags exactly the four spellings"
+      (is (= 5 (count found))
+          "four spellings in the tests, plus the one in the helper"))))
+
+(deftest var-deref-identity-separates-two-tests-test
+  (testing "the same var read in two tests of one file keeps two identities"
+    (let [identity-of (fn [test-name]
+                        (baseline/issue->identity :var-deref-in-test
+                                                  {:kw (symbol "deref")
+                                                   :form "@#'other.ns/seen-ids"
+                                                   :test test-name
+                                                   :file "src/views_test.cljs"
+                                                   :row 10}))]
+      (is (not= (identity-of "reads-it-once") (identity-of "reads-it-again"))
+          "the form alone is just a var name, so the test it sits in is what tells them apart")
+      (is (= (identity-of "reads-it-once") (identity-of "reads-it-once"))
+          "two reads in one test still collapse, which no stable key can split"))))

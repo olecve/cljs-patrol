@@ -143,6 +143,112 @@
    :row (parser/position-row loc)
    :hint (get conditional-hints kind)})
 
+(defn- enclosing-list-head
+  "Return the head symbol's raw text for the nearest enclosing list satisfying pred."
+  [loc pred]
+  (loop [current (z/up loc)]
+    (cond
+      (nil? current) nil
+      (and (= :list (z/tag current))
+           (let [head (some-> current z/down parser/raw)]
+             (and head (pred head)))) (some-> current z/down parser/raw)
+      :else (recur (z/up current)))))
+
+(defn- test-namespace?
+  "True when the file's namespace is a test namespace.
+
+  The anchor is the namespace, not the enclosing form. Every other rule in this group is
+  anchored to a `deftest` or an `is` by its shape; a var deref is legal anywhere, so
+  without an anchor the rule reports production code — and the group runs by default. But
+  anchoring on `deftest` would be wrong the other way: the reads that matter sit in a
+  fixture or a helper beside the tests as often as inside one."
+  [{:keys [ns-name]}]
+  (boolean (and ns-name (str/ends-with? ns-name "-test"))))
+
+(defn- enclosing-definition-name
+  "Return the name of the nearest enclosing `def`-like form, or nil.
+
+  A deref's own text is often just a var name, so two reads of one var in a file would be
+  a single baseline identity. What the read sits in — a test, a fixture, a helper — tells
+  them apart and moves with the code, where a row does not."
+  [loc]
+  (loop [current (z/up loc)]
+    (cond
+      (nil? current) nil
+      (and (= :list (z/tag current))
+           (some-> current z/down parser/sym-name (str/starts-with? "def")))
+      (some-> (parser/declared-name-loc current) parser/sym-name)
+      :else (recur (z/up current)))))
+
+(defn- inside-written-out-quote?
+  "True when a `(quote …)` list encloses loc.
+
+  `hiccup/unrendered-form?` reads the reader spellings, `'x` and `#_x`, which are their
+  own node types. Written out, a quote is an ordinary list and nothing marks it."
+  [loc]
+  (some? (enclosing-list-head loc #{"quote"})))
+
+(defn- up-through-meta [loc]
+  (loop [current (some-> loc z/up)]
+    (if (= :meta (some-> current z/tag)) (recur (z/up current)) current)))
+
+(defn- var-quote-loc
+  "Return the var quote `loc` is part of, written either way, or nil.
+
+  `#'x` is a `:var` node around a token; `(var x)` is an ordinary list. Only those two
+  node types reach a handler — a `:deref` node reaches none — so the deref is found by
+  looking up from the var quote rather than down from the `@`."
+  [loc]
+  (cond
+    (and (= :list (z/tag loc)) (= "var" (some-> loc z/down parser/raw))) loc
+
+    ;; Only from the token the var quotes. `#'^:tag x` holds two tokens — the metadata's
+    ;; and the value's — and both climb to the same `:var`, so reporting from either
+    ;; reports the one deref twice.
+    (let [var-loc (up-through-meta loc)]
+      (and (= :var (some-> var-loc z/tag))
+           (identical? (z/node loc) (some-> var-loc z/down hiccup/unwrap-meta z/node))))
+    (up-through-meta loc)))
+
+(defn- deref-around
+  "Return the deref reading this var quote, or nil.
+
+  `@` is a `:deref` node and `(deref …)` a list. The head is compared raw, so
+  `helpers/deref` — someone else's function whose name merely ends the same way — is not
+  this one."
+  [var-loc]
+  (let [parent (up-through-meta var-loc)]
+    (cond
+      (= :deref (some-> parent z/tag)) parent
+      (and (= :list (some-> parent z/tag))
+           (= "deref" (some-> parent z/down parser/raw))
+           (not (identical? (z/node var-loc) (z/node (z/down parent))))) parent)))
+
+(defn- var-deref-finding
+  "Build the finding for a var quote read through a deref in a test namespace.
+
+  `:form` is the whole deref and `:test` the definition it sits in. Two reads inside one
+  definition still collapse to a single baseline identity, which no key that survives
+  reformatting can help."
+  [loc test-name file]
+  {:kw (symbol "deref")
+   :type :var-deref-in-test
+   :form (parser/normalize-form (parser/raw loc))
+   :test test-name
+   :file file
+   :row (parser/position-row loc)
+   :hint "Call it through the public entry point that uses it, or move it somewhere it can be public."})
+
+(defn- var-deref-in-test
+  "Return the finding for a var quote read through a deref in a test namespace, or nil."
+  [loc ns-info file]
+  (when (test-namespace? ns-info)
+    (when-let [var-loc (var-quote-loc loc)]
+      (when-let [deref-loc (deref-around var-loc)]
+        (when (and (not (hiccup/inside-unrendered-form? deref-loc))
+                   (not (inside-written-out-quote? deref-loc)))
+          (var-deref-finding deref-loc (enclosing-definition-name deref-loc) file))))))
+
 (defn- leading-article-finding [loc file]
   (when (contains? deftest-heads (some-> loc z/down parser/sym-name))
     (when-let [name-loc (parser/declared-name-loc loc)]
@@ -156,7 +262,7 @@
            :hint (str "Drop the leading \"" article "-\": "
                       (subs test-name (inc (count article))))})))))
 
-(defn- handle-list [loc _ns-info file]
+(defn- handle-list [loc ns-info file]
   (when-not (hiccup/inside-unrendered-form? loc)
     (when-let [finding (or (leading-article-finding loc file)
                            (when-let [message (inline-assertion-message loc)] (assertion-finding loc message file))
@@ -165,7 +271,8 @@
                                                   (parser/sym-name (z/down conditional)) file))
                            (when-let [kind (conditional-around-assertion loc)]
                              (conditional-finding loc kind
-                                                  (parser/sym-name (z/down loc)) file)))]
+                                                  (parser/sym-name (z/down loc)) file))
+                           (var-deref-in-test loc ns-info file))]
       {:decls [finding]
        :usages []
        :dynamics []})))
@@ -173,13 +280,15 @@
 (defn- analyze* [{:keys [declarations]}]
   {:deftest-leading-article (vec (filter #(= :deftest-leading-article (:type %)) declarations))
    :assertion-message-inline (vec (filter #(= :assertion-message-inline (:type %)) declarations))
-   :conditional-assertion (vec (filter #(= :conditional-assertion (:type %)) declarations))})
+   :conditional-assertion (vec (filter #(= :conditional-assertion (:type %)) declarations))
+   :var-deref-in-test (vec (filter #(= :var-deref-in-test (:type %)) declarations))})
 
 (defn- summary-lines* [{:keys [deftest-leading-article assertion-message-inline
-                               conditional-assertion]}]
+                               conditional-assertion var-deref-in-test]}]
   [["Deftest leading article:" (count deftest-leading-article)]
    ["Assertion message inline:" (count assertion-message-inline)]
-   ["Conditional assertion:" (count conditional-assertion)]])
+   ["Conditional assertion:" (count conditional-assertion)]
+   ["Var deref in test:" (count var-deref-in-test)]])
 
 (defn- failed?* [_]
   ;; Nothing here blocks at runtime, and the guard shape has defensible uses — a `when`
@@ -191,7 +300,12 @@
   group/RuleGroup
   (group-id [_] :tests)
   (group-name [_] "Tests")
-  (parse-handlers [_] {:handle-list handle-list})
+  (parse-handlers [_] {:handle-list handle-list
+                       :handle-token (fn [loc ns-info file]
+                                       (when-let [finding (var-deref-in-test loc ns-info file)]
+                                         {:decls [finding]
+                                          :usages []
+                                          :dynamics []}))})
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ result] (failed?* result))
@@ -227,11 +341,28 @@
           "is a predicate over a collection, not the test choosing. Nor is a guard always "
           "wrong: a when narrowing a doseq to the combination under test reads as "
           "deliberate, which is why this reports rather than blocks. Enforce it with "
-          "--fail-on where a project wants it.")})
+          "--fail-on where a project wants it.")
+     :var-deref-in-test
+     (str "A test reads a var through its var quote — @#'ns/x, (deref #'ns/x), @(var ns/x) "
+          "or (deref (var ns/x)). Reaching for the var object rather than calling the thing "
+          "couples the test to how the namespace is put together, and a var that is "
+          "^:private is reached this way precisely because it was not meant to be. Call it "
+          "through the public entry point that uses it, or move it somewhere it can be "
+          "public. Only in a namespace whose name ends in -test: a var deref is legal "
+          "anywhere, and without an anchor the rule would report production code. The "
+          "anchor is the namespace rather than an enclosing deftest, since the reads that "
+          "matter sit in a fixture or a helper as often as inside a test. A var quote that "
+          "is not "
+          "dereferenced is left alone — with-redefs-fn and use-fixtures take one — as is a "
+          "deref of anything else, a call to another function whose name merely ends in "
+          "deref, and anything inside a quoted or discarded form. Privacy itself is not "
+          "checked, since nothing here resolves a var across namespaces, so a public var "
+          "read this way is reported too; the fix is the same either way.")})
   (rule->tier [_]
     {:deftest-leading-article :cleanup
      :assertion-message-inline :cleanup
-     :conditional-assertion :cleanup})
+     :conditional-assertion :cleanup
+     :var-deref-in-test :cleanup})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->TestsGroup))

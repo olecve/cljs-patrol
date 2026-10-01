@@ -33,7 +33,7 @@
   survives reformatting can tell apart. The cost is that fixing one leaves the other
   suppressed; the alternative, keying on the row, would churn the whole baseline every
   time a line moves above a finding."
-  #{:assertion-message-inline :conditional-assertion})
+  #{:assertion-message-inline :conditional-assertion :var-deref-in-test})
 
 (def ^:private keyword-keyed-rules
   "Rules where the issue is uniquely identified by its keyword."
@@ -147,10 +147,14 @@
         :file (rel (:file issue))}
 
        (contains? form-keyed-rules rule)
-       {:rule rule
-        :kind (:kw issue)
-        :file (rel (:file issue))
-        :form (parser/normalize-form (:form issue))}
+       (cond-> {:rule rule
+                :kind (:kw issue)
+                :file (rel (:file issue))
+                :form (parser/normalize-form (:form issue))}
+         ;; A finding whose form is short — a var name and nothing else — needs the test
+         ;; it sits in to tell two of them in a file apart. The test name moves with the
+         ;; code, where a row does not.
+         (:test issue) (assoc :test (str (:test issue))))
 
        (contains? hiccup-site-rules rule)
        (let [normalize parser/normalize-form]
