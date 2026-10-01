@@ -10,6 +10,7 @@
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
    [cljs-patrol.groups.typography :as typography]
+   [cljs-patrol.parser :as parser]
    [clojure.edn :as edn]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]])
@@ -737,3 +738,17 @@
                      (catch clojure.lang.ExceptionInfo _ nil)))
           (str rule " (" (group/group-id rule-group) ") has no baseline identity — add it to a"
                " keyed-rules set in baseline.clj, or --baseline-write will throw on it")))))
+
+(deftest normalize-form-test
+  (testing "a form reads the same however it is wrapped"
+    (is (= (parser/normalize-form "(deref #'ns/x)")
+           (parser/normalize-form "(deref\n   #'ns/x\n )"))
+        "a line break before a closing bracket leaves no space behind it")
+    (is (= (parser/normalize-form "[:button {:on-click f} \"Save\"]")
+           (parser/normalize-form "[:button\n {:on-click f}\n \"Save\"]")))
+    (is (= "(f a b)" (parser/normalize-form "  ( f   a\n b )  "))
+        "collapsed inside, trimmed outside, and no space against either bracket"))
+
+  (testing "it does not merge forms that differ"
+    (is (not= (parser/normalize-form "(deref #'ns/x)")
+              (parser/normalize-form "(deref #'ns/y)")))))

@@ -18,6 +18,21 @@
   [zloc]
   (n/string (z/node zloc)))
 
+(defn normalize-form
+  "Collapse a form's source to one line, so reformatting it does not change the text.
+
+  Both a finding's `:form` and the baseline identity built from it go through this, and
+  they have to agree character for character or a baseline stops matching what produced
+  it. Whitespace inside collapses to one space, and the space a line break leaves against
+  a bracket goes entirely: `(deref\n  #'x\n )` and `(deref #'x)` are the same form written
+  two ways, and keying on the difference would churn a baseline on every reformat."
+  [source]
+  (-> (str source)
+      str/trim
+      (str/replace #"\s+" " ")
+      (str/replace #"([(\[{]) " "$1")
+      (str/replace #" ([)\]}])" "$1")))
+
 (defn kw-node?
   "True if the node is a keyword token (including :: prefixed ones)."
   [zloc]

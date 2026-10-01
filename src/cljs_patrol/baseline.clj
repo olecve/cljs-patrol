@@ -2,6 +2,7 @@
   "Baseline support for cljs-patrol: identity extraction, file I/O, and diff logic."
   (:require
    [cljs-patrol.fs :as fs]
+   [cljs-patrol.parser :as parser]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
    [clojure.string :as str])
@@ -149,10 +150,10 @@
        {:rule rule
         :kind (:kw issue)
         :file (rel (:file issue))
-        :form (str/replace (str/trim (str (:form issue))) #"\s+" " ")}
+        :form (parser/normalize-form (:form issue))}
 
        (contains? hiccup-site-rules rule)
-       (let [normalize #(str/replace (str/trim (str %)) #"\s+" " ")]
+       (let [normalize parser/normalize-form]
          (cond-> {:rule rule
                   :tag (:kw issue)
                   :file (rel (:file issue))
@@ -161,7 +162,7 @@
 
        (= :dynamic-sites rule)
        {:rule rule
-        :form (str/replace (str/trim (:form issue)) #"\s+" " ")
+        :form (parser/normalize-form (:form issue))
         :file (rel (:file issue))
         :line (:row issue)}
 
@@ -179,7 +180,7 @@
                      (map #(issue->identity rule-key % source-dir) items))))
          result)))
 
-(def baseline-version 3)
+(def baseline-version 4)
 
 (def default-baseline-path ".cljs-patrol/baseline.edn")
 

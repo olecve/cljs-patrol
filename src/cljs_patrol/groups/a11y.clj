@@ -802,7 +802,7 @@
     (if-let [parent (z/up current)] (recur parent) current)))
 
 (defn- normalized-source [loc]
-  (str/replace (str/trim (parser/raw loc)) #"\s+" " "))
+  (parser/normalize-form (parser/raw loc)))
 
 (defn- scan-aria-references [root]
   (loop [current (z/subzip root)
