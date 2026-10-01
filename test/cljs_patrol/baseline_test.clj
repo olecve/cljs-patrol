@@ -1,6 +1,7 @@
 (ns cljs-patrol.baseline-test
   (:require
    [cljs-patrol.baseline :as baseline]
+   [cljs-patrol.core :as core]
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
@@ -701,3 +702,28 @@
         (is (some? (baseline/issue->identity rule issue))
             (str "issue->identity throws on an unregistered rule, so one finding of "
                  rule " breaks --baseline and --baseline-write for the whole project"))))))
+
+(def ^:private assemble-groups #'core/assemble-groups)
+
+(def ^:private probe-issue
+  "A finding carrying every field any identity branch reads.
+
+  The branches differ in what they key on, and a rule reaching none of them throws, so
+  one issue with all the fields is enough to ask whether a rule is registered at all."
+  {:kw :some.ns/some-var
+   :decl-kw :some.ns/some-var
+   :form "(some form)"
+   :file "src/app/views.cljs"
+   :row 12
+   :effect ":dispatch-n"
+   :selector ":&:hover"
+   :selectors [":&:before" ":&:after"]})
+
+(deftest every-rule-has-a-baseline-identity-test
+  (testing "a rule missing from every identity set crashes --baseline-write for its whole group"
+    (doseq [rule-group (assemble-groups {})
+            rule (keys (group/suggestions rule-group))]
+      (is (map? (try (baseline/issue->identity rule probe-issue)
+                     (catch clojure.lang.ExceptionInfo _ nil)))
+          (str rule " (" (group/group-id rule-group) ") has no baseline identity — add it to a"
+               " keyed-rules set in baseline.clj, or --baseline-write will throw on it")))))

@@ -17,6 +17,23 @@
   whenever anything above it does."
   #{:deftest-leading-article})
 
+(def ^:private form-keyed-rules
+  "Rules identified by the form at fault plus the file it is in.
+
+  For a rule whose findings share one `:kw` — every assertion-message finding names `is`,
+  every conditional names the head it branches on — the keyword is a kind rather than an
+  identity, so the source text of the form is what tells two findings in a file apart. It
+  moves with the code it describes, where a row moves whenever anything above it does.
+
+  Two identical forms in one file collapse to one identity, and for these rules that is
+  worth a number: on a 483-file suite, 5 of 213 assertion-message findings collapse, a
+  little over 2%. Each is the same assertion written twice — `(is (nil? (palette)) \"and
+  the palette goes away\")` appearing in two tests of one file — which no key that
+  survives reformatting can tell apart. The cost is that fixing one leaves the other
+  suppressed; the alternative, keying on the row, would churn the whole baseline every
+  time a line moves above a finding."
+  #{:assertion-message-inline :conditional-assertion})
+
 (def ^:private keyword-keyed-rules
   "Rules where the issue is uniquely identified by its keyword."
   #{:unused-subs :unused-events :phantom-subs :phantom-events
@@ -36,7 +53,9 @@
   Line and column are recorded on the finding for the report but are not part
   of the identity — reformatting a file must not turn every baselined Hiccup
   finding into a new one. Two identical Hiccup vectors in the same file
-  collapse to a single identity (rare in practice).
+  collapse to a single identity, which is rare for an element written out with its
+  attributes. Do not carry that over to shorter forms: the same collapse runs at about
+  2% for assertion messages (see [[form-keyed-rules]]).
 
   A rule reporting a container adds `:inner-form`, the snippet of the element found
   inside it, because the collapse above is rare only for element-level rules: a wrapper's
@@ -125,6 +144,12 @@
        {:rule rule
         :name (str (:kw issue))
         :file (rel (:file issue))}
+
+       (contains? form-keyed-rules rule)
+       {:rule rule
+        :kind (:kw issue)
+        :file (rel (:file issue))
+        :form (str/replace (str/trim (str (:form issue))) #"\s+" " ")}
 
        (contains? hiccup-site-rules rule)
        (let [normalize #(str/replace (str/trim (str %)) #"\s+" " ")]
