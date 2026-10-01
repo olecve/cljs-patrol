@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.0.33] - 2026-10-01
+
+## What's Changed
+
+* Guard a rule declared in either place, not only one by @olecve in https://github.com/olecve/cljs-patrol/pull/77
+* Normalize a form the same way everywhere, brackets included by @olecve in https://github.com/olecve/cljs-patrol/pull/79
+* Flag a test reading a private var through its var quote by @olecve in https://github.com/olecve/cljs-patrol/pull/78
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.32...v0.0.33
+
+
 ## [v0.0.32] - 2026-10-01
 
 ## What's Changed
