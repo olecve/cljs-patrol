@@ -137,3 +137,20 @@
       (is (= (identity-of "(.-checked checkbox-1)")
              (identity-of "(.-checked checkbox-1)"))
           "the same assertion twice in one file is one identity, which no stable key can split"))))
+
+(deftest assertion-identity-survives-a-reformat-test
+  (testing "re-wrapping the expression across lines does not change the identity"
+    (let [identity-of (fn [form row]
+                        (baseline/issue->identity :assertion-message-inline
+                                                  {:kw (symbol "is")
+                                                   :form form
+                                                   :file "src/views_test.cljs"
+                                                   :row row}))]
+      (is (= (identity-of "(is (= 2 (block-count surface)) \"the document reached the editor\")" 10)
+             (identity-of "(is (= 2\n         (block-count surface))\n      \"the document reached the editor\")" 10))
+          "whitespace is collapsed when the identity is built, not only when the finding is")
+      (is (= (identity-of "(is (nil? (palette)) \"gone\")" 10)
+             (identity-of "(is (nil? (palette)) \"gone\")" 94))
+          "the row is not part of it, so a line moving above the finding changes nothing")
+      (is (not-any? #{:row :line} (keys (identity-of "(is x \"m\")" 10)))
+          "no row-shaped key reaches the stored identity"))))
