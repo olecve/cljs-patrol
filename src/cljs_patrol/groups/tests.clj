@@ -62,7 +62,7 @@
   [is-loc message-loc file]
   {:kw (symbol "is")
    :type :assertion-message-inline
-   :form (str/replace (str/trim (parser/raw is-loc)) #"\s+" " ")
+   :form (parser/normalize-form (parser/raw is-loc))
    :file file
    :row (parser/position-row message-loc)
    :hint "Move the message to its own line, under the expression."})
@@ -138,7 +138,7 @@
 (defn- conditional-finding [loc kind head file]
   {:kw (symbol head)
    :type :conditional-assertion
-   :form (str/replace (str/trim (parser/raw loc)) #"\s+" " ")
+   :form (parser/normalize-form (parser/raw loc))
    :file file
    :row (parser/position-row loc)
    :hint (get conditional-hints kind)})
