@@ -719,10 +719,20 @@
    :selector ":&:hover"
    :selectors [":&:before" ":&:after"]})
 
+(defn- declared-rules
+  "Return every rule key a group declares, however it declares it.
+
+  A group names its rules in two places and need not name one in both: `suggestions`
+  explains a rule to the user, `rule->tier` places it in a severity tier. Either is enough
+  for the rule to reach a result map, and so to reach the baseline."
+  [rule-group]
+  (into (set (keys (group/suggestions rule-group)))
+        (keys (group/rule->tier rule-group))))
+
 (deftest every-rule-has-a-baseline-identity-test
   (testing "a rule missing from every identity set crashes --baseline-write for its whole group"
     (doseq [rule-group (assemble-groups {})
-            rule (keys (group/suggestions rule-group))]
+            rule (declared-rules rule-group)]
       (is (map? (try (baseline/issue->identity rule probe-issue)
                      (catch clojure.lang.ExceptionInfo _ nil)))
           (str rule " (" (group/group-id rule-group) ") has no baseline identity — add it to a"
