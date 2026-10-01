@@ -154,3 +154,23 @@
           "the row is not part of it, so a line moving above the finding changes nothing")
       (is (not-any? #{:row :line} (keys (identity-of "(is x \"m\")" 10)))
           "no row-shaped key reaches the stored identity"))))
+
+(deftest private-var-deref-fixture-test
+  (let [found (:private-var-deref (result))
+        by-row (into {} (map (juxt :row identity)) found)]
+
+    (testing "flags both spellings of a var deref"
+      (is (contains? by-row 67)
+          "@#'other.ns/seen-ids, the reader spelling")
+      (is (contains? by-row 69)
+          "(deref #'other.ns/seen-ids), the same thing written out"))
+
+    (testing "leaves a var quote that is not dereferenced alone"
+      (is (not-any? #(re-find #"with-redefs" (:form %)) found)
+          "a plain var quote handed to with-redefs is how a test replaces a dependency"))
+
+    (testing "leaves a deref that is not of a var alone"
+      (is (not-any? #(= "@some-atom" (:form %)) found)))
+
+    (testing "flags exactly the two spellings"
+      (is (= 2 (count found))))))

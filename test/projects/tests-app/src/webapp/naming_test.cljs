@@ -62,3 +62,14 @@
       (is (= 2 2)))
     (when owner?
       (is (= 3 3)))))
+
+(deftest private-var-access
+  (is (= 1 @#'other.ns/seen-ids)
+      "the reader spelling of a var deref")
+  (is (= 1 (deref #'other.ns/seen-ids))
+      "the same thing written out")
+  (with-redefs [other.ns/handler (constantly nil)]
+    (is (nil? (other.ns/handler))
+        "a plain var quote handed to with-redefs is left alone"))
+  (is (= 1 @some-atom)
+      "a deref of an atom is not a var deref"))

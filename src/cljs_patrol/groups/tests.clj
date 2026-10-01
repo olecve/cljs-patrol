@@ -143,6 +143,29 @@
    :row (parser/position-row loc)
    :hint (get conditional-hints kind)})
 
+(defn- var-deref-finding
+  "Build the finding for a var quote that is dereferenced.
+
+  `:form` carries the whole deref so two sites in one file keep separate baseline
+  identities, the way the assertion findings do."
+  [loc file]
+  {:kw (symbol "deref")
+   :type :private-var-deref
+   :form (str/replace (str/trim (parser/raw loc)) #"\s+" " ")
+   :file file
+   :row (parser/position-row loc)
+   :hint "Test it through the public entry point that calls it, or move it to its own namespace."})
+
+(defn- written-out-var-deref
+  "Return the `(deref #'ns/fn)` form written out in full, or nil.
+
+  The reader spelling `@#'ns/fn` is a `:deref` node and reaches [[handle-token]] instead;
+  this is the same thing said the long way."
+  [loc file]
+  (when (and (= "deref" (some-> loc z/down parser/sym-name))
+             (= :var (some-> loc z/down z/right z/tag)))
+    (var-deref-finding loc file)))
+
 (defn- leading-article-finding [loc file]
   (when (contains? deftest-heads (some-> loc z/down parser/sym-name))
     (when-let [name-loc (parser/declared-name-loc loc)]
@@ -165,21 +188,39 @@
                                                   (parser/sym-name (z/down conditional)) file))
                            (when-let [kind (conditional-around-assertion loc)]
                              (conditional-finding loc kind
-                                                  (parser/sym-name (z/down loc)) file)))]
+                                                  (parser/sym-name (z/down loc)) file))
+                           (written-out-var-deref loc file))]
       {:decls [finding]
+       :usages []
+       :dynamics []})))
+
+(defn- handle-token
+  "Emit a finding for the `@#'ns/fn` reader spelling of a var deref.
+
+  A var quote is a `:var` node and the `@` around it a `:deref`, so the pair is found from
+  the token inside rather than from a list head."
+  [loc _ns-info file]
+  (let [var-loc (z/up loc)
+        deref-loc (some-> var-loc z/up)]
+    (when (and (= :var (some-> var-loc z/tag))
+               (= :deref (some-> deref-loc z/tag))
+               (not (hiccup/inside-unrendered-form? deref-loc)))
+      {:decls [(var-deref-finding deref-loc file)]
        :usages []
        :dynamics []})))
 
 (defn- analyze* [{:keys [declarations]}]
   {:deftest-leading-article (vec (filter #(= :deftest-leading-article (:type %)) declarations))
    :assertion-message-inline (vec (filter #(= :assertion-message-inline (:type %)) declarations))
-   :conditional-assertion (vec (filter #(= :conditional-assertion (:type %)) declarations))})
+   :conditional-assertion (vec (filter #(= :conditional-assertion (:type %)) declarations))
+   :private-var-deref (vec (filter #(= :private-var-deref (:type %)) declarations))})
 
 (defn- summary-lines* [{:keys [deftest-leading-article assertion-message-inline
-                               conditional-assertion]}]
+                               conditional-assertion private-var-deref]}]
   [["Deftest leading article:" (count deftest-leading-article)]
    ["Assertion message inline:" (count assertion-message-inline)]
-   ["Conditional assertion:" (count conditional-assertion)]])
+   ["Conditional assertion:" (count conditional-assertion)]
+   ["Private var deref:" (count private-var-deref)]])
 
 (defn- failed?* [_]
   ;; Nothing here blocks at runtime, and the guard shape has defensible uses — a `when`
@@ -191,7 +232,8 @@
   group/RuleGroup
   (group-id [_] :tests)
   (group-name [_] "Tests")
-  (parse-handlers [_] {:handle-list handle-list})
+  (parse-handlers [_] {:handle-list handle-list
+                       :handle-token handle-token})
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ result] (failed?* result))
@@ -227,11 +269,20 @@
           "is a predicate over a collection, not the test choosing. Nor is a guard always "
           "wrong: a when narrowing a doseq to the combination under test reads as "
           "deliberate, which is why this reports rather than blocks. Enforce it with "
-          "--fail-on where a project wants it.")})
+          "--fail-on where a project wants it.")
+     :private-var-deref
+     (str "A test reads a var through its var quote — @#'some.ns/fn or (deref #'some.ns/fn). "
+          "That reaches past a namespace's public surface to something deliberately not "
+          "exported, so the test is coupled to an implementation detail and a refactor that "
+          "breaks nothing real breaks the test. Test the thing through the public entry "
+          "point that calls it, or move it to its own namespace where it can be public. A "
+          "plain var quote handed to with-redefs or a fixture is left alone, as is a deref "
+          "of an atom or a subscription: only a deref of a var quote is flagged.")})
   (rule->tier [_]
     {:deftest-leading-article :cleanup
      :assertion-message-inline :cleanup
-     :conditional-assertion :cleanup})
+     :conditional-assertion :cleanup
+     :private-var-deref :cleanup})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->TestsGroup))

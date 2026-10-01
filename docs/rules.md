@@ -37,6 +37,12 @@ Every rule, what it flags, and what it deliberately leaves alone. For the one-li
 
 - **defattrs in merge** — `defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class`
   without merge
+- **Private var deref** — a test reading a var through its var quote, `@#'some.ns/fn` or `(deref #'some.ns/fn)`. That
+  reaches past a namespace's public surface to something deliberately not exported, so the test is coupled to an
+  implementation detail and a refactor that breaks nothing real breaks the test. Test it through the public entry point
+  that calls it, or move it to its own namespace where it can be public. A plain var quote handed to `with-redefs` or a
+  fixture is left alone — that is how a test replaces a dependency — as is a deref of an atom or a subscription: only a
+  deref _of a var quote_ is flagged
 - **Conditional assertion** — a test that decides what to assert while it runs. Three shapes, one defect: the test does
   not state what it expects, it works it out.
   - **The expected value is computed** — `(is (= actual (if owner? false true)))` re-derives the answer, so a mistake
