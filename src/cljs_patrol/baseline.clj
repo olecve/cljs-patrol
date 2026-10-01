@@ -17,6 +17,16 @@
   whenever anything above it does."
   #{:deftest-leading-article})
 
+(def ^:private form-keyed-rules
+  "Rules identified by the form at fault plus the file it is in.
+
+  For a rule whose findings share one `:kw` — every assertion-message finding names `is`,
+  every conditional names the head it branches on — the keyword is a kind rather than an
+  identity, so the source text of the form is what tells two findings in a file apart. It
+  moves with the code it describes, where a row moves whenever anything above it does.
+  Two identical forms in one file collapse to one identity, as they do for Hiccup sites."
+  #{:assertion-message-inline :conditional-assertion})
+
 (def ^:private keyword-keyed-rules
   "Rules where the issue is uniquely identified by its keyword."
   #{:unused-subs :unused-events :phantom-subs :phantom-events
@@ -125,6 +135,12 @@
        {:rule rule
         :name (str (:kw issue))
         :file (rel (:file issue))}
+
+       (contains? form-keyed-rules rule)
+       {:rule rule
+        :kind (:kw issue)
+        :file (rel (:file issue))
+        :form (str/replace (str/trim (str (:form issue))) #"\s+" " ")}
 
        (contains? hiccup-site-rules rule)
        (let [normalize #(str/replace (str/trim (str %)) #"\s+" " ")]
