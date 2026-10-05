@@ -93,7 +93,7 @@ jobs:
         # --help never reaches write-baseline. Reflective interop only fails in
         # a native build, so the writer has to be run from the real binary.
         run: |
-          cd test/projects/a11y-app
+          cd test-projects/a11y-app
           "$GITHUB_WORKSPACE/target/cljs-patrol-${GITHUB_REF_NAME#v}-${{ matrix.target }}" --only a11y --baseline-write src
           grep -q ':issues' src/.cljs-patrol/baseline.edn
           "$GITHUB_WORKSPACE/target/cljs-patrol-${GITHUB_REF_NAME#v}-${{ matrix.target }}" --only a11y --baseline src

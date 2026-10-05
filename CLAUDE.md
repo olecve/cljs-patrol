@@ -62,17 +62,17 @@ java -jar target/cljs-patrol-0.1.0.jar <src-dir>
 clojure -M:test          # run all tests
 ```
 
-Tests live in `test/cljs_patrol/`, mirroring the `src/` structure. The runner scans that directory and no other, so a
-test file placed elsewhere under `test/` never runs. Fixture projects for the integration tests are in
-`test/projects/<name>-app/`, out of the runner's way because several of them are malformed on purpose.
+Tests live in `test/`, mirroring the `src/` structure. Fixture projects for the integration tests are in
+`test-projects/<name>-app/`, outside `test/` because `test/` is a classpath root the runner scans: a fixture named
+`*_test.clj` there would be loaded as a namespace, and several fixtures are malformed on purpose.
 
 ## Linting
 
 ```bash
-clojure -M:clj-kondo --lint src test/cljs_patrol build.clj
+clojure -M:clj-kondo --lint src test build.clj
 ```
 
-`test/projects/` is excluded: those fixtures are malformed on purpose.
+`test-projects/` is not linted: those fixtures are malformed on purpose.
 
 ## Formatting
 
@@ -90,7 +90,7 @@ npm run format  # rewrite, or `npm run format:check` to verify
 ```
 
 Prose wraps at **120 characters** (`.prettierrc.json`). `CHANGELOG.md` is excluded because the release workflow prepends
-to it on every tag, and `test/projects/` because the Clojure linters skip it too.
+to it on every tag, and `test-projects/` because the Clojure linters skip it too.
 
 ## Documentation
 
@@ -143,7 +143,7 @@ The three style rules are machine-checked by this tool's own `docstrings` group,
 ```bash
 clojure -M:run --experimental-clj --only docstrings,tests \
   --fail-on docstring-summary,docstring-indentation,docstring-leading-trailing-whitespace,deftest-leading-article,assertion-message-inline,conditional-assertion \
-  src test/cljs_patrol build.clj
+  src test build.clj
 ```
 
 ## Adding a New Rule Group

@@ -3,7 +3,7 @@
 CHANGELOG.md
 
 # Fixture projects are deliberately malformed; the Clojure linters skip them too.
-test/projects/
+test-projects/
 
 node_modules/
 target/

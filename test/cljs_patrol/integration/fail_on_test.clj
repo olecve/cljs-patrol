@@ -11,7 +11,7 @@
    [cljs-patrol.severity :as severity]
    [clojure.test :refer [deftest is]]))
 
-(def ^:private fixture-dir "test/projects/baseline-app/src/baseline_app")
+(def ^:private fixture-dir "test-projects/baseline-app/src/baseline_app")
 (def ^:private enabled-groups [re-frame/group spade/group reagent/group])
 (def ^:private rule->tier (severity/collect-rule->tier enabled-groups))
 (def ^:private bugs (severity/tier->rules rule->tier :bugs))

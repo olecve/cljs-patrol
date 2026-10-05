@@ -55,7 +55,7 @@
       (is (= 1 (count groups)))
       (is (= :re-frame (group/group-id (first groups)))))))
 
-(def ^:private fixture-dir "test/projects/re-frame-spade-app/src/webapp")
+(def ^:private fixture-dir "test-projects/re-frame-spade-app/src/webapp")
 
 (deftest baseline-write-integration-test
   (let [enabled-groups [re-frame/group spade/group]

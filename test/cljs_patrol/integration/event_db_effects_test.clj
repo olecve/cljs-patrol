@@ -4,7 +4,7 @@
    [cljs-patrol.groups.re-frame :as re-frame]
    [clojure.test :refer [deftest is testing]]))
 
-(def ^:private fixture-dir "test/projects/event-db-effects-app/src/webapp")
+(def ^:private fixture-dir "test-projects/event-db-effects-app/src/webapp")
 
 (defn- kws [items]
   (set (map :kw items)))

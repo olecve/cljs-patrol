@@ -10,7 +10,7 @@
    [clojure.test :refer [deftest is testing]]
    [clojure.tools.cli :as cli]))
 
-(def ^:private fixture-dir "test/projects/clj-app")
+(def ^:private fixture-dir "test-projects/clj-app")
 
 (def ^:private assemble-groups #'core/assemble-groups)
 (def ^:private experimental-clj? #'core/experimental-clj?)

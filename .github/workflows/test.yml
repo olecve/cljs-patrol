@@ -42,7 +42,7 @@ jobs:
       - run: npm run format:check
 
       - run: clojure -M:cljfmt check src/ test/
-      - run: clojure -M:clj-kondo --lint src test/cljs_patrol build.clj
+      - run: clojure -M:clj-kondo --lint src test build.clj
       - run: clojure -M:test
 
       - name: Patrol our own sources
@@ -57,7 +57,7 @@ jobs:
         run: >-
           clojure -M:run --experimental-clj --only docstrings,tests
           --fail-on docstring-summary,docstring-indentation,docstring-leading-trailing-whitespace,deftest-leading-article,assertion-message-inline,conditional-assertion
-          src test/cljs_patrol build.clj
+          src test build.clj
 
   native-verify:
     needs: test
@@ -90,7 +90,7 @@ jobs:
         # --help never reaches write-baseline. Reflective interop only fails in
         # a native build, so the writer has to be run from the real binary.
         run: |
-          cd test/projects/a11y-app
+          cd test-projects/a11y-app
           "$GITHUB_WORKSPACE/target/cljs-patrol" --only a11y --baseline-write src
           grep -q ':issues' src/.cljs-patrol/baseline.edn
           "$GITHUB_WORKSPACE/target/cljs-patrol" --only a11y --baseline src
