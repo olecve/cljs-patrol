@@ -161,10 +161,14 @@
         by-row (into {} (map (juxt :row identity)) found)]
 
     (testing "reads every spelling of a var quote through a deref"
-      (is (contains? by-row 71) "@#'ns/x, the reader spelling")
-      (is (contains? by-row 73) "@(var ns/x), the var written out")
-      (is (contains? by-row 75) "(deref #'ns/x), the deref written out")
-      (is (contains? by-row 77) "@^:tag #'ns/x, metadata between the two"))
+      (is (contains? by-row 71)
+          "@#'ns/x, the reader spelling")
+      (is (contains? by-row 73)
+          "@(var ns/x), the var written out")
+      (is (contains? by-row 75)
+          "(deref #'ns/x), the deref written out")
+      (is (contains? by-row 77)
+          "@^:tag #'ns/x, metadata between the two"))
 
     (testing "reports one finding per deref, not one per token"
       (is (= 1 (count (filter #(= 77 (:row %)) found)))
@@ -218,31 +222,46 @@
         by-row (frequencies (map :row found))]
 
     (testing "flags the hint wherever it is written"
-      (is (= 1 (by-row 92)) "a let binding")
-      (is (= 1 (by-row 93)) "a map destructuring key")
-      (is (= 2 (by-row 94)) "both hints in a vector destructuring")
-      (is (= 1 (by-row 95)) "the ^{:tag js} spelling")
-      (is (= 1 (by-row 96)) "inline on an argument")
-      (is (= 1 (by-row 97)) "inline on a nested expression")
-      (is (= 1 (by-row 100)) "a defn parameter in a test helper"))
+      (is (= 1 (by-row 92))
+          "a let binding")
+      (is (= 1 (by-row 93))
+          "a map destructuring key")
+      (is (= 2 (by-row 94))
+          "both hints in a vector destructuring")
+      (is (= 1 (by-row 95))
+          "the ^{:tag js} spelling")
+      (is (= 1 (by-row 96))
+          "inline on an argument")
+      (is (= 1 (by-row 97))
+          "inline on a nested expression")
+      (is (= 1 (by-row 100))
+          "a defn parameter in a test helper"))
 
     (testing "leaves every other tag alone"
-      (is (not (by-row 108)) "^js/Foo names a type rather than asking for inference")
-      (is (not (by-row 109)) "^clj")
-      (is (not (by-row 110)) "^boolean"))
+      (is (not (by-row 108))
+          "^js/Foo names a type rather than asking for inference")
+      (is (not (by-row 109))
+          "^clj")
+      (is (not (by-row 110))
+          "^boolean"))
 
     (testing "says nothing about text that merely reads like a hint"
       (is (not-any? #(= "\"^js\"" (:form %)) found)
           "a string containing ^js")
-      (is (not (by-row 102)) "a comment containing ^js"))
+      (is (not (by-row 102))
+          "a comment containing ^js"))
 
     (testing "says nothing about a form that does not render"
-      (is (not (by-row 105)) "a written-out (quote …)")
-      (is (not (by-row 124)) "a discarded deftest"))
+      (is (not (by-row 105))
+          "a written-out (quote …)")
+      (is (not (by-row 124))
+          "a discarded deftest"))
 
     (testing "the symbol js is only a hint in the tag slot"
-      (is (not (by-row 116)) "^:private js — js is the value, not the tag")
-      (is (not (by-row 117)) "^{:doc js} — js is a map value under :doc, not :tag"))
+      (is (not (by-row 116))
+          "^:private js — js is the value, not the tag")
+      (is (not (by-row 117))
+          "^{:doc js} — js is a map value under :doc, not :tag"))
 
     (testing "says nothing in a production namespace"
       (is (not-any? #(str/ends-with? (:file %) "views.cljs") found)
