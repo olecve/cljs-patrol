@@ -87,3 +87,39 @@
       "another function whose name merely ends in deref")
   (is (= 1 (count (quote [@#'other.ns/seen-ids])))
       "a written-out quote renders nothing"))
+
+(deftest js-type-hints
+  (let [^js container (.-container r)
+        {:keys [chips ^js panel]} (.-props r)
+        [^js first-chip ^js second-chip] chips
+        ^{:tag js} written-out (.-node r)]
+    (is (= 1 (.-textContent ^js container)))
+    (is (= 1 (.. ^js (:options panel) -x -y)))
+    (is (= 1 (count [first-chip second-chip written-out])))))
+
+(defn- helper-with-js [^js el]
+  ;; ^js in a comment is not a hint
+  (.-value el))
+
+(deftest quoted-hint-does-not-render
+  (is (= 1 (count (quote [^js x])))
+      "a quoted form renders nothing"))
+
+(deftest other-tags-are-left-alone
+  (let [^js/Foo typed (.-a r)
+        ^clj coll (.-b r)
+        ^boolean flag (.-c r)]
+    (is (= "^js" (str typed coll flag))
+        "a string containing the hint is not a hint")))
+
+(deftest js-as-a-value-is-not-a-hint
+  (let [^:private js 1
+        tagged-elsewhere ^{:doc js} [1 2]]
+    (is (= 1 js)
+        "the symbol js sits in the value slot, not the tag slot")
+    (is (= 2 (count tagged-elsewhere))
+        "js is a map value under :doc, not under :tag")))
+
+#_(deftest discarded-hint
+    (let [^js gone (.-x r)]
+      (is (= 1 gone))))

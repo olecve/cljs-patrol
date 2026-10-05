@@ -35,7 +35,7 @@
    (a11y/make-group (get config :a11y))
    docstrings/group
    (css-order/make-group (get config :css-order))
-   tests/group])
+   (tests/make-group (get config :tests))])
 
 (defn- filter-groups [all-groups {:keys [disable only]}]
   (cond

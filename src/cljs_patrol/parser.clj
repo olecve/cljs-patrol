@@ -24,8 +24,8 @@
   Both a finding's `:form` and the baseline identity built from it go through this, and
   they have to agree character for character or a baseline stops matching what produced
   it. Whitespace inside collapses to one space, and the space a line break leaves against
-  a bracket goes entirely: `(deref\n  #'x\n )` and `(deref #'x)` are the same form written
-  two ways, and keying on the difference would churn a baseline on every reformat."
+  a bracket goes entirely, so a form wrapped across lines with its closing bracket on one
+  of its own reads the same as the one-line form it was before someone reformatted it."
   [source]
   (-> (str source)
       str/trim

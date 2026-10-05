@@ -161,10 +161,14 @@
         by-row (into {} (map (juxt :row identity)) found)]
 
     (testing "reads every spelling of a var quote through a deref"
-      (is (contains? by-row 71) "@#'ns/x, the reader spelling")
-      (is (contains? by-row 73) "@(var ns/x), the var written out")
-      (is (contains? by-row 75) "(deref #'ns/x), the deref written out")
-      (is (contains? by-row 77) "@^:tag #'ns/x, metadata between the two"))
+      (is (contains? by-row 71)
+          "@#'ns/x, the reader spelling")
+      (is (contains? by-row 73)
+          "@(var ns/x), the var written out")
+      (is (contains? by-row 75)
+          "(deref #'ns/x), the deref written out")
+      (is (contains? by-row 77)
+          "@^:tag #'ns/x, metadata between the two"))
 
     (testing "reports one finding per deref, not one per token"
       (is (= 1 (count (filter #(= 77 (:row %)) found)))
@@ -212,3 +216,102 @@
           "the form alone is just a var name, so the test it sits in is what tells them apart")
       (is (= (identity-of "reads-it-once") (identity-of "reads-it-once"))
           "two reads in one test still collapse, which no stable key can split"))))
+
+(deftest js-hint-in-test-fixture-test
+  (let [found (:js-hint-in-test (result))
+        by-row (frequencies (map :row found))]
+
+    (testing "flags the hint wherever it is written"
+      (is (= 1 (by-row 92))
+          "a let binding")
+      (is (= 1 (by-row 93))
+          "a map destructuring key")
+      (is (= 2 (by-row 94))
+          "both hints in a vector destructuring")
+      (is (= 1 (by-row 95))
+          "the ^{:tag js} spelling")
+      (is (= 1 (by-row 96))
+          "inline on an argument")
+      (is (= 1 (by-row 97))
+          "inline on a nested expression")
+      (is (= 1 (by-row 100))
+          "a defn parameter in a test helper"))
+
+    (testing "leaves every other tag alone"
+      (is (not (by-row 108))
+          "^js/Foo names a type rather than asking for inference")
+      (is (not (by-row 109))
+          "^clj")
+      (is (not (by-row 110))
+          "^boolean"))
+
+    (testing "says nothing about text that merely reads like a hint"
+      (is (not-any? #(= "\"^js\"" (:form %)) found)
+          "a string containing ^js")
+      (is (not (by-row 102))
+          "a comment containing ^js"))
+
+    (testing "says nothing about a form that does not render"
+      (is (not (by-row 105))
+          "a written-out (quote …)")
+      (is (not (by-row 124))
+          "a discarded deftest"))
+
+    (testing "the symbol js is only a hint in the tag slot"
+      (is (not (by-row 116))
+          "^:private js — js is the value, not the tag")
+      (is (not (by-row 117))
+          "^{:doc js} — js is a map value under :doc, not :tag"))
+
+    (testing "says nothing in a production namespace"
+      (is (not-any? #(str/ends-with? (:file %) "views.cljs") found)
+          "a hint in source can be load-bearing"))
+
+    (testing "names the hint and what to do"
+      (is (= "Remove the hint — nothing reads it in a build that is not :advanced."
+             (:hint (first found)))))
+
+    (testing "flags exactly the hints"
+      (is (= 8 (count found))))))
+
+(def ^:private paths-fixture-dir "test/projects/tests-paths-app")
+
+(defn- paths-result [paths]
+  (-> (core/run paths-fixture-dir [(tests/make-group {:paths paths})])
+      :group-results first :js-hint-in-test))
+
+(deftest test-paths-config-test
+  (testing "with no paths configured the namespace name decides"
+    (let [found (-> (core/run paths-fixture-dir [(tests/make-group)])
+                    :group-results first :js-hint-in-test)]
+      (is (empty? found)
+          "neither fixture namespace ends in -test, so neither is read as test code")))
+
+  (testing "a configured path decides instead of the namespace"
+    (let [found (paths-result ["spec"])]
+      (is (= 2 (count found))
+          "spec/ and src/spec/ both hold that segment, and neither namespace ends in -test")
+      (is (some #(str/ends-with? (:file %) "widget_spec.cljs") found))
+      (is (some #(str/ends-with? (:file %) "nested_spec.cljs") found))))
+
+  (testing "a path matches whole segments, not substrings"
+    (is (empty? (paths-result ["late"]))
+        "src/latest/ holds late as a prefix, which is not a segment")
+    (is (= 1 (count (paths-result ["latest"])))
+        "the whole segment does match"))
+
+  (testing "every configured path counts, not only the first"
+    (is (= 3 (count (paths-result ["spec" "latest"])))
+        "the union of both, where each alone matches fewer"))
+
+  (testing "one path may be written on its own"
+    (is (= (map :file (paths-result ["latest"]))
+           (map :file (-> (core/run paths-fixture-dir [(tests/make-group {:paths "latest"})])
+                          :group-results first :js-hint-in-test)))
+        "a bare string reads as a one-element vector"))
+
+  (testing "a path written as several segments matches that run"
+    (is (= 1 (count (paths-result ["src/spec"])))
+        "src/spec matches only the nested one, where plain spec matched both")
+    (is (empty? (paths-result ["spec/src"]))
+        "a run of segments has to match in order")))

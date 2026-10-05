@@ -154,16 +154,35 @@
              (and head (pred head)))) (some-> current z/down parser/raw)
       :else (recur (z/up current)))))
 
-(defn- test-namespace?
-  "True when the file's namespace is a test namespace.
+(defn- path-segments [path]
+  (remove str/blank? (str/split (str path) #"[/\\\\]")))
 
-  The anchor is the namespace, not the enclosing form. Every other rule in this group is
-  anchored to a `deftest` or an `is` by its shape; a var deref is legal anywhere, so
-  without an anchor the rule reports production code — and the group runs by default. But
-  anchoring on `deftest` would be wrong the other way: the reads that matter sit in a
-  fixture or a helper beside the tests as often as inside one."
-  [{:keys [ns-name]}]
-  (boolean (and ns-name (str/ends-with? ns-name "-test"))))
+(defn- under-path?
+  "True when `file` lies under `configured`, matched a whole segment at a time.
+
+  Segment-wise so `test` does not match `src/cljs/latest/…`. A configured path may be
+  written as one segment or several — `test` and `ui/test` both work — and matches
+  wherever that run of segments appears, since the tool is pointed at whatever directory
+  the caller chooses and the file paths it reports are relative to that."
+  [file configured]
+  (let [wanted (path-segments configured)
+        actual (path-segments file)]
+    (and (seq wanted)
+         (boolean (some #(= wanted (take (count wanted) %))
+                        (take-while seq (iterate rest actual)))))))
+
+(defn- test-file?
+  "True when the file holds test code.
+
+  Configured paths win when a project sets them: the directory a test lives in is a fact,
+  where the namespace's name is a convention. With none set the convention is the
+  fallback, so the group works pointed at a test directory without any configuration —
+  and it has to answer one way or the other, since the group runs by default and the
+  rules anchored on this would otherwise report production code."
+  [paths {:keys [ns-name]} file]
+  (if (seq paths)
+    (boolean (some #(under-path? file %) paths))
+    (boolean (and ns-name (str/ends-with? ns-name "-test")))))
 
 (defn- enclosing-definition-name
   "Return the name of the nearest enclosing `def`-like form, or nil.
@@ -241,13 +260,71 @@
 
 (defn- var-deref-in-test
   "Return the finding for a var quote read through a deref in a test namespace, or nil."
-  [loc ns-info file]
-  (when (test-namespace? ns-info)
+  [paths loc ns-info file]
+  (when (test-file? paths ns-info file)
     (when-let [var-loc (var-quote-loc loc)]
       (when-let [deref-loc (deref-around var-loc)]
         (when (and (not (hiccup/inside-unrendered-form? deref-loc))
                    (not (inside-written-out-quote? deref-loc)))
           (var-deref-finding deref-loc (enclosing-definition-name deref-loc) file))))))
+
+(def ^:private js-tag "js")
+
+(defn- js-tag-token? [loc]
+  (and (= :token (z/tag loc)) (= js-tag (parser/raw loc))))
+
+(defn- leftmost-child? [loc parent]
+  (and parent (identical? (z/node loc) (some-> parent z/down z/node))))
+
+(defn- js-type-hint
+  "Return the metadata node a bare `^js` hint is written on, or nil.
+
+  Both spellings are the same hint: `^js x` puts the tag symbol straight into the
+  metadata node, `^{:tag js} x` puts it under `:tag` in a map there. Only the bare symbol
+  counts — `^js/Foo` names a type and is a different thing, and `^clj`, `^boolean` and
+  `^:private` are other tags entirely.
+
+  A `:meta` node reaches no handler and neither does a `:map`, so the hint is found from
+  the `js` symbol inside it and read upward."
+  [loc]
+  (when (js-tag-token? loc)
+    (let [parent (z/up loc)]
+      (cond
+        (and (= :meta (some-> parent z/tag)) (leftmost-child? loc parent))
+        parent
+
+        (and (= :map (some-> parent z/tag))
+             (= :meta (some-> parent z/up z/tag))
+             (leftmost-child? parent (z/up parent))
+             (identical? (z/node loc) (some-> (hiccup/literal-map parent) :tag z/node)))
+        (z/up parent)))))
+
+(defn- js-hint-finding
+  "Build the finding for a `^js` hint.
+
+  `:test` is the definition the hint sits in. A hint's own text is short and repeats —
+  `^js el` can appear many times in one file — so without it every hint of the same
+  shape in a file would be a single baseline identity. Several identical hints inside one
+  definition still collapse, which matters little here: the fix removes all of them."
+  [hint-loc test-name file]
+  (let [[row col] (try (z/position hint-loc) (catch Exception _ [0 1]))]
+    {:kw (symbol js-tag)
+     :type :js-hint-in-test
+     :form (parser/normalize-form (parser/raw hint-loc))
+     :test test-name
+     :file file
+     :row row
+     :col col
+     :hint "Remove the hint — nothing reads it in a build that is not :advanced."}))
+
+(defn- js-hint-in-test
+  "Return the finding for a `^js` hint written in a test namespace, or nil."
+  [paths loc ns-info file]
+  (when (test-file? paths ns-info file)
+    (when-let [hint-loc (js-type-hint loc)]
+      (when-not (or (hiccup/inside-unrendered-form? hint-loc)
+                    (inside-written-out-quote? hint-loc))
+        (js-hint-finding hint-loc (enclosing-definition-name hint-loc) file)))))
 
 (defn- leading-article-finding [loc file]
   (when (contains? deftest-heads (some-> loc z/down parser/sym-name))
@@ -262,7 +339,7 @@
            :hint (str "Drop the leading \"" article "-\": "
                       (subs test-name (inc (count article))))})))))
 
-(defn- handle-list [loc ns-info file]
+(defn- handle-list [paths loc ns-info file]
   (when-not (hiccup/inside-unrendered-form? loc)
     (when-let [finding (or (leading-article-finding loc file)
                            (when-let [message (inline-assertion-message loc)] (assertion-finding loc message file))
@@ -272,7 +349,7 @@
                            (when-let [kind (conditional-around-assertion loc)]
                              (conditional-finding loc kind
                                                   (parser/sym-name (z/down loc)) file))
-                           (var-deref-in-test loc ns-info file))]
+                           (var-deref-in-test paths loc ns-info file))]
       {:decls [finding]
        :usages []
        :dynamics []})))
@@ -281,14 +358,16 @@
   {:deftest-leading-article (vec (filter #(= :deftest-leading-article (:type %)) declarations))
    :assertion-message-inline (vec (filter #(= :assertion-message-inline (:type %)) declarations))
    :conditional-assertion (vec (filter #(= :conditional-assertion (:type %)) declarations))
-   :var-deref-in-test (vec (filter #(= :var-deref-in-test (:type %)) declarations))})
+   :var-deref-in-test (vec (filter #(= :var-deref-in-test (:type %)) declarations))
+   :js-hint-in-test (vec (filter #(= :js-hint-in-test (:type %)) declarations))})
 
 (defn- summary-lines* [{:keys [deftest-leading-article assertion-message-inline
-                               conditional-assertion var-deref-in-test]}]
+                               conditional-assertion var-deref-in-test js-hint-in-test]}]
   [["Deftest leading article:" (count deftest-leading-article)]
    ["Assertion message inline:" (count assertion-message-inline)]
    ["Conditional assertion:" (count conditional-assertion)]
-   ["Var deref in test:" (count var-deref-in-test)]])
+   ["Var deref in test:" (count var-deref-in-test)]
+   ["Js hint in test:" (count js-hint-in-test)]])
 
 (defn- failed?* [_]
   ;; Nothing here blocks at runtime, and the guard shape has defensible uses — a `when`
@@ -296,13 +375,14 @@
   ;; wants any of these enforced opts in with --fail-on.
   false)
 
-(defrecord TestsGroup []
+(defrecord TestsGroup [paths]
   group/RuleGroup
   (group-id [_] :tests)
   (group-name [_] "Tests")
-  (parse-handlers [_] {:handle-list handle-list
+  (parse-handlers [_] {:handle-list (fn [loc ns-info file] (handle-list paths loc ns-info file))
                        :handle-token (fn [loc ns-info file]
-                                       (when-let [finding (var-deref-in-test loc ns-info file)]
+                                       (when-let [finding (or (var-deref-in-test paths loc ns-info file)
+                                                              (js-hint-in-test paths loc ns-info file))]
                                          {:decls [finding]
                                           :usages []
                                           :dynamics []}))})
@@ -342,6 +422,17 @@
           "wrong: a when narrowing a doseq to the combination under test reads as "
           "deliberate, which is why this reports rather than blocks. Enforce it with "
           "--fail-on where a project wants it.")
+     :js-hint-in-test
+     (str "A `^js` type hint in a test namespace does nothing. The hint exists so that "
+          "shadow-cljs infers an extern and the Closure compiler leaves a JS interop "
+          "property name alone under :advanced optimizations (shadow-cljs User's Guide, "
+          "14.2.1 Externs Inference). A test build never runs :advanced, so nothing reads "
+          "the hint and nothing would change if it were not there. Remove it. Both "
+          "spellings count, ^js and ^{:tag js}, wherever they are written — a parameter, "
+          "a let or destructuring binding, or inline on an expression. `^js/Foo` names a "
+          "type rather than asking for inference and is left alone, as are `^clj`, "
+          "`^boolean` and every other tag. Only test namespaces: a hint in source can be "
+          "load-bearing, and only a release build's infer warnings can say which.")
      :var-deref-in-test
      (str "A test reads a var through its var quote — @#'ns/x, (deref #'ns/x), @(var ns/x) "
           "or (deref (var ns/x)). Reaching for the var object rather than calling the thing "
@@ -362,7 +453,23 @@
     {:deftest-leading-article :cleanup
      :assertion-message-inline :cleanup
      :conditional-assertion :cleanup
-     :var-deref-in-test :cleanup})
+     :var-deref-in-test :cleanup
+     :js-hint-in-test :cleanup})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
-(def group (->TestsGroup))
+(defn make-group
+  "Return a tests RuleGroup configured with the given map.
+
+  Supported keys:
+    :paths [\"test\" …] — directories holding test code. A file under any of them is test
+      code whatever its namespace is called. One path may be written on its own rather
+      than in a vector. With none set, a namespace whose name ends in `-test` is taken as
+      the test, which is what the group does out of the box."
+  ([] (make-group nil))
+  ([{:keys [paths]}]
+   (->TestsGroup (cond
+                   (string? paths) [paths]
+                   (coll? paths) (vec paths)
+                   :else []))))
+
+(def group (make-group))
