@@ -202,7 +202,7 @@
       (keep-indexed (fn [i loc] (when (odd? i) loc)) args)
       (rest args))))
 
-(declare icon-only-branches?)
+(declare icon-only-branches? visible-from?)
 
 (defn- image-alt-name?
   "True when loc is an `[:img …]` carrying non-empty `:alt` text.
@@ -229,16 +229,17 @@
       (or (when slot
             (or (meaningful-text-name? attrs)
                 (image-alt-name? loc attrs)))
-          (loop [cur body-start]
-            (cond
-              (nil? cur) false
-              (visible-content? cur) true
-              :else (recur (z/right cur))))))
+          (visible-from? body-start)))
 
     (= :list (z/tag loc))
     (not (icon-only-branches? loc))
 
     :else true))
+
+(defn- visible-from?
+  "True when `body-start` or any sibling to its right carries visible content."
+  [body-start]
+  (boolean (some visible-content? (take-while some? (iterate #(some-> % z/right) body-start)))))
 
 (defn- icon-only-branches?
   "True when every branch a form could render is icon markup.
@@ -270,11 +271,7 @@
         body-start (if attrs-loc
                      (z/right attrs-loc)
                      (some-> vec-loc z/down z/right))]
-    (loop [cur body-start]
-      (cond
-        (nil? cur) false
-        (visible-content? cur) true
-        :else (recur (z/right cur))))))
+    (visible-from? body-start)))
 
 (def ^:private widget-state-attrs
   "Attributes marking a control as a stateful widget rather than a plain button.
@@ -976,10 +973,8 @@
   because `z/subzip` restarts position tracking and the hint names a line."
   [info loc tag ns-info component-aliases]
   (when (interactive-container? info tag)
-    (let [slot (hiccup/props-slot loc)
-          body-start (if slot (z/right slot) (some-> loc z/down z/right))]
-      (first-matching-descendant {:match? #(content-loc? % ns-info component-aliases)}
-                                 (hiccup/right-siblings (some-> body-start z/left))))))
+    (first-matching-descendant {:match? #(content-loc? % ns-info component-aliases)}
+                               (body-locs loc))))
 
 (defn- inner-element-marks
   "Return the display hint and the identity snippet for an element found inside another.

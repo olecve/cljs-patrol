@@ -338,6 +338,41 @@
     (is (nil? (hiccup/attrs-slot (vec-zloc "[:button (build-props)]"))))
     (is (nil? (hiccup/attrs-slot (vec-zloc "[:button props]"))))))
 
+(deftest props-slot-test
+  (let [slot-string #(some-> (hiccup/props-slot (vec-zloc %)) z/string)]
+
+    (testing "whatever attrs-slot can read is the props slot too"
+      (is (= "{:on-click f}" (slot-string "[:button {:on-click f}]")))
+      (is (= "(assoc base :on-click f)" (slot-string "[:button (assoc base :on-click f)]"))))
+
+    (testing "a call attrs cannot be read out of still occupies the slot"
+      (is (nil? (hiccup/attrs-slot (vec-zloc "[:button (build-props)]")))
+          "this is the case the two differ on, and the reason props-slot exists")
+      (is (= "(build-props)" (slot-string "[:button (build-props)]"))))
+
+    (testing "a call that yields markup is a body child, not props"
+      (is (nil? (slot-string "[:button (when open? [:a \"x\"])]")))
+      (is (nil? (slot-string "[:button (if open? [:a \"x\"] [:b \"y\"])]"))
+          "every branch yields a vector, so the call renders where it is written"))
+
+    (testing "only a call is weighed this way"
+      (is (nil? (slot-string "[:button props]"))
+          "a bare symbol is far more often the first body child")
+      (is (nil? (slot-string "[:button '(1 2)]"))
+          "a quoted list is data, not a call")
+      (is (nil? (slot-string "[:button \"Save\"]"))))
+
+    (testing "nothing in the slot when there is no second child"
+      (is (nil? (slot-string "[:button]"))))
+
+    (testing "the kind and the second child's shape agree about what a call is"
+      (doseq [source ["[:button (build-props)]" "[:button (when open? [:a \"x\"])]"]]
+        (let [loc (vec-zloc source)]
+          (is (= :list (z/tag (-> loc z/down z/right)))
+              (str ":dynamic is only reached through a list second child, in " source))))
+      (is (not= :dynamic (:kind (hiccup/attrs-info (vec-zloc "[:button props]"))))
+          "a token second child classifies as :non-map, which is why a bare symbol never reaches the call branch"))))
+
 (deftest inside-unrendered-form?-test
   (testing "true when the vector's immediate parent is a quote-family node"
     (let [zloc (-> (z/of-string "'[:img]") z/down)]
