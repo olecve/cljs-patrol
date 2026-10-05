@@ -1,5 +1,17 @@
 # Changelog
 
+## [v0.0.34] - 2026-10-05
+
+## What's Changed
+
+* Flag a ^js type hint written in test code by @olecve in https://github.com/olecve/cljs-patrol/pull/80
+* Read .clj files behind --experimental-clj by @olecve in https://github.com/olecve/cljs-patrol/pull/81
+* Move the fixture projects out of the test classpath root by @olecve in https://github.com/olecve/cljs-patrol/pull/82
+* Cover props-slot, and stop writing the body walk three times by @olecve in https://github.com/olecve/cljs-patrol/pull/83
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.33...v0.0.34
+
+
 ## [v0.0.33] - 2026-10-01
 
 ## What's Changed
