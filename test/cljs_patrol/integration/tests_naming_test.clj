@@ -6,7 +6,7 @@
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
 
-(def ^:private fixture-dir "test/projects/tests-app/src/webapp")
+(def ^:private fixture-dir "test-projects/tests-app/src/webapp")
 
 (defn- result []
   (-> (core/run fixture-dir [tests/group]) :group-results first))
@@ -274,7 +274,7 @@
     (testing "flags exactly the hints"
       (is (= 8 (count found))))))
 
-(def ^:private paths-fixture-dir "test/projects/tests-paths-app")
+(def ^:private paths-fixture-dir "test-projects/tests-paths-app")
 
 (defn- paths-result [paths]
   (-> (core/run paths-fixture-dir [(tests/make-group {:paths paths})])

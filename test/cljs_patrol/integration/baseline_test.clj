@@ -13,7 +13,7 @@
    [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
 
-(def ^:private fixture-dir "test/projects/baseline-app/src/baseline_app")
+(def ^:private fixture-dir "test-projects/baseline-app/src/baseline_app")
 (def ^:private enabled-groups [re-frame/group spade/group reagent/group])
 
 (defn- run-analysis []
@@ -192,7 +192,7 @@
         path (fs/join-path dir "baseline.edn")]
     (try
       (let [{:keys [identities]} (run-analysis)
-            expected (edn/read-string (slurp "test/projects/baseline-app/expected-baseline.edn"))]
+            expected (edn/read-string (slurp "test-projects/baseline-app/expected-baseline.edn"))]
         (baseline/write-baseline path identities)
         (let [data (edn/read-string (slurp path))]
           (is (= baseline/baseline-version (:version data)))

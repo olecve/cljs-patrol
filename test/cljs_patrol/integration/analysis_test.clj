@@ -6,7 +6,7 @@
    [cljs-patrol.groups.spade :as spade]
    [clojure.test :refer [deftest is testing]]))
 
-(def ^:private fixture-dir "test/projects/re-frame-spade-app/src/webapp")
+(def ^:private fixture-dir "test-projects/re-frame-spade-app/src/webapp")
 (def ^:private all-groups [re-frame/group spade/group reagent/group])
 
 (deftest full-analysis-test

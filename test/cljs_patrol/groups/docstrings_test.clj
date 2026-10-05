@@ -5,7 +5,7 @@
    [cljs-patrol.groups.docstrings :as docstrings]
    [clojure.test :refer [deftest is testing]]))
 
-(def ^:private fixture-dir "test/projects/docstrings-app/src/myapp")
+(def ^:private fixture-dir "test-projects/docstrings-app/src/myapp")
 
 (defn- kws [items]
   (set (map :kw items)))

@@ -4,7 +4,7 @@
    [cljs-patrol.groups.spade :as spade]
    [clojure.test :refer [deftest is testing]]))
 
-(def ^:private fixture-dir "test/projects/spade-selector-app/src/webapp")
+(def ^:private fixture-dir "test-projects/spade-selector-app/src/webapp")
 
 (defn- findings [rule-key]
   (get (first (:group-results (core/run fixture-dir [spade/group]))) rule-key))

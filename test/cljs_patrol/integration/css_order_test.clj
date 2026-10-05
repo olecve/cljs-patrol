@@ -5,7 +5,7 @@
    [cljs-patrol.groups.css-order :as css-order]
    [clojure.test :refer [deftest is testing]]))
 
-(def ^:private fixture-dir "test/projects/css-order-app/src/webapp")
+(def ^:private fixture-dir "test-projects/css-order-app/src/webapp")
 
 (defn- run []
   (core/run fixture-dir [css-order/group]))

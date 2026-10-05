@@ -5,7 +5,7 @@
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
 
-(def ^:private fixture-dir "test/projects/a11y-app/src/blogapp")
+(def ^:private fixture-dir "test-projects/a11y-app/src/blogapp")
 
 (defn- rows [items]
   (frequencies (map :row items)))
