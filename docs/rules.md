@@ -37,6 +37,17 @@ Every rule, what it flags, and what it deliberately leaves alone. For the one-li
 
 - **defattrs in merge** — `defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class`
   without merge
+- **Js hint in test** — a `^js` type hint written in test code. The hint exists so shadow-cljs infers an extern and the
+  Closure compiler leaves a JS interop property name alone under `:advanced` optimizations (shadow-cljs User's Guide,
+  14.2.1 _Externs Inference_). A test build never runs `:advanced`, so nothing reads the hint and nothing would change
+  if it were not there. Remove it.
+
+  Both spellings count — `^js` and `^{:tag js}` — wherever they are written: a `defn` or `fn` parameter, a `let`, `loop`
+  or `doseq` binding, map or vector destructuring, or inline on an expression (`(.-textContent ^js %)`). Left alone:
+  `^js/Foo`, which names a type rather than asking for inference, and `^clj`, `^boolean`, `^:private` and every other
+  tag; the symbol `js` anywhere but the tag slot, so `^:private js` and `^{:doc js}` are not hints; and anything inside
+  a quoted or discarded form
+
 - **Var deref in test** — a test reading a var through its var quote: `@#'ns/x`, `(deref #'ns/x)`, `@(var ns/x)` or
   `(deref (var ns/x))`, with metadata on either part read through. Reaching for the var object rather than calling the
   thing couples the test to how the namespace is put together, and a var that is `^:private` is reached this way
@@ -261,6 +272,21 @@ complete even where the printed hint trails off.
 Two deviations from `stylelint-order` worth knowing. A property the chosen table does not name is left unordered here;
 `idiomatic` in particular asks stylelint to sort its unlisted properties alphabetically at the bottom, which this does
 not do. And nothing is auto-fixed — property order is a write-time review decision.
+
+## Test paths
+
+The `tests` group only reads test code: its rules are anchored so that pointing the tool at a source tree reports
+nothing, since the group runs by default. Out of the box the anchor is the namespace name — one ending in `-test` is
+taken as test code. Where that convention does not hold, name the directories instead, in `.cljs-patrol/config.edn`:
+
+```clojure
+{:tests {:paths ["test" "spec"]}}
+```
+
+A file under any of them is test code whatever its namespace is called, and a configured path replaces the naming
+convention rather than adding to it. Paths match a whole segment at a time, so `test` does not match `src/latest/`, and
+a path written as several segments (`src/spec`) matches that run wherever it appears. One path may be written on its own
+rather than in a vector.
 
 ## A11y component aliases
 

@@ -36,7 +36,7 @@ written as a keyword — silently produce CSS that matches nothing.
 - `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `redundant-into-hiccup`
 - `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace`
 - `css-property-order-outside-in`, `deftest-leading-article`, `assertion-message-inline`, `conditional-assertion`,
-  `var-deref-in-test`
+  `var-deref-in-test`, `js-hint-in-test`
 
 `dynamic-sites` is info-only — it never affects the exit code.
 

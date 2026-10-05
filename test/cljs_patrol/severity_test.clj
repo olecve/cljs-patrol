@@ -127,7 +127,7 @@
            :docstring-leading-trailing-whitespace
            :css-property-order-outside-in
            :deftest-leading-article :assertion-message-inline :conditional-assertion
-           :var-deref-in-test}
+           :var-deref-in-test :js-hint-in-test}
          (severity/tier->rules rule->tier :cleanup)))
   (is (= #{} (severity/tier->rules rule->tier :unknown))
       "unknown tier returns empty set"))
@@ -226,7 +226,7 @@
                :docstring-leading-trailing-whitespace
                :css-property-order-outside-in
                :deftest-leading-article :assertion-message-inline :conditional-assertion
-               :var-deref-in-test}
+               :var-deref-in-test :js-hint-in-test}
              (set (map :rule (:cleanup tiered))))))
 
     (testing "info-only contains rules without a tier"
