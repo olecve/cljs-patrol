@@ -27,15 +27,23 @@
    [clojure.string :as str]
    [clojure.tools.cli :as cli]))
 
-(defn- assemble-groups [config]
+(defn- assemble-groups
+  "Build every rule group from `config`.
+
+  `clj?` is the experimental `.clj` mode: it reaches only `docstrings` and `tests`,
+  whose rules are about Clojure the language rather than about ClojureScript, and
+  leaves every group that reads Hiccup, re-frame or Spade on `.cljs`/`.cljc` alone."
+  [config clj?]
   [re-frame/group
    spade/group
    reagent/group
    typography/group
    (a11y/make-group (get config :a11y))
-   docstrings/group
+   (docstrings/make-group {:clj? clj?})
    (css-order/make-group (get config :css-order))
-   (tests/make-group (get config :tests))])
+   (tests/make-group (assoc (get config :tests) :clj? clj?))])
+
+(def ^:private clj-capable-groups #{:docstrings :tests})
 
 (defn- filter-groups [all-groups {:keys [disable only]}]
   (cond
@@ -62,6 +70,7 @@
     (str "Property-order table for the css-order group: "
          (str/join ", " (map name orders/names)) " (default " (name orders/default-order) ")")
     :parse-fn keyword]
+   [nil "--experimental-clj" "Experimental: also read .clj files (docstrings and tests groups only)"]
    [nil "--list-rules" "Print all rules grouped by tier and exit"]
    ["-h" "--help"]])
 
@@ -264,7 +273,8 @@
                                            :baseline-write :baseline :strict-baseline
                                            :quiet-baseline]))
           dirs arguments
-          all-groups (assemble-groups config)
+          clj? (boolean (or (:experimental-clj options) (:experimental-clj config)))
+          all-groups (assemble-groups config clj?)
           enabled-groups (filter-groups all-groups base-opts)
           fail-on-input (or (:fail-on options) (:fail-on config))
           rule->tier (severity/collect-rule->tier enabled-groups)
@@ -279,6 +289,12 @@
       (when (empty? dirs)
         (println "Error: no source directories specified")
         (System/exit 1))
+      (when clj?
+        (binding [*out* *err*]
+          (println (str "Experimental: reading .clj files with "
+                        (str/join " and " (map name (filter clj-capable-groups
+                                                            (map group/group-id enabled-groups))))
+                        "."))))
       (let [run-results (cond-> (mapv #(run % enabled-groups) dirs)
                           (:files opts) (filter-run-results (:files opts)))]
         (cond

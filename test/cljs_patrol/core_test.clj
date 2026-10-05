@@ -11,7 +11,7 @@
 (def ^:private filter-groups #'core/filter-groups)
 (def ^:private filter-run-results #'core/filter-run-results)
 (def ^:private assemble-groups #'core/assemble-groups)
-(def ^:private default-groups (assemble-groups {}))
+(def ^:private default-groups (assemble-groups {} false))
 
 (deftest filter-run-results-test
   (let [item-a {:kw :a/sub

@@ -241,16 +241,16 @@
                   (recur (z/next loc)
                          (merge-result result (call-handlers handlers tag loc ns-info file-path))))))))))))
 
-(defn find-source-files
-  "Recursively find all .cljs and .cljc files under root-dir."
-  [root-dir]
-  (fs/list-source-files root-dir))
+(defn enabled-extensions
+  "Union of the extensions `enabled-groups` declare, so a file is opened only when some enabled group can read it."
+  [enabled-groups]
+  (into #{} (mapcat group/file-extensions) enabled-groups))
 
 (defn analyze-project
-  "Analyze all ClojureScript source files under root-dir using enabled-groups.
+  "Analyze all source files under root-dir using enabled-groups.
   Returns {:declarations :usages :dynamic-sites} across all files."
   [root-dir enabled-groups]
-  (let [files (find-source-files root-dir)]
+  (let [files (fs/list-source-files root-dir (enabled-extensions enabled-groups))]
     (binding [*out* *err*]
       (println (str "Analyzing " (count files) " files under " root-dir " ...")))
     (let [results (keep #(analyze-file % enabled-groups) files)]

@@ -70,6 +70,9 @@ Disable specific groups:
 clojure -M:run --disable spade src/cljs/myapp
 ```
 
+The `docstrings` and `tests` groups are about Clojure rather than ClojureScript, and `--experimental-clj` lets them read
+`.clj` files too — see [Reading .clj files](docs/rules.md#experimental-reading-clj-files).
+
 ## HTML report
 
 Generate a self-contained HTML report instead of console output:
@@ -103,13 +106,15 @@ Every setting can live in `.cljs-patrol/config.edn`, where it persists for the p
             :quiet false}
  :css-order {:order :recess}
  :a11y {:component-aliases {my.ui/drawer :dialog}}
- :tests {:paths ["test"]}}
+ :tests {:paths ["test"]}
+ :experimental-clj true}
 ```
 
 A CLI flag overrides the matching setting. See [Severity tiers](docs/severity.md) for `:fail-on`,
 [Baseline](docs/baseline.md) for `:baseline`, [Property-order tables](docs/rules.md#property-order-tables) for
 `:css-order`, [A11y component aliases](docs/rules.md#a11y-component-aliases) for `:a11y`, and
-[Test paths](docs/rules.md#test-paths) for `:tests`.
+[Test paths](docs/rules.md#test-paths) for `:tests`, and
+[Reading .clj files](docs/rules.md#experimental-reading-clj-files) for `:experimental-clj`.
 
 ## Supported patterns
 

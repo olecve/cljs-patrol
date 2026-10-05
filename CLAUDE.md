@@ -136,12 +136,11 @@ non-obvious return contract (e.g. "returns nil vs. empty set has different meani
 shape, or the reason a conservative choice was made. Restating the name in prose is noise, and so is describing another
 var — "Wraps `severity/count-by-fail-on`" tells the reader to go and read something else.
 
-The three style rules are machine-checked by this tool's own `docstrings` group, which skips `.clj`. To run it over our
-sources, copy them to a scratch directory under `.cljs` names and point the tool at that:
+The three style rules are machine-checked by this tool's own `docstrings` group, which reads `.clj` under
+`--experimental-clj`. CI runs this on every push, and so can you:
 
 ```bash
-d=$(mktemp -d) && (cd src && find . -name '*.clj' -exec sh -c 'mkdir -p "$0/$(dirname {})"; cp {} "$0/{}s"' $d \;)
-clojure -M:run --only docstrings $d
+clojure -M:run --experimental-clj --only docstrings,tests src test/cljs_patrol build.clj
 ```
 
 ## Adding a New Rule Group

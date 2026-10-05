@@ -192,7 +192,7 @@
   [_]
   false)
 
-(defrecord DocstringsGroup []
+(defrecord DocstringsGroup [clj?]
   group/RuleGroup
   (group-id [_] :docstrings)
   (group-name [_] "Docstrings")
@@ -215,6 +215,10 @@
     {:docstring-summary :cleanup
      :docstring-indentation :cleanup
      :docstring-leading-trailing-whitespace :cleanup})
-  (file-extensions [_] #{".cljs" ".cljc"}))
+  (file-extensions [_] (cond-> #{".cljs" ".cljc"} clj? (conj ".clj"))))
 
-(def group (->DocstringsGroup))
+(defn make-group
+  ([] (make-group nil))
+  ([{:keys [clj?]}] (->DocstringsGroup (boolean clj?))))
+
+(def group (make-group))

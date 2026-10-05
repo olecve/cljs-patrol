@@ -45,6 +45,12 @@ jobs:
       - run: clojure -M:clj-kondo --lint src test/cljs_patrol build.clj
       - run: clojure -M:test
 
+      - name: Patrol our own sources
+        # The experimental .clj mode reads this repo, so the rules the tool
+        # enforces on a consumer hold for the tool itself. Only the two groups
+        # that mean anything outside ClojureScript are enabled.
+        run: clojure -M:run --experimental-clj --only docstrings,tests src test/cljs_patrol build.clj
+
   native-verify:
     needs: test
     runs-on: ubuntu-latest
