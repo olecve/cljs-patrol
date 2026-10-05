@@ -48,8 +48,10 @@ jobs:
       - name: Patrol our own sources
         # The experimental .clj mode reads this repo, so the rules the tool
         # enforces on a consumer hold for the tool itself. Only the two groups
-        # that mean anything outside ClojureScript are enabled.
-        run: clojure -M:run --experimental-clj --only docstrings,tests src test/cljs_patrol build.clj
+        # that mean anything outside ClojureScript are enabled. Every rule in
+        # both is :cleanup, and a group's failed? is false for a cleanup rule,
+        # so --fail-on is what makes this a check rather than a printout.
+        run: clojure -M:run --experimental-clj --only docstrings,tests --fail-on cleanup src test/cljs_patrol build.clj
 
   native-verify:
     needs: test

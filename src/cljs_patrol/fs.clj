@@ -83,22 +83,16 @@
     (when (.exists f)
       (run! #(.delete ^File %) (reverse (file-seq f))))))
 
-(def source-extensions
-  "Extensions the analyzer reads when nothing narrows the set."
-  #{".cljs" ".cljc"})
-
-(defn source-file?
-  ([^String path] (source-file? path source-extensions))
-  ([^String path extensions] (boolean (some #(str/ends-with? path %) extensions))))
+(defn- source-file? [^String path extensions]
+  (boolean (some #(str/ends-with? path %) extensions)))
 
 (defn list-source-files
-  "Recursively return every source file under `root-dir` as string paths.
-  Which extensions count is the caller's to decide, since the experimental
-  `.clj` mode widens the set for the groups that can read those files."
-  ([^String root-dir] (list-source-files root-dir source-extensions))
-  ([^String root-dir extensions]
-   (->> (file-seq (File. root-dir))
-        (filter (fn [^File f] (.isFile f)))
-        (map (fn [^File f] (.getPath f)))
-        (filter #(source-file? % extensions))
-        vec)))
+  "Recursively return every file under `root-dir` carrying one of `extensions`, as string paths.
+  Which extensions count is the caller's, since the set is the union of what the enabled
+  groups declare rather than a constant."
+  [^String root-dir extensions]
+  (->> (file-seq (File. root-dir))
+       (filter (fn [^File f] (.isFile f)))
+       (map (fn [^File f] (.getPath f)))
+       (filter #(source-file? % extensions))
+       vec))

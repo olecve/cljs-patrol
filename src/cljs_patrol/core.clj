@@ -39,11 +39,12 @@
    reagent/group
    typography/group
    (a11y/make-group (get config :a11y))
-   (docstrings/make-group {:clj? clj?})
+   (docstrings/make-group clj?)
    (css-order/make-group (get config :css-order))
-   (tests/make-group (assoc (get config :tests) :clj? clj?))])
+   (tests/make-group (get config :tests) clj?)])
 
-(def ^:private clj-capable-groups #{:docstrings :tests})
+(defn- clj-reading-groups [enabled-groups]
+  (filter #(contains? (group/file-extensions %) ".clj") enabled-groups))
 
 (defn- filter-groups [all-groups {:keys [disable only]}]
   (cond
@@ -289,11 +290,10 @@
       (when (empty? dirs)
         (println "Error: no source directories specified")
         (System/exit 1))
-      (when clj?
+      (when-let [reading (seq (clj-reading-groups enabled-groups))]
         (binding [*out* *err*]
           (println (str "Experimental: reading .clj files with "
-                        (str/join " and " (map name (filter clj-capable-groups
-                                                            (map group/group-id enabled-groups))))
+                        (str/join " and " (map (comp name group/group-id) reading))
                         "."))))
       (let [run-results (cond-> (mapv #(run % enabled-groups) dirs)
                           (:files opts) (filter-run-results (:files opts)))]

@@ -27,7 +27,7 @@
     (is (= #{".cljs" ".cljc"}
            (parser/enabled-extensions [(docstrings/make-group) (a11y/make-group nil)])))
     (is (= #{".cljs" ".cljc" ".clj"}
-           (parser/enabled-extensions [(docstrings/make-group {:clj? true}) (a11y/make-group nil)]))
+           (parser/enabled-extensions [(docstrings/make-group true) (a11y/make-group nil)]))
         "one group asking for .clj is enough for discovery to walk those files"))
 
   (testing "no enabled group means no extension to look for"
@@ -38,7 +38,7 @@
     (is (empty? (findings (docstrings/make-group) :docstring-summary))))
 
   (testing "on, the same file is read"
-    (let [found (findings (docstrings/make-group {:clj? true}) :docstring-summary)]
+    (let [found (findings (docstrings/make-group true) :docstring-summary)]
       (is (= 1 (count found)))
       (is (str/ends-with? (:file (first found)) "core.clj"))
       (is (= :app.core/summarize (:kw (first found)))))))
@@ -48,7 +48,7 @@
     (is (empty? (findings (tests/make-group) :assertion-message-inline))))
 
   (testing "on, the assertion in the .clj test is flagged"
-    (let [found (findings (tests/make-group {:clj? true}) :assertion-message-inline)]
+    (let [found (findings (tests/make-group nil true) :assertion-message-inline)]
       (is (= 1 (count found)))
       (is (str/ends-with? (:file (first found)) "core_test.clj")))))
 
@@ -60,7 +60,7 @@
       (is (str/ends-with? (:file (first found)) "widget.cljs"))))
 
   (testing "experimental mode does not widen a group that did not ask for it"
-    (let [found (-> (core/run fixture-dir [(a11y/make-group nil) (docstrings/make-group {:clj? true})])
+    (let [found (-> (core/run fixture-dir [(a11y/make-group nil) (docstrings/make-group true)])
                     :group-results first :img-alt-missing)]
       (is (= 1 (count found))
           "discovery now walks .clj for the docstrings group, and a11y still skips those files")
@@ -73,3 +73,13 @@
   (testing "on, the two groups whose rules are about Clojure the language"
     (is (= #{:docstrings :tests} (clj-reading-groups true))
         "every group that reads Hiccup, re-frame or Spade stays on .cljs/.cljc")))
+
+(deftest tests-config-is-not-written-into-test
+  (testing "a :tests value that is not a map leaves the group on its defaults"
+    (doseq [written [["test"] "test" 42 nil]]
+      (is (= #{:docstrings :tests}
+             (into #{}
+                   (comp (filter #(contains? (group/file-extensions %) ".clj"))
+                         (map group/group-id))
+                   (assemble-groups {:tests written} true)))
+          (str "config read back as " (pr-str written) " must not decide whether the run starts")))))

@@ -218,7 +218,7 @@
   (file-extensions [_] (cond-> #{".cljs" ".cljc"} clj? (conj ".clj"))))
 
 (defn make-group
-  ([] (make-group nil))
-  ([{:keys [clj?]}] (->DocstringsGroup (boolean clj?))))
+  ([] (make-group false))
+  ([clj?] (->DocstringsGroup (boolean clj?))))
 
 (def group (make-group))

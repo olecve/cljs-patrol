@@ -465,9 +465,13 @@
       code whatever its namespace is called. One path may be written on its own rather
       than in a vector. With none set, a namespace whose name ends in `-test` is taken as
       the test, which is what the group does out of the box.
-    :clj? — also read `.clj` files, which the experimental `.clj` mode sets."
-  ([] (make-group nil))
-  ([{:keys [paths clj?]}]
+
+  `clj?` is the experimental `.clj` mode. It is a separate argument rather than a key in
+  the map because the map comes straight from the config file and may be anything the
+  user wrote there."
+  ([] (make-group nil false))
+  ([config] (make-group config false))
+  ([{:keys [paths]} clj?]
    (->TestsGroup (cond
                    (string? paths) [paths]
                    (coll? paths) (vec paths)
