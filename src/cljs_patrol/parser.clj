@@ -217,7 +217,7 @@
   (filter #(contains? (group/file-extensions %) ext) enabled-groups))
 
 (defn analyze-file
-  "Parse a single .cljs/.cljc file and return {:declarations :usages :dynamic-sites}.
+  "Parse a single source file and return {:declarations :usages :dynamic-sites}.
   Only groups whose `file-extensions` include this file's extension are invoked."
   [file enabled-groups]
   (let [file-path (str file)

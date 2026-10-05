@@ -141,7 +141,9 @@ The three style rules are machine-checked by this tool's own `docstrings` group,
 `--experimental-clj`. CI runs this on every push, and so can you:
 
 ```bash
-clojure -M:run --experimental-clj --only docstrings,tests --fail-on cleanup src test/cljs_patrol build.clj
+clojure -M:run --experimental-clj --only docstrings,tests \
+  --fail-on docstring-summary,docstring-indentation,docstring-leading-trailing-whitespace,deftest-leading-article,assertion-message-inline,conditional-assertion \
+  src test/cljs_patrol build.clj
 ```
 
 ## Adding a New Rule Group

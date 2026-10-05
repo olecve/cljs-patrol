@@ -375,7 +375,7 @@
   ;; wants any of these enforced opts in with --fail-on.
   false)
 
-(defrecord TestsGroup [paths clj?]
+(defrecord TestsGroup [paths extensions]
   group/RuleGroup
   (group-id [_] :tests)
   (group-name [_] "Tests")
@@ -455,7 +455,7 @@
      :conditional-assertion :cleanup
      :var-deref-in-test :cleanup
      :js-hint-in-test :cleanup})
-  (file-extensions [_] (cond-> #{".cljs" ".cljc"} clj? (conj ".clj"))))
+  (file-extensions [_] extensions))
 
 (defn make-group
   "Return a tests RuleGroup configured with the given map.
@@ -476,6 +476,6 @@
                    (string? paths) [paths]
                    (coll? paths) (vec paths)
                    :else [])
-                 (boolean clj?))))
+                 (group/extensions-for clj?))))
 
 (def group (make-group))

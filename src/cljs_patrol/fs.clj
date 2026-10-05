@@ -86,13 +86,41 @@
 (defn- source-file? [^String path extensions]
   (boolean (some #(str/ends-with? path %) extensions)))
 
+(def skipped-dirs
+  "Directory names a scan never descends into.
+
+  Build output holds copies of the sources, and a copy is reported a second time and goes
+  on being reported after the original is fixed. `target/classes` is the one that bites,
+  since an uberjar puts every `.clj` there, but a compiled `.cljs` tree is the same
+  problem. A dot-directory is skipped whatever it is called."
+  #{"target" "node_modules" "out"})
+
+(defn- skipped-dir? [^File f]
+  (let [name (.getName f)]
+    (and (.isDirectory f)
+         (or (contains? skipped-dirs name)
+             (and (str/starts-with? name ".") (not (#{"." ".."} name)))))))
+
+(defn- walk-files [^File root]
+  (if (skipped-dir? root)
+    []
+    (lazy-seq
+     (if (.isDirectory root)
+       (mapcat walk-files (.listFiles root))
+       [root]))))
+
 (defn list-source-files
   "Recursively return every file under `root-dir` carrying one of `extensions`, as string paths.
   Which extensions count is the caller's, since the set is the union of what the enabled
-  groups declare rather than a constant."
+  groups declare rather than a constant. `skipped-dirs` names what the walk does not enter."
   [^String root-dir extensions]
-  (->> (file-seq (File. root-dir))
+  (->> (walk-files (File. root-dir))
        (filter (fn [^File f] (.isFile f)))
        (map (fn [^File f] (.getPath f)))
        (filter #(source-file? % extensions))
        vec))
+
+(defn missing-dirs
+  "Which of `paths` do not exist. A scan of one silently finds nothing, so callers check first."
+  [paths]
+  (remove file-exists? paths))

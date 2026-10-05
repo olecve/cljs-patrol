@@ -192,7 +192,7 @@
   [_]
   false)
 
-(defrecord DocstringsGroup [clj?]
+(defrecord DocstringsGroup [extensions]
   group/RuleGroup
   (group-id [_] :docstrings)
   (group-name [_] "Docstrings")
@@ -215,7 +215,7 @@
     {:docstring-summary :cleanup
      :docstring-indentation :cleanup
      :docstring-leading-trailing-whitespace :cleanup})
-  (file-extensions [_] (cond-> #{".cljs" ".cljc"} clj? (conj ".clj"))))
+  (file-extensions [_] extensions))
 
 (defn make-group
   "Return a docstrings RuleGroup.
@@ -225,6 +225,6 @@
   lands in the slot every sibling already uses. `clj?` is the experimental `.clj` mode."
   ([] (make-group nil false))
   ([config] (make-group config false))
-  ([_config clj?] (->DocstringsGroup (boolean clj?))))
+  ([_config clj?] (->DocstringsGroup (group/extensions-for clj?))))
 
 (def group (make-group))

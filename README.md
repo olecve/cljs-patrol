@@ -19,6 +19,9 @@ Example:
 clojure -M:run src/cljs/myapp
 ```
 
+Scans skip `target/`, `node_modules/`, `out/` and any dot-directory, so a build that copies sources into its output does
+not get reported twice.
+
 By default, exits with code `1` when any blocking issue is found, making it suitable for CI pipelines. The set of
 blocking issues can be narrowed with [`--fail-on`](docs/severity.md) and existing issues can be ignored with
 [`--baseline`](docs/baseline.md).

@@ -63,7 +63,11 @@
     (seq disable) (remove #(contains? disable (group/group-id %)) all-groups)
     :else all-groups))
 
-(def ^:private cli-options
+(def cli-options
+  "The CLI option table.
+
+  Public because tools.cli derives each option's id from its string, so the only thing
+  tying a flag to the key the rest of the code reads is text a test should be able to see."
   [[nil "--only GROUPS" "Enable only these groups (comma-separated)"
     :parse-fn #(set (map keyword (str/split % #",")))]
    [nil "--disable GROUPS" "Disable these groups (comma-separated)"
@@ -301,11 +305,17 @@
       (when (empty? dirs)
         (println "Error: no source directories specified")
         (System/exit 1))
-      (when-let [reading (seq (clj-reading-groups enabled-groups))]
+      (when-let [missing (seq (fs/missing-dirs dirs))]
+        (println (str "Error: no such path: " (str/join ", " missing)))
+        (System/exit 1))
+      (when clj?
         (binding [*out* *err*]
-          (println (str "Experimental: reading .clj files with "
-                        (str/join " and " (map (comp name group/group-id) reading))
-                        "."))))
+          (if-let [reading (seq (clj-reading-groups enabled-groups))]
+            (println (str "Experimental: reading .clj files with "
+                          (str/join " and " (map (comp name group/group-id) reading))
+                          "."))
+            (println (str "WARN: --experimental-clj does nothing here. No enabled group reads .clj; "
+                          "the groups that can are docstrings and tests.")))))
       (let [run-results (cond-> (mapv #(run % enabled-groups) dirs)
                           (:files opts) (filter-run-results (:files opts)))]
         (cond

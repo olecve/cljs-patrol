@@ -7,18 +7,19 @@
    [cljs-patrol.groups.tests :as tests]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
-   [clojure.test :refer [deftest is testing]]))
+   [clojure.test :refer [deftest is testing]]
+   [clojure.tools.cli :as cli]))
 
 (def ^:private fixture-dir "test/projects/clj-app")
 
 (def ^:private assemble-groups #'core/assemble-groups)
 (def ^:private experimental-clj? #'core/experimental-clj?)
 
-(defn- clj-reading-groups [clj?]
-  (into #{}
-        (comp (filter #(contains? (group/file-extensions %) ".clj"))
-              (map group/group-id))
-        (assemble-groups {} clj?)))
+(def ^:private clj-reading #'core/clj-reading-groups)
+
+(defn- clj-reading-ids
+  ([clj?] (clj-reading-ids {} clj?))
+  ([config clj?] (into #{} (map group/group-id) (clj-reading (assemble-groups config clj?)))))
 
 (defn- findings [rule-group rule]
   (-> (core/run fixture-dir [rule-group]) :group-results first rule))
@@ -69,20 +70,17 @@
 
 (deftest assemble-groups-wiring-test
   (testing "off, nothing reads .clj"
-    (is (empty? (clj-reading-groups false))))
+    (is (empty? (clj-reading-ids false))))
 
   (testing "on, the two groups whose rules are about Clojure the language"
-    (is (= #{:docstrings :tests} (clj-reading-groups true))
+    (is (= #{:docstrings :tests} (clj-reading-ids true))
         "every group that reads Hiccup, re-frame or Spade stays on .cljs/.cljc")))
 
 (deftest tests-config-is-not-written-into-test
   (testing "a :tests value that is not a map leaves the group on its defaults"
     (doseq [written [["test"] "test" 42 nil]]
       (is (= #{:docstrings :tests}
-             (into #{}
-                   (comp (filter #(contains? (group/file-extensions %) ".clj"))
-                         (map group/group-id))
-                   (assemble-groups {:tests written} true)))
+             (clj-reading-ids {:tests written} true))
           (str "config read back as " (pr-str written) " must not decide whether the run starts")))))
 
 (deftest experimental-clj?-test
@@ -94,3 +92,11 @@
     (is (true? (experimental-clj? {:experimental-clj true} {})))
     (is (false? (experimental-clj? {:experimental-clj false} {:experimental-clj true}))
         "--no-experimental-clj turns a configured true back off for one run")))
+
+(deftest cli-option-string-test
+  (let [parse #(:options (cli/parse-opts % core/cli-options))]
+    (testing "the flag reaches the option id assemble-groups is driven by"
+      (is (nil? (:experimental-clj (parse [])))
+          "absent is nil, not false, which is what lets the config value through")
+      (is (true? (:experimental-clj (parse ["--experimental-clj"]))))
+      (is (false? (:experimental-clj (parse ["--no-experimental-clj"])))))))
