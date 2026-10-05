@@ -288,6 +288,31 @@ convention rather than adding to it. Paths match a whole segment at a time, so `
 a path written as several segments (`src/spec`) matches that run wherever it appears. One path may be written on its own
 rather than in a vector.
 
+## Experimental: reading `.clj` files
+
+The tool reads `.cljs` and `.cljc`. Two of its groups are not about ClojureScript at all: `docstrings` enforces the
+bbatsov style guide, and `tests` enforces conventions on `clojure.test` code. Both hold on `.clj` just as well, so
+`--experimental-clj` lets them read those files too:
+
+```bash
+clojure -M:run --experimental-clj --only docstrings,tests src test
+```
+
+Or in `.cljs-patrol/config.edn`:
+
+```clojure
+{:experimental-clj true}
+```
+
+The flag widens discovery and nothing else. Every group that reads Hiccup, re-frame or Spade keeps to `.cljs`/`.cljc`,
+so a `.clj` file in the tree is read by `docstrings` and `tests` and skipped by the rest even with all groups enabled.
+
+It is marked experimental because the rules were written against ClojureScript code and their wording still assumes it
+in places: `js-hint-in-test` is about `^js` externs inference, which means nothing in Clojure, and `var-deref-in-test`
+flags `@#'private-fn`, which is a more established idiom on the JVM than it is in ClojureScript. Both are `:cleanup`, so
+neither blocks CI unless `--fail-on` names it. Narrow the run with `--only` or snapshot what is there with
+[`--baseline`](baseline.md) if a rule does not earn its keep on a particular tree.
+
 ## A11y component aliases
 
 `:missing-accessible-name` and the other a11y rules only inspect native HTML tags (`[:textarea …]`, `[:button …]`) by

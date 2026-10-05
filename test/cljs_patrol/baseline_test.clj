@@ -732,7 +732,7 @@
 
 (deftest every-rule-has-a-baseline-identity-test
   (testing "a rule missing from every identity set crashes --baseline-write for its whole group"
-    (doseq [rule-group (assemble-groups {})
+    (doseq [rule-group (assemble-groups {} false)
             rule (declared-rules rule-group)]
       (is (map? (try (baseline/issue->identity rule probe-issue)
                      (catch clojure.lang.ExceptionInfo _ nil)))

@@ -45,6 +45,20 @@ jobs:
       - run: clojure -M:clj-kondo --lint src test/cljs_patrol build.clj
       - run: clojure -M:test
 
+      - name: Patrol our own sources
+        # The experimental .clj mode reads this repo, so the rules the tool
+        # enforces on a consumer hold for the tool itself. A group's failed? is
+        # false for a cleanup rule, so --fail-on is what makes this a check
+        # rather than a printout. The rules are named one by one instead of by
+        # tier because two of them do not hold on .clj: js-hint-in-test is about
+        # externs inference, and var-deref-in-test flags @#'private-fn, which
+        # docs/rules.md itself calls established on the JVM. A new rule in either
+        # group has to be added here, or it will not gate.
+        run: >-
+          clojure -M:run --experimental-clj --only docstrings,tests
+          --fail-on docstring-summary,docstring-indentation,docstring-leading-trailing-whitespace,deftest-leading-article,assertion-message-inline,conditional-assertion
+          src test/cljs_patrol build.clj
+
   native-verify:
     needs: test
     runs-on: ubuntu-latest

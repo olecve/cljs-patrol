@@ -62,8 +62,9 @@ java -jar target/cljs-patrol-0.1.0.jar <src-dir>
 clojure -M:test          # run all tests
 ```
 
-Tests live in `test/`, mirroring the `src/` structure. Fixture CLJS files for integration tests are in
-`test/fixtures/myapp/`.
+Tests live in `test/cljs_patrol/`, mirroring the `src/` structure. The runner scans that directory and no other, so a
+test file placed elsewhere under `test/` never runs. Fixture projects for the integration tests are in
+`test/projects/<name>-app/`, out of the runner's way because several of them are malformed on purpose.
 
 ## Linting
 
@@ -136,12 +137,13 @@ non-obvious return contract (e.g. "returns nil vs. empty set has different meani
 shape, or the reason a conservative choice was made. Restating the name in prose is noise, and so is describing another
 var — "Wraps `severity/count-by-fail-on`" tells the reader to go and read something else.
 
-The three style rules are machine-checked by this tool's own `docstrings` group, which skips `.clj`. To run it over our
-sources, copy them to a scratch directory under `.cljs` names and point the tool at that:
+The three style rules are machine-checked by this tool's own `docstrings` group, which reads `.clj` under
+`--experimental-clj`. CI runs this on every push, and so can you:
 
 ```bash
-d=$(mktemp -d) && (cd src && find . -name '*.clj' -exec sh -c 'mkdir -p "$0/$(dirname {})"; cp {} "$0/{}s"' $d \;)
-clojure -M:run --only docstrings $d
+clojure -M:run --experimental-clj --only docstrings,tests \
+  --fail-on docstring-summary,docstring-indentation,docstring-leading-trailing-whitespace,deftest-leading-article,assertion-message-inline,conditional-assertion \
+  src test/cljs_patrol build.clj
 ```
 
 ## Adding a New Rule Group

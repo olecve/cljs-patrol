@@ -192,7 +192,7 @@
   [_]
   false)
 
-(defrecord DocstringsGroup []
+(defrecord DocstringsGroup [extensions]
   group/RuleGroup
   (group-id [_] :docstrings)
   (group-name [_] "Docstrings")
@@ -215,6 +215,16 @@
     {:docstring-summary :cleanup
      :docstring-indentation :cleanup
      :docstring-leading-trailing-whitespace :cleanup})
-  (file-extensions [_] #{".cljs" ".cljc"}))
+  (file-extensions [_] extensions))
 
-(def group (->DocstringsGroup))
+(defn make-group
+  "Return a docstrings RuleGroup.
+
+  The group has no config keys of its own, so `config` is accepted and ignored: the
+  argument is there so the call reads like every other group's, and so a key added later
+  lands in the slot every sibling already uses. `clj?` is the experimental `.clj` mode."
+  ([] (make-group nil false))
+  ([config] (make-group config false))
+  ([_config clj?] (->DocstringsGroup (group/extensions-for clj?))))
+
+(def group (make-group))

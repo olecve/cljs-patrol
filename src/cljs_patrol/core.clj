@@ -27,15 +27,35 @@
    [clojure.string :as str]
    [clojure.tools.cli :as cli]))
 
-(defn- assemble-groups [config]
+(defn- assemble-groups
+  "Build every rule group from `config`.
+
+  `clj?` is the experimental `.clj` mode: it reaches only `docstrings` and `tests`,
+  whose rules are about Clojure the language rather than about ClojureScript, and
+  leaves every group that reads Hiccup, re-frame or Spade on `.cljs`/`.cljc` alone."
+  [config clj?]
   [re-frame/group
    spade/group
    reagent/group
    typography/group
    (a11y/make-group (get config :a11y))
-   docstrings/group
+   (docstrings/make-group (get config :docstrings) clj?)
    (css-order/make-group (get config :css-order))
-   (tests/make-group (get config :tests))])
+   (tests/make-group (get config :tests) clj?)])
+
+(defn- experimental-clj?
+  "Resolve the experimental `.clj` mode from CLI options and config.
+
+  Tested on `some?` rather than truthiness: the flag is absent as nil and written out as
+  false, and only the first of those may fall through to the config value, or
+  `--no-experimental-clj` could never turn a configured true back off."
+  [options config]
+  (boolean (if (some? (:experimental-clj options))
+             (:experimental-clj options)
+             (:experimental-clj config))))
+
+(defn- clj-reading-groups [enabled-groups]
+  (filter #(contains? (group/file-extensions %) ".clj") enabled-groups))
 
 (defn- filter-groups [all-groups {:keys [disable only]}]
   (cond
@@ -43,7 +63,11 @@
     (seq disable) (remove #(contains? disable (group/group-id %)) all-groups)
     :else all-groups))
 
-(def ^:private cli-options
+(def cli-options
+  "The CLI option table.
+
+  Public because tools.cli derives each option's id from its string, so the only thing
+  tying a flag to the key the rest of the code reads is text a test should be able to see."
   [[nil "--only GROUPS" "Enable only these groups (comma-separated)"
     :parse-fn #(set (map keyword (str/split % #",")))]
    [nil "--disable GROUPS" "Disable these groups (comma-separated)"
@@ -62,6 +86,7 @@
     (str "Property-order table for the css-order group: "
          (str/join ", " (map name orders/names)) " (default " (name orders/default-order) ")")
     :parse-fn keyword]
+   [nil "--[no-]experimental-clj" "Experimental: also read .clj files (docstrings and tests groups only)"]
    [nil "--list-rules" "Print all rules grouped by tier and exit"]
    ["-h" "--help"]])
 
@@ -264,7 +289,8 @@
                                            :baseline-write :baseline :strict-baseline
                                            :quiet-baseline]))
           dirs arguments
-          all-groups (assemble-groups config)
+          clj? (experimental-clj? options config)
+          all-groups (assemble-groups config clj?)
           enabled-groups (filter-groups all-groups base-opts)
           fail-on-input (or (:fail-on options) (:fail-on config))
           rule->tier (severity/collect-rule->tier enabled-groups)
@@ -279,6 +305,17 @@
       (when (empty? dirs)
         (println "Error: no source directories specified")
         (System/exit 1))
+      (when-let [missing (seq (fs/missing-dirs dirs))]
+        (println (str "Error: no such path: " (str/join ", " missing)))
+        (System/exit 1))
+      (when clj?
+        (binding [*out* *err*]
+          (if-let [reading (seq (clj-reading-groups enabled-groups))]
+            (println (str "Experimental: reading .clj files with "
+                          (str/join " and " (map (comp name group/group-id) reading))
+                          "."))
+            (println (str "WARN: --experimental-clj does nothing here. No enabled group reads .clj; "
+                          "the groups that can are docstrings and tests.")))))
       (let [run-results (cond-> (mapv #(run % enabled-groups) dirs)
                           (:files opts) (filter-run-results (:files opts)))]
         (cond

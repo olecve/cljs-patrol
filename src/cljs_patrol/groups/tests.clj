@@ -375,7 +375,7 @@
   ;; wants any of these enforced opts in with --fail-on.
   false)
 
-(defrecord TestsGroup [paths]
+(defrecord TestsGroup [paths extensions]
   group/RuleGroup
   (group-id [_] :tests)
   (group-name [_] "Tests")
@@ -455,7 +455,7 @@
      :conditional-assertion :cleanup
      :var-deref-in-test :cleanup
      :js-hint-in-test :cleanup})
-  (file-extensions [_] #{".cljs" ".cljc"}))
+  (file-extensions [_] extensions))
 
 (defn make-group
   "Return a tests RuleGroup configured with the given map.
@@ -464,12 +464,18 @@
     :paths [\"test\" …] — directories holding test code. A file under any of them is test
       code whatever its namespace is called. One path may be written on its own rather
       than in a vector. With none set, a namespace whose name ends in `-test` is taken as
-      the test, which is what the group does out of the box."
-  ([] (make-group nil))
-  ([{:keys [paths]}]
+      the test, which is what the group does out of the box.
+
+  `clj?` is the experimental `.clj` mode. It is a separate argument rather than a key in
+  the map because the map comes straight from the config file and may be anything the
+  user wrote there."
+  ([] (make-group nil false))
+  ([config] (make-group config false))
+  ([{:keys [paths]} clj?]
    (->TestsGroup (cond
                    (string? paths) [paths]
                    (coll? paths) (vec paths)
-                   :else []))))
+                   :else [])
+                 (group/extensions-for clj?))))
 
 (def group (make-group))
