@@ -12,6 +12,7 @@
 (def ^:private fixture-dir "test/projects/clj-app")
 
 (def ^:private assemble-groups #'core/assemble-groups)
+(def ^:private experimental-clj? #'core/experimental-clj?)
 
 (defn- clj-reading-groups [clj?]
   (into #{}
@@ -27,7 +28,7 @@
     (is (= #{".cljs" ".cljc"}
            (parser/enabled-extensions [(docstrings/make-group) (a11y/make-group nil)])))
     (is (= #{".cljs" ".cljc" ".clj"}
-           (parser/enabled-extensions [(docstrings/make-group true) (a11y/make-group nil)]))
+           (parser/enabled-extensions [(docstrings/make-group nil true) (a11y/make-group nil)]))
         "one group asking for .clj is enough for discovery to walk those files"))
 
   (testing "no enabled group means no extension to look for"
@@ -38,7 +39,7 @@
     (is (empty? (findings (docstrings/make-group) :docstring-summary))))
 
   (testing "on, the same file is read"
-    (let [found (findings (docstrings/make-group true) :docstring-summary)]
+    (let [found (findings (docstrings/make-group nil true) :docstring-summary)]
       (is (= 1 (count found)))
       (is (str/ends-with? (:file (first found)) "core.clj"))
       (is (= :app.core/summarize (:kw (first found)))))))
@@ -60,7 +61,7 @@
       (is (str/ends-with? (:file (first found)) "widget.cljs"))))
 
   (testing "experimental mode does not widen a group that did not ask for it"
-    (let [found (-> (core/run fixture-dir [(a11y/make-group nil) (docstrings/make-group true)])
+    (let [found (-> (core/run fixture-dir [(a11y/make-group nil) (docstrings/make-group nil true)])
                     :group-results first :img-alt-missing)]
       (is (= 1 (count found))
           "discovery now walks .clj for the docstrings group, and a11y still skips those files")
@@ -83,3 +84,13 @@
                          (map group/group-id))
                    (assemble-groups {:tests written} true)))
           (str "config read back as " (pr-str written) " must not decide whether the run starts")))))
+
+(deftest experimental-clj?-test
+  (testing "the config setting decides when the flag is absent"
+    (is (true? (experimental-clj? {} {:experimental-clj true})))
+    (is (false? (experimental-clj? {} {}))))
+
+  (testing "the flag decides when it is written out, either way"
+    (is (true? (experimental-clj? {:experimental-clj true} {})))
+    (is (false? (experimental-clj? {:experimental-clj false} {:experimental-clj true}))
+        "--no-experimental-clj turns a configured true back off for one run")))

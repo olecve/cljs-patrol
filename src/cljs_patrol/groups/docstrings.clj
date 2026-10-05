@@ -218,7 +218,13 @@
   (file-extensions [_] (cond-> #{".cljs" ".cljc"} clj? (conj ".clj"))))
 
 (defn make-group
-  ([] (make-group false))
-  ([clj?] (->DocstringsGroup (boolean clj?))))
+  "Return a docstrings RuleGroup.
+
+  The group has no config keys of its own, so `config` is accepted and ignored: the
+  argument is there so the call reads like every other group's, and so a key added later
+  lands in the slot every sibling already uses. `clj?` is the experimental `.clj` mode."
+  ([] (make-group nil false))
+  ([config] (make-group config false))
+  ([_config clj?] (->DocstringsGroup (boolean clj?))))
 
 (def group (make-group))

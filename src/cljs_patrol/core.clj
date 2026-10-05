@@ -39,9 +39,20 @@
    reagent/group
    typography/group
    (a11y/make-group (get config :a11y))
-   (docstrings/make-group clj?)
+   (docstrings/make-group (get config :docstrings) clj?)
    (css-order/make-group (get config :css-order))
    (tests/make-group (get config :tests) clj?)])
+
+(defn- experimental-clj?
+  "Resolve the experimental `.clj` mode from CLI options and config.
+
+  Tested on `some?` rather than truthiness: the flag is absent as nil and written out as
+  false, and only the first of those may fall through to the config value, or
+  `--no-experimental-clj` could never turn a configured true back off."
+  [options config]
+  (boolean (if (some? (:experimental-clj options))
+             (:experimental-clj options)
+             (:experimental-clj config))))
 
 (defn- clj-reading-groups [enabled-groups]
   (filter #(contains? (group/file-extensions %) ".clj") enabled-groups))
@@ -71,7 +82,7 @@
     (str "Property-order table for the css-order group: "
          (str/join ", " (map name orders/names)) " (default " (name orders/default-order) ")")
     :parse-fn keyword]
-   [nil "--experimental-clj" "Experimental: also read .clj files (docstrings and tests groups only)"]
+   [nil "--[no-]experimental-clj" "Experimental: also read .clj files (docstrings and tests groups only)"]
    [nil "--list-rules" "Print all rules grouped by tier and exit"]
    ["-h" "--help"]])
 
@@ -274,7 +285,7 @@
                                            :baseline-write :baseline :strict-baseline
                                            :quiet-baseline]))
           dirs arguments
-          clj? (boolean (or (:experimental-clj options) (:experimental-clj config)))
+          clj? (experimental-clj? options config)
           all-groups (assemble-groups config clj?)
           enabled-groups (filter-groups all-groups base-opts)
           fail-on-input (or (:fail-on options) (:fail-on config))

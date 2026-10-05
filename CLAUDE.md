@@ -62,8 +62,9 @@ java -jar target/cljs-patrol-0.1.0.jar <src-dir>
 clojure -M:test          # run all tests
 ```
 
-Tests live in `test/`, mirroring the `src/` structure. Fixture CLJS files for integration tests are in
-`test/fixtures/myapp/`.
+Tests live in `test/cljs_patrol/`, mirroring the `src/` structure. The runner scans that directory and no other, so a
+test file placed elsewhere under `test/` never runs. Fixture projects for the integration tests are in
+`test/projects/<name>-app/`, out of the runner's way because several of them are malformed on purpose.
 
 ## Linting
 

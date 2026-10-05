@@ -112,9 +112,10 @@ Every setting can live in `.cljs-patrol/config.edn`, where it persists for the p
 
 A CLI flag overrides the matching setting. See [Severity tiers](docs/severity.md) for `:fail-on`,
 [Baseline](docs/baseline.md) for `:baseline`, [Property-order tables](docs/rules.md#property-order-tables) for
-`:css-order`, [A11y component aliases](docs/rules.md#a11y-component-aliases) for `:a11y`, and
+`:css-order`, [A11y component aliases](docs/rules.md#a11y-component-aliases) for `:a11y`,
 [Test paths](docs/rules.md#test-paths) for `:tests`, and
-[Reading .clj files](docs/rules.md#experimental-reading-clj-files) for `:experimental-clj`.
+[Reading .clj files](docs/rules.md#experimental-reading-clj-files) for `:experimental-clj`. A flag written
+`--no-experimental-clj` turns that last one off for one run.
 
 ## Supported patterns
 
