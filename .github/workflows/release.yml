@@ -140,8 +140,14 @@ jobs:
           git fetch origin main
           git switch -c main origin/main
           DATE=$(date -u +%Y-%m-%d)
+          # The release body opens with its own "## What's Changed", which under a version
+          # heading is a second h2 saying nothing, so it goes. Any other heading the body
+          # carries (New Contributors, say) is demoted to sit under the version instead of
+          # beside it. cat -s keeps one blank line between sections.
           NOTES=$(gh release view "$VERSION" --json body --jq .body \
-                  | awk '/^## / { print; print ""; next } { print }' \
+                  | awk '/^## What.s Changed[[:space:]]*$/ { next }
+                         /^## / { sub(/^## /, "### "); print; print ""; next }
+                         { print }' \
                   | cat -s)
           {
             echo "# Changelog"
@@ -153,7 +159,7 @@ jobs:
               echo
               tail -n +2 CHANGELOG.md
             fi
-          } > CHANGELOG.new.md
+          } | cat -s > CHANGELOG.new.md
           mv CHANGELOG.new.md CHANGELOG.md
           git add CHANGELOG.md
           if git diff --cached --quiet; then
