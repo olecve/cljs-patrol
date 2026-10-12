@@ -251,18 +251,27 @@
   (let [first-child (z/down container-loc)]
     (boolean (and first-child (head? container-loc 0 first-child)))))
 
+(defn- lone-symbol?
+  "True when loc is a symbol with nothing after it on its line."
+  [loc]
+  (and (symbol-token? loc)
+       (let [next-sibling (z/right loc)]
+         (or (nil? next-sibling) (> (start-row next-sibling) (end-row loc))))))
+
 (defn- crowds-split-map?
   "True when b, on the closing line of the split map a, is a sibling it should not carry.
 
   Every argument of a call counts, and every child of a Hiccup element but a single-line
-  string, which reads as the element's label. In a vector of data or of bindings only a
+  string, which reads as the element's label, and a lone symbol ending the line, which
+  reads the same way: `[button {…} items-per-page]`, or a Malli entry's `int?`. A symbol
+  with more forms after it on that line counts. In a vector of data or of bindings only a
   map or a form spanning lines counts: a parameter list `[{:keys [db] :as cofx} event]`
   keeps its next parameter where cljfmt leaves it."
   [container-loc b]
   (case (z/tag container-loc)
     (:list :fn) true
     :vector (if (hiccup-like? container-loc)
-              (not (single-line-string? b))
+              (not (or (single-line-string? b) (lone-symbol? b)))
               (or (contains? map-tags (z/tag b)) (multi-line? b)))
     false))
 

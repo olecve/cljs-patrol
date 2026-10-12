@@ -226,7 +226,9 @@ Every rule, what it flags, and what it deliberately leaves alone. For the one-li
   next map of a vector, every argument of a call written after a split map (`(merge {:a 1` / `:b 2} {:c 3})`), every
   child of a Hiccup element written on the closing line of its split props map, and any form spanning lines that starts
   on the closing line of a form ending in a split map. Left alone: a map that opens and closes on one line, which cannot
-  split; a single-line string child of a Hiccup element, `[button {…} "Edit"]`, which reads as its label; a single-line
+  split; a single-line string child of a Hiccup element, `[button {…} "Edit"]`, which reads as its label, and for the
+  same reason a lone symbol child with nothing after it on the line, `[button {…} items-per-page]` or the `int?` of a
+  Malli entry `[:page-size {…} int?]` (a symbol followed by more forms on that line is still flagged); a single-line
   symbol or other token after a split map in a vector of data or of bindings, `[{:keys [db]` / `:as cofx} event]`; the
   second half of a pair — a `let`-like binding, a `cond`, `case`, `condp` or `cond->` clause, a reader conditional
   branch; and braces inside strings, comments and regexes, since forms are read from the parse tree rather than from the

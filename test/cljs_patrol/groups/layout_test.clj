@@ -81,6 +81,29 @@
                (parse ["[button {:size :s"
                        "         :on-click on-click} \"Edit\"]"])))))
 
+(deftest lone-symbol-hiccup-child-is-left-alone
+  (is (= {:form-after-split-map []
+          :split-map-after-sibling []}
+         (parse ["[button {:size :s"
+                 "         :type :tertiary} items-per-page]"
+                 "[:map"
+                 " [:page-size {:min 25"
+                 "              :max 500} int?]]"]))))
+
+(deftest symbol-child-followed-on-its-line-is-flagged
+  (is (= [2] (rows (parse ["[button {:size :s"
+                           "         :type :tertiary} label [icon]]"])
+                   :form-after-split-map))
+      "the symbol is not alone on the closing line"))
+
+(deftest collection-child-after-split-props-is-flagged
+  (is (= [2 4] (rows (parse ["[button {:size :s"
+                             "         :type :tertiary} {:a 1}]"
+                             "[button {:size :s"
+                             "         :type :tertiary} [icon]]"])
+                     :form-after-split-map))
+      "a map or vector child is not a label, however short"))
+
 (deftest multi-line-form-after-closing-line-is-flagged
   (let [result (parse ["[:div"
                        " [button {:size :s"
