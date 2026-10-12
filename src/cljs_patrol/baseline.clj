@@ -33,7 +33,8 @@
   survives reformatting can tell apart. The cost is that fixing one leaves the other
   suppressed; the alternative, keying on the row, would churn the whole baseline every
   time a line moves above a finding."
-  #{:assertion-message-inline :conditional-assertion :var-deref-in-test :js-hint-in-test})
+  #{:assertion-message-inline :conditional-assertion :var-deref-in-test :js-hint-in-test
+    :form-after-split-map :split-map-after-sibling})
 
 (def ^:private keyword-keyed-rules
   "Rules where the issue is uniquely identified by its keyword."

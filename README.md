@@ -57,6 +57,8 @@ Analysis is split into independent rule groups. By default all groups run.
   sharing a line with its expression, a test that decides what to assert while it runs, a test reading a var through its
   var quote, a `^js` type hint in a test
 - **`docstrings`** — bbatsov style-guide violations on every def (summary, indent, whitespace)
+- **`layout`** — a map split over several lines sharing a line with a sibling form, the staircase cljfmt's
+  `:split-keypairs-over-multiple-lines?` leaves behind and `cljfmt check` accepts
 - **`css-order`** — Spade style maps whose properties run out of the
   [property order](docs/rules.md#property-order-tables) the chosen stylelint config defines
 
@@ -110,13 +112,14 @@ Every setting can live in `.cljs-patrol/config.edn`, where it persists for the p
  :css-order {:order :recess}
  :a11y {:component-aliases {my.ui/drawer :dialog}}
  :tests {:paths ["test"]}
+ :layout {:split-map-after-symbol true}
  :experimental-clj true}
 ```
 
 A CLI flag overrides the matching setting. See [Severity tiers](docs/severity.md) for `:fail-on`,
 [Baseline](docs/baseline.md) for `:baseline`, [Property-order tables](docs/rules.md#property-order-tables) for
 `:css-order`, [A11y component aliases](docs/rules.md#a11y-component-aliases) for `:a11y`,
-[Test paths](docs/rules.md#test-paths) for `:tests`, and
+[Test paths](docs/rules.md#test-paths) for `:tests`, [Layout options](docs/rules.md#layout-options) for `:layout`, and
 [Reading .clj files](docs/rules.md#experimental-reading-clj-files) for `:experimental-clj`. A flag written
 `--no-experimental-clj` turns that last one off for one run.
 
