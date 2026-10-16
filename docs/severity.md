@@ -4,19 +4,16 @@ Which rules block CI and which only report, and how to choose per tier or per ru
 
 [← back to the README](../README.md)
 
-By default, any issue causes CI to fail. For incremental adoption — or just to focus signal on what matters most —
-`--fail-on` controls which rules block CI. Every issue is still reported regardless; only the exit code is gated.
+Without `--fail-on`, what fails depends on the run. A plain run fails when a group's own default check trips:
+`re-frame`, `spade`, `typography` and `a11y` block on most of their findings, unused registrations and styles included,
+while `reagent`, `docstrings`, `tests`, `css-order` and `layout` only report. With `--baseline`, every new finding
+fails, whatever its tier. `--fail-on` replaces both with the rules you name. Every issue is still reported regardless;
+only the exit code is gated.
 
 ## Tiers
 
-**`bugs`** — silent runtime breakage. Duplicate registrations overwrite, empty-effect handlers clobber app-db,
-effects-style `reg-event-db` returns replace app-db with the effects map, images without `:alt` are unreadable to screen
-readers, an `:aria-live` that contradicts its role silently changes how urgently updates are announced, invalid
-`:tabIndex` values break the natural focus order, `:on-click` on non-interactive tags without keyboard support locks
-keyboard users out, empty interactive elements and unlabelled form controls have no accessible name, a list of controls
-sharing one constant name leaves a screen-reader user unable to tell them apart, and Spade selectors — pseudo-selectors
-misplaced inside the main map, chained without a comma, a `&` away from the front of a string selector, or a combinator
-written as a keyword — silently produce CSS that matches nothing.
+**`bugs`** — silent runtime breakage: a registration overwritten, app-db clobbered, a control that a keyboard or
+screen-reader user cannot reach, name or tell apart, and a Spade selector that matches nothing.
 
 - `duplicate-subs`, `duplicate-events`
 - `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects`
