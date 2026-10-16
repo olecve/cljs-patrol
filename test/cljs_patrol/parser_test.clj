@@ -32,9 +32,11 @@
 (deftest distinct-by-test
   (testing "removes duplicates by key, last one wins"
     (let [result (parser/distinct-by :id [{:id 1
-                                           :v :a} {:id 2
-                                                   :v :b} {:id 1
-                                                           :v :c}])]
+                                           :v :a}
+                                          {:id 2
+                                           :v :b}
+                                          {:id 1
+                                           :v :c}])]
       (is (= 2 (count result)))
       (is (= #{1 2} (set (map :id result))))))
 
