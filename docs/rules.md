@@ -326,12 +326,12 @@ way.
 
 ## Experimental: reading `.clj` files
 
-The tool reads `.cljs` and `.cljc`. Two of its groups are not about ClojureScript at all: `docstrings` enforces the
-bbatsov style guide, and `tests` enforces conventions on `clojure.test` code. Both hold on `.clj` just as well, so
-`--experimental-clj` lets them read those files too:
+The tool reads `.cljs` and `.cljc`. Three of its groups are not about ClojureScript at all: `docstrings` enforces the
+bbatsov style guide, `tests` enforces conventions on `clojure.test` code, and `layout` reports what cljfmt's keypair
+split leaves behind. All three hold on `.clj` just as well, so `--experimental-clj` lets them read those files too:
 
 ```bash
-clojure -M:run --experimental-clj --only docstrings,tests src test
+clojure -M:run --experimental-clj --only docstrings,tests,layout src test
 ```
 
 Or in `.cljs-patrol/config.edn`:
@@ -341,7 +341,8 @@ Or in `.cljs-patrol/config.edn`:
 ```
 
 The flag widens discovery and nothing else. Every group that reads Hiccup, re-frame or Spade keeps to `.cljs`/`.cljc`,
-so a `.clj` file in the tree is read by `docstrings` and `tests` and skipped by the rest even with all groups enabled.
+so a `.clj` file in the tree is read by `docstrings`, `tests` and `layout` and skipped by the rest even with all groups
+enabled.
 
 It is marked experimental because the rules were written against ClojureScript code and their wording still assumes it
 in places: `js-hint-in-test` is about `^js` externs inference, which means nothing in Clojure, and `var-deref-in-test`

@@ -361,7 +361,7 @@
   [["Form after split map:" (count form-after-split-map)]
    ["Split map after sibling:" (count split-map-after-sibling)]])
 
-(defrecord LayoutGroup [symbol-sibling?]
+(defrecord LayoutGroup [symbol-sibling? extensions]
   group/RuleGroup
   (group-id [_] :layout)
   (group-name [_] "Layout")
@@ -394,7 +394,7 @@
   (rule->tier [_]
     {:form-after-split-map :cleanup
      :split-map-after-sibling :cleanup})
-  (file-extensions [_] group/cljs-extensions))
+  (file-extensions [_] extensions))
 
 (defn make-group
   "Return a layout RuleGroup configured with the given map.
@@ -403,9 +403,13 @@
     :split-map-after-symbol true — also report a split map that follows a plain symbol,
       `_` included, in a parameter list or binding. Off by default: cljfmt leaves
       `[_ {:keys [id] :as user}]`, split, all over a typical codebase, and most read the
-      result as fine."
-  ([] (make-group nil))
-  ([config]
-   (->LayoutGroup (boolean (when (map? config) (:split-map-after-symbol config))))))
+      result as fine.
+
+  `clj?` is the experimental `.clj` mode."
+  ([] (make-group nil false))
+  ([config] (make-group config false))
+  ([config clj?]
+   (->LayoutGroup (boolean (when (map? config) (:split-map-after-symbol config)))
+                  (group/extensions-for clj?))))
 
 (def group (make-group))

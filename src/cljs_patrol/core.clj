@@ -43,7 +43,7 @@
    (docstrings/make-group (get config :docstrings) clj?)
    (css-order/make-group (get config :css-order))
    (tests/make-group (get config :tests) clj?)
-   (layout/make-group (get config :layout))])
+   (layout/make-group (get config :layout) clj?)])
 
 (defn- experimental-clj?
   "Resolve the experimental `.clj` mode from CLI options and config.
