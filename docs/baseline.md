@@ -28,18 +28,14 @@ Exits `0` if every found issue is in the baseline. Exits `1` only on **new** iss
 
 ## Why baselines survive refactors and reformats
 
-Every issue is identified by content, not by position:
+Every issue is identified by what it is, never by its line: a re-frame issue by its fully-qualified keyword; a style,
+typography or docstring issue by its namespace and var; a test name by the var it names; and a Hiccup, test-code or
+layout issue by its file and its source text with whitespace collapsed. Moving code, renaming a file that holds a
+registration, or running `cljfmt` leaves the baseline as it is, while an offending form with different source text still
+counts as new.
 
-- **Re-frame** issues are keyed by their fully-qualified keyword (e.g. `:app.subs/users`), so baselines survive file
-  moves and renames without regeneration — a real advantage over line-based baselines in JS/TS tools.
-- **Spade** issues are keyed by ns + var (plus selector, where relevant), so renaming a class within its ns is the only
-  change that shifts identity.
-- **Hiccup a11y** issues are keyed by file + tag + whitespace-collapsed source snippet, so `cljfmt` or manual
-  reformatting never rewrites the baseline. A truly new offending vector (with different source text) still counts as
-  new.
-
-Note: bumping from an older baseline (`:version 1`) requires re-running `--baseline-write` once. The tool reports a
-clear error otherwise.
+A baseline written by an older release can carry an older format version. The tool then stops with an error asking you
+to run `--baseline-write` once.
 
 ## Output with baseline
 
