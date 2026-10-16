@@ -11,7 +11,7 @@
   (core/run fixture-dir [css-order/group]))
 
 (defn- findings []
-  (:css-property-order-outside-in (first (:group-results (run)))))
+  (-> (run) :group-results first :css-property-order-outside-in))
 
 (defn- by-style [items]
   (into {} (map (juxt :kw identity)) items))
@@ -96,9 +96,10 @@
 (deftest order-choice-test
   (testing "the chosen table decides what reads as out of order"
     (let [flagged (fn [order]
-                    (set (map :kw (:css-property-order-outside-in
-                                   (first (:group-results
-                                           (core/run fixture-dir [(css-order/make-group {:order order})])))))))
+                    (set (map :kw (-> (core/run fixture-dir [(css-order/make-group {:order order})])
+                                      :group-results
+                                      first
+                                      :css-property-order-outside-in))))
           recess (flagged :recess)
           concentric (flagged :concentric)]
       (is (not (contains? recess :webapp.order-styles/card-style))

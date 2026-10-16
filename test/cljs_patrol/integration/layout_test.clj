@@ -30,4 +30,4 @@
 
   (testing "with the symbol variant configured, a symbol in a parameter list counts too"
     (is (= [23 25 28]
-           (rows (:split-map-after-sibling (result (layout/make-group {:split-map-after-symbol true}))))))))
+           (-> (layout/make-group {:split-map-after-symbol true}) result :split-map-after-sibling rows)))))

@@ -82,14 +82,14 @@
   (testing "off, nothing reads .clj"
     (is (empty? (clj-reading-ids false))))
 
-  (testing "on, the three groups whose rules are about Clojure the language"
-    (is (= #{:docstrings :layout :tests} (clj-reading-ids true))
+  (testing "on, the four groups whose rules are about Clojure the language"
+    (is (= #{:docstrings :idioms :layout :tests} (clj-reading-ids true))
         "every group that reads Hiccup, re-frame or Spade stays on .cljs/.cljc")))
 
 (deftest tests-config-is-not-written-into-test
   (testing "a :tests value that is not a map leaves the group on its defaults"
     (doseq [written [["test"] "test" 42 nil]]
-      (is (= #{:docstrings :layout :tests}
+      (is (= #{:docstrings :idioms :layout :tests}
              (clj-reading-ids {:tests written} true))
           (str "config read back as " (pr-str written) " must not decide whether the run starts")))))
 

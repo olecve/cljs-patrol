@@ -62,7 +62,7 @@
   (testing "surfaces order findings from declarations"
     (let [result (group/analyze css-order/group {:declarations [order-finding]})]
       (is (= 1 (count (:css-property-order-outside-in result))))
-      (is (= ":display" (:property (first (:css-property-order-outside-in result)))))))
+      (is (= ":display" (-> result :css-property-order-outside-in first :property)))))
 
   (testing "ignores declarations from other groups"
     (let [other {:kw :webapp.styles/container

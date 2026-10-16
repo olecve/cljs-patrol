@@ -9,7 +9,6 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
-   [clojure.string :as str]
    [rewrite-clj.zip :as z]))
 
 (def ^:private map-tags #{:map :namespaced-map})
@@ -210,20 +209,6 @@
   {:form-after-split-map "Start this form on its own line, aligned with the one before it."
    :split-map-after-sibling "Start this map on its own line, aligned with the form before it."})
 
-(defn- top-level-name
-  "Return what the top-level form holding loc defines, or nil.
-
-  The var a `def`-like form names, or the keyword a registration such as
-  `(reg-event-fx ::saved …)` is keyed by."
-  [loc]
-  (let [top (last (take-while #(and % (not= :forms (z/tag %))) (iterate z/up loc)))
-        head (some-> top z/down parser/sym-name)]
-    (when (and head (= :list (z/tag top)))
-      (if (str/starts-with? head "def")
-        (some-> (parser/declared-name-loc top) parser/sym-name)
-        (let [id (some-> top z/down z/right)]
-          (when (parser/kw-node? id) (parser/raw id)))))))
-
 (defn- finding
   "Build the finding for sibling b crowding a.
 
@@ -239,7 +224,7 @@
              :row row
              :col col
              :hint (get hints rule)}
-      (top-level-name a) (assoc :test (top-level-name a)))))
+      (parser/top-level-name a) (assoc :test (parser/top-level-name a)))))
 
 (defn- path-vector?
   "True when loc is a vector holding nothing but plain tokens.
