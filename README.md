@@ -1,10 +1,8 @@
 # cljs-patrol
 
-Static analysis tool for ClojureScript UI codebases. Detects unused and phantom re-frame subscriptions and events,
-silently-broken Spade CSS (pseudo-selectors misplaced inside the main map, comma-vs-descendant selector confusion),
-accessibility issues in Hiccup (missing image alt text, invalid tabindex, click handlers on non-interactive tags, empty
-interactive elements, form controls without an accessible name), unused Spade CSS styles, and bbatsov docstring
-style-guide violations.
+Static analysis for ClojureScript UI codebases: dead and missing re-frame registrations, Spade CSS that silently matches
+nothing, accessibility mistakes in Hiccup, and conventions on docstrings, tests and layout. See
+[Rule groups](#rule-groups) for the full list.
 
 ## Usage
 
@@ -28,10 +26,12 @@ blocking issues can be narrowed with [`--fail-on`](docs/severity.md) and existin
 
 ### Standalone jar
 
-Download a pre-built jar from [GitHub Releases](https://github.com/olecve/cljs-patrol/releases):
+Download a pre-built jar from [GitHub Releases](https://github.com/olecve/cljs-patrol/releases), with `VERSION` set to
+the latest one:
 
 ```bash
-curl -sL https://github.com/olecve/cljs-patrol/releases/download/v0.0.13/cljs-patrol-0.0.13.jar -o cljs-patrol.jar
+VERSION=0.0.34
+curl -sL "https://github.com/olecve/cljs-patrol/releases/download/v$VERSION/cljs-patrol-$VERSION.jar" -o cljs-patrol.jar
 java -jar cljs-patrol.jar <source-dir>
 ```
 
