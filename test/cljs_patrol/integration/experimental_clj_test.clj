@@ -4,6 +4,7 @@
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
    [cljs-patrol.groups.docstrings :as docstrings]
+   [cljs-patrol.groups.layout :as layout]
    [cljs-patrol.groups.tests :as tests]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
@@ -54,6 +55,15 @@
       (is (= 1 (count found)))
       (is (str/ends-with? (:file (first found)) "core_test.clj")))))
 
+(deftest layout-on-clj-test
+  (testing "off by default, a .clj file is not read at all"
+    (is (empty? (findings (layout/make-group) :form-after-split-map))))
+
+  (testing "on, the staircase in the .clj file is flagged"
+    (let [found (findings (layout/make-group nil true) :form-after-split-map)]
+      (is (= 1 (count found)))
+      (is (str/ends-with? (:file (first found)) "core.clj")))))
+
 (deftest cljs-only-groups-ignore-clj-test
   (testing "a11y reads the .cljs file"
     (let [found (findings (a11y/make-group nil) :img-alt-missing)]
@@ -72,14 +82,14 @@
   (testing "off, nothing reads .clj"
     (is (empty? (clj-reading-ids false))))
 
-  (testing "on, the two groups whose rules are about Clojure the language"
-    (is (= #{:docstrings :tests} (clj-reading-ids true))
+  (testing "on, the three groups whose rules are about Clojure the language"
+    (is (= #{:docstrings :layout :tests} (clj-reading-ids true))
         "every group that reads Hiccup, re-frame or Spade stays on .cljs/.cljc")))
 
 (deftest tests-config-is-not-written-into-test
   (testing "a :tests value that is not a map leaves the group on its defaults"
     (doseq [written [["test"] "test" 42 nil]]
-      (is (= #{:docstrings :tests}
+      (is (= #{:docstrings :layout :tests}
              (clj-reading-ids {:tests written} true))
           (str "config read back as " (pr-str written) " must not decide whether the run starts")))))
 

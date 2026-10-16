@@ -13,6 +13,7 @@
    [cljs-patrol.groups.css-order :as css-order]
    [cljs-patrol.groups.css-order.orders :as orders]
    [cljs-patrol.groups.docstrings :as docstrings]
+   [cljs-patrol.groups.layout :as layout]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
@@ -41,7 +42,8 @@
    (a11y/make-group (get config :a11y))
    (docstrings/make-group (get config :docstrings) clj?)
    (css-order/make-group (get config :css-order))
-   (tests/make-group (get config :tests) clj?)])
+   (tests/make-group (get config :tests) clj?)
+   (layout/make-group (get config :layout) clj?)])
 
 (defn- experimental-clj?
   "Resolve the experimental `.clj` mode from CLI options and config.

@@ -37,6 +37,7 @@ written as a keyword — silently produce CSS that matches nothing.
 - `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace`
 - `css-property-order-outside-in`, `deftest-leading-article`, `assertion-message-inline`, `conditional-assertion`,
   `var-deref-in-test`, `js-hint-in-test`
+- `form-after-split-map`, `split-map-after-sibling`
 
 `dynamic-sites` is info-only — it never affects the exit code.
 
