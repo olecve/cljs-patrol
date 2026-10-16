@@ -44,7 +44,7 @@
     :keyword (str (:kw item))
     :file [:a {:href (vscode-link (:file item) (:row item))} (:file item)]
     :line (str (:row item))
-    :form (str/trim (str (:form item)))
+    :form (-> item :form str str/trim)
     :hint (str (:hint item))))
 
 (defn- col-header [col]

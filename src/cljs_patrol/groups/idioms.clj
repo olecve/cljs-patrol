@@ -299,7 +299,7 @@
   (let [[row col] (:position (first run))]
     (cond-> {:kw '->
              :type :nested-call-chain
-             :form (parser/normalize-form (:form-text (first run)))
+             :form (-> run first :form-text parser/normalize-form)
              :file file
              :row row
              :col col

@@ -26,7 +26,7 @@
   [loc]
   (and loc
        (= :token (z/tag loc))
-       (or (hiccup/html-tag? (hiccup/parse-tag (parser/raw loc)))
+       (or (-> loc parser/raw hiccup/parse-tag hiccup/html-tag?)
            (some? (parser/sym-name loc)))))
 
 (defn- data-vector?

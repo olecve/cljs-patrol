@@ -454,7 +454,7 @@
                 :unused-subs 2}
                (:rule->total summary)))
         (is (= [:unused-styles :unused-subs]
-               (vec (keys (:rule->total summary))))
+               (-> summary :rule->total keys vec))
             "rule->total keys are sorted alphabetically")
         (is (= {:bugs 0
                 :deprecations 0
@@ -462,7 +462,7 @@
                (:tier->total summary))
             "without rule->tier, all tiers are zero")
         (is (= [:bugs :deprecations :cleanup]
-               (vec (keys (:tier->total summary))))
+               (-> summary :tier->total keys vec))
             "tier->total keys follow canonical order: bugs, deprecations, cleanup"))))
 
   (testing "summary tier->total is populated when rule->tier is provided"

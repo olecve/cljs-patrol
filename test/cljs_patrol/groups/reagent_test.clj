@@ -20,7 +20,7 @@
                                 {:declarations [defclass-sole]
                                  :usages [class-only-usage]})]
       (is (= 1 (count (:defclass-as-sole-attr result))))
-      (is (= :webapp.styles/sole-style (:kw (first (:defclass-as-sole-attr result)))))))
+      (is (= :webapp.styles/sole-style (-> result :defclass-as-sole-attr first :kw)))))
 
   (testing "not flagged when any usage is not class-only-map"
     (let [mixed-usage {:kw :webapp.styles/sole-style

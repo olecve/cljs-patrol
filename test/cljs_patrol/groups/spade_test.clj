@@ -86,7 +86,7 @@
                                 {:declarations [defattrs-merged]
                                  :usages [merge-usage]})]
       (is (= 1 (count (:defattrs-in-merge result))))
-      (is (= :webapp.styles/merged-attrs (:kw (first (:defattrs-in-merge result)))))))
+      (is (= :webapp.styles/merged-attrs (-> result :defattrs-in-merge first :kw)))))
 
   (testing "defattrs-in-merge: does not flag defattrs without merge usage"
     (let [plain-usage {:kw :webapp.styles/btn-attrs
@@ -119,7 +119,7 @@
                                  :usages [style-usage]})]
       (is (= 1 (count (:consecutive-self-selectors result))))
       (is (= [":&:before" ":&:after"]
-             (:selectors (first (:consecutive-self-selectors result)))))))
+             (-> result :consecutive-self-selectors first :selectors)))))
 
   (testing "spade-ampersand-not-at-start: surfaces findings from declarations"
     (let [result (group/analyze spade/group
@@ -127,7 +127,7 @@
                                  :usages [style-usage]})]
       (is (= 1 (count (:spade-ampersand-not-at-start result))))
       (is (= "li:focus-within &"
-             (:selector (first (:spade-ampersand-not-at-start result)))))))
+             (-> result :spade-ampersand-not-at-start first :selector)))))
 
   (testing "spade-keyword-combinator-selector: surfaces findings from declarations"
     (let [result (group/analyze spade/group
@@ -135,7 +135,7 @@
                                  :usages [style-usage]})]
       (is (= 1 (count (:spade-keyword-combinator-selector result))))
       (is (= [":>" ":span"]
-             (:selectors (first (:spade-keyword-combinator-selector result)))))))
+             (-> result :spade-keyword-combinator-selector first :selectors)))))
 
   (testing "selector findings do not double-count the style as unused"
     (let [result (group/analyze spade/group

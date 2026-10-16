@@ -72,7 +72,7 @@
   (testing "literal map — attrs returned"
     (let [info (hiccup/attrs-info (vec-zloc "[:img {:src \"x\" :alt \"cat\"}]"))]
       (is (= :map (:kind info)))
-      (is (= #{:src :alt} (set (keys (:attrs info)))))))
+      (is (= #{:src :alt} (-> info :attrs keys set)))))
 
   (testing "literal empty map"
     (let [info (hiccup/attrs-info (vec-zloc "[:img {}]"))]
@@ -114,7 +114,7 @@
   (testing "a symbol bound to a map literal classifies as that literal"
     (let [info (img-attrs-info "(let [props {:src \"x\" :alt \"cat\"}] [:img props])")]
       (is (= :map (:kind info)))
-      (is (= #{:src :alt} (set (keys (:attrs info)))))))
+      (is (= #{:src :alt} (-> info :attrs keys set)))))
 
   (testing "when-let and if-let bind the same way"
     (is (= :map (:kind (img-attrs-info "(when-let [props {:alt \"cat\"}] [:img props])"))))
@@ -122,7 +122,7 @@
 
   (testing "the innermost binding wins"
     (let [info (img-attrs-info "(let [props {:src \"x\"}] (let [props {:alt \"cat\"}] [:img props]))")]
-      (is (= #{:alt} (set (keys (:attrs info))))
+      (is (= #{:alt} (-> info :attrs keys set))
           "the inner map answers, not the outer one")))
 
   (testing "resolves past an enclosing form that binds nothing of that name"
@@ -134,7 +134,7 @@
   (testing "a bound map-building call is read like the same call written in the slot"
     (let [info (img-attrs-info "(let [props (merge base {:alt \"cat\"})] [:img props])")]
       (is (= :dynamic-map (:kind info)))
-      (is (= #{:alt} (set (keys (:attrs info))))
+      (is (= #{:alt} (-> info :attrs keys set))
           "a partial view: it answers that :alt is present, never that a key is absent"))
     (is (= :dynamic-map (:kind (img-attrs-info "(let [props (assoc base :alt \"cat\")] [:img props])")))
         "assoc names the key too"))
@@ -237,14 +237,14 @@
 
   (testing "a deeper assoc-in path states no value for the key it nests under"
     (let [info (img-attrs-info "[:img (assoc-in {:src \"a\"} [:alt :text] \"cat\")]")]
-      (is (= #{:src} (set (keys (:attrs info))))
+      (is (= #{:src} (-> info :attrs keys set))
           "recording the nested value under :alt would read as the alt text itself"))))
 
 (deftest attrs-info-def-test
   (testing "a def in the same file names a map"
     (let [info (img-attrs-info "(def props {:src \"a\" :alt \"cat\"}) (defn v [] [:img props])")]
       (is (= :map (:kind info)))
-      (is (= #{:src :alt} (set (keys (:attrs info))))))
+      (is (= #{:src :alt} (-> info :attrs keys set))))
     (is (= :map (:kind (img-attrs-info "(defonce props {:alt \"cat\"}) (defn v [] [:img props])")))
         "defonce binds a var the same way")
     (is (= :map (:kind (img-attrs-info "(def ^:private props {:alt \"cat\"}) (defn v [] [:img props])")))
@@ -299,7 +299,7 @@
 
   (testing "the last def of a name wins, the way a re-def rebinds the var"
     (let [info (img-attrs-info "(def props {:alt \"cat\"}) (def props {:src \"a\"}) (defn v [] [:img props])")]
-      (is (= #{:src} (set (keys (:attrs info)))))))
+      (is (= #{:src} (-> info :attrs keys set)))))
 
   (testing "metadata stacks in front of the name"
     (is (= :map (:kind (img-attrs-info "(def ^:private ^:const props {:alt \"cat\"}) (defn v [] [:img props])")))
@@ -314,7 +314,7 @@
     (let [info (img-attrs-info "(def base {:src \"a\"}) (defn v [] [:img (assoc base :alt \"cat\")])")]
       (is (= :map (:kind info))
           "nothing about the map is unknown, so absence can be asserted from it")
-      (is (= #{:src :alt} (set (keys (:attrs info))))))))
+      (is (= #{:src :alt} (-> info :attrs keys set))))))
 
 (deftest attrs-slot-test
   (testing "a literal map occupies the attrs slot"
