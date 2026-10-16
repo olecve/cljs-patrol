@@ -42,25 +42,22 @@ release too — no JVM required.
 
 Analysis is split into independent rule groups. By default all groups run.
 
-- **`re-frame`** — unused/phantom re-frame subscriptions and events
-- **`spade`** — unused Spade style declarations, defattrs in merge, pseudo-selector keys inside the main style map,
-  consecutive self-selectors that compile to descendant selectors, `&` away from the front of a string selector,
-  combinators written as keywords
-- **`reagent`** — defclass used as sole attr (should be defattrs); a redundant `(into [:tag …] (map …))` around a
-  mapping body that already keys its elements
-- **`typography`** — mixed Figma typography token groups in a single style
-- **`a11y`** — accessibility issues in Hiccup: `:img` missing `:alt`, invalid `:tabIndex`, `:on-click` on
-  non-interactive tags, empty interactive elements without an accessible name, form controls and name-required roles
-  missing an accessible name, one constant name shared by every item of a repeated list, `aria-hidden` on something that
-  can still take focus, one interactive element nested inside another, a `<label>` that labels nothing
-- **`tests`** — conventions on test code: a `deftest` whose name opens with `a-`, `an-` or `the-`, an assertion message
-  sharing a line with its expression, a test that decides what to assert while it runs, a test reading a var through its
-  var quote, a `^js` type hint in a test
-- **`docstrings`** — bbatsov style-guide violations on every def (summary, indent, whitespace)
-- **`layout`** — a map split over several lines sharing a line with a sibling form, the staircase cljfmt's
-  `:split-keypairs-over-multiple-lines?` leaves behind and `cljfmt check` accepts
-- **`css-order`** — Spade style maps whose properties run out of the
-  [property order](docs/rules.md#property-order-tables) the chosen stylelint config defines
+- **[`re-frame`](docs/rules.md#re-frame)** — unused, phantom and duplicate subscriptions and events, handlers that
+  clobber app-db, deprecated effects
+- **[`spade`](docs/rules.md#spade)** — unused styles, and selectors that compile to CSS matching nothing
+- **[`reagent`](docs/rules.md#reagent)** — a `defclass` that should be a `defattrs`, and a redundant `into` around keyed
+  Hiccup
+- **[`typography`](docs/rules.md#typography)** — mixed Figma typography token groups in a single style
+- **[`a11y`](docs/rules.md#a11y)** — accessibility in Hiccup: missing alt text and accessible names, controls a keyboard
+  cannot reach, nested controls, labels that label nothing
+- **[`tests`](docs/rules.md#tests)** — conventions on test code: test names, assertion messages, conditional assertions,
+  var derefs, `^js` hints
+- **[`docstrings`](docs/rules.md#docstrings)** — bbatsov style-guide violations on every def (summary, indent,
+  whitespace)
+- **[`layout`](docs/rules.md#layout)** — the staircase cljfmt's `:split-keypairs-over-multiple-lines?` leaves behind and
+  `cljfmt check` accepts
+- **[`css-order`](docs/rules.md#css-order)** — Spade style properties out of the
+  [order](docs/rules.md#property-order-tables) a stylelint config defines
 
 Run only specific groups:
 
@@ -75,10 +72,14 @@ Disable specific groups:
 clojure -M:run --disable spade src/cljs/myapp
 ```
 
-The `docstrings` and `tests` groups are about Clojure rather than ClojureScript, and `--experimental-clj` lets them read
-`.clj` files too — see [Reading .clj files](docs/rules.md#experimental-reading-clj-files).
+The `docstrings`, `tests` and `layout` groups are about Clojure rather than ClojureScript, and `--experimental-clj` lets
+them read `.clj` files too — see [Reading .clj files](docs/rules.md#experimental-reading-clj-files).
 
-## HTML report
+## Output
+
+Console output is the default. Two other formats are available.
+
+### HTML report
 
 Generate a self-contained HTML report instead of console output:
 
@@ -91,6 +92,39 @@ clickable VS Code links (`vscode://file/...`) that open the file at the exact li
 
 ```bash
 clojure -M:run --only re-frame --output html src/cljs/myapp
+```
+
+### EDN output
+
+Print structured EDN to stdout for programmatic or AI-assisted analysis:
+
+```bash
+clojure -M:run --output edn src/cljs/myapp
+```
+
+File paths in the output are absolute, making it easy to read files directly. The output includes a `:suggestions` map
+with fix guidance for each issue type, useful for AI-assisted remediation. Combinable with other flags:
+
+```bash
+clojure -M:run --only re-frame --output edn src/cljs/myapp
+```
+
+## Checking only some files
+
+Limit results to a subset of files while still analyzing the full codebase for cross-reference context:
+
+```bash
+clojure -M:run --files src/app/subs.cljs,src/app/events.cljs src/cljs/myapp
+```
+
+`--files` takes a **single comma-separated string** of file paths. The positional arguments after it are always the
+source directories to analyze. Do not pass file paths as positional source-dir arguments.
+
+This is useful in CI to surface only issues in files changed by a pull request, while phantom/duplicate detection still
+considers the whole codebase. Combinable with other flags:
+
+```bash
+clojure -M:run --output edn --files src/app/subs.cljs src/cljs/myapp
 ```
 
 ## Documentation
@@ -122,82 +156,3 @@ A CLI flag overrides the matching setting. See [Severity tiers](docs/severity.md
 [Test paths](docs/rules.md#test-paths) for `:tests`, [Layout options](docs/rules.md#layout-options) for `:layout`, and
 [Reading .clj files](docs/rules.md#experimental-reading-clj-files) for `:experimental-clj`. A flag written
 `--no-experimental-clj` turns that last one off for one run.
-
-## Supported patterns
-
-Re-frame declarations: `reg-sub`, `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-fx`, `reg-cofx`
-
-Re-frame usages: `subscribe`, `dispatch`, `dispatch-sync`, `:<-` signal inputs, `:fx` vector tuples (`:dispatch`,
-`:dispatch-n`, `:dispatch-later`), `:on-success` / `:on-failure` / `:on-error` http callbacks
-
-Spade declarations: `defclass`, `defattrs`
-
-Spade usages: direct function calls, both qualified (`styles/container-style`) and unqualified (`container-style`)
-within the same namespace
-
-## EDN output
-
-Print structured EDN to stdout for programmatic or AI-assisted analysis:
-
-```bash
-clojure -M:run --output edn src/cljs/myapp
-```
-
-File paths in the output are absolute, making it easy to read files directly. The output includes a `:suggestions` map
-with fix guidance for each issue type, useful for AI-assisted remediation. Combinable with other flags:
-
-```bash
-clojure -M:run --only re-frame --output edn src/cljs/myapp
-```
-
-## Filtering results to specific files
-
-Limit results to a subset of files while still analyzing the full codebase for cross-reference context:
-
-```bash
-clojure -M:run --files src/app/subs.cljs,src/app/events.cljs src/cljs/myapp
-```
-
-`--files` takes a **single comma-separated string** of file paths. The positional arguments after it are always the
-source directories to analyze. Do not pass file paths as positional source-dir arguments.
-
-This is useful in CI to surface only issues in files changed by a pull request, while phantom/duplicate detection still
-considers the whole codebase. Combinable with other flags:
-
-```bash
-clojure -M:run --output edn --files src/app/subs.cljs src/cljs/myapp
-```
-
-## Build
-
-Build a standalone uberjar:
-
-```bash
-clojure -T:build uber
-```
-
-This produces `target/cljs-patrol-dev.jar`. To set a specific version:
-
-```bash
-clojure -J-Dcljs-patrol.version=0.2.0 -T:build uber
-```
-
-This produces `target/cljs-patrol-0.2.0.jar`.
-
-### Releasing
-
-Releases are automated via GitHub Actions. Push a version tag to build and publish:
-
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-This runs tests, builds the jar as `cljs-patrol-0.2.0.jar` (version derived from the tag), and creates a
-[GitHub Release](https://github.com/olecve/cljs-patrol/releases) with the jar attached.
-
-## Formatting
-
-```bash
-clojure -M:cljfmt fix src/ test/
-```

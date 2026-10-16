@@ -49,8 +49,21 @@ clojure -M:run --output html <src-dir>           # write report.html
 ## Building
 
 ```bash
-clojure -T:build uber          # produces target/cljs-patrol-dev.jar
+clojure -T:build uber                                    # produces target/cljs-patrol-dev.jar
+clojure -J-Dcljs-patrol.version=0.2.0 -T:build uber      # produces target/cljs-patrol-0.2.0.jar
 java -jar target/cljs-patrol-dev.jar <src-dir>
+```
+
+### Releasing
+
+Push a version tag, and `.github/workflows/release.yml` does the rest: it runs the tests, builds the jar and the native
+binaries with the version taken from the tag, creates the
+[GitHub Release](https://github.com/olecve/cljs-patrol/releases) with them attached, and prepends the release notes to
+`CHANGELOG.md` on `main`.
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 ## Testing

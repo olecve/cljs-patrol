@@ -8,6 +8,10 @@ that `--fail-on` and the baseline use, and its [tier](severity.md#tiers). For th
 
 ## Re-frame
 
+Declarations are read from `reg-sub`, `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-fx` and `reg-cofx`. Usages
+are read from `subscribe`, `dispatch`, `dispatch-sync`, `:<-` signal inputs, `:fx` vector tuples (`:dispatch`,
+`:dispatch-n`, `:dispatch-later`), and `:on-success` / `:on-failure` / `:on-error` http callbacks.
+
 - **Unused subscriptions** (`unused-subs`, cleanup) — registered with `reg-sub` but never subscribed to
 - **Unused events** (`unused-events`, cleanup) — registered with `reg-event-*` but never dispatched
 - **Phantom subscriptions** (`phantom-subs`, cleanup) — subscribed to but never declared
@@ -55,6 +59,9 @@ that `--fail-on` and the baseline use, and its [tier](severity.md#tiers). For th
 ```
 
 ## Spade
+
+Declarations are read from `defclass` and `defattrs`. A usage is a direct call, qualified (`styles/container-style`) or
+unqualified within the same namespace (`container-style`).
 
 - **Unused styles** (`unused-styles`, cleanup) — declared with `defclass`/`defattrs` but never called
 - **defattrs in merge** (`defattrs-in-merge`, deprecations) — `defattrs` used inside `merge`; should be `defclass` so
