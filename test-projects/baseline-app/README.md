@@ -15,4 +15,4 @@ Contains a minimal ClojureScript app with a known, stable set of issues:
 - **reg-event-fx empty effects** - `::events/no-op` returns `{}`, the handler does nothing
 - **reg-event-db clobbers db** - `::events/legacy-reset` returns `{}`, replacing the entire app-db
 
-These issues are exercised by `cljs_patrol.baseline_integration_test` to verify the full baseline workflow: writing a baseline, reading it back, diffing against re-analysis, console/EDN output formatting, quiet and strict modes, and round-trip stability.
+These issues are exercised by `cljs-patrol.integration.baseline-test` to verify the full baseline workflow: writing a baseline, reading it back, diffing against re-analysis, console/EDN output formatting, quiet and strict modes, and round-trip stability.
