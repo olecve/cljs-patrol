@@ -427,7 +427,7 @@ absence and all:
 ;; The whole map silently becomes the new app-db; :dispatch never fires.
 (reg-event-db
  :cart/add-item-success
- (fn [{:keys [db]} [_ item]]
+ (fn [db [_ item]]
    {:db (-> db
             (update :cart-items conj item)
             (assoc :loading? false))
