@@ -12,9 +12,12 @@
   {:ns-name "app.views"
    :aliases {"str" "clojure.string"
              "lib" "some.lib"
-             "util" "app.util"}
+             "util" "app.util"
+             "M" "some.lib"}
    :refers {"helper" "app.util"
-            "subscribe" "re-frame.core"}})
+            "subscribe" "re-frame.core"
+            "lower-case" "clojure.string"
+            "trim" "clojure.string"}})
 
 (defn- parse
   "Walk `lines` the way the parser walks a file, and return the group's result map."
@@ -76,14 +79,59 @@
   (doseq [[line description] [["(f (g (h x)))" "a local or an undefined name may be a macro"]
                               ["(lib/f (lib/g (lib/h x)))" "a library the scan cannot read may define a macro"]
                               ["(some.lib/f (some.lib/g (some.lib/h x)))" "a lower-case qualifier is a namespace, not a class"]
+                              ["(M/f (M/g (M/h x)))" "a capitalized alias is still an alias, not a class"]
                               ["(subscribe (subscribe (subscribe x)))" "a referred library var is a library var"]
                               ["(helper (helper (helper x)))" "a referred project var counts only once its defn is seen"]]]
     (is (empty? (rewrites [line]))
         description)))
 
+(deftest referred-string-function-counts
+  (is (= ["(-> x trim trim lower-case)"] (rewrites ["(lower-case (trim (trim x)))"]))))
+
+(deftest multimethod-counts-and-its-methods-define-nothing
+  (is (= ["(-> x prepare prepare prepare)" "(-> x render render render)"]
+         (rewrites ["(defmulti prepare identity)"
+                    "(defmethod prepare :a [x] x)"
+                    "(defn render [x] x)"
+                    "(defmethod util/render :b [x] x)"
+                    "(prepare (prepare (prepare x)))"
+                    "(render (render (render x)))"]))))
+
+(deftest var-defined-as-a-macro-anywhere-does-not-count
+  (is (empty? (rewrites ["(defmacro twice [x] x)"
+                         "(defn twice [x] x)"
+                         "(twice (twice (twice x)))"]))
+      "a .clj macro and a .cljs function of one name read together, in either order"))
+
+(deftest comment-or-discard-in-place-of-the-argument-is-not-a-call
+  (is (empty? (rewrites ["(defn f [] (reset-all! ; clears everything"
+                         "))"
+                         "(vec (sort (distinct #_xs)))"]))))
+
+(deftest rewrite-keeps-the-starting-value-as-written
+  (let [[spaced commented spanning] (:nested-call-chain
+                                    (parse ["(vec (sort (distinct (str/split \"a  ( b\" #\"  \"))))"
+                                            "(vec (sort (distinct (concat a ; why"
+                                            "                             b))))"
+                                            "(vec (sort (distinct (f a"
+                                            "                        b))))"]))]
+    (is (= "(-> (str/split \"a  ( b\" #\"  \") distinct sort vec)" (:rewrite spaced))
+        "strings and regexes keep their spaces")
+    (is (str/includes? (:hint spaced) "\"a  ( b\"")
+        "the hint shows the same text")
+    (is (str/includes? (:rewrite commented) "; why\n")
+        "a comment keeps the line break that ends it")
+    (is (str/includes? (:hint spanning) "(-> ... distinct sort vec)")
+        "a starting value spanning lines is not squeezed onto the hint's one line")))
+
 (deftest call-with-more-than-one-argument-ends-chain
   (is (empty? (rewrites ["(vec (sort (map f xs)))"
                          "(vec (sort-by f (distinct xs)))"]))))
+
+(deftest wrapper-below-a-macro-is-not-counted
+  (is (empty? (rewrites ["(is (nil? (:id (first xs))))"]))
+      "is ends the chain, and nil? still tops what would be threaded")
+  (is (= ["(-> xs distinct sort vec)"] (rewrites ["(lib/m (seq (vec (sort (distinct xs)))))"]))))
 
 (deftest wrapper-around-chain-is-not-counted
   (is (empty? (rewrites ["(not (str/blank? (:description m)))"]))
@@ -92,7 +140,8 @@
       "the chain inside the wrapper is still reported, without it"))
 
 (deftest call-on-literal-stays-the-starting-value
-  (is (empty? (rewrites ["(:question (:params (request-to \"/qa\")))"
+  (is (empty? (rewrites ["(defn request-to [path] path)"
+                         "(:question (:params (request-to \"/qa\")))"
                          "(dec (dec (count \"_unstem\")))"
                          "(:id (first (vals {:a 1})))"
                          "(:id (first (first [:plan :items])))"]))
@@ -104,7 +153,18 @@
   (is (empty? (rewrites ["(doto cell (.setCellValue (double (inc row-idx))))"
                          "(-> x (vec (sort (distinct ys))))"])))
   (is (= ["(-> xs distinct sort vec)"] (rewrites ["(-> (vec (sort (distinct xs))) count)"]))
-      "the first argument of a thread is not a step"))
+      "the first argument of a thread is not a step")
+  (is (= ["(-> $ distinct sort vec)"] (rewrites ["(as-> x $ (vec (sort (distinct $))))"]))
+      "an as-> step writes its argument out")
+  (is (= ["(-> xs seq next rest)"] (rewrites ["(cond-> m (empty? (rest (next (seq xs)))) (vec (sort (distinct ys))))"]))
+      "a cond-> test is not threaded, and its step is")
+  (is (= ["(-> xs next rest count)"] (rewrites ["(cond-> m a? inc (count (rest (next xs))) dec)"]))
+      "every test is read, not only the first"))
+
+(deftest function-literal-chain-is-flagged
+  (is (= ["#(-> % distinct sort vec)" "#(-> % distinct sort vec)"]
+         (rewrites ["#(vec (sort (distinct %)))"
+                    "(g #(vec (sort (distinct %))))"]))))
 
 (deftest reader-conditional-list-is-not-a-call
   (is (= ["(-> xs distinct sort vec)"] (rewrites ["#?(:clj (vec (sort (distinct xs))))"]))))
@@ -139,6 +199,16 @@
         "a long seed is shortened in the hint")
     (is (str/includes? (:rewrite finding) "and-another-one")
         "the rewrite carries the seed in full")))
+
+(deftest identity-separates-chains-differing-past-their-start
+  (let [found (:nested-call-chain
+               (parse ["(defn view []"
+                       "  [(str/lower-case (str/trim (name (:some-long-keyword-name entity-aaaaaaa))))"
+                       "   (str/lower-case (str/trim (name (:some-long-keyword-name entity-bbbbbbb))))])"]))]
+    (is (= 2 (count (set (map #(baseline/issue->identity :nested-call-chain %) found)))))))
+
+(deftest suggestion-names-the-configured-minimum
+  (is (str/starts-with? (:nested-call-chain (group/suggestions (idioms/make-group {:min-calls 2}))) "2 or more")))
 
 (deftest identity-reads-back-from-edn
   (let [finding (first (:nested-call-chain (parse ["(vec (sort (distinct xs)))"])))

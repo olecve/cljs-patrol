@@ -90,7 +90,7 @@
     (str "Property-order table for the css-order group: "
          (str/join ", " (map name orders/names)) " (default " (name orders/default-order) ")")
     :parse-fn keyword]
-   [nil "--[no-]experimental-clj" "Experimental: also read .clj files (docstrings and tests groups only)"]
+   [nil "--[no-]experimental-clj" "Experimental: also read .clj files (docstrings, tests, layout and idioms groups only)"]
    [nil "--list-rules" "Print all rules grouped by tier and exit"]
    ["-h" "--help"]])
 
@@ -319,7 +319,7 @@
                           (str/join " and " (map (comp name group/group-id) reading))
                           "."))
             (println (str "WARN: --experimental-clj does nothing here. No enabled group reads .clj; "
-                          "the groups that can are docstrings and tests.")))))
+                          "the groups that can are docstrings, tests, layout and idioms.")))))
       (let [run-results (cond-> (mapv #(run % enabled-groups) dirs)
                           (:files opts) (filter-run-results (:files opts)))]
         (cond

@@ -2,12 +2,14 @@
   "Rule group: nested calls a threading macro would read top to bottom.
 
   Reports only what can be rewritten without a judgement call. Every step of a chain
-  takes exactly one argument, so `->` and `->>` would produce the same form and the
-  rewrite cannot thread into the wrong slot. Every head is known to be a function, so
-  the rewrite cannot thread into a macro, whose arguments are not evaluated in order."
+  takes exactly one argument, so `->` and `->>` produce the same form, and the rewrite
+  expands back to exactly the code that was written. Every head is also known to be a
+  function. Threading cannot change what a macro does, but it changes how it reads:
+  `(-> xs sort vec delay)` looks like four steps run in order, while the `delay` defers
+  the other three. A head the scan cannot vouch for, a library var or a local, ends the
+  chain, which gives up some findings so that none of them is a judgement call."
   (:require
    [cljs-patrol.group :as group]
-   [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [rewrite-clj.node :as n]
@@ -32,50 +34,83 @@
 (def ^:private core-namespaces #{"clojure.core" "cljs.core"})
 
 (def ^:private wrappers
-  "Calls that turn a value into a yes or no, and read worse at the end of a thread.
+  "Calls that turn what they wrap into a test or an empty-or-nil, and read worse ending a thread.
 
   `(not (str/blank? (:description m)))` threads to `(-> m :description str/blank? not)`.
-  Left outermost, one of these is not counted toward the chain."
+  At the top of what would be threaded, one of these is not counted toward the chain,
+  whether or not something the chain stops at sits above it: `(is (nil? (:id (first xs))))`
+  reads no better as `(is (-> xs first :id nil?))`."
   #{"not" "boolean" "some?" "nil?" "seq" "empty?" "not-empty" "true?" "false?"})
 
-(defn- elements
-  "Return the child nodes of node other than whitespace.
+(defn- code-children
+  "Return the child nodes of node other than whitespace, or nil when one is a comment or `#_`.
 
-  A comment or a discarded form counts as a child, so a step holding one has more than one
-  argument and ends the chain: neither has a place in a thread."
+  Neither has a place in a thread, and either can stand where an argument would, so a call
+  holding one is not read as a step at all."
   [node]
-  (remove n/whitespace? (n/children node)))
+  (let [children (remove n/whitespace? (n/children node))]
+    (when-not (some #(contains? #{:comment :uneval} (n/tag %)) children)
+      children)))
+
+(defn- index-in-parent
+  "Return the position of loc among its parent's children, the head at 0, or nil."
+  [loc]
+  (when-let [parent (z/up loc)]
+    (->> (n/children (z/node parent))
+         (remove #(or (n/whitespace? %) (contains? #{:comment :uneval} (n/tag %))))
+         (keep-indexed (fn [i child] (when (identical? child (z/node loc)) i)))
+         first)))
 
 (def ^:private threading-heads
-  "Forms that pass each step after the first an argument the step does not write out."
-  #{"->" "->>" "some->" "some->>" "cond->" "cond->>" "as->" "doto" ".."})
+  "Forms that pass every step after the first an argument the step does not write out."
+  #{"->" "->>" "some->" "some->>" "doto" ".."})
+
+(def ^:private conditional-threading-heads
+  "Forms that pass that argument only to the step of each test-and-step pair."
+  #{"cond->" "cond->>"})
 
 (defn- threaded-step?
-  "True when list-loc is a step of a threading form, so it takes an argument it does not show.
+  "True when loc is a step of a threading form, so it takes an argument it does not show.
 
-  `(doto cell (.setCellValue (double x)))` calls `.setCellValue` with two arguments."
-  [list-loc]
-  (let [parent (z/up list-loc)]
-    (and (= :list (some-> parent z/tag))
-         (contains? threading-heads (some-> parent z/down parser/sym-name))
-         (not (identical? (z/node list-loc) (some-> parent z/down z/right z/node))))))
+  `(doto cell (.setCellValue (double x)))` calls `.setCellValue` with two arguments. A
+  `cond->` test takes none, and an `as->` step writes its argument out."
+  [loc]
+  (let [parent (z/up loc)
+        head (when (= :list (some-> parent z/tag)) (some-> parent z/down parser/sym-name))
+        index (index-in-parent loc)]
+    (boolean
+     (and index
+          (or (and (contains? threading-heads head) (>= index 2))
+              (and (contains? conditional-threading-heads head) (>= index 3) (odd? index)))))))
 
-(defn- unary-call?
-  "True when list-loc is a list of a token head and exactly one argument, written out.
+(defn- one-argument?
+  "True when loc is a list or `#(…)` of a token head and exactly one argument, written out."
+  [loc]
+  (let [children (code-children (z/node loc))]
+    (and (= 2 (count children))
+         (= :token (n/tag (first children)))
+         (not (contains? #{"quote" "comment"} (parser/sym-name (z/down loc)))))))
 
-  The list a reader conditional holds is not a call: `#?(:clj x)` reads as `(:clj x)`."
-  [list-loc]
-  (and (= :list (z/tag list-loc))
-       (let [children (elements (z/node list-loc))]
-         (and (= 2 (count children))
-              (= :token (n/tag (first children)))
-              (not (contains? #{"quote" "comment"} (parser/sym-name (z/down list-loc))))))
-       (not= :reader-macro (some-> list-loc z/up z/tag))
-       (not (threaded-step? list-loc))))
+(defn- link?
+  "True when loc is a one-argument call that can sit inside a chain.
 
-(defn- head-loc [list-loc] (z/down list-loc))
+  The list a reader conditional holds is not a call: `#?(:clj x)` reads as `(:clj x)`.
+  A `#(…)` is a function value wherever it is an argument, so it can only start a chain."
+  [loc]
+  (and (= :list (z/tag loc))
+       (one-argument? loc)
+       (not= :reader-macro (some-> loc z/up z/tag))
+       (not (threaded-step? loc))))
 
-(defn- argument-loc [list-loc] (z/right (z/down list-loc)))
+(defn- start?
+  "True when loc can start a chain: a link, or a `#(…)` whose body is a one-argument call."
+  [loc]
+  (or (link? loc)
+      (and (= :fn (z/tag loc)) (one-argument? loc))))
+
+(defn- head-loc [loc] (z/down loc))
+
+(defn- argument-loc [loc] (z/right (z/down loc)))
 
 (defn- class-name? [segment]
   (let [initial (first segment)]
@@ -95,6 +130,15 @@
          (= "js" qualifier)
          (class-name? (some-> qualifier (str/split #"\.") last))))))
 
+(defn- describe-var
+  "Classify the var full-ns/var-name: a core or string function, or a var to look up."
+  [full-ns var-name]
+  (cond
+    (and (core-namespaces full-ns) (core-fns var-name)) {:kind :fn}
+    (and (= "clojure.string" full-ns) (string-fns var-name)) {:kind :fn}
+    :else {:kind :var
+           :var (keyword full-ns var-name)}))
+
 (defn- describe-head
   "Classify the head of a call by what the analysis needs to know about it.
 
@@ -109,19 +153,12 @@
       (parser/kw-node? loc) {:kind :fn}
       (nil? sym) {:kind :unknown}
       (and (str/includes? text "/") (pos? (str/index-of text "/")))
-      (let [[alias-part name-part] (str/split text #"/" 2)
-            full-ns (get aliases alias-part alias-part)]
-        (cond
-          (and (core-namespaces full-ns) (core-fns name-part)) {:kind :fn}
-          (and (= "clojure.string" full-ns) (string-fns name-part)) {:kind :fn}
-          (contains? aliases alias-part) {:kind :var
-                                          :var (keyword full-ns name-part)}
-          (interop-or-host? text) {:kind :fn}
-          :else {:kind :var
-                 :var (keyword full-ns name-part)}))
+      (let [[alias-part name-part] (str/split text #"/" 2)]
+        (if (or (contains? aliases alias-part) (not (interop-or-host? text)))
+          (describe-var (get aliases alias-part alias-part) name-part)
+          {:kind :fn}))
       (interop-or-host? text) {:kind :fn}
-      (contains? refers text) {:kind :var
-                               :var (keyword (get refers text) text)}
+      (contains? refers text) (describe-var (get refers text) text)
       :else {:kind :local-or-core
              :var (keyword ns-name text)
              :core? (contains? core-fns text)})))
@@ -134,55 +171,59 @@
     :token (not (symbol? (try (z/sexpr loc) (catch Exception _ nil))))
     false))
 
-(defn- level [list-loc ns-info]
-  {:head (describe-head (head-loc list-loc) ns-info)
-   :literal-argument? (literal? (argument-loc list-loc))
-   :head-text (parser/raw (head-loc list-loc))
-   :head-name (parser/sym-name (head-loc list-loc))
-   :argument-text (parser/normalize-form (parser/raw (argument-loc list-loc)))
-   :form-text (parser/normalize-form (parser/raw list-loc))
-   :position (try (z/position list-loc) (catch Exception _ [0 1]))})
+(defn- level [loc ns-info]
+  {:head (describe-head (head-loc loc) ns-info)
+   :fn-literal? (= :fn (z/tag loc))
+   :literal-argument? (literal? (argument-loc loc))
+   :head-text (parser/raw (head-loc loc))
+   :head-name (parser/sym-name (head-loc loc))
+   :argument-text (z/string (argument-loc loc))
+   :form-text (z/string loc)
+   :position (try (z/position loc) (catch Exception _ [0 1]))})
 
 (defn- inner-link?
-  "True when list-loc is the argument of a one-argument call, so a chain starts above it."
-  [list-loc]
-  (let [parent (z/up list-loc)]
-    (and parent
-         (unary-call? parent)
-         (identical? (z/node list-loc) (z/node (argument-loc parent))))))
+  "True when loc is a link a chain above it walks into, so no chain starts at loc."
+  [loc]
+  (let [parent (z/up loc)]
+    (boolean
+     (and parent
+          (link? loc)
+          (start? parent)
+          (identical? (z/node loc) (z/node (argument-loc parent)))))))
+
+(def ^:private unevaluated-tags #{:quote :syntax-quote :unquote :unquote-splicing :uneval})
 
 (defn- unevaluated?
   "True when loc is quoted, discarded, or inside `(quote …)` or `(comment …)`."
   [loc]
-  (or (hiccup/inside-unrendered-form? loc)
-      (loop [current (z/up loc)]
-        (cond
-          (nil? current) false
-          (and (= :list (z/tag current))
-               (contains? #{"quote" "comment"} (some-> current z/down parser/sym-name))) true
-          :else (recur (z/up current))))))
+  (loop [current (z/up loc)]
+    (cond
+      (nil? current) false
+      (contains? unevaluated-tags (z/tag current)) true
+      (and (= :list (z/tag current))
+           (contains? #{"quote" "comment"} (some-> current z/down parser/sym-name))) true
+      :else (recur (z/up current)))))
 
 (defn- chain-candidate
-  "Record the longest run of one-argument calls starting at list-loc, or nil.
+  "Record the longest run of one-argument calls starting at loc, or nil.
 
   Whether each head is a function is decided once every file has been read, since a
-  head may name a var defined in another one."
-  [list-loc ns-info file]
-  (when (and (unary-call? list-loc)
-             (not (inner-link? list-loc))
-             (not (unevaluated? list-loc)))
-    (let [levels (loop [loc list-loc
+  head may name a var defined in another one. A run shorter than min-calls is dropped
+  here: setting a head aside later only shortens it."
+  [min-calls loc ns-info file]
+  (when (and (start? loc) (not (inner-link? loc)))
+    (let [levels (loop [current loc
                         found []]
-                   (let [found (conj found (level loc ns-info))
-                         argument (argument-loc loc)]
-                     (if (unary-call? argument)
+                   (let [found (conj found (level current ns-info))
+                         argument (argument-loc current)]
+                     (if (link? argument)
                        (recur argument found)
                        found)))]
-      (when (>= (count levels) 2)
+      (when (and (>= (count levels) min-calls) (not (unevaluated? loc)))
         {:type ::chain
          :levels levels
          :file file
-         :test (parser/top-level-name list-loc)}))))
+         :test (parser/top-level-name loc)}))))
 
 (def ^:private def-kinds
   {"defn" :fn
@@ -191,11 +232,14 @@
    "defmacro" :macro})
 
 (defn- definition
-  "Record what a top-level `def`-like form defines, or nil."
+  "Record what a top-level `def`-like form defines, or nil.
+
+  A `defmethod` adds a method to a var that exists already, and defines nothing."
   [list-loc {:keys [ns-name]} file]
   (let [head (some-> list-loc z/down parser/sym-name)]
     (when (and head
                (str/starts-with? head "def")
+               (not= "defmethod" head)
                (= :forms (some-> list-loc z/up z/tag)))
       (when-let [defined (some-> (parser/declared-name-loc list-loc) parser/sym-name)]
         {:type ::definition
@@ -203,8 +247,9 @@
          :kind (get def-kinds head :other)
          :file file}))))
 
-(defn- handle [loc ns-info file]
-  (let [found (keep identity [(definition loc ns-info file) (chain-candidate loc ns-info file)])]
+(defn- handle [min-calls loc ns-info file]
+  (let [found (keep identity [(when (= :list (z/tag loc)) (definition loc ns-info file))
+                              (chain-candidate min-calls loc ns-info file)])]
     (when (seq found)
       {:decls (vec found)
        :usages []
@@ -237,32 +282,46 @@
 
 (def ^:private seed-max 40)
 
-(defn- shorten [text limit]
-  (if (<= (count text) limit) text (str (subs text 0 (- limit 3)) "...")))
-
-(defn- rewrite [run seed-limit]
-  (str "(-> " (shorten (:argument-text (last run)) seed-limit) " "
-       (str/join " " (map :head-text (reverse run))) ")"))
-
-(def ^:private form-max 60)
+(defn- rewrite
+  "Spell out the thread for run, the starting value in full or, given a limit, shortened."
+  [run seed-limit]
+  (let [seed (:argument-text (last run))
+        shown (if (and seed-limit
+                       (or (> (count seed) seed-limit) (str/includes? seed "\n")))
+                "..."
+                seed)
+        thread (str "-> " shown " " (str/join " " (map :head-text (reverse run))))]
+    (if (:fn-literal? (first run))
+      (str "#(" thread ")")
+      (str "(" thread ")"))))
 
 (defn- finding [{:keys [file test]} run]
   (let [[row col] (:position (first run))]
     (cond-> {:kw '->
              :type :nested-call-chain
-             :form (shorten (:form-text (first run)) form-max)
+             :form (parser/normalize-form (:form-text (first run)))
              :file file
              :row row
              :col col
-             :rewrite (rewrite run Integer/MAX_VALUE)
+             :rewrite (rewrite run nil)
              :hint (str "Thread it: " (rewrite run seed-max))}
       test (assoc :test test))))
 
+(defn- function-definitions
+  "Map each var the project defines to :fn, or to :other when any definition of it is not a fn.
+
+  The same var can be defined twice, in a `.cljs` and a `.clj` file read together, and
+  only one that is a function in both counts."
+  [declarations]
+  (->> declarations
+       (filter #(= ::definition (:type %)))
+       (group-by :var)
+       (map (fn [[var defined]]
+              [var (if (every? #(= :fn (:kind %)) defined) :fn :other)]))
+       (into {})))
+
 (defn- analyze* [min-calls {:keys [declarations]}]
-  (let [definitions (->> declarations
-                         (filter #(= ::definition (:type %)))
-                         (map (juxt :var :kind))
-                         (into {}))]
+  (let [definitions (function-definitions declarations)]
     {:nested-call-chain
      (->> declarations
           (filter #(= ::chain (:type %)))
@@ -273,25 +332,26 @@
                          (map #(finding candidate %)))))
           vec)}))
 
+(defn- suggestion [min-calls]
+  (str min-calls " or more calls nested one inside another, each taking the one before as its "
+       "only argument. The reader has to start at the innermost form and work outwards; a "
+       "thread reads top to bottom in the order the calls run. Rewrite it with ->, which "
+       "the finding spells out. Only calls known to be functions count: keywords, interop, "
+       "core and clojure.string functions, and the project's own defn and defmulti. A macro, "
+       "a call into a library the scan cannot read, and a call with more than one argument "
+       "end the chain. A " (str/join ", " (sort wrappers)) " at the top of the thread is not "
+       "counted, and a call on a literal stays the thread's starting value."))
+
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup
   (group-id [_] :idioms)
   (group-name [_] "Idioms")
-  (parse-handlers [_] {:handle-list handle})
+  (parse-handlers [_] {:handle-list (fn [loc ns-info file] (handle min-calls loc ns-info file))})
   (analyze [_ data] (analyze* min-calls data))
   (summary-lines [_ {:keys [nested-call-chain]}]
     [["Nested call chain:" (count nested-call-chain)]])
   (failed? [_ _] false)
-  (suggestions [_]
-    {:nested-call-chain
-     (str "Three or more calls nested one inside another, each taking the one before as its "
-          "only argument. The reader has to start at the innermost form and work outwards; a "
-          "thread reads top to bottom in the order the calls run. Rewrite it with ->, which "
-          "the finding spells out. Only calls known to be functions count: keywords, interop, "
-          "core and clojure.string functions, and the project's own defn. A macro, a call into "
-          "a library the scan cannot read, and a call with more than one argument end the "
-          "chain. A not, boolean, some?, nil?, seq or empty? wrapping the whole chain is not "
-          "counted.")})
+  (suggestions [_] {:nested-call-chain (suggestion min-calls)})
   (rule->tier [_] {:nested-call-chain :cleanup})
   (file-extensions [_] extensions))
 
@@ -299,7 +359,8 @@
   "Return an idioms RuleGroup configured with the given map.
 
   Supported keys:
-    :min-calls 3 — the shortest chain reported, counted after any wrapper is dropped.
+    :min-calls 3 — the shortest chain reported, counted after a wrapper and a call on a
+      literal are set aside.
 
   `clj?` is the experimental `.clj` mode."
   ([] (make-group nil false))
