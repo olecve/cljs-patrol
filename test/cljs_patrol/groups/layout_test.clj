@@ -176,6 +176,25 @@
                                     "               :b 2})"])))
         "a symbol outside a binding form is the target of a call, configured or not")))
 
+(deftest split-map-after-symbol-in-method-parameters-is-flagged-when-configured
+  (let [rule-group (layout/make-group {:split-map-after-symbol true})]
+    (doseq [[lines description]
+            [[["(defmethod handle [:a :b] [db {:keys [id]"
+               "                               :as event}] db)"]
+              "a defmethod's parameters follow a dispatch value that is a vector itself"]
+             [["(letfn [(helper [this {:keys [a]"
+               "                       :as m}] a)] helper)"]
+              "a letfn spec is a fn without a fn head"]
+             [["(defrecord R [] P (method [this {:keys [a]"
+               "                                 :as m}] a))"]
+              "a protocol method is a fn without a fn head"]]]
+      (is (= [1] (rows (parse rule-group lines) :split-map-after-sibling))
+          description))
+    (is (empty? (:split-map-after-sibling
+                 (parse rule-group ["(letfn [] [(render [_ {:keys [a]"
+                                    "                      :as m}])])"])))
+        "only letfn's first argument holds fn specs, so a call in its body is not one")))
+
 (deftest structure-before-split-map-is-left-alone
   (is (= {:form-after-split-map []
           :split-map-after-sibling []}

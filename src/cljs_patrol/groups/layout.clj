@@ -97,22 +97,55 @@
   [start i]
   (boolean (and start (>= i start) (even? (- i start)))))
 
-(def ^:private fn-heads #{"fn" "fn*" "defn" "defn-" "defmethod" "defmacro"})
+(defn- children [container-loc]
+  (->> (iterate z/right (z/down container-loc))
+       (take-while some?)
+       (remove #(= :uneval (z/tag %)))
+       vec))
+
+(def ^:private fn-heads #{"fn" "fn*" "defn" "defn-" "defmacro"})
+
+(def ^:private method-holder-heads
+  "Forms whose arguments include method bodies, `(method [this] …)`, each a fn of its own."
+  #{"defprotocol" "defrecord" "deftype" "extend-protocol" "extend-type" "reify" "specify"
+    "specify!"})
+
+(defn- params-start
+  "Return the child index to search list-loc's parameter list from, or nil if it is not fn-like.
+
+  A `defmethod` starts after its dispatch value, which may itself be a vector. A `letfn`
+  spec and a protocol method are fns without a `fn` head."
+  [list-loc]
+  (let [head (head-name list-loc)
+        parent (z/up list-loc)]
+    (cond
+      (contains? fn-heads head) 1
+      (= "defmethod" head) 3
+      (and (= :list (some-> parent z/tag))
+           (contains? method-holder-heads (head-name parent)))
+      1
+      (and (= :vector (some-> parent z/tag))
+           (= "letfn" (some-> parent z/up head-name))
+           (identical? (z/node parent) (some-> parent z/up z/down z/right z/node)))
+      1)))
 
 (defn- parameter-vector?
   "True when vector-loc is the parameter list of a fn-like form, single- or multi-arity."
   [vector-loc]
-  (let [parent (z/up vector-loc)
-        in-fn? (fn [list-loc] (contains? fn-heads (head-name list-loc)))]
-    (and (= :list (some-> parent z/tag))
-         (or (and (in-fn? parent)
-                  (= :vector (z/tag vector-loc))
-                  (not (some #(= :vector (z/tag %))
-                             (take-while #(not (identical? (z/node %) (z/node vector-loc)))
-                                         (iterate z/right (z/down parent))))))
-             (and (identical? (z/node vector-loc) (some-> parent z/down z/node))
-                  (= :list (some-> parent z/up z/tag))
-                  (in-fn? (z/up parent)))))))
+  (let [parent (z/up vector-loc)]
+    (boolean
+     (and (= :vector (z/tag vector-loc))
+          (= :list (some-> parent z/tag))
+          (or (when-let [start (params-start parent)]
+                (identical? (z/node vector-loc)
+                            (some->> (children parent)
+                                     (drop start)
+                                     (filter #(= :vector (z/tag %)))
+                                     first
+                                     z/node)))
+              (and (identical? (z/node vector-loc) (some-> parent z/down z/node))
+                   (= :list (some-> parent z/up z/tag))
+                   (params-start (z/up parent))))))))
 
 (defn- destructuring-vector?
   "True when vector-loc binds names rather than building data or Hiccup.
@@ -154,12 +187,6 @@
          :vector (and (or (symbol-token? child) (parser/kw-node? child))
                       (not (destructuring-vector? container-loc)))
          false)))
-
-(defn- children [container-loc]
-  (->> (iterate z/right (z/down container-loc))
-       (take-while some?)
-       (remove #(= :uneval (z/tag %)))
-       vec))
 
 (def ^:private part-max 60)
 
