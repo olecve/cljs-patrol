@@ -110,11 +110,11 @@
 
 (deftest rewrite-keeps-the-starting-value-as-written
   (let [[spaced commented spanning] (:nested-call-chain
-                                    (parse ["(vec (sort (distinct (str/split \"a  ( b\" #\"  \"))))"
-                                            "(vec (sort (distinct (concat a ; why"
-                                            "                             b))))"
-                                            "(vec (sort (distinct (f a"
-                                            "                        b))))"]))]
+                                     (parse ["(vec (sort (distinct (str/split \"a  ( b\" #\"  \"))))"
+                                             "(vec (sort (distinct (concat a ; why"
+                                             "                             b))))"
+                                             "(vec (sort (distinct (f a"
+                                             "                        b))))"]))]
     (is (= "(-> (str/split \"a  ( b\" #\"  \") distinct sort vec)" (:rewrite spaced))
         "strings and regexes keep their spaces")
     (is (str/includes? (:hint spaced) "\"a  ( b\"")
