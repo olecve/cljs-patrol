@@ -42,22 +42,22 @@ release too — no JVM required.
 
 Analysis is split into independent rule groups. By default all groups run.
 
-- **[`re-frame`](docs/rules.md#re-frame)** — unused, phantom and duplicate subscriptions and events, handlers that
+- **[`re-frame`](docs/rules/re-frame.md)** — unused, phantom and duplicate subscriptions and events, handlers that
   clobber app-db, deprecated effects
-- **[`spade`](docs/rules.md#spade)** — unused styles, and selectors that compile to CSS matching nothing
-- **[`reagent`](docs/rules.md#reagent)** — a `defclass` that should be a `defattrs`, and a redundant `into` around keyed
+- **[`spade`](docs/rules/spade.md)** — unused styles, and selectors that compile to CSS matching nothing
+- **[`reagent`](docs/rules/reagent.md)** — a `defclass` that should be a `defattrs`, and a redundant `into` around keyed
   Hiccup
-- **[`typography`](docs/rules.md#typography)** — mixed Figma typography token groups in a single style
-- **[`a11y`](docs/rules.md#a11y)** — accessibility in Hiccup: missing alt text and accessible names, controls a keyboard
+- **[`typography`](docs/rules/typography.md)** — mixed Figma typography token groups in a single style
+- **[`a11y`](docs/rules/a11y.md)** — accessibility in Hiccup: missing alt text and accessible names, controls a keyboard
   cannot reach, nested controls, labels that label nothing
-- **[`tests`](docs/rules.md#tests)** — conventions on test code: test names, assertion messages, conditional assertions,
+- **[`tests`](docs/rules/tests.md)** — conventions on test code: test names, assertion messages, conditional assertions,
   var derefs, `^js` hints
-- **[`docstrings`](docs/rules.md#docstrings)** — bbatsov style-guide violations on every def (summary, indent,
+- **[`docstrings`](docs/rules/docstrings.md)** — bbatsov style-guide violations on every def (summary, indent,
   whitespace)
-- **[`layout`](docs/rules.md#layout)** — the staircase cljfmt's `:split-keypairs-over-multiple-lines?` leaves behind and
+- **[`layout`](docs/rules/layout.md)** — the staircase cljfmt's `:split-keypairs-over-multiple-lines?` leaves behind and
   `cljfmt check` accepts
-- **[`css-order`](docs/rules.md#css-order)** — Spade style properties out of the
-  [order](docs/rules.md#property-order-tables) a stylelint config defines
+- **[`css-order`](docs/rules/css-order.md)** — Spade style properties out of the
+  [order](docs/rules/css-order.md#property-order-tables) a stylelint config defines
 
 Run only specific groups:
 
@@ -129,7 +129,8 @@ clojure -M:run --output edn --files src/app/subs.cljs src/cljs/myapp
 
 ## Documentation
 
-- **[What it detects](docs/rules.md)** — every rule, what it flags, and what it deliberately leaves alone
+- **[What it detects](docs/rules.md)** — every rule, what it flags, and what it deliberately leaves alone, one page per
+  rule group
 - **[Baseline](docs/baseline.md)** — adopting on a codebase that already has findings: snapshot what is there, then
   block only what is new
 - **[Severity tiers](docs/severity.md)** — which rules block CI, and choosing per tier or per rule with `--fail-on`
@@ -151,8 +152,8 @@ Every setting can live in `.cljs-patrol/config.edn`, where it persists for the p
 ```
 
 A CLI flag overrides the matching setting. See [Severity tiers](docs/severity.md) for `:fail-on`,
-[Baseline](docs/baseline.md) for `:baseline`, [Property-order tables](docs/rules.md#property-order-tables) for
-`:css-order`, [A11y component aliases](docs/rules.md#a11y-component-aliases) for `:a11y`,
-[Test paths](docs/rules.md#test-paths) for `:tests`, [Layout options](docs/rules.md#layout-options) for `:layout`, and
-[Reading .clj files](docs/rules.md#experimental-reading-clj-files) for `:experimental-clj`. A flag written
-`--no-experimental-clj` turns that last one off for one run.
+[Baseline](docs/baseline.md) for `:baseline`, [Property-order tables](docs/rules/css-order.md#property-order-tables) for
+`:css-order`, [A11y component aliases](docs/rules/a11y.md#a11y-component-aliases) for `:a11y`,
+[Test paths](docs/rules/tests.md#test-paths) for `:tests`, [Layout options](docs/rules/layout.md#layout-options) for
+`:layout`, and [Reading .clj files](docs/rules.md#experimental-reading-clj-files) for `:experimental-clj`. A flag
+written `--no-experimental-clj` turns that last one off for one run.

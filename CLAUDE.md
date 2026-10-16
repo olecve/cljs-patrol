@@ -5,7 +5,8 @@ Guidance for AI assistants working on cljs-patrol.
 ## What This Tool Does
 
 cljs-patrol is a standalone static analysis CLI for ClojureScript codebases. The rule groups are listed one line each in
-the README's [Rule groups](README.md#rule-groups), and every rule is in [docs/rules.md](docs/rules.md).
+the README's [Rule groups](README.md#rule-groups), and every rule is under [docs/rules/](docs/rules.md), one page per
+group.
 
 ## Project Structure
 
@@ -110,22 +111,23 @@ out, and the failure mode is appending to it until nobody reads it.
 
 Everything that a reader consults **after** deciding lives under `docs/`:
 
-| Page               | Holds                                                                        |
-| ------------------ | ---------------------------------------------------------------------------- |
-| `docs/rules.md`    | What every rule flags, what it leaves alone, and the per-group configuration |
-| `docs/baseline.md` | Snapshotting an existing codebase and blocking only what is new              |
-| `docs/severity.md` | Tiers, `--fail-on`, and composing the two                                    |
+| Page                    | Holds                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------- |
+| `docs/rules.md`         | The index of rule groups, and reading `.clj` under `--experimental-clj`                 |
+| `docs/rules/<group>.md` | What every rule in the group flags, what it leaves alone, and the group's configuration |
+| `docs/baseline.md`      | Snapshotting an existing codebase and blocking only what is new                         |
+| `docs/severity.md`      | Tiers, `--fail-on`, and composing the two                                               |
 
 So when a change needs documenting:
 
-- **A new rule, or a change to what one flags** — `docs/rules.md`. Add one line to the README's rule-group list only if
-  the group itself is new.
+- **A new rule, or a change to what one flags** — its group's page, `docs/rules/<group>.md`. A new group gets a new
+  page, a line in the `docs/rules.md` index, and one line in the README's rule-group list.
 - **A new flag** — the page for the feature it belongs to; the README only if it is one a first-time reader needs.
 - **A new config key** — the example in the README's Configuration file section, and the page that explains it.
 
 Two things that keep the split honest: every page links back to the README, and a cross-reference between pages is a
-relative link with an anchor (`[Property-order tables](rules.md#property-order-tables)`), never a bare `#anchor`, which
-silently resolves to the wrong page.
+relative link with an anchor (`[Property-order tables](rules/css-order.md#property-order-tables)`), never a bare
+`#anchor`, which silently resolves to the wrong page.
 
 ## Docstrings
 
@@ -163,7 +165,8 @@ Register the group in `assemble-groups` in `core.clj`. Then, for every rule it a
   that has none
 - if it holds on `.clj`, add it to the `--fail-on` list of the "Patrol our own sources" step in `test.yml`, or it will
   not gate
-- document it in `docs/rules.md`, and add one line to the README's rule-group list naming the group
+- document it on its group's page under `docs/rules/`; a new group gets a new page, a line in the `docs/rules.md` index,
+  and one line in the README's rule-group list
 
 ## Key Architectural Notes
 
