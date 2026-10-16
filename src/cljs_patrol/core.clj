@@ -31,8 +31,8 @@
 (defn- assemble-groups
   "Build every rule group from `config`.
 
-  `clj?` is the experimental `.clj` mode: it reaches only `docstrings` and `tests`,
-  whose rules are about Clojure the language rather than about ClojureScript, and
+  `clj?` is the experimental `.clj` mode: it reaches only `docstrings`, `tests` and
+  `layout`, whose rules are about Clojure the language rather than about ClojureScript, and
   leaves every group that reads Hiccup, re-frame or Spade on `.cljs`/`.cljc` alone."
   [config clj?]
   [re-frame/group

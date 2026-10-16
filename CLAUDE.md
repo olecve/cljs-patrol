@@ -4,15 +4,8 @@ Guidance for AI assistants working on cljs-patrol.
 
 ## What This Tool Does
 
-cljs-patrol is a standalone static analysis CLI for ClojureScript codebases. It detects:
-
-- **Re-frame:** unused/phantom subscriptions and events, dynamic dispatch sites
-- **Spade:** unused CSS-in-ClojureScript styles (`defclass`, `defattrs`)
-- **A11y:** accessibility issues in Hiccup (`:img` missing `:alt`, invalid `:tabIndex`, `:on-click` on non-interactive
-  tags)
-- **Docstrings:** bbatsov style-guide violations on every def (summary, indentation, leading/trailing whitespace)
-
-Exits with code 1 when issues are found (CI-friendly).
+cljs-patrol is a standalone static analysis CLI for ClojureScript codebases. The rule groups are listed one line each in
+the README's [Rule groups](README.md#rule-groups), and every rule is in [docs/rules.md](docs/rules.md).
 
 ## Project Structure
 
@@ -30,9 +23,13 @@ src/cljs_patrol/
 │   ├── re_frame.clj    #   subs/events: unused, phantom, duplicate, effects
 │   ├── spade.clj       #   styles: unused, defattrs-in-merge, selector shapes
 │   ├── reagent.clj     #   defclass-as-sole-attr, redundant into-hiccup
+│   ├── spade/          #   selector-shape helpers
 │   ├── a11y.clj        #   accessibility on literal Hiccup vectors
-│   ├── css_order.clj   #   CSS property order, with orders/ holding the tables
+│   ├── css_order.clj   #   CSS property order
+│   ├── css_order/      #   the embedded stylelint order tables
 │   ├── typography.clj  #   mixed Figma typography token groups
+│   ├── tests.clj       #   conventions on test code
+│   ├── layout.clj      #   what cljfmt's keypair split leaves behind
 │   └── docstrings.clj  #   bbatsov docstring rules
 └── reporters/          # console.clj, html.clj, edn.clj, markdown.clj
 build.clj               # tools.build uberjar + native-image config
@@ -52,8 +49,8 @@ clojure -M:run --output html <src-dir>           # write report.html
 ## Building
 
 ```bash
-clojure -T:build uber          # produces target/cljs-patrol-0.1.0.jar
-java -jar target/cljs-patrol-0.1.0.jar <src-dir>
+clojure -T:build uber          # produces target/cljs-patrol-dev.jar
+java -jar target/cljs-patrol-dev.jar <src-dir>
 ```
 
 ## Testing
@@ -120,8 +117,8 @@ silently resolves to the wrong page.
 ## Docstrings
 
 The `docstrings` group in this tool enforces the
-[bbatsov clojure-style-guide](https://github.com/bbatsov/clojure-style-guide) docstring rules on `.cljs`/`.cljc` code.
-Our own `.clj` sources aren't scanned, but we hold them to the same standard by hand:
+[bbatsov clojure-style-guide](https://github.com/bbatsov/clojure-style-guide) docstring rules, and our own `.clj`
+sources follow them too:
 
 - **Summary line** must be a self-contained sentence ending in `.`, `!`, `?`, or `:` (colon is fine when it introduces
   an indented list/example). Put any additional prose on the next line, not as a continuation of the summary.
@@ -137,40 +134,30 @@ non-obvious return contract (e.g. "returns nil vs. empty set has different meani
 shape, or the reason a conservative choice was made. Restating the name in prose is noise, and so is describing another
 var — "Wraps `severity/count-by-fail-on`" tells the reader to go and read something else.
 
-The three style rules are machine-checked by this tool's own `docstrings` group, which reads `.clj` under
-`--experimental-clj`. CI runs this on every push, and so can you:
-
-```bash
-clojure -M:run --experimental-clj --only docstrings,tests \
-  --fail-on docstring-summary,docstring-indentation,docstring-leading-trailing-whitespace,deftest-leading-article,assertion-message-inline,conditional-assertion \
-  src test build.clj
-```
+The first three are machine-checked: CI runs the tool on its own sources under `--experimental-clj`, in the "Patrol our
+own sources" step of `.github/workflows/test.yml`. Copy the command from there to run it locally.
 
 ## Adding a New Rule Group
 
-Each group is a map with a fixed interface:
+Each group is a record implementing the `RuleGroup` protocol in `group.clj`: `group-id`, `group-name`, `parse-handlers`,
+`analyze`, `summary-lines`, `failed?`, `suggestions`, `rule->tier` and `file-extensions`. A group with config takes it
+through a `make-group` fn; see `layout.clj` for a small one.
 
-```clojure
-{:id           :my-group
- :name         "My Group"
- :parse        {:handle-list   (fn [ctx node] ...)
-                :handle-vector (fn [ctx node] ...)
-                :handle-token  (fn [ctx node] ...)}
- :analyze      (fn [parse-results] ...)     ; returns analysis map
- :report       (fn [analysis] ...)          ; prints to stdout
- :summary-lines (fn [analysis] ...)         ; returns [[label count] ...]
- :failed?      (fn [analysis] ...)          ; returns boolean
- :html-sections [{:title "..." :description "..." :columns [...] :data-fn fn}]}
-```
+Register the group in `assemble-groups` in `core.clj`. Then, for every rule it adds:
 
-Register the group in `core.clj` in the `all-groups` vector, then document it: the rules themselves in `docs/rules.md`,
-and one line in the README's rule-group list naming the group.
+- give it a tier in `rule->tier` and list it under that tier in `docs/severity.md`
+- give it a baseline identity in one of the rule sets at the top of `baseline.clj`; `baseline_test.clj` fails for a rule
+  that has none
+- if it holds on `.clj`, add it to the `--fail-on` list of the "Patrol our own sources" step in `test.yml`, or it will
+  not gate
+- document it in `docs/rules.md`, and add one line to the README's rule-group list naming the group
 
 ## Key Architectural Notes
 
-- **Parse phase:** `parser/analyze-project` walks all `.cljs`/`.cljc` files, calls each group's `:parse` handlers per
-  node type (list, vector, token), and accumulates results per file. Each group declares the file extensions it applies
-  to via `file-extensions`; only matching groups are invoked per file.
+- **Parse phase:** `parser/analyze-project` walks every file an enabled group reads (`.cljs`/`.cljc`, and `.clj` under
+  `--experimental-clj`), calls each group's `:parse` handlers per node type (list, vector, token), and accumulates
+  results per file. Each group declares the file extensions it applies to via `file-extensions`; only matching groups
+  are invoked per file.
 - **Analyze phase:** Each group cross-references declarations vs. usages to compute unused/phantom sets.
 - **Namespace resolution:** `parser/resolve-kw` handles `::alias/name`, `::local`, and `:plain` keywords using per-file
   alias maps extracted from `ns` forms.
