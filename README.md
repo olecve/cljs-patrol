@@ -56,6 +56,8 @@ Analysis is split into independent rule groups. By default all groups run.
   whitespace)
 - **[`layout`](docs/rules/layout.md)** — the staircase cljfmt's `:split-keypairs-over-multiple-lines?` leaves behind and
   `cljfmt check` accepts
+- **[`idioms`](docs/rules/idioms.md)** — three or more calls nested one inside another that a `->` thread would read top
+  to bottom
 - **[`css-order`](docs/rules/css-order.md)** — Spade style properties out of the
   [order](docs/rules/css-order.md#property-order-tables) a stylelint config defines
 
@@ -72,8 +74,9 @@ Disable specific groups:
 clojure -M:run --disable spade src/cljs/myapp
 ```
 
-The `docstrings`, `tests` and `layout` groups are about Clojure rather than ClojureScript, and `--experimental-clj` lets
-them read `.clj` files too — see [Reading .clj files](docs/rules.md#experimental-reading-clj-files).
+The `docstrings`, `tests`, `layout` and `idioms` groups are about Clojure rather than ClojureScript, and
+`--experimental-clj` lets them read `.clj` files too — see
+[Reading .clj files](docs/rules.md#experimental-reading-clj-files).
 
 ## Output
 
@@ -148,6 +151,7 @@ Every setting can live in `.cljs-patrol/config.edn`, where it persists for the p
  :a11y {:component-aliases {my.ui/drawer :dialog}}
  :tests {:paths ["test"]}
  :layout {:split-map-after-symbol true}
+ :idioms {:min-calls 3}
  :experimental-clj true}
 ```
 
@@ -155,5 +159,6 @@ A CLI flag overrides the matching setting. See [Severity tiers](docs/severity.md
 [Baseline](docs/baseline.md) for `:baseline`, [Property-order tables](docs/rules/css-order.md#property-order-tables) for
 `:css-order`, [A11y component aliases](docs/rules/a11y.md#a11y-component-aliases) for `:a11y`,
 [Test paths](docs/rules/tests.md#test-paths) for `:tests`, [Layout options](docs/rules/layout.md#layout-options) for
-`:layout`, and [Reading .clj files](docs/rules.md#experimental-reading-clj-files) for `:experimental-clj`. A flag
-written `--no-experimental-clj` turns that last one off for one run.
+`:layout`, [Idioms options](docs/rules/idioms.md#idioms-options) for `:idioms`, and
+[Reading .clj files](docs/rules.md#experimental-reading-clj-files) for `:experimental-clj`. A flag written
+`--no-experimental-clj` turns that last one off for one run.

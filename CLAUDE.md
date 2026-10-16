@@ -31,6 +31,7 @@ src/cljs_patrol/
 │   ├── typography.clj  #   mixed Figma typography token groups
 │   ├── tests.clj       #   conventions on test code
 │   ├── layout.clj      #   what cljfmt's keypair split leaves behind
+│   ├── idioms.clj      #   nesting a thread would read better
 │   └── docstrings.clj  #   bbatsov docstring rules
 └── reporters/          # console.clj, html.clj, edn.clj, markdown.clj
 build.clj               # tools.build uberjar + native-image config
