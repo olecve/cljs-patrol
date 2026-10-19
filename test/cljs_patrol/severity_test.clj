@@ -130,7 +130,7 @@
            :css-property-order-outside-in
            :deftest-leading-article :assertion-message-inline :conditional-assertion
            :var-deref-in-test :js-hint-in-test
-           :form-after-split-map :split-map-after-sibling :nested-call-chain}
+           :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil}
          (severity/tier->rules rule->tier :cleanup)))
   (is (= #{} (severity/tier->rules rule->tier :unknown))
       "unknown tier returns empty set"))
@@ -230,7 +230,7 @@
                :css-property-order-outside-in
                :deftest-leading-article :assertion-message-inline :conditional-assertion
                :var-deref-in-test :js-hint-in-test
-               :form-after-split-map :split-map-after-sibling :nested-call-chain}
+               :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil}
              (->> tiered :cleanup (map :rule) set))))
 
     (testing "info-only contains rules without a tier"

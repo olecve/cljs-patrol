@@ -1,13 +1,16 @@
 (ns cljs-patrol.groups.idioms
-  "Rule group: nested calls a threading macro would read top to bottom.
+  "Rule group: code a core idiom says more plainly.
 
-  Reports only what can be rewritten without a judgement call. Every step passes the call
-  below it in the slot a thread fills, the first argument for `->` or the last for `->>`,
-  so the rewrite expands back to exactly the code that was written. That slot also has to
-  be where the function takes its data: `(get-in db (path))` nests a call, but the call is
-  the path, and threading the path reads backwards. So a step with more than one argument
-  counts only for a function whose data slot is known: a core or `clojure.string`
-  function, or a `.method` call.
+  Nested calls a threading macro would read top to bottom, and a `cond` closing on an
+  `:else nil` it returns anyway. Each rule reports only what it can rewrite without a
+  judgement call.
+
+  For a thread, every step passes the call below it in the slot a thread fills, the first
+  argument for `->` or the last for `->>`, so the rewrite expands back to exactly the code
+  that was written. That slot also has to be where the function takes its data:
+  `(get-in db (path))` nests a call, but the call is the path, and threading the path
+  reads backwards. So a step with more than one argument counts only for a function whose
+  data slot is known: a core or `clojure.string` function, or a `.method` call.
 
   Every head is also known to be a function. Threading cannot change what a macro does,
   but it changes how it reads: `(-> xs sort vec delay)` looks like four steps run in order,
@@ -437,9 +440,40 @@
          :kind (get def-kinds head :other)
          :file file}))))
 
+(defn- always-true?
+  "True when loc is a test no value can fail: a keyword or `true`."
+  [loc]
+  (or (parser/kw-node? loc)
+      (and (= :token (z/tag loc)) (= "true" (z/string loc)))))
+
+(defn- else-nil-candidate
+  "Record a `cond` whose last clause pairs an always-true test with `nil`, or nil.
+
+  Whether the head is core's `cond` is settled once every file is read, since the
+  namespace may define a `cond` of its own. A name a form above binds is a local."
+  [loc ns-info file]
+  (let [head (describe-head (z/down loc) ns-info)
+        arguments (call-arguments loc)
+        [test-loc value-loc] (take-last 2 arguments)]
+    (when (and (= "cond" (:name head))
+               (>= (count arguments) 4)
+               (even? (count arguments))
+               (always-true? test-loc)
+               (= "nil" (z/string value-loc))
+               (not (and (= :local (:kind head)) (locally-bound? loc "cond")))
+               (not (unevaluated? loc)))
+      {:type ::else-nil
+       :head head
+       :form (z/string loc)
+       :else-text (z/string test-loc)
+       :position (try (z/position loc) (catch Exception _ [0 1]))
+       :file file
+       :test (parser/top-level-name loc)})))
+
 (defn- handle [min-calls loc ns-info file]
   (let [found (keep identity [(when (= :list (z/tag loc)) (definition loc ns-info file))
-                              (chain-candidate min-calls loc ns-info file)])]
+                              (chain-candidate min-calls loc ns-info file)
+                              (else-nil-candidate loc ns-info file)])]
     (when (seq found)
       {:decls (vec found)
        :usages []
@@ -585,6 +619,25 @@
        (filter #(>= (count %) min-calls))
        (reduce (fn [best run] (if (>= (count run) (count best)) run best)) nil)))
 
+(defn- core-cond?
+  "True when head, settled against the project's definitions, is core's `cond`."
+  [head definitions]
+  (= {:kind :core
+      :library :core
+      :name "cond"}
+     (select-keys (settle-head head definitions) [:kind :library :name])))
+
+(defn- else-nil-finding [{:keys [form else-text position file test]}]
+  (let [[row col] position]
+    (cond-> {:kw 'cond
+             :type :cond-else-nil
+             :form (parser/normalize-form form)
+             :file file
+             :row row
+             :col col
+             :hint (str "Drop the " else-text " nil clause: a cond no clause matches returns nil")}
+      test (assoc :test test))))
+
 (defn- analyze* [min-calls {:keys [declarations]}]
   (let [definitions (function-definitions declarations)]
     {:nested-call-chain
@@ -594,7 +647,11 @@
                   (some->> (runs (:levels candidate) definitions)
                            (longest-run min-calls)
                            (finding candidate))))
-          vec)}))
+          vec)
+     :cond-else-nil
+     (->> declarations
+          (filter #(and (= ::else-nil (:type %)) (core-cond? (:head %) definitions)))
+          (mapv else-nil-finding))}))
 
 (defn- suggestion [min-calls]
   (str min-calls " or more calls nested one inside another, each passing the one below it "
@@ -609,17 +666,25 @@
        "or some at the top of the thread is not counted, and a call on a literal stays the "
        "thread's starting value unless it is the collection of a ->> step."))
 
+(def ^:private else-nil-suggestion
+  (str "A cond whose last clause is :else nil, or another keyword or true paired with nil. "
+       "A cond no clause matches returns nil already, so the clause adds nothing, yet it reads "
+       "as a default someone chose, and the reader has to check that it is not. Drop it."))
+
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup
   (group-id [_] :idioms)
   (group-name [_] "Idioms")
   (parse-handlers [_] {:handle-list (fn [loc ns-info file] (handle min-calls loc ns-info file))})
   (analyze [_ data] (analyze* min-calls data))
-  (summary-lines [_ {:keys [nested-call-chain]}]
-    [["Nested call chain:" (count nested-call-chain)]])
+  (summary-lines [_ {:keys [nested-call-chain cond-else-nil]}]
+    [["Nested call chain:" (count nested-call-chain)]
+     ["Cond else nil:" (count cond-else-nil)]])
   (failed? [_ _] false)
-  (suggestions [_] {:nested-call-chain (suggestion min-calls)})
-  (rule->tier [_] {:nested-call-chain :cleanup})
+  (suggestions [_] {:nested-call-chain (suggestion min-calls)
+                    :cond-else-nil else-nil-suggestion})
+  (rule->tier [_] {:nested-call-chain :cleanup
+                   :cond-else-nil :cleanup})
   (file-extensions [_] extensions))
 
 (defn make-group

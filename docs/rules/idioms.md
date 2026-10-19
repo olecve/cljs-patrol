@@ -86,6 +86,52 @@ above `(request-to "/qa")` rather than three, unless it is the collection of a `
 
 </details>
 
+### Cond else nil
+
+`cond-else-nil` · cleanup — A `cond` closing on an `:else nil` it returns anyway.
+
+```clojure
+;; flagged
+(defn badge [status]
+  (cond
+    (= :done status) "Done"
+    (= :failed status) "Failed"
+    :else nil))
+
+;; fix
+(defn badge [status]
+  (cond
+    (= :done status) "Done"
+    (= :failed status) "Failed"))
+```
+
+**Left alone:**
+
+```clojure
+(defn badge [status] (cond (= :done status) "Done" :else "Pending")) ; a real default
+
+(defn badge [status] (condp = status :done "Done" nil)) ; condp throws without its default
+
+(defn badge [status] (case status :done "Done" nil)) ; so does case
+```
+
+<details>
+<summary>Details</summary>
+
+Why: a `cond` no clause matches returns `nil`, as its docstring says, so the last clause adds nothing. It still reads as
+a default someone chose, though, and every reader has to stop and check that it is not one. Dropping it leaves only the
+clauses that decide something, the same reason `(when x y)` reads better than `(if x y nil)`.
+
+Flagged: the last clause of a `cond` whose test no value can fail, `:else` or any other keyword or `true`, paired with a
+literal `nil`. clj-kondo's `:cond-else` asks for `:else` over `true` or `:default`; this goes one step further when the
+value is `nil`.
+
+Left alone: `condp` and `case`, which throw when nothing matches and need their default; a `cond` holding only the one
+clause; a `cond` from another library, a local named `cond`, or one the namespace defines itself; and anything quoted,
+discarded or inside `(comment …)`.
+
+</details>
+
 ## Idioms options
 
 The `idioms` group reads one key from `.cljs-patrol/config.edn`:
