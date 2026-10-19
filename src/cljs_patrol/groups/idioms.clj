@@ -2,8 +2,9 @@
   "Rule group: code a core idiom says more plainly.
 
   Nested calls a threading macro would read top to bottom, a `cond` closing on an
-  `:else nil` it returns anyway, an `if` or `when` testing a `not`, and an `into` an empty
-  vector or set. Each rule reports only what it can rewrite without a judgement call.
+  `:else nil` it returns anyway, an `if` or `when` testing a `not`, and an `into` from a
+  collection into an empty vector or set. Each rule reports only what it can rewrite
+  without a judgement call.
 
   For a thread, every step passes the call below it in the slot a thread fills, the first
   argument for `->` or the last for `->>`, so the rewrite expands back to exactly the code
@@ -683,33 +684,39 @@
   {:vector "vec"
    :set "set"})
 
-(def ^:private array-free-fns
-  "Core functions that never return an array, so `vec` copies what they return, as `into` does."
+(def ^:private fresh-collection-fns
+  "Core functions that return a seq or a new plain vector, list, hash set or hash map.
+
+  Never an array, which `vec` aliases where `into` copies it; never a set, which `set`
+  returns as it is where `into` builds a hash set, a sorted one included; and never a
+  reducible `vec` and `set` cannot read. `conj` and `merge` are not among them: given one
+  argument, they return it."
   #{"map" "mapcat" "map-indexed" "filter" "remove" "keep" "keep-indexed" "concat" "distinct"
     "dedupe" "keys" "vals" "range" "repeat" "take" "drop" "take-while" "drop-while" "take-last"
     "drop-last" "butlast" "rest" "next" "sort" "sort-by" "reverse" "partition" "partition-all"
-    "partition-by" "interpose" "interleave" "flatten" "cons" "conj" "list" "vector" "hash-set"
-    "set" "vec" "tree-seq" "re-seq" "zipmap" "group-by" "frequencies" "select-keys" "merge"})
+    "partition-by" "interpose" "interleave" "flatten" "cons" "list" "vector" "hash-set"
+    "tree-seq" "re-seq" "zipmap" "group-by" "frequencies" "select-keys"})
 
-(defn- array-free-source
-  "Return what vouches that node, the source of an `into`, is no array, or nil when nothing does.
+(defn- fresh-source
+  "Return what vouches that node, the source of an `into`, reads the same to `vec` or `set`, or nil.
 
   A collection literal vouches for itself, as `:literal`. A call vouches through its head,
-  which has to settle as one of the core functions that never return an array."
+  which has to settle as one of the core functions in `fresh-collection-fns`."
   [node source-loc ns-info]
   (case (n/tag node)
     (:vector :map :set :quote) :literal
     :list (let [head-name (some-> source-loc z/down parser/sym-name)]
-            (when (contains? array-free-fns head-name)
+            (when (contains? fresh-collection-fns head-name)
               (core-call-head source-loc ns-info head-name)))
     nil))
 
 (defn- into-empty-candidate
   "Record an `into` from one collection into an empty vector or set literal, or nil.
 
-  `vec` aliases an array where `into` copies it, so `(into [] xs)` counts only where the
-  source cannot be an array. `set` copies whatever it reads, so `(into #{} xs)` counts
-  for any source. A step of a thread takes its source from the thread."
+  `vec` aliases an array, and `set` returns a set as it is, a sorted one included, where
+  `into` builds a new collection either way. So it counts only where the source is a
+  literal or a call `fresh-source` vouches for. A step of a thread takes its source from
+  the thread."
   [loc ns-info file]
   (when-let [head (core-call-head loc ns-info "into")]
     (let [[target source & more] (rest (code-forms (z/node loc)))
@@ -723,8 +730,8 @@
         (let [source-loc (->> loc z/down parser/right-siblings
                               (filter #(identical? source (z/node %)))
                               first)
-              vouch (array-free-source source source-loc ns-info)]
-          (when (or (= "set" builder) vouch)
+              vouch (fresh-source source source-loc ns-info)]
+          (when vouch
             {:type ::into-empty
              :builder builder
              :head head
@@ -959,7 +966,7 @@
     (cond-> {:kw 'into
              :type :into-empty
              :form (parser/normalize-form (str (if fn-literal? "#(" "(") head-text " " target-text " "
-                                               (shown source-text text-max) ")"))
+                                               source-text ")"))
              :file file
              :row row
              :col col
@@ -1014,9 +1021,10 @@
 
 (def ^:private into-empty-suggestion
   (str "(into [] xs) or (into #{} xs): pouring one collection into an empty vector or set. vec "
-       "and set name the collection they build, and return a vector or set they are given "
-       "without copying it. Write (vec xs) or (set xs). (into [] xs) counts only where xs "
-       "cannot be an array, since vec aliases an array where into copies it."))
+       "and set name the collection they build. Write (vec xs) or (set xs). It counts only "
+       "where xs is a literal or a call of a core function returning a seq or a new plain "
+       "collection: vec aliases an array, and set returns a set, a sorted one included, "
+       "where into builds a new collection."))
 
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup

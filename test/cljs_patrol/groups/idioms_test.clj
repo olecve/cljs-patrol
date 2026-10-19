@@ -596,17 +596,30 @@
   ([file-ns-info lines]
    (->> lines (parse idioms/group file-ns-info) :into-empty (mapv :form))))
 
-(deftest into-empty-set-is-flagged-whatever-the-source
-  (is (= ["(into #{} ids)"
-          "(into #{} (.getArray v))"
-          "(into #{} (map :id rows))"
-          "(clojure.core/into #{} ids)"
-          "#(into #{} %)"]
-         (into-empties ["(into #{} ids)"
-                        "(into #{} (.getArray v))"
-                        "(into #{} (map :id rows))"
-                        "(clojure.core/into #{} ids)"
-                        "#(into #{} %)"]))))
+(deftest into-empty-set-from-a-fresh-collection-is-flagged
+  (is (= ["(into #{} (map :id rows))"
+          "(into #{} (keys m))"
+          "(clojure.core/into #{} (concat a b))"
+          "#(into #{} (map :id %))"
+          "(into #{} [1 2])"
+          "(into #{} #{1 2})"]
+         (into-empties ["(into #{} (map :id rows))"
+                        "(into #{} (keys m))"
+                        "(clojure.core/into #{} (concat a b))"
+                        "#(into #{} (map :id %))"
+                        "(into #{} [1 2])"
+                        "(into #{} #{1 2})"]))))
+
+(deftest into-empty-set-from-what-may-be-a-set-or-reducible-is-left-alone
+  (is (empty? (into-empties ["(into #{} ids)"
+                             "(into #{} (sorted-set 3 1 2))"
+                             "(into #{} (r/map inc xs))"
+                             "(into #{} (set xs))"
+                             "(into #{} (conj s 1))"
+                             "(into #{} (merge s))"
+                             "(into #{} (.getArray v))"
+                             "(into #{} #?(:clj xs))"
+                             "(into #{} #?@(:clj [(map inc) xs] :cljs [xs]))"]))))
 
 (deftest into-empty-vector-from-what-is-no-array-is-flagged
   (is (= ["(into [] (map :id rows))"
@@ -615,14 +628,16 @@
           "(into [] [1 2])"
           "(into [] {:a 1})"
           "(into [] '(1 2))"
-          "(into [] (concat a b))"]
+          "(into [] (concat a b))"
+          "(into [] #{1 2})"]
          (into-empties ["(into [] (map :id rows))"
                         "(into [] (keys m))"
                         "(into [] (clojure.core/filter odd? xs))"
                         "(into [] [1 2])"
                         "(into [] {:a 1})"
                         "(into [] '(1 2))"
-                        "(into [] (concat a b))"]))))
+                        "(into [] (concat a b))"
+                        "(into [] #{1 2})"]))))
 
 (deftest into-empty-vector-from-what-may-be-an-array-is-left-alone
   (is (empty? (into-empties ["(into [] ids)"
@@ -631,6 +646,10 @@
                              "(into [] (to-array xs))"
                              "(into [] (lib/map f xs))"
                              "(into [] (helper xs))"
+                             "(into [] (vec arr))"
+                             "(into [] (conj arr))"
+                             "(into [] (merge arr))"
+                             "(into [] (conj (subvec v 1) 4))"
                              "(into [] #(f %))"
                              "(into [] ())"]))))
 
@@ -646,8 +665,8 @@
             :hint "Write (set (map :id rows))"}
            finding))))
 
-(deftest into-empty-finding-leaves-out-a-long-source
-  (is (= [["(into #{} ...)" "Write (set ...)"]]
+(deftest into-empty-finding-shortens-a-long-source-in-the-hint-only
+  (is (= [["(into #{} (map (comp keyword :value) available-permission-options))" "Write (set ...)"]]
          (->> ["(into #{} (map (comp keyword :value) available-permission-options))"]
               parse
               :into-empty
@@ -656,32 +675,32 @@
 (deftest into-that-is-no-pour-into-an-empty-literal-is-left-alone
   (is (empty? (into-empties ["(into [] (map inc) xs)"
                              "(into #{} (map :id) rows)"
-                             "(into [1] xs)"
-                             "(into #{:a} xs)"
-                             "(into {} xs)"
-                             "(into () xs)"
+                             "(into [1] (map inc xs))"
+                             "(into #{:a} (keys m))"
+                             "(into {} (map f xs))"
+                             "(into () (map inc xs))"
                              "(into ^:m [] (map inc xs))"
-                             "(into v xs)"
+                             "(into v (map inc xs))"
                              "(into [])"]))))
 
 (deftest into-empty-with-comments-inside-is-flagged
   (is (= ["(into [;; nothing yet] (map inc xs))"
-          "(into #{} ids)"]
+          "(into #{} (keys m))"]
          (into-empties ["(into [ ;; nothing yet\n] (map inc xs))"
-                        "(into #{} #_old ids)"]))))
+                        "(into #{} #_old (keys m))"]))))
 
 (deftest threaded-into-is-left-alone
   (is (empty? (into-empties ["(->> ys (into [] (map inc xs)))"
-                             "(->> ys (into #{} xs))"]))))
+                             "(->> ys (into #{} (keys m)))"]))))
 
 (deftest into-or-builder-that-is-not-core-is-left-alone
-  (is (empty? (into-empties ["(lib/into #{} ids)"
-                             "(let [set sorted-set] (into #{} ids))"
+  (is (empty? (into-empties ["(lib/into #{} (keys m))"
+                             "(let [set sorted-set] (into #{} (keys m)))"
                              "(let [vec f] (into [] (map inc xs)))"
                              "(let [map f] (into [] (map inc xs)))"
-                             "(let [into f] (into #{} ids))"])))
+                             "(let [into f] (into #{} (keys m)))"])))
   (is (empty? (into-empties (assoc ns-info :shadowed-core #{"set"})
-                            ["(into #{} ids)"]))
+                            ["(into #{} (keys m))"]))
       "a set the ns form may take from elsewhere is no builder to ask for")
   (is (empty? (into-empties ["(defn vec [xs] xs)"
                              "(into [] (map inc xs))"])))
@@ -689,9 +708,9 @@
                              "(into [] (map inc xs))"]))
       "a map the namespace defines may return an array")
   (is (empty? (into-empties ["(defmacro into [& xs] xs)"
-                             "(into #{} ids)"]))))
+                             "(into #{} (keys m))"]))))
 
 (deftest unevaluated-into-is-left-alone
-  (is (empty? (into-empties ["'(into #{} ids)"
-                             "(comment (into #{} ids))"
-                             "#_(into #{} ids)"]))))
+  (is (empty? (into-empties ["'(into #{} (keys m))"
+                             "(comment (into #{} (keys m)))"
+                             "#_(into #{} (keys m))"]))))
