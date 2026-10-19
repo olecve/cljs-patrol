@@ -1,9 +1,9 @@
 (ns cljs-patrol.groups.idioms
   "Rule group: code a core idiom says more plainly.
 
-  Nested calls a threading macro would read top to bottom, and a `cond` closing on an
-  `:else nil` it returns anyway. Each rule reports only what it can rewrite without a
-  judgement call.
+  Nested calls a threading macro would read top to bottom, a `cond` closing on an
+  `:else nil` it returns anyway, and an `if` or `when` testing a `not`. Each rule reports
+  only what it can rewrite without a judgement call.
 
   For a thread, every step passes the call below it in the slot a thread fills, the first
   argument for `->` or the last for `->>`, so the rewrite expands back to exactly the code
@@ -148,19 +148,60 @@
   "Forms that pass that argument only to the step of each test-and-step pair."
   #{"cond->" "cond->>"})
 
+(defn- site
+  "Return the outermost of loc and what wraps it without changing it: metadata, a reader conditional."
+  [loc]
+  (let [parent (z/up loc)]
+    (cond
+      (= :meta (some-> parent z/tag)) (recur parent)
+      (= :reader-macro (some-> parent z/up z/tag)) (recur (z/up parent))
+      :else loc)))
+
+(defn- parent-head
+  "Return the name of the symbol heading the list loc's site sits in, or nil."
+  [loc]
+  (let [parent (z/up (site loc))]
+    (when (= :list (some-> parent z/tag))
+      (some-> parent z/down parser/sym-name))))
+
+(def ^:private first-slot-threading-heads
+  "Threads that pass their value as the first argument, so each step takes one argument more than it writes."
+  #{"->" "some->" "doto" ".." "cond->"})
+
+(defn- spliced?
+  "True when loc is an element of a `#?@` splice, which lands where the source does not show."
+  [loc]
+  (let [vector-loc (z/up loc)
+        branch-loc (some-> vector-loc z/up)
+        reader-loc (some-> branch-loc z/up)]
+    (and (= :vector (some-> vector-loc z/tag))
+         (= :list (some-> branch-loc z/tag))
+         (= :reader-macro (some-> reader-loc z/tag))
+         (str/starts-with? (z/string reader-loc) "#?@"))))
+
 (defn- threaded-step?
   "True when loc is a step of a threading form, so it takes an argument it does not show.
 
   `(doto cell (.setCellValue (double x)))` calls `.setCellValue` with two arguments. A
-  `cond->` test takes none, and an `as->` step writes its argument out."
+  `cond->` test takes none, and an `as->` step writes its argument out. Metadata and a
+  reader conditional around loc do not move it, and a form spliced in by `#?@` may land
+  anywhere, so it counts as a step. A threading form that is itself a step of a first-slot
+  thread takes one argument more than it writes, so its steps sit one further along: the
+  `if` of `(-> m (cond-> flag (if a b)))` is a step."
   [loc]
-  (let [parent (z/up loc)
-        head (when (= :list (some-> parent z/tag)) (some-> parent z/down parser/sym-name))
-        index (index-in-parent loc)]
-    (boolean
-     (and index
-          (or (and (contains? threading-heads head) (>= index 2))
-              (and (contains? conditional-threading-heads head) (>= index 3) (odd? index)))))))
+  (let [at (site loc)
+        head (parent-head loc)]
+    (cond
+      (spliced? at) true
+      (not (or (contains? threading-heads head) (contains? conditional-threading-heads head))) false
+      :else (let [thread-loc (z/up at)
+                  index (+ (index-in-parent at)
+                           (if (and (contains? first-slot-threading-heads (parent-head thread-loc))
+                                    (threaded-step? thread-loc))
+                             1
+                             0))]
+              (or (and (contains? threading-heads head) (>= index 2))
+                  (and (contains? conditional-threading-heads head) (>= index 3) (odd? index)))))))
 
 (defn- class-name? [segment]
   (let [initial (first segment)]
@@ -232,7 +273,7 @@
 (defn- binding-sides
   "Return the binding-side nodes of a binding vector, `:let` modifiers included."
   [vector-node]
-  (let [elements (vec (code-children vector-node))]
+  (let [elements (vec (code-forms vector-node))]
     (->> (range 0 (count elements) 2)
          (mapcat (fn [i]
                    (let [binding-node (nth elements i)
@@ -253,17 +294,19 @@
     (if-let [single (first (filter #(= :vector (n/tag %)) after-dispatch))]
       [single]
       (keep #(when (= :list (n/tag %))
-               (let [opening (first (code-children %))]
+               (let [opening (first (code-forms %))]
                  (when (= :vector (some-> opening n/tag)) opening)))
             after-dispatch))))
 
 (defn- names-bound-by
   "Return the names list-node binds for its body.
 
-  Let-like and `letfn` bindings, fn parameters and a named fn's own name, the fields of a
-  `deftype` or `defrecord`, and the name of a `catch` or `as->`."
+  Let-like and `letfn` bindings, the parameters of a fn or any `def`-headed form, a
+  `defui` or `defnc` as much as a `defn`, a named fn's own name, the fields of a `deftype`
+  or `defrecord`, the name of a `catch` or `as->`, and the index and result of an `amap`
+  or `areduce`. A comment or `#_` form among them changes nothing they bind."
   [list-node]
-  (let [[head & arguments] (code-children list-node)
+  (let [[head & arguments] (code-forms list-node)
         head-name (when (= :token (some-> head n/tag))
                     (some-> (try (n/sexpr head) (catch Exception _ nil)) name))]
     (cond
@@ -271,38 +314,27 @@
       (some->> arguments first binding-sides (mapcat symbol-names) set)
 
       (= "letfn" head-name)
-      (some->> arguments first code-children (keep #(some-> % code-children first symbol-names)) (apply concat) set)
+      (some->> arguments first code-forms (keep #(some-> % code-forms first symbol-names)) (apply concat) set)
 
-      (contains? fn-like-heads head-name)
+      (or (contains? fn-like-heads head-name) (some-> head-name (str/starts-with? "def")))
       (cond-> (->> (parameter-vectors head-name arguments)
                    (mapcat symbol-names)
                    set)
         (and (= "fn" head-name) (= :token (some-> arguments first n/tag)))
         (into (symbol-names (first arguments))))
 
-      (contains? #{"deftype" "defrecord" "catch" "as->"} head-name)
-      (some-> (nth arguments 1 nil) symbol-names))))
+      (contains? #{"catch" "as->"} head-name)
+      (some-> (nth arguments 1 nil) symbol-names)
+
+      (contains? #{"amap" "areduce"} head-name)
+      (->> (take 2 (rest arguments))
+           (mapcat symbol-names)
+           set))))
 
 (def ^:private method-defining-heads
   "Forms whose lists define methods: a list's head names the method, and its vector the parameters."
   #{"reify" "deftype" "defrecord" "extend-type" "extend-protocol" "proxy" "specify" "specify!"
     "definterface" "defprotocol"})
-
-(defn- site
-  "Return the outermost of loc and what wraps it without changing it: metadata, a reader conditional."
-  [loc]
-  (let [parent (z/up loc)]
-    (cond
-      (= :meta (some-> parent z/tag)) (recur parent)
-      (= :reader-macro (some-> parent z/up z/tag)) (recur (z/up parent))
-      :else loc)))
-
-(defn- parent-head
-  "Return the name of the symbol heading the list loc's site sits in, or nil."
-  [loc]
-  (let [parent (z/up (site loc))]
-    (when (= :list (some-> parent z/tag))
-      (some-> parent z/down parser/sym-name))))
 
 (defn- method-definition?
   "True when loc is a list defining a method, not a call: `(toString [_] …)` in a `reify`."
@@ -313,7 +345,7 @@
 (defn- method-parameter-names
   "Return the names a method definition binds for its body, one arity or several."
   [loc]
-  (->> (code-children (z/node loc))
+  (->> (code-forms (z/node loc))
        rest
        (parameter-vectors "fn")
        (mapcat symbol-names)
@@ -548,30 +580,40 @@
   (or (= :all shadowed-core)
       (contains? shadowed-core unqualified-name)))
 
-(defn- else-nil-candidate
-  "Record a `cond` whose last clause pairs an always-true test with `nil`, or nil.
+(defn- core-name-unshadowed?
+  "True when no name the ns form takes and no local above loc hides core's unqualified-name."
+  [loc ns-info unqualified-name]
+  (not (or (core-name-shadowed? ns-info unqualified-name)
+           (locally-bound? loc unqualified-name))))
 
-  Whether the head is core's `cond` is settled once every file is read, since the
-  namespace may define a `cond` of its own. An unqualified `cond` is core's only when the
-  ns form names no `cond` and nothing above binds one, and only a list in call position
-  counts: a method a `reify` defines, a member of `..` and a `case` constant list are no
-  calls."
-  [loc ns-info file]
-  (when (= "cond" (some-> loc z/down parser/sym-name))
-    (let [head (describe-head (z/down loc) ns-info)
-          arguments (rest (code-forms (z/node loc)))
-          [test-node value-node] (take-last 2 arguments)]
-      (when (and (= "cond" (:name head))
-                 (>= (count arguments) 4)
-                 (even? (count arguments))
-                 (always-true? test-node)
-                 (written-nil? value-node)
-                 (not (and (= :local (:kind head))
-                           (or (core-name-shadowed? ns-info "cond") (locally-bound? loc "cond"))))
+(defn- core-call-head
+  "Return the head of loc when it may call core's core-name, or nil.
+
+  Whether the head is core's is settled once every file is read, since the namespace may
+  define the name itself. An unqualified head is core's only when the ns form names it
+  nowhere and nothing above binds it, and only a list in call position counts: a method a
+  `reify` defines, a member of `..` and a `case` constant list are no calls."
+  [loc ns-info core-name]
+  (when (= core-name (some-> loc z/down parser/sym-name))
+    (let [head (describe-head (z/down loc) ns-info)]
+      (when (and (= core-name (:name head))
+                 (or (not= :local (:kind head)) (core-name-unshadowed? loc ns-info core-name))
                  (not (method-definition? loc))
                  (not (member-position? loc))
                  (not (case-constant? loc))
                  (not (unevaluated? loc)))
+        head))))
+
+(defn- else-nil-candidate
+  "Record a `cond` whose last clause pairs an always-true test with `nil`, or nil."
+  [loc ns-info file]
+  (when-let [head (core-call-head loc ns-info "cond")]
+    (let [arguments (rest (code-forms (z/node loc)))
+          [test-node value-node] (take-last 2 arguments)]
+      (when (and (>= (count arguments) 4)
+                 (even? (count arguments))
+                 (always-true? test-node)
+                 (written-nil? value-node))
         {:type ::else-nil
          :head head
          :head-text (z/string (z/down loc))
@@ -583,10 +625,64 @@
          :file file
          :test (parser/top-level-name loc)}))))
 
+(def ^:private negatable-forms
+  "Forms a `not` around the test folds into, with the form that folds it and the argument counts they take."
+  {"if" ["if-not" #{2 3}]
+   "when" ["when-not" any?]})
+
+(defn- describe-name
+  "Classify an unqualified name the file does not write, as describe-head would if it did.
+
+  A name the ns form refers is shadowed already, so this reads it as the namespace's own."
+  [unqualified-name {:keys [ns-name]}]
+  {:kind :local
+   :var (keyword ns-name unqualified-name)
+   :name unqualified-name})
+
+(defn- negated-test-candidate
+  "Record an `if` or `when` whose test is a call of `not`, or nil.
+
+  The form the finding asks for, `if-not` or `when-not`, has to be core's too. A step of a
+  thread takes its test from the thread, so its first argument is no test. A reader
+  conditional the `not` holds may read as nothing on one platform, where `(not)` and
+  `when-not` part ways."
+  [loc ns-info file]
+  (let [form-name (some-> loc z/down parser/sym-name)
+        [folded-name arity?] (get negatable-forms form-name)]
+    (when-let [head (when folded-name (core-call-head loc ns-info form-name))]
+      (let [[test-node & body] (rest (code-forms (z/node loc)))]
+        (when (and (arity? (inc (count body)))
+                   (= :list (some-> test-node n/tag))
+                   (not (threaded-step? loc))
+                   (core-name-unshadowed? loc ns-info folded-name))
+          (let [test-loc (->> loc z/down parser/right-siblings
+                              (filter #(identical? test-node (z/node %)))
+                              first)
+                [negated & more] (rest (code-forms test-node))]
+            (when-let [not-head (when (and negated
+                                           (empty? more)
+                                           (not= :reader-macro (n/tag negated)))
+                                  (core-call-head test-loc ns-info "not"))]
+              {:type ::negated-test
+               :form-name form-name
+               :folded-name folded-name
+               :head head
+               :not-head not-head
+               :folded-head (describe-name folded-name ns-info)
+               :head-text (z/string (z/down loc))
+               :fn-literal? (= :fn (z/tag loc))
+               :test-text (n/string test-node)
+               :negated-text (n/string negated)
+               :body (map n/string body)
+               :position (try (z/position loc) (catch Exception _ [0 1]))
+               :file file
+               :test (parser/top-level-name loc)})))))))
+
 (defn- handle [min-calls loc ns-info file]
   (let [found (keep identity [(when (= :list (z/tag loc)) (definition loc ns-info file))
                               (chain-candidate min-calls loc ns-info file)
-                              (else-nil-candidate loc ns-info file)])]
+                              (else-nil-candidate loc ns-info file)
+                              (negated-test-candidate loc ns-info file)])]
     (when (seq found)
       {:decls (vec found)
        :usages []
@@ -732,12 +828,12 @@
        (filter #(>= (count %) min-calls))
        (reduce (fn [best run] (if (>= (count run) (count best)) run best)) nil)))
 
-(defn- core-cond?
-  "True when head, settled against the project's definitions, is core's `cond`."
-  [head definitions]
+(defn- core-named?
+  "True when head, settled against the project's definitions, is core's core-name."
+  [head definitions core-name]
   (= {:kind :core
       :library :core
-      :name "cond"}
+      :name core-name}
      (select-keys (settle-head head definitions) [:kind :library :name])))
 
 (defn- else-nil-form
@@ -763,6 +859,35 @@
              :hint (str "Drop the " else-text " nil clause: a cond no clause matches returns nil")}
       test (assoc :test test))))
 
+(defn- negated-test-form
+  "Spell out an `if` or `when` by its test and its first two branches, counting the rest.
+
+  This is the finding's identity in a baseline, so a branch too long to show is left out."
+  [{:keys [head-text fn-literal? test-text body]}]
+  (let [shown-body (map #(shown % text-max) (take 2 body))
+        more (- (count body) 2)]
+    (str (if fn-literal? "#(" "(") head-text " " test-text
+         (apply str (map #(str " " %) shown-body))
+         (when (pos? more) (str " ..." more " more..."))
+         ")")))
+
+(defn- negated-test-finding [{:keys [form-name folded-name negated-text position file test]
+                              :as candidate}]
+  (let [[row col] position]
+    (cond-> {:kw (symbol form-name)
+             :type :negated-test
+             :form (parser/normalize-form (negated-test-form candidate))
+             :file file
+             :row row
+             :col col
+             :hint (str "Write (" folded-name " " (shown negated-text text-max) " ...)")}
+      test (assoc :test test))))
+
+(defn- negated-test? [{:keys [form-name folded-name head not-head folded-head]} definitions]
+  (and (core-named? head definitions form-name)
+       (core-named? not-head definitions "not")
+       (core-named? folded-head definitions folded-name)))
+
 (defn- analyze* [min-calls {:keys [declarations]}]
   (let [definitions (function-definitions declarations)]
     {:nested-call-chain
@@ -775,8 +900,12 @@
           vec)
      :cond-else-nil
      (->> declarations
-          (filter #(and (= ::else-nil (:type %)) (core-cond? (:head %) definitions)))
-          (mapv else-nil-finding))}))
+          (filter #(and (= ::else-nil (:type %)) (core-named? (:head %) definitions "cond")))
+          (mapv else-nil-finding))
+     :negated-test
+     (->> declarations
+          (filter #(and (= ::negated-test (:type %)) (negated-test? % definitions)))
+          (mapv negated-test-finding))}))
 
 (defn- suggestion [min-calls]
   (str min-calls " or more calls nested one inside another, each passing the one below it "
@@ -796,20 +925,28 @@
        "A cond no clause matches returns nil already, so the clause adds nothing, yet it reads "
        "as a default someone chose, and the reader has to check that it is not. Drop it."))
 
+(def ^:private negated-test-suggestion
+  (str "An if or when whose test is (not x). if-not and when-not carry the negation in their "
+       "name, so the test reads as written, with one pair of parentheses less. Write "
+       "(if-not x a b) or (when-not x ...)."))
+
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup
   (group-id [_] :idioms)
   (group-name [_] "Idioms")
   (parse-handlers [_] {:handle-list (fn [loc ns-info file] (handle min-calls loc ns-info file))})
   (analyze [_ data] (analyze* min-calls data))
-  (summary-lines [_ {:keys [nested-call-chain cond-else-nil]}]
+  (summary-lines [_ {:keys [nested-call-chain cond-else-nil negated-test]}]
     [["Nested call chain:" (count nested-call-chain)]
-     ["Cond else nil:" (count cond-else-nil)]])
+     ["Cond else nil:" (count cond-else-nil)]
+     ["Negated test:" (count negated-test)]])
   (failed? [_ _] false)
   (suggestions [_] {:nested-call-chain (suggestion min-calls)
-                    :cond-else-nil else-nil-suggestion})
+                    :cond-else-nil else-nil-suggestion
+                    :negated-test negated-test-suggestion})
   (rule->tier [_] {:nested-call-chain :cleanup
-                   :cond-else-nil :cleanup})
+                   :cond-else-nil :cleanup
+                   :negated-test :cleanup})
   (file-extensions [_] extensions))
 
 (defn make-group

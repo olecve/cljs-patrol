@@ -460,3 +460,133 @@
   (is (empty? (else-nils ["'(cond (pos? n) :up :else nil)"
                           "(comment (cond (pos? n) :up :else nil))"
                           "#_(cond (pos? n) :up :else nil)"]))))
+
+(defn- negated-tests
+  ([lines] (negated-tests ns-info lines))
+  ([file-ns-info lines]
+   (->> lines (parse idioms/group file-ns-info) :negated-test (mapv :form))))
+
+(deftest if-or-when-testing-not-is-flagged
+  (is (= ["(if (not ready?) :wait :go)"
+          "(if (not ready?) :wait)"
+          "(when (not ready?) (log) (retry))"
+          "(when (not ready?) (log) (retry) ...1 more...)"
+          "(clojure.core/when (clojure.core/not ready?) :wait)"
+          "#(when (not %) :wait)"
+          "(if (not #_x (seq xs)) :empty :full)"]
+         (negated-tests ["(if (not ready?) :wait :go)"
+                         "(if (not ready?) :wait)"
+                         "(when (not ready?)\n  (log)\n  (retry))"
+                         "(when (not ready?) (log) (retry) (done))"
+                         "(clojure.core/when (clojure.core/not ready?) :wait)"
+                         "#(when (not %) :wait)"
+                         "(if ;; why\n (not #_x (seq xs)) :empty :full)"])))
+  (is (= ["(if (not x) :a :b)"]
+         (negated-tests ["(if #_y (not x) :a :b)"]))
+      "a discarded form before the test is no test"))
+
+(deftest negated-test-finding-names-the-fold-and-where-it-is
+  (let [[finding] (:negated-test (parse ["(defn f [x]" "  (when (not x) :wait))"]))]
+    (is (= {:kw 'when
+            :type :negated-test
+            :file "views.cljs"
+            :row 2
+            :col 3
+            :test "f"
+            :hint "Write (when-not x ...)"}
+           (dissoc finding :form)))))
+
+(deftest negated-test-hint-leaves-out-a-long-test
+  (is (= ["Write (when-not ... ...)"]
+         (->> ["(when (not (contains? selected-document-ids document-id)) :a)"]
+              parse
+              :negated-test
+              (mapv :hint)))))
+
+(deftest negated-test-form-leaves-out-a-long-branch
+  (is (= ["(if (not ready?) ... :go)"]
+         (negated-tests ["(if (not ready?)\n  (let [a 1]\n    (inc a))\n  :go)"]))))
+
+(deftest test-that-is-no-single-not-is-left-alone
+  (is (empty? (negated-tests ["(if (not= a b) :x :y)"
+                              "(if (not a b) :x :y)"
+                              "(if (not) :x :y)"
+                              "(if not :x :y)"
+                              "(if ready? :x :y)"
+                              "(when-not (not ready?) :x)"
+                              "(if-not (not ready?) :x)"
+                              "(when)"]))))
+
+(deftest if-of-wrong-arity-is-left-alone
+  (is (empty? (negated-tests ["(if (not ready?))"
+                              "(if (not ready?) :a :b :c)"]))))
+
+(deftest not-holding-a-reader-conditional-is-left-alone
+  (is (empty? (negated-tests ["(when (not #?(:clj x)) :a)"
+                              "(when (not #?@(:clj [x])) :a)"]))))
+
+(deftest threaded-if-or-when-is-left-alone
+  (is (empty? (negated-tests ["(-> v (when (not ready?)))"
+                              "(cond-> m flag (if (not ready?) :a))"
+                              "(doto o (when (not ready?) :a))"]))))
+
+(deftest if-or-when-threaded-through-a-nested-or-wrapped-step-is-left-alone
+  (is (empty? (negated-tests ["(-> m (cond-> flag (if (not x) :a)))"
+                              "(-> v (doto (when (not x) :a)))"
+                              "(-> v (some-> (when (not x))))"
+                              "(-> v (-> (when (not x))))"
+                              "(cond-> m true (-> (when (not x))))"
+                              "(-> v ^:m (when (not ready?)))"
+                              "(-> v #?(:cljs (when (not ready?))))"
+                              "(-> x #?@(:clj [(when (not x))]))"]))))
+
+(deftest if-or-when-that-a-thread-only-starts-from-is-flagged
+  (is (= ["(when (not x) :a)"
+          "(when (not x) :a)"
+          "(when (not x) :a)"
+          "(when (not x) :a)"]
+         (negated-tests ["(->> m (-> (when (not x) :a)))"
+                         "(-> (when (not x) :a) f)"
+                         "(-> (-> (when (not x) :a)) f)"
+                         "(f #?(:clj [(when (not x) :a)]))"]))))
+
+(deftest chain-in-a-nested-or-wrapped-step-is-left-alone
+  (is (empty? (rewrites ["(-> m (-> (vec (sort (distinct xs)))))"
+                         "(-> m ^:m (vec (sort (distinct xs))))"
+                         "(-> m #?(:cljs (vec (sort (distinct xs)))))"]))))
+
+(deftest not-or-fold-that-is-not-core-is-left-alone
+  (is (empty? (negated-tests ["(lib/when (not ready?) :a)"
+                              "(when (lib/not ready?) :a)"
+                              "(let [not some?] (when (not ready?) :a))"
+                              "(let [when-not f] (when (not ready?) :a))"
+                              "(let [when f] (when (not ready?) :a))"])))
+  (is (empty? (negated-tests (assoc ns-info :shadowed-core #{"when-not"})
+                             ["(when (not ready?) :a)"]))
+      "a when-not the ns form may take from elsewhere is no fold to ask for")
+  (is (empty? (negated-tests (assoc ns-info :shadowed-core #{"not"})
+                             ["(when (not ready?) :a)"]))))
+
+(deftest fold-or-not-the-namespace-defines-is-left-alone
+  (is (empty? (negated-tests ["(defmacro when-not [& body] body)"
+                              "(when (not ready?) :a)"])))
+  (is (empty? (negated-tests ["(defn not [x] x)"
+                              "(when (not ready?) :a)"])))
+  (is (empty? (negated-tests ["(defmacro when [test & body] body)"
+                              "(when (not ready?) :a)"]))))
+
+(deftest unevaluated-or-no-call-is-left-alone
+  (is (empty? (negated-tests ["'(when (not ready?) :a)"
+                              "(comment (when (not ready?) :a))"
+                              "(case k (when (not x) :a) :hit :miss)"
+                              "(. o (when (not x) :a))"
+                              "(.. o (when (not x) :a))"]))))
+
+(deftest local-from-other-binding-forms-is-left-alone
+  (is (empty? (negated-tests ["(defui panel [{:keys [when]}] (when (not ready?) :a))"
+                              "(rum/defc panel [not] (when (not ready?) :a))"
+                              "(areduce xs i not 0 (if (not x) 1 2))"
+                              "(amap xs i not (if (not x) 1 2))"
+                              "(let [not some? ;; why\n ] (when (not ready?) :a))"
+                              "(let [#_x not some?] (when (not ready?) :a))"
+                              "(let ;; why\n [not some?] (when (not ready?) :a))"]))))
