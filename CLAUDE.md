@@ -123,6 +123,13 @@ So when a change needs documenting:
 
 - **A new rule, or a change to what one flags** — its group's page, `docs/rules/<group>.md`. A new group gets a new
   page, a line in the `docs/rules.md` index, and one line in the README's rule-group list.
+
+Every rule's section leads with code, not prose: a `;; flagged` part, a `;; fix` part, and a `**Left alone:**` block
+where the edges need showing, with the full explanation folded into `<details>` below them. `docs_examples_test.clj`
+runs every blank-line-separated chunk through the rule as a file of its own, so a flagged example must be reported and a
+fix or left-alone one must not; an example that drifts from the tool fails the build. A rule PR leads with the same kind
+of examples.
+
 - **A new flag** — the page for the feature it belongs to; the README only if it is one a first-time reader needs.
 - **A new config key** — the example in the README's Configuration file section, and the page that explains it.
 
