@@ -1,13 +1,18 @@
 (ns cljs-patrol.groups.idioms
   "Rule group: nested calls a threading macro would read top to bottom.
 
-  Reports only what can be rewritten without a judgement call. Every step of a chain
-  takes exactly one argument, so `->` and `->>` produce the same form, and the rewrite
-  expands back to exactly the code that was written. Every head is also known to be a
-  function. Threading cannot change what a macro does, but it changes how it reads:
-  `(-> xs sort vec delay)` looks like four steps run in order, while the `delay` defers
-  the other three. A head the scan cannot vouch for, a library var or a local, ends the
-  chain, which gives up some findings so that none of them is a judgement call."
+  Reports only what can be rewritten without a judgement call. Every step passes the call
+  below it in the slot a thread fills, the first argument for `->` or the last for `->>`,
+  so the rewrite expands back to exactly the code that was written. That slot also has to
+  be where the function takes its data: `(get-in db (path))` nests a call, but the call is
+  the path, and threading the path reads backwards. So a step with more than one argument
+  counts only for a function whose data slot is known, core, `clojure.string` and interop.
+
+  Every head is also known to be a function. Threading cannot change what a macro does,
+  but it changes how it reads: `(-> xs sort vec delay)` looks like four steps run in order,
+  while the `delay` defers the other three. A head the scan cannot vouch for, a library var
+  or a local, ends the chain, which gives up some findings so that none of them is a
+  judgement call."
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
@@ -30,6 +35,69 @@
   "Functions of `clojure.string` that a one-argument call reads as one step."
   #{"lower-case" "upper-case" "capitalize" "trim" "triml" "trimr" "trim-newline" "blank?"
     "split-lines"})
+
+(defn- arity [& counts] (set counts))
+
+(defn- at-least [minimum] #(>= % minimum))
+
+(def ^:private data-slots
+  "Where a function of more than one argument takes its data, and the argument counts it does so at.
+
+  Keyed by library and name. A count outside the set has no data slot a thread can fill:
+  `(map f)` is a transducer, and `(map f xs ys)` maps over two collections."
+  {[:core "map"] [:last (arity 2)]
+   [:core "mapv"] [:last (arity 2)]
+   [:core "mapcat"] [:last (arity 2)]
+   [:core "map-indexed"] [:last (arity 2)]
+   [:core "filter"] [:last (arity 2)]
+   [:core "filterv"] [:last (arity 2)]
+   [:core "remove"] [:last (arity 2)]
+   [:core "keep"] [:last (arity 2)]
+   [:core "keep-indexed"] [:last (arity 2)]
+   [:core "take"] [:last (arity 2)]
+   [:core "drop"] [:last (arity 2)]
+   [:core "take-while"] [:last (arity 2)]
+   [:core "drop-while"] [:last (arity 2)]
+   [:core "take-last"] [:last (arity 2)]
+   [:core "drop-last"] [:last (arity 2)]
+   [:core "sort"] [:last (arity 2)]
+   [:core "sort-by"] [:last (arity 2 3)]
+   [:core "group-by"] [:last (arity 2)]
+   [:core "partition"] [:last (arity 2 3 4)]
+   [:core "partition-all"] [:last (arity 2 3)]
+   [:core "partition-by"] [:last (arity 2)]
+   [:core "interpose"] [:last (arity 2)]
+   [:core "some"] [:last (arity 2)]
+   [:core "every?"] [:last (arity 2)]
+   [:core "not-any?"] [:last (arity 2)]
+   [:core "reduce"] [:last (arity 2 3)]
+   [:core "into"] [:last (arity 2 3)]
+   [:core "cons"] [:last (arity 2)]
+   [:string "join"] [:last (arity 2)]
+   [:core "get"] [:first (arity 2 3)]
+   [:core "get-in"] [:first (arity 2 3)]
+   [:core "assoc"] [:first #(and (>= % 3) (odd? %))]
+   [:core "assoc-in"] [:first (arity 3)]
+   [:core "update"] [:first (at-least 3)]
+   [:core "update-in"] [:first (at-least 3)]
+   [:core "dissoc"] [:first (at-least 2)]
+   [:core "select-keys"] [:first (arity 2)]
+   [:core "merge"] [:first (at-least 2)]
+   [:core "conj"] [:first (at-least 2)]
+   [:core "disj"] [:first (at-least 2)]
+   [:core "contains?"] [:first (arity 2)]
+   [:core "find"] [:first (arity 2)]
+   [:core "nth"] [:first (arity 2 3)]
+   [:core "subs"] [:first (arity 2 3)]
+   [:core "update-vals"] [:first (arity 2)]
+   [:core "update-keys"] [:first (arity 2)]
+   [:string "split"] [:first (arity 2 3)]
+   [:string "replace"] [:first (arity 3)]
+   [:string "replace-first"] [:first (arity 3)]
+   [:string "starts-with?"] [:first (arity 2)]
+   [:string "ends-with?"] [:first (arity 2)]
+   [:string "includes?"] [:first (arity 2)]
+   [:string "index-of"] [:first (arity 2 3)]})
 
 (def ^:private core-namespaces #{"clojure.core" "cljs.core"})
 
@@ -83,35 +151,6 @@
           (or (and (contains? threading-heads head) (>= index 2))
               (and (contains? conditional-threading-heads head) (>= index 3) (odd? index)))))))
 
-(defn- one-argument?
-  "True when loc is a list or `#(…)` of a token head and exactly one argument, written out."
-  [loc]
-  (let [children (code-children (z/node loc))]
-    (and (= 2 (count children))
-         (= :token (n/tag (first children)))
-         (not (contains? #{"quote" "comment"} (parser/sym-name (z/down loc)))))))
-
-(defn- link?
-  "True when loc is a one-argument call that can sit inside a chain.
-
-  The list a reader conditional holds is not a call: `#?(:clj x)` reads as `(:clj x)`.
-  A `#(…)` is a function value wherever it is an argument, so it can only start a chain."
-  [loc]
-  (and (= :list (z/tag loc))
-       (one-argument? loc)
-       (not= :reader-macro (some-> loc z/up z/tag))
-       (not (threaded-step? loc))))
-
-(defn- start?
-  "True when loc can start a chain: a link, or a `#(…)` whose body is a one-argument call."
-  [loc]
-  (or (link? loc)
-      (and (= :fn (z/tag loc)) (one-argument? loc))))
-
-(defn- head-loc [loc] (z/down loc))
-
-(defn- argument-loc [loc] (z/right (z/down loc)))
-
 (defn- class-name? [segment]
   (let [initial (first segment)]
     (boolean (and initial (Character/isUpperCase (char initial))))))
@@ -131,37 +170,103 @@
          (class-name? (some-> qualifier (str/split #"\.") last))))))
 
 (defn- describe-var
-  "Classify the var full-ns/var-name: a core or string function, or a var to look up."
+  "Classify the var full-ns/var-name: core or `clojure.string`, or a var to look up."
   [full-ns var-name]
   (cond
-    (and (core-namespaces full-ns) (core-fns var-name)) {:kind :fn}
-    (and (= "clojure.string" full-ns) (string-fns var-name)) {:kind :fn}
+    (core-namespaces full-ns) {:kind :core
+                               :library :core
+                               :name var-name}
+    (= "clojure.string" full-ns) {:kind :core
+                                  :library :string
+                                  :name var-name}
     :else {:kind :var
            :var (keyword full-ns var-name)}))
 
 (defn- describe-head
   "Classify the head of a call by what the analysis needs to know about it.
 
-  `:fn` is known to be a function wherever it is used. `:var` resolves to a namespace's
-  var, and is a function only if the project defines it with `defn`. `:local-or-core` is
-  unqualified and unreferred: the project's own definition in this namespace decides, and
-  failing one, whether it is a core function. `:unknown` is everything else."
+  `:keyword` and `:host` are functions wherever they are used, and `:core` names a function
+  of `clojure.core` or `clojure.string`. `:var` resolves to a namespace's var, a function
+  only if the project defines it with `defn`. `:local` is unqualified and unreferred: the
+  project's own definition in this namespace decides, and failing one it is read as core.
+  `:other` is everything else."
   [loc {:keys [ns-name aliases refers]}]
   (let [text (parser/raw loc)
         sym (parser/sym-name loc)]
     (cond
-      (parser/kw-node? loc) {:kind :fn}
-      (nil? sym) {:kind :unknown}
+      (parser/kw-node? loc) {:kind :keyword}
+      (nil? sym) {:kind :other}
       (and (str/includes? text "/") (pos? (str/index-of text "/")))
       (let [[alias-part name-part] (str/split text #"/" 2)]
         (if (or (contains? aliases alias-part) (not (interop-or-host? text)))
           (describe-var (get aliases alias-part alias-part) name-part)
-          {:kind :fn}))
-      (interop-or-host? text) {:kind :fn}
+          {:kind :host}))
+      (interop-or-host? text) {:kind :host
+                               :method? (str/starts-with? text ".")}
       (contains? refers text) (describe-var (get refers text) text)
-      :else {:kind :local-or-core
+      :else {:kind :local
              :var (keyword ns-name text)
-             :core? (contains? core-fns text)})))
+             :name text})))
+
+(defn- call-arguments
+  "Return the argument locs of a list or `#(…)` with a token head, or nil."
+  [loc]
+  (let [children (code-children (z/node loc))]
+    (when (and (seq children)
+               (= :token (n/tag (first children)))
+               (not (contains? #{"quote" "comment"} (parser/sym-name (z/down loc)))))
+      (->> (iterate z/right (z/right (z/down loc)))
+           (take (dec (count children)))
+           vec))))
+
+(defn- data-slot
+  "Return [direction argument-loc] for the argument loc threads, or nil when it threads none.
+
+  One argument threads either way, `:either`. With more, the head's data slot decides:
+  `:last` for `(map f xs)`, `:first` for `(get m k)` and a method call. Which function the
+  head names, and whether it takes this many arguments, is settled once every file is
+  read; this reads it as core unless the namespace says otherwise, and a head that turns
+  out to be something else ends the chain."
+  [loc ns-info]
+  (when-let [arguments (seq (call-arguments loc))]
+    (if (= 1 (count arguments))
+      [:either (first arguments)]
+      (let [{:keys [kind library name method?]} (describe-head (z/down loc) ns-info)
+            [direction] (when (contains? #{:core :local} kind)
+                          (get data-slots [(or library :core) name]))]
+        (cond
+          direction
+          [direction (if (= :last direction) (last arguments) (first arguments))]
+
+          (and (= :host kind) method?)
+          [:first (first arguments)])))))
+
+(defn- link?
+  "True when loc is a call that can sit inside a chain.
+
+  The list a reader conditional holds is not a call: `#?(:clj x)` reads as `(:clj x)`.
+  A `#(…)` is a function value wherever it is an argument, so it can only start a chain."
+  [loc ns-info]
+  (and (= :list (z/tag loc))
+       (some? (data-slot loc ns-info))
+       (not= :reader-macro (some-> loc z/up z/tag))
+       (not (threaded-step? loc))))
+
+(defn- start?
+  "True when loc can start a chain: a link, or a `#(…)` whose body is a call."
+  [loc ns-info]
+  (or (link? loc ns-info)
+      (and (= :fn (z/tag loc)) (some? (data-slot loc ns-info)))))
+
+(defn- inner-link?
+  "True when loc is a link a chain above it walks into, so no chain starts at loc."
+  [loc ns-info]
+  (let [parent (z/up loc)]
+    (boolean
+     (and parent
+          (link? loc ns-info)
+          (start? parent ns-info)
+          (identical? (z/node loc) (some-> (data-slot parent ns-info) second z/node))))))
 
 (defn- literal?
   "True when loc is written out as a value: a string, number, keyword, or collection literal."
@@ -172,24 +277,21 @@
     false))
 
 (defn- level [loc ns-info]
-  {:head (describe-head (head-loc loc) ns-info)
-   :fn-literal? (= :fn (z/tag loc))
-   :literal-argument? (literal? (argument-loc loc))
-   :head-text (parser/raw (head-loc loc))
-   :head-name (parser/sym-name (head-loc loc))
-   :argument-text (z/string (argument-loc loc))
-   :form-text (z/string loc)
-   :position (try (z/position loc) (catch Exception _ [0 1]))})
-
-(defn- inner-link?
-  "True when loc is a link a chain above it walks into, so no chain starts at loc."
-  [loc]
-  (let [parent (z/up loc)]
-    (boolean
-     (and parent
-          (link? loc)
-          (start? parent)
-          (identical? (z/node loc) (z/node (argument-loc parent)))))))
+  (let [[direction argument] (data-slot loc ns-info)
+        arguments (call-arguments loc)]
+    {:head (describe-head (z/down loc) ns-info)
+     :direction direction
+     :arity (count arguments)
+     :fn-literal? (= :fn (z/tag loc))
+     :literal-argument? (literal? argument)
+     :head-text (parser/raw (z/down loc))
+     :head-name (parser/sym-name (z/down loc))
+     :other-arguments (->> arguments
+                           (remove #(identical? (z/node %) (z/node argument)))
+                           (mapv z/string))
+     :argument-text (z/string argument)
+     :form-text (z/string loc)
+     :position (try (z/position loc) (catch Exception _ [0 1]))}))
 
 (def ^:private unevaluated-tags #{:quote :syntax-quote :unquote :unquote-splicing :uneval})
 
@@ -205,18 +307,18 @@
       :else (recur (z/up current)))))
 
 (defn- chain-candidate
-  "Record the longest run of one-argument calls starting at loc, or nil.
+  "Record the longest run of calls each threading the one below it, starting at loc, or nil.
 
   Whether each head is a function is decided once every file has been read, since a
   head may name a var defined in another one. A run shorter than min-calls is dropped
   here: setting a head aside later only shortens it."
   [min-calls loc ns-info file]
-  (when (and (start? loc) (not (inner-link? loc)))
+  (when (and (start? loc ns-info) (not (inner-link? loc ns-info)))
     (let [levels (loop [current loc
                         found []]
                    (let [found (conj found (level current ns-info))
-                         argument (argument-loc current)]
-                     (if (link? argument)
+                         argument (second (data-slot current ns-info))]
+                     (if (link? argument ns-info)
                        (recur argument found)
                        found)))]
       (when (and (>= (count levels) min-calls) (not (unevaluated? loc)))
@@ -255,19 +357,61 @@
        :usages []
        :dynamics []})))
 
-(defn- function? [{:keys [kind var core?]} definitions]
+(defn- settle-head
+  "Settle what a head names now that every definition in the project is known."
+  [{:keys [kind var name]
+    :as head} definitions]
   (case kind
-    :fn true
-    :var (= :fn (get definitions var))
-    :local-or-core (if-let [defined (get definitions var)] (= :fn defined) core?)
-    false))
+    :local (if-let [defined (get definitions var)]
+             {:kind (if (= :fn defined) :project :other)}
+             {:kind :core
+              :library :core
+              :name name})
+    :var {:kind (if (= :fn (get definitions var)) :project :other)}
+    head))
+
+(defn- step?
+  "True when a level is a step the scan can vouch for.
+
+  A one-argument call needs a head known to be a function. A call of more is a step only
+  for a head whose data slot is known, core or `clojure.string` by name, or a method call."
+  [{:keys [direction arity]
+    :as level} definitions]
+  (let [{:keys [kind library name method?]} (settle-head (:head level) definitions)]
+    (if (= :either direction)
+      (case kind
+        (:keyword :host :project) true
+        :core (contains? (if (= :string library) string-fns core-fns) name)
+        false)
+      (case kind
+        :core (let [[slot arity?] (get data-slots [library name])]
+                (boolean (and slot (arity? arity))))
+        :host (boolean (and method? (= :first direction)))
+        false))))
+
+(defn- split-by-direction
+  "Split run where its steps stop agreeing on which slot they thread into.
+
+  One-argument steps agree with either; `(get (map f xs) k)` reads as neither thread."
+  [run]
+  (:runs (reduce (fn [{:keys [runs direction]} {step-direction :direction
+                                                :as step}]
+                   (if (or (= :either step-direction) (nil? direction) (= direction step-direction))
+                     {:runs (conj (pop runs) (conj (peek runs) step))
+                      :direction (if (= :either step-direction) direction step-direction)}
+                     {:runs (conj runs [step])
+                      :direction step-direction}))
+                 {:runs [[]]
+                  :direction nil}
+                 run)))
 
 (defn- runs
-  "Split levels into the maximal runs whose every head is a function."
+  "Split levels into the maximal runs whose every level is a step, threading one way."
   [levels definitions]
   (->> levels
-       (partition-by #(function? (:head %) definitions))
-       (filter #(function? (:head (first %)) definitions))))
+       (partition-by #(step? % definitions))
+       (filter #(step? (first %) definitions))
+       (mapcat split-by-direction)))
 
 (defn- drop-wrappers [run]
   (drop-while #(contains? wrappers (:head-name %)) run))
@@ -280,17 +424,25 @@
   [run]
   (if (:literal-argument? (last run)) (butlast run) run))
 
-(def ^:private seed-max 40)
+(def ^:private text-max 40)
+
+(defn- shown
+  "Return text as a rewrite shows it: whole, or, given a limit, `...` once longer or spanning lines."
+  [text limit]
+  (if (and limit (or (> (count text) limit) (str/includes? text "\n")))
+    "..."
+    text))
 
 (defn- rewrite
-  "Spell out the thread for run, the starting value in full or, given a limit, shortened."
-  [run seed-limit]
-  (let [seed (:argument-text (last run))
-        shown (if (and seed-limit
-                       (or (> (count seed) seed-limit) (str/includes? seed "\n")))
-                "..."
-                seed)
-        thread (str "-> " shown " " (str/join " " (map :head-text (reverse run))))]
+  "Spell out the thread for run, every part whole or, given a limit, shortened."
+  [run limit]
+  (let [operator (if (some #(= :last (:direction %)) run) "->>" "->")
+        step (fn [{:keys [head-text other-arguments]}]
+               (if (seq other-arguments)
+                 (str "(" head-text " " (str/join " " (map #(shown % limit) other-arguments)) ")")
+                 head-text))
+        thread (str operator " " (shown (:argument-text (last run)) limit) " "
+                    (str/join " " (map step (reverse run))))]
     (if (:fn-literal? (first run))
       (str "#(" thread ")")
       (str "(" thread ")"))))
@@ -304,7 +456,7 @@
              :row row
              :col col
              :rewrite (rewrite run nil)
-             :hint (str "Thread it: " (rewrite run seed-max))}
+             :hint (str "Thread it: " (rewrite run text-max))}
       test (assoc :test test))))
 
 (defn- function-definitions
@@ -333,14 +485,16 @@
           vec)}))
 
 (defn- suggestion [min-calls]
-  (str min-calls " or more calls nested one inside another, each taking the one before as its "
-       "only argument. The reader has to start at the innermost form and work outwards; a "
-       "thread reads top to bottom in the order the calls run. Rewrite it with ->, which "
-       "the finding spells out. Only calls known to be functions count: keywords, interop, "
-       "core and clojure.string functions, and the project's own defn and defmulti. A macro, "
-       "a call into a library the scan cannot read, and a call with more than one argument "
-       "end the chain. A " (str/join ", " (sort wrappers)) " at the top of the thread is not "
-       "counted, and a call on a literal stays the thread's starting value."))
+  (str min-calls " or more calls nested one inside another, each passing the one below it "
+       "where a thread would: the first argument, read with ->, or the last, read with ->>. "
+       "The reader has to start at the innermost form and work outwards; a thread reads top "
+       "to bottom in the order the calls run. Rewrite it as the finding spells out. A "
+       "one-argument call counts when its head is known to be a function: a keyword, "
+       "interop, core and clojure.string functions, and the project's own defn and "
+       "defmulti. A call of more arguments counts only where the nested call is the "
+       "function's data, the collection of (map f xs) or the map of (get m k), for core, "
+       "clojure.string and method calls. A " (str/join ", " (sort wrappers)) " at the top of "
+       "the thread is not counted, and a call on a literal stays the thread's starting value."))
 
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup

@@ -5,25 +5,33 @@ that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
 
 [← all rule groups](../rules.md) · [← back to the README](../../README.md)
 
-- **Nested call chain** (`nested-call-chain`, cleanup) — three or more calls nested one inside another, each taking the
-  one before as its only argument: `(vec (sort (distinct ids)))`. The reader starts at the innermost form and works
-  outwards; a thread reads top to bottom in the order the calls run. The finding spells out the rewrite,
-  `(-> ids distinct sort vec)`, with the starting value exactly as written. A `#(…)` is read the same way and threads to
-  `#(-> % distinct sort vec)`.
+- **Nested call chain** (`nested-call-chain`, cleanup) — three or more calls nested one inside another, each passing the
+  one below it where a thread would: `(vec (filter f (map g xs)))` threads to `(->> xs (map g) (filter f) vec)`, and
+  `(contains? (set (get-in m [:a])) k)` to `(-> m (get-in [:a]) set (contains? k))`. The reader starts at the innermost
+  form and works outwards; a thread reads top to bottom in the order the calls run. The finding spells out the rewrite,
+  with every part exactly as written. A `#(…)` is read the same way and threads to `#(-> % distinct sort vec)`.
 
   It reports only what it can rewrite without a judgement call:
-  - **Every step takes one argument, written out.** `->` and `->>` then produce the same form, and the rewrite expands
-    back to exactly the code that was written. A call with two or more arguments ends the chain,
-    `(vec (sort (map f xs)))` included, and so does a call holding a comment or a `#_` form. So does a step of `->`,
-    `->>`, `some->`, `some->>`, `doto` or `..`, and the step of a `cond->` / `cond->>` pair, which all take an argument
-    they do not write out; an `as->` step and a `cond->` test do write theirs, and count
+  - **Every step passes the call below it in the slot a thread fills,** the first argument for `->` or the last for
+    `->>`, so the rewrite expands back to exactly the code that was written. A one-argument call fits either. A call of
+    more arguments counts only where the nested call is the function's data: the last argument of `map`, `filter`,
+    `remove`, `keep`, `mapcat`, `sort-by`, `group-by`, `take`, `drop`, `partition`, `reduce`, `into`, `some`, `cons`,
+    `str/join` and the like, or the first of `get`, `get-in`, `assoc`, `update`, `dissoc`, `select-keys`, `merge`,
+    `conj`, `contains?`, `str/split`, `str/replace` and the like, and of a `.method` call — each at the argument counts
+    that take data, so the transducer `(map f)` and the two-collection `(map f xs ys)` end the chain.
+    `(get-in db (path))` nests a call too, but the call is the path, and threading it reads backwards. A chain whose
+    steps stop agreeing on the slot is split there, so `(get (first (sort (map f xs))) :k)` is a `->` chain above
+    `(map f xs)`. A call holding a comment or a `#_` form ends the chain, and so does a step of `->`, `->>`, `some->`,
+    `some->>`, `doto` or `..`, and the step of a `cond->` / `cond->>` pair, which all take an argument they do not write
+    out; an `as->` step and a `cond->` test do write theirs, and count
   - **Every head is known to be a function** — a keyword, interop (`.method`, `.-field`, `Ctor.`, `js/f`,
-    `Class/static`), one of a fixed list of `clojure.core` / `cljs.core` and `clojure.string` functions written plain,
-    through an alias or through `:refer`, or a var the project defines with `defn`, `defn-` or `defmulti`. Threading
-    cannot change what a macro does, but it changes how it reads: `(-> xs sort vec delay)` looks like four steps run in
-    order while the `delay` defers the other three. So a local, a library var the scan cannot read and a name the
-    namespace defines any other way all end the chain. A project var counts only when it is defined under the same
-    source directory the run reads, since each directory passed on the command line is analyzed on its own
+    `Class/static`), a `clojure.core` / `cljs.core` or `clojure.string` function written plain, through an alias or
+    through `:refer`, or a var the project defines with `defn`, `defn-` or `defmulti`, the last with one argument only,
+    since its data slot is not known. Threading cannot change what a macro does, but it changes how it reads:
+    `(-> xs sort vec delay)` looks like four steps run in order while the `delay` defers the other three. So a local, a
+    library var the scan cannot read and a name the namespace defines any other way all end the chain. A project var
+    counts only when it is defined under the same source directory the run reads, since each directory passed on the
+    command line is analyzed on its own
 
   Left alone as well: a `not`, `boolean`, `some?`, `nil?`, `seq`, `empty?`, `not-empty`, `true?` or `false?` at the top
   of what would be threaded, which is not counted, since a test reads worse at the end of a thread, so

@@ -124,9 +124,48 @@
     (is (str/includes? (:hint spanning) "(-> ... distinct sort vec)")
         "a starting value spanning lines is not squeezed onto the hint's one line")))
 
-(deftest call-with-more-than-one-argument-ends-chain
-  (is (empty? (rewrites ["(vec (sort (map f xs)))"
-                         "(vec (sort-by f (distinct xs)))"]))))
+(deftest data-last-call-threads-with-thread-last
+  (is (= ["(->> xs (map g) (filter f) vec)"
+          "(->> m keys (map name) (str/join \", \"))"]
+         (rewrites ["(vec (filter f (map g xs)))"
+                    "(str/join \", \" (map name (keys m)))"]))))
+
+(deftest data-first-call-threads-with-thread-first
+  (is (= ["(-> m (get-in [:a]) set (contains? k))"
+          "(-> document .createParagraph .createRun (.setText text))"]
+         (rewrites ["(contains? (set (get-in m [:a])) k)"
+                    "(.setText (.createRun (.createParagraph document)) text)"]))))
+
+(deftest call-outside-the-data-slot-ends-chain
+  (is (= ["(-> ks distinct sort vec)"] (rewrites ["(get-in db (vec (sort (distinct ks))))"]))
+      "the nested call is the path, not the map get-in reads")
+  (is (empty? (rewrites ["(vec (sort (map f xs ys)))"
+                         "(vec (distinct (map f)))"
+                         "(vec (sort (js/Math.max (count xs) 1)))"]))
+      "two collections, a transducer, and a host call that is not a method have no data slot"))
+
+(deftest transducer-argument-is-not-the-data
+  (is (= ["(->> xs distinct sort (into [] (map f)))"] (rewrites ["(into [] (map f) (sort (distinct xs)))"]))))
+
+(deftest change-of-direction-splits-the-chain
+  (is (= ["(-> (map f (filter g (remove h xs))) sort first (get :k))"
+          "(->> xs (remove h) (filter g) (map f))"]
+         (rewrites ["(get (first (sort (map f (filter g (remove h xs))))) :k)"]))))
+
+(deftest call-of-more-arguments-counts-only-for-a-known-slot
+  (is (= ["(-> xs distinct sort first)"]
+         (rewrites ["(defn pick [m k] (get m k))"
+                    "(pick (first (sort (distinct xs))) :a)"]))
+      "a project function's data slot is not known")
+  (is (empty? (rewrites ["(defn map [f xs] xs)"
+                         "(vec (map f (filter g xs)))"]))
+      "a namespace's own map is not core map"))
+
+(deftest long-arguments-are-shortened-in-the-hint
+  (let [finding (first (:nested-call-chain
+                        (parse ["(vec (filter some-very-long-predicate-name-that-goes-past-the-limit (map g xs)))"])))]
+    (is (str/includes? (:hint finding) "(filter ...)"))
+    (is (str/includes? (:rewrite finding) "some-very-long-predicate-name-that-goes-past-the-limit"))))
 
 (deftest wrapper-below-a-macro-is-not-counted
   (is (empty? (rewrites ["(is (nil? (:id (first xs))))"]))
