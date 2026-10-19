@@ -312,7 +312,7 @@
     (is (= identity (edn/read-string (pr-str identity))))))
 
 (defn- else-nils [lines]
-  (mapv :form (:cond-else-nil (parse lines))))
+  (->> lines parse :cond-else-nil (mapv :form)))
 
 (deftest cond-closing-on-else-nil-is-flagged
   (is (= ["(cond (pos? n) :up :else nil)"

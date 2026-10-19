@@ -85,8 +85,7 @@
           end (cond
                 (and dot hash) (min dot hash)
                 dot dot
-                hash hash
-                :else nil)
+                hash hash)
           tag-name (if end (subs body 0 end) body)]
       (cond
         (seq tag-name) (keyword tag-name)

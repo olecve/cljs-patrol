@@ -242,9 +242,7 @@
            set)
 
       (contains? #{"catch" "as->"} head-name)
-      (some-> (nth arguments 1 nil) symbol-names)
-
-      :else nil)))
+      (some-> (nth arguments 1 nil) symbol-names))))
 
 (defn- locally-bound?
   "True when a form enclosing loc binds the unqualified name, so it is a local and not a var.
