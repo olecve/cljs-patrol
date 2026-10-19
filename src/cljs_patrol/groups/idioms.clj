@@ -1,13 +1,16 @@
 (ns cljs-patrol.groups.idioms
-  "Rule group: nested calls a threading macro would read top to bottom.
+  "Rule group: code a core idiom says more plainly.
 
-  Reports only what can be rewritten without a judgement call. Every step passes the call
-  below it in the slot a thread fills, the first argument for `->` or the last for `->>`,
-  so the rewrite expands back to exactly the code that was written. That slot also has to
-  be where the function takes its data: `(get-in db (path))` nests a call, but the call is
-  the path, and threading the path reads backwards. So a step with more than one argument
-  counts only for a function whose data slot is known: a core or `clojure.string`
-  function, or a `.method` call.
+  Nested calls a threading macro would read top to bottom, and a `cond` closing on an
+  `:else nil` it returns anyway. Each rule reports only what it can rewrite without a
+  judgement call.
+
+  For a thread, every step passes the call below it in the slot a thread fills, the first
+  argument for `->` or the last for `->>`, so the rewrite expands back to exactly the code
+  that was written. That slot also has to be where the function takes its data:
+  `(get-in db (path))` nests a call, but the call is the path, and threading the path
+  reads backwards. So a step with more than one argument counts only for a function whose
+  data slot is known: a core or `clojure.string` function, or a `.method` call.
 
   Every head is also known to be a function. Threading cannot change what a macro does,
   but it changes how it reads: `(-> xs sort vec delay)` looks like four steps run in order,
@@ -124,12 +127,16 @@
     (when-not (some #(contains? #{:comment :uneval} (n/tag %)) children)
       children)))
 
+(defn- code-forms
+  "Return the child nodes of node that are code: no whitespace, comment or `#_` form."
+  [node]
+  (remove #(or (n/whitespace-or-comment? %) (= :uneval (n/tag %))) (n/children node)))
+
 (defn- index-in-parent
   "Return the position of loc among its parent's children, the head at 0, or nil."
   [loc]
   (when-let [parent (z/up loc)]
-    (->> (n/children (z/node parent))
-         (remove #(or (n/whitespace? %) (contains? #{:comment :uneval} (n/tag %))))
+    (->> (code-forms (z/node parent))
          (keep-indexed (fn [i child] (when (identical? child (z/node loc)) i)))
          first)))
 
@@ -178,19 +185,49 @@
 (def ^:private let-like-heads
   "Forms whose first argument is a vector of binding pairs."
   #{"let" "let*" "loop" "loop*" "when-let" "if-let" "when-some" "if-some" "when-first"
-    "binding" "with-open" "with-redefs" "with-let" "doseq" "for" "dotimes" "go-loop"})
+    "binding" "with-open" "with-redefs" "with-let" "with-local-vars" "doseq" "for" "dotimes"
+    "go-loop"})
 
 (def ^:private fn-like-heads #{"fn" "fn*" "defn" "defn-" "defmacro" "defmethod"})
 
-(defn- symbol-names
-  "Return the names of every unqualified symbol written in node, at any depth."
+(defn- token-value [node]
+  (when (= :token (n/tag node))
+    (try (n/sexpr node) (catch Exception _ nil))))
+
+(defn- keys-entry?
+  "True when node is the key of a destructuring map entry naming its locals: `:keys`, `:syms`, `:strs`."
   [node]
-  (->> (tree-seq n/inner? n/children node)
-       (keep #(when (= :token (n/tag %))
-                (let [value (try (n/sexpr %) (catch Exception _ nil))]
-                  (when (and (symbol? value) (nil? (namespace value)))
-                    (name value)))))
-       set))
+  (let [value (token-value node)]
+    (and (keyword? value) (contains? #{"keys" "syms" "strs"} (name value)))))
+
+(defn- symbol-names
+  "Return the names node binds when it sits on the binding side, at any depth.
+
+  An unqualified symbol, and every symbol or keyword in the vector of a `:keys`, `:syms`
+  or `:strs` entry, `{:keys [:cond app/id]}` binding `cond` and `id`. A default under
+  `:or` reads as bound too, which only gives up a finding."
+  [node]
+  (letfn [(keyed-names [vector-node]
+            (keep #(let [value (token-value %)]
+                     (when (or (symbol? value) (keyword? value)) (name value)))
+                  (code-forms vector-node)))
+          (names [node]
+            (cond
+              (= :token (n/tag node))
+              (let [value (token-value node)]
+                (when (and (symbol? value) (nil? (namespace value))) [(name value)]))
+
+              (= :map (n/tag node))
+              (->> (code-forms node)
+                   (partition-all 2)
+                   (mapcat (fn [[k v]]
+                             (if (and (keys-entry? k) (= :vector (some-> v n/tag)))
+                               (keyed-names v)
+                               (concat (names k) (some-> v names))))))
+
+              (n/inner? node)
+              (mapcat names (n/children node))))]
+    (set (names node))))
 
 (defn- binding-sides
   "Return the binding-side nodes of a binding vector, `:let` modifiers included."
@@ -221,7 +258,10 @@
             after-dispatch))))
 
 (defn- names-bound-by
-  "Return the names list-node binds for its body: let bindings, fn parameters, a catch name."
+  "Return the names list-node binds for its body.
+
+  Let-like and `letfn` bindings, fn parameters and a named fn's own name, the fields of a
+  `deftype` or `defrecord`, and the name of a `catch` or `as->`."
   [list-node]
   (let [[head & arguments] (code-children list-node)
         head-name (when (= :token (some-> head n/tag))
@@ -234,27 +274,65 @@
       (some->> arguments first code-children (keep #(some-> % code-children first symbol-names)) (apply concat) set)
 
       (contains? fn-like-heads head-name)
-      (->> (parameter-vectors head-name arguments)
-           (mapcat symbol-names)
-           set)
+      (cond-> (->> (parameter-vectors head-name arguments)
+                   (mapcat symbol-names)
+                   set)
+        (and (= "fn" head-name) (= :token (some-> arguments first n/tag)))
+        (into (symbol-names (first arguments))))
 
-      (contains? #{"catch" "as->"} head-name)
-      (some-> (nth arguments 1 nil) symbol-names)
+      (contains? #{"deftype" "defrecord" "catch" "as->"} head-name)
+      (some-> (nth arguments 1 nil) symbol-names))))
 
-      :else nil)))
+(def ^:private method-defining-heads
+  "Forms whose lists define methods: a list's head names the method, and its vector the parameters."
+  #{"reify" "deftype" "defrecord" "extend-type" "extend-protocol" "proxy" "specify" "specify!"
+    "definterface" "defprotocol"})
+
+(defn- site
+  "Return the outermost of loc and what wraps it without changing it: metadata, a reader conditional."
+  [loc]
+  (let [parent (z/up loc)]
+    (cond
+      (= :meta (some-> parent z/tag)) (recur parent)
+      (= :reader-macro (some-> parent z/up z/tag)) (recur (z/up parent))
+      :else loc)))
+
+(defn- parent-head
+  "Return the name of the symbol heading the list loc's site sits in, or nil."
+  [loc]
+  (let [parent (z/up (site loc))]
+    (when (= :list (some-> parent z/tag))
+      (some-> parent z/down parser/sym-name))))
+
+(defn- method-definition?
+  "True when loc is a list defining a method, not a call: `(toString [_] …)` in a `reify`."
+  [loc]
+  (and (= :list (z/tag loc))
+       (contains? method-defining-heads (parent-head loc))))
+
+(defn- method-parameter-names
+  "Return the names a method definition binds for its body, one arity or several."
+  [loc]
+  (->> (code-children (z/node loc))
+       rest
+       (parameter-vectors "fn")
+       (mapcat symbol-names)
+       set))
 
 (defn- locally-bound?
   "True when a form enclosing loc binds the unqualified name, so it is a local and not a var.
 
   Every binding form above loc is read, whatever part of it loc sits in: a local that shadows
   `filter` in one branch is reason enough to vouch for no `filter` there. Only a name core's
-  data-slot table holds is ever asked about, so the walk runs for few calls."
+  data-slot table holds, or `cond`, is ever asked about, so the walk runs for few calls."
   [loc unqualified-name]
   (loop [current (z/up loc)]
     (cond
       (nil? current) false
       (and (contains? #{:list :fn} (z/tag current))
            (contains? (names-bound-by (z/node current)) unqualified-name)) true
+      (and (method-definition? current)
+           (contains? (method-parameter-names current) unqualified-name)) true
       :else (recur (z/up current)))))
 
 (defn- describe-var
@@ -437,9 +515,78 @@
          :kind (get def-kinds head :other)
          :file file}))))
 
+(defn- always-true?
+  "True when node is a test no value can fail: a keyword or `true`."
+  [node]
+  (and (= :token (n/tag node))
+       (let [value (n/sexpr node)]
+         (or (keyword? value) (true? value)))))
+
+(defn- written-nil? [node]
+  (and (= :token (n/tag node))
+       (nil? (n/sexpr node))))
+
+(defn- case-constant?
+  "True when loc is a test constant of the `case` it sits in, a list of constants and no call."
+  [loc]
+  (boolean
+   (when (= "case" (parent-head loc))
+     (let [index (index-in-parent (site loc))
+           size (->> (site loc) z/up z/node code-forms count)]
+       (and (even? index)
+            (not (and (odd? size) (= index (dec size)))))))))
+
+(defn- member-position?
+  "True when loc names a member of `.` or `..`, `(. o (cond a b))` calling a method `cond`."
+  [loc]
+  (and (contains? #{"." ".."} (parent-head loc))
+       (>= (index-in-parent (site loc)) 2)))
+
+(defn- core-name-shadowed?
+  "True when the ns form may take the unqualified name from somewhere other than core."
+  [{:keys [shadowed-core]} unqualified-name]
+  (or (= :all shadowed-core)
+      (contains? shadowed-core unqualified-name)))
+
+(defn- else-nil-candidate
+  "Record a `cond` whose last clause pairs an always-true test with `nil`, or nil.
+
+  Whether the head is core's `cond` is settled once every file is read, since the
+  namespace may define a `cond` of its own. An unqualified `cond` is core's only when the
+  ns form names no `cond` and nothing above binds one, and only a list in call position
+  counts: a method a `reify` defines, a member of `..` and a `case` constant list are no
+  calls."
+  [loc ns-info file]
+  (when (= "cond" (some-> loc z/down parser/sym-name))
+    (let [head (describe-head (z/down loc) ns-info)
+          arguments (rest (code-forms (z/node loc)))
+          [test-node value-node] (take-last 2 arguments)]
+      (when (and (= "cond" (:name head))
+                 (>= (count arguments) 4)
+                 (even? (count arguments))
+                 (always-true? test-node)
+                 (written-nil? value-node)
+                 (not (and (= :local (:kind head))
+                           (or (core-name-shadowed? ns-info "cond") (locally-bound? loc "cond"))))
+                 (not (method-definition? loc))
+                 (not (member-position? loc))
+                 (not (case-constant? loc))
+                 (not (unevaluated? loc)))
+        {:type ::else-nil
+         :head head
+         :head-text (z/string (z/down loc))
+         :fn-literal? (= :fn (z/tag loc))
+         :first-clause (map n/string (take 2 arguments))
+         :clauses-between (- (quot (count arguments) 2) 2)
+         :else-text (n/string test-node)
+         :position (try (z/position loc) (catch Exception _ [0 1]))
+         :file file
+         :test (parser/top-level-name loc)}))))
+
 (defn- handle [min-calls loc ns-info file]
   (let [found (keep identity [(when (= :list (z/tag loc)) (definition loc ns-info file))
-                              (chain-candidate min-calls loc ns-info file)])]
+                              (chain-candidate min-calls loc ns-info file)
+                              (else-nil-candidate loc ns-info file)])]
     (when (seq found)
       {:decls (vec found)
        :usages []
@@ -585,6 +732,37 @@
        (filter #(>= (count %) min-calls))
        (reduce (fn [best run] (if (>= (count run) (count best)) run best)) nil)))
 
+(defn- core-cond?
+  "True when head, settled against the project's definitions, is core's `cond`."
+  [head definitions]
+  (= {:kind :core
+      :library :core
+      :name "cond"}
+     (select-keys (settle-head head definitions) [:kind :library :name])))
+
+(defn- else-nil-form
+  "Spell out a cond by its first clause and its else clause, counting the clauses between.
+
+  This is the finding's identity in a baseline, so it leaves out what churns: the clauses
+  between, and a first value too long to show."
+  [{:keys [head-text fn-literal? first-clause clauses-between else-text]}]
+  (let [[first-test first-value] first-clause]
+    (str (if fn-literal? "#(" "(") head-text " " first-test " " (shown first-value text-max)
+         (when (pos? clauses-between) (str " ..." clauses-between " more..."))
+         " " else-text " nil)")))
+
+(defn- else-nil-finding [{:keys [else-text position file test]
+                          :as candidate}]
+  (let [[row col] position]
+    (cond-> {:kw 'cond
+             :type :cond-else-nil
+             :form (parser/normalize-form (else-nil-form candidate))
+             :file file
+             :row row
+             :col col
+             :hint (str "Drop the " else-text " nil clause: a cond no clause matches returns nil")}
+      test (assoc :test test))))
+
 (defn- analyze* [min-calls {:keys [declarations]}]
   (let [definitions (function-definitions declarations)]
     {:nested-call-chain
@@ -594,7 +772,11 @@
                   (some->> (runs (:levels candidate) definitions)
                            (longest-run min-calls)
                            (finding candidate))))
-          vec)}))
+          vec)
+     :cond-else-nil
+     (->> declarations
+          (filter #(and (= ::else-nil (:type %)) (core-cond? (:head %) definitions)))
+          (mapv else-nil-finding))}))
 
 (defn- suggestion [min-calls]
   (str min-calls " or more calls nested one inside another, each passing the one below it "
@@ -609,17 +791,25 @@
        "or some at the top of the thread is not counted, and a call on a literal stays the "
        "thread's starting value unless it is the collection of a ->> step."))
 
+(def ^:private else-nil-suggestion
+  (str "A cond whose last clause is :else nil, or another keyword or true paired with nil. "
+       "A cond no clause matches returns nil already, so the clause adds nothing, yet it reads "
+       "as a default someone chose, and the reader has to check that it is not. Drop it."))
+
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup
   (group-id [_] :idioms)
   (group-name [_] "Idioms")
   (parse-handlers [_] {:handle-list (fn [loc ns-info file] (handle min-calls loc ns-info file))})
   (analyze [_ data] (analyze* min-calls data))
-  (summary-lines [_ {:keys [nested-call-chain]}]
-    [["Nested call chain:" (count nested-call-chain)]])
+  (summary-lines [_ {:keys [nested-call-chain cond-else-nil]}]
+    [["Nested call chain:" (count nested-call-chain)]
+     ["Cond else nil:" (count cond-else-nil)]])
   (failed? [_ _] false)
-  (suggestions [_] {:nested-call-chain (suggestion min-calls)})
-  (rule->tier [_] {:nested-call-chain :cleanup})
+  (suggestions [_] {:nested-call-chain (suggestion min-calls)
+                    :cond-else-nil else-nil-suggestion})
+  (rule->tier [_] {:nested-call-chain :cleanup
+                   :cond-else-nil :cleanup})
   (file-extensions [_] extensions))
 
 (defn make-group

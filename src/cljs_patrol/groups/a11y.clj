@@ -511,9 +511,7 @@
 
     (and (= kind :map) attrs (name-required-attrs? attrs))
     (and (not (has-accessible-name? attrs))
-         (not (named-by-caption? loc tag)))
-
-    :else nil))
+         (not (named-by-caption? loc tag)))))
 
 (def ^:private role->implicit-aria-live
   "Live-region roles mapped to the `aria-live` politeness each implies.
@@ -540,8 +538,7 @@
   (let [v (literal-sexpr (get attrs :aria-live))]
     (cond
       (string? v) v
-      (and (keyword? v) (not= v ::absent) (not= v ::non-literal)) (name v)
-      :else nil)))
+      (and (keyword? v) (not= v ::absent) (not= v ::non-literal)) (name v))))
 
 (defn- contradicting-aria-live
   "Return the role, the politeness it implies, and the declared one, when they conflict.

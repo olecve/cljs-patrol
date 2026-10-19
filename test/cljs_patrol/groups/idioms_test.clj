@@ -22,7 +22,8 @@
 (defn- parse
   "Walk `lines` the way the parser walks a file, and return the group's result map."
   ([lines] (parse idioms/group lines))
-  ([rule-group lines]
+  ([rule-group lines] (parse rule-group ns-info lines))
+  ([rule-group file-ns-info lines]
    (let [{:keys [handle-list]} (group/parse-handlers rule-group)
          declarations (loop [loc (z/of-string (str/join "\n" lines) {:track-position? true})
                              found []]
@@ -30,7 +31,7 @@
                           found
                           (recur (z/next loc)
                                  (if (#{:list :fn} (z/tag loc))
-                                   (into found (:decls (handle-list loc ns-info "views.cljs")))
+                                   (into found (:decls (handle-list loc file-ns-info "views.cljs")))
                                    found))))]
      (group/analyze rule-group {:declarations declarations}))))
 
@@ -310,3 +311,152 @@
   (let [finding (first (:nested-call-chain (parse ["(vec (sort (distinct xs)))"])))
         identity (baseline/issue->identity :nested-call-chain finding)]
     (is (= identity (edn/read-string (pr-str identity))))))
+
+(defn- else-nils
+  ([lines] (else-nils ns-info lines))
+  ([file-ns-info lines]
+   (->> lines (parse idioms/group file-ns-info) :cond-else-nil (mapv :form))))
+
+(deftest cond-closing-on-else-nil-is-flagged
+  (is (= ["(cond (pos? n) :up :else nil)"
+          "(cond (pos? n) :up true nil)"
+          "(cond (pos? n) :up :default nil)"
+          "(clojure.core/cond (pos? n) :up :else nil)"
+          "(cond (pos? n) :up ...1 more... :else nil)"
+          "#(cond (pos? %) :up :else nil)"
+          "(cond (pos? n) :up :else nil)"
+          "(cond (pos? n) :up :else nil)"]
+         (else-nils ["(cond (pos? n) :up :else nil)"
+                     "(cond (pos? n) :up true nil)"
+                     "(cond (pos? n) :up :default nil)"
+                     "(clojure.core/cond (pos? n) :up :else nil)"
+                     "(cond (pos? n) :up\n      (neg? n) :down\n      :else nil)"
+                     "#(cond (pos? %) :up :else nil)"
+                     "(cond (pos? n) :up\n      ;; falls through\n      :else nil)"
+                     "(cond (pos? n) :up #_(neg? n) :else nil)"]))))
+
+(deftest else-nil-form-keeps-what-tells-two-apart
+  (is (= ["(cond (= mode :search) ... ...2 more... :else nil)"
+          "(cond (= mode :search) [smart-filters-toolbar] :else nil)"]
+         (else-nils ["(cond (= mode :search) (let [props {:disabled true}]\n (toolbar props))\n a :a\n b :b\n :else nil)"
+                     "(cond (= mode :search) [smart-filters-toolbar] :else nil)"]))
+      "a value too long to show is left out, and the clauses between are counted"))
+
+(deftest else-nil-finding-names-the-clause-and-where-it-is
+  (let [[finding] (:cond-else-nil (parse ["(defn sign [n]" "  (cond (pos? n) :up :default nil))"]))]
+    (is (= {:kw 'cond
+            :type :cond-else-nil
+            :file "views.cljs"
+            :row 2
+            :col 3
+            :test "sign"
+            :hint "Drop the :default nil clause: a cond no clause matches returns nil"}
+           (dissoc finding :form)))))
+
+(deftest cond-with-a-real-default-is-left-alone
+  (is (empty? (else-nils ["(cond (pos? n) :up :else :flat)"
+                          "(cond (pos? n) :up :else (nil-default))"
+                          "(cond (pos? n) :up flag nil)"
+                          "(cond :else nil)"
+                          "(cond (pos? n) :up :else nil :odd)"
+                          "(cond (pos? n) :up (neg? n) :else nil)"
+                          "(cond (pos? n) :up #?(:clj :else) nil)"
+                          "(cond (pos? n) :up :else #?(:clj nil))"]))))
+
+(deftest empty-list-is-left-alone
+  (is (empty? (else-nils ["()" "#()" "[()]"]))))
+
+(deftest unreadable-last-clause-is-left-alone
+  (is (empty? (else-nils ["(cond (pos? n) :up ^:m :else nil)"
+                          "(cond (pos? n) :up :else ^:m nil)"]))))
+
+(deftest condp-and-case-are-left-alone
+  (is (empty? (else-nils ["(condp = n 1 :one nil)"
+                          "(case n 1 :one :else nil)"]))))
+
+(deftest cond-from-a-library-is-left-alone
+  (is (empty? (else-nils ["(lib/cond (pos? n) :up :else nil)"])))
+  (is (empty? (else-nils (assoc ns-info :refers {"cond" "better-cond.core"})
+                         ["(cond (pos? n) :up :else nil)"]))))
+
+(deftest cond-through-an-alias-to-core-is-flagged
+  (is (= ["(c/cond (pos? n) :up :else nil)"]
+         (else-nils (assoc ns-info :aliases {"c" "cljs.core"})
+                    ["(c/cond (pos? n) :up :else nil)"]))))
+
+(deftest cond-the-ns-form-may-shadow-is-left-alone
+  (is (empty? (else-nils (assoc ns-info :shadowed-core #{"cond"})
+                         ["(cond (pos? n) :up :else nil)"])))
+  (is (empty? (else-nils (assoc ns-info :shadowed-core :all)
+                         ["(cond (pos? n) :up :else nil)"])))
+  (is (= ["(clojure.core/cond (pos? n) :up :else nil)"]
+         (else-nils (assoc ns-info :shadowed-core :all)
+                    ["(clojure.core/cond (pos? n) :up :else nil)"]))
+      "qualified cond is core's whatever the ns form shadows"))
+
+(deftest locally-bound-cond-is-left-alone
+  (is (empty? (else-nils ["(let [cond pick] (cond (pos? n) :up :else nil))"
+                          "(defn f [{:keys [:cond]}] (cond (pos? n) :up :else nil))"
+                          "(defn f [{:keys [opts/cond]}] (cond (pos? n) :up :else nil))"
+                          "(fn cond [n] (cond (pos? n) :up :else nil))"
+                          "(defrecord R [cond] Object (toString [_] (cond 1 :up :else nil)))"
+                          "(reify P (pick [_ cond] (cond 1 :up :else nil)))"
+                          "(reify P (pick ([_] 1) ([_ cond] (cond 1 :up :else nil))))"]))))
+
+(deftest local-from-destructuring-is-left-alone
+  (is (empty? (else-nils ["(defn f [{:keys [:cond]}] (cond (pos? n) :up :else nil))"
+                          "(defn f [{:app/keys [cond]}] (cond (pos? n) :up :else nil))"
+                          "(defn f [{:syms [app/cond]}] (cond (pos? n) :up :else nil))"
+                          "(defn f [{cond :c}] (cond (pos? n) :up :else nil))"
+                          "(defn f [#:app{:keys [cond]}] (cond (pos? n) :up :else nil))"
+                          "(with-local-vars [cond 1] (cond (pos? n) :up :else nil))"]))))
+
+(deftest name-outside-what-binds-binds-nothing
+  (is (= ["(->> xs first vals (map inc) (filter even?))"
+          "(->> xs first vals (map inc) (filter even?))"
+          "(->> xs first vals (map inc) (filter even?))"]
+         (rewrites ["(defn g [{f :filter}] (filter even? (map inc (vals (first xs)))))"
+                    "(defn k [x :- [:map [:filter :int]]] (filter even? (map inc (vals (first xs)))))"
+                    "(defn s [x :- schema/filter] (filter even? (map inc (vals (first xs)))))"]))))
+
+(deftest qualified-cond-under-a-local-cond-is-flagged
+  (is (= ["(clojure.core/cond (pos? n) :up :else nil)"]
+         (else-nils ["(let [cond pick] (clojure.core/cond (pos? n) :up :else nil))"]))))
+
+(deftest list-named-cond-that-is-no-call-is-left-alone
+  (is (empty? (else-nils ["(reify ICond (cond [this] a :else nil))"
+                          "(extend-protocol ICond String (cond [this] a :else nil))"
+                          "(.. o (cond a b :else nil))"
+                          "(. o (cond a b :else nil))"
+                          "(case x (cond a b :else nil) :hit :miss)"
+                          "(deftype T [] P (cond [_ a] a :else nil))"
+                          "(defrecord R [] P (cond [_ a] a :else nil))"
+                          "(extend-type T P (cond [_ a] a :else nil))"
+                          "(proxy [Base] [] (cond [a] a :else nil))"
+                          "(specify o P (cond [_ a] a :else nil))"
+                          "(specify! o P (cond [_ a] a :else nil))"
+                          "(definterface I (cond [a b] :else nil))"
+                          "(defprotocol P (cond [a b] :else nil))"]))))
+
+(deftest wrapped-list-named-cond-that-is-no-call-is-left-alone
+  (is (empty? (else-nils ["(reify P ^:foo (cond [_ a] a :else nil))"
+                          "(reify P #?(:cljs (cond [_ a] a :else nil)))"
+                          "(.. o ^:m (cond a b :else nil))"
+                          "(case x #?(:clj (cond a b :else nil)) :hit :miss)"]))))
+
+(deftest cond-as-a-case-result-or-member-target-is-flagged
+  (is (= ["(cond a b :else nil)"
+          "(cond a b :else nil)"
+          "(cond a b :else nil)"]
+         (else-nils ["(case x 1 (cond a b :else nil))"
+                     "(case x 1 :one (cond a b :else nil))"
+                     "(.. (cond a b :else nil) toString)"]))))
+
+(deftest cond-the-namespace-defines-is-left-alone
+  (is (empty? (else-nils ["(defmacro cond [& clauses] clauses)"
+                          "(cond (pos? n) :up :else nil)"]))))
+
+(deftest unevaluated-cond-is-left-alone
+  (is (empty? (else-nils ["'(cond (pos? n) :up :else nil)"
+                          "(comment (cond (pos? n) :up :else nil))"
+                          "#_(cond (pos? n) :up :else nil)"]))))

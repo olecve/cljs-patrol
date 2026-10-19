@@ -248,9 +248,7 @@
                :usages (when kw [{:kw kw
                                   :type :event
                                   :file file
-                                  :row row}])}))))
-
-      :else nil)))
+                                  :row row}])})))))))
 
 (defn- handle-vector
   "Detect event usages from :fx tuple vectors.
@@ -321,9 +319,7 @@
                                                 :type :event
                                                 :file file
                                                 :row row}]})))))
-                    (recur (z/right kv-loc)))))))
-
-          :else nil)))))
+                    (recur (z/right kv-loc))))))))))))
 
 (defn- handle-token
   "Detect usages from keyword tokens.
@@ -367,9 +363,7 @@
                  :usages [{:kw kw
                            :type :event
                            :file file
-                           :row row}]}))))
-
-        :else nil))))
+                           :row row}]}))))))))
 
 (defn- find-duplicates [decls]
   (->> decls

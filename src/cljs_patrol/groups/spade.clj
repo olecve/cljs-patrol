@@ -111,18 +111,14 @@
                              (= :vector (z/tag parent))
                              (= 1 (count (z/child-sexprs parent)))
                              (class-only-map? parent))
-                        :class-only-map
-
-                        :else nil)]
+                        :class-only-map)]
           {:decls []
            :dynamics []
            :usages [{:kw resolved
                      :type :style-call
                      :file file
                      :row row
-                     :context context}]}))
-
-      :else nil)))
+                     :context context}]})))))
 
 (defn- analyze* [{:keys [declarations usages]}]
   (let [style-decls (filter #(contains? #{:defclass :defattrs} (:type %)) declarations)

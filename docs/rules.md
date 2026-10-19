@@ -20,7 +20,7 @@ Every rule, one page per rule group. For the one-line summary of each group, see
 
 The tool reads `.cljs` and `.cljc`. Four of its groups are not about ClojureScript at all: `docstrings` enforces the
 bbatsov style guide, `tests` enforces conventions on `clojure.test` code, `layout` reports what cljfmt's keypair split
-leaves behind, and `idioms` reports nesting a thread would read better. All four hold on `.clj` just as well, so
+leaves behind, and `idioms` reports code a core idiom says more plainly. All four hold on `.clj` just as well, so
 `--experimental-clj` lets them read those files too:
 
 ```bash
