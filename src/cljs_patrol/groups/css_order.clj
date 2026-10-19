@@ -97,7 +97,7 @@
   (when (blocks/style-decl? loc)
     (when-let [style-name (parser/sym-name (parser/declared-name-loc loc))]
       (let [style-kw (keyword ns-name style-name)]
-        {:decls (vec (keep #(block-finding order % style-kw file) (blocks/style-maps loc)))
+        {:decls (->> loc blocks/style-maps (keep #(block-finding order % style-kw file)) vec)
          :usages []
          :dynamics []}))))
 

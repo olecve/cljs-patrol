@@ -71,17 +71,17 @@
                                           other
                                           (img-finding 8)]})]
       (is (= 2 (count (:img-alt-missing result))))
-      (is (= #{3 8} (set (map :row (:img-alt-missing result)))))
+      (is (= #{3 8} (->> result :img-alt-missing (map :row) set)))
       (is (= 1 (count (:invalid-tabindex result))))
-      (is (= #{5} (set (map :row (:invalid-tabindex result)))))
+      (is (= #{5} (->> result :invalid-tabindex (map :row) set)))
       (is (= 1 (count (:on-click-on-non-interactive result))))
-      (is (= #{7} (set (map :row (:on-click-on-non-interactive result)))))
+      (is (= #{7} (->> result :on-click-on-non-interactive (map :row) set)))
       (is (= 1 (count (:empty-interactive-element result))))
-      (is (= #{9} (set (map :row (:empty-interactive-element result)))))
+      (is (= #{9} (->> result :empty-interactive-element (map :row) set)))
       (is (= 1 (count (:repeated-accessible-name result))))
-      (is (= #{10} (set (map :row (:repeated-accessible-name result)))))
+      (is (= #{10} (->> result :repeated-accessible-name (map :row) set)))
       (is (= 1 (count (:aria-live-contradicts-role result))))
-      (is (= #{11} (set (map :row (:aria-live-contradicts-role result))))))))
+      (is (= #{11} (->> result :aria-live-contradicts-role (map :row) set))))))
 
 (deftest failed?-test
   (testing "fails when any img is missing alt"

@@ -26,7 +26,7 @@
   (take-while #(not= :map (z/tag %)) (children vector-loc)))
 
 (defn selector-label [vector-loc]
-  (str/join " " (map parser/raw (selector-head vector-loc))))
+  (->> vector-loc selector-head (map parser/raw) (str/join " ")))
 
 (defn selector-block?
   "True when the vector carries a style map of its own.

@@ -105,7 +105,7 @@
                                  :usages [style-usage]})]
       (is (= 2 (count (:pseudo-in-main-map result))))
       (is (= #{":&:hover" ":&:first-child"}
-             (set (map :selector (:pseudo-in-main-map result)))))))
+             (->> result :pseudo-in-main-map (map :selector) set)))))
 
   (testing "pseudo-in-main-map: does not double-count style as unused"
     (let [result (group/analyze spade/group

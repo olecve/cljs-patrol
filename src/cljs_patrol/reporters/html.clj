@@ -123,10 +123,10 @@
 
 (defn- aggregate-sections [g g-idx run-results]
   (let [suggs (group/suggestions g)
-        first-result (nth (:group-results (first run-results)) g-idx)
+        first-result (-> run-results first :group-results (nth g-idx))
         display-keys (keep (fn [[k v]] (when (sequential? v) k)) first-result)]
     (mapv (fn [k]
-            (let [all-items (vec (mapcat #(get (nth (:group-results %) g-idx) k) run-results))]
+            (let [all-items (vec (mapcat #(-> % :group-results (nth g-idx) (get k)) run-results))]
               {:title (key->title k)
                :description (get suggs k "")
                :columns (infer-columns all-items)

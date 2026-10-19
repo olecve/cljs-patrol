@@ -230,7 +230,7 @@
    tier-order))
 
 (defn- summarize [issues rule->tier]
-  (let [rule-counts (into (sorted-map) (frequencies (map :rule issues)))]
+  (let [rule-counts (->> issues (map :rule) frequencies (into (sorted-map)))]
     {:total (count issues)
      :tier->total (tier-totals rule-counts rule->tier)
      :rule->total rule-counts}))

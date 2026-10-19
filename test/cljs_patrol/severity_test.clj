@@ -217,10 +217,10 @@
                :aria-live-contradicts-role
                :aria-hidden-focusable :nested-interactive-element
                :label-not-associated}
-             (set (map :rule (:bugs tiered)))))
+             (->> tiered :bugs (map :rule) set)))
       (is (= #{:deprecated-effects :defclass-as-sole-attr
                :defattrs-in-merge :mixed-token-groups}
-             (set (map :rule (:deprecations tiered)))))
+             (->> tiered :deprecations (map :rule) set)))
       (is (= #{:unused-subs :unused-events :unused-styles
                :phantom-subs :phantom-events
                :reg-sub-=>-1-arity :reg-event-fx-db-only
@@ -231,10 +231,10 @@
                :deftest-leading-article :assertion-message-inline :conditional-assertion
                :var-deref-in-test :js-hint-in-test
                :form-after-split-map :split-map-after-sibling :nested-call-chain}
-             (set (map :rule (:cleanup tiered))))))
+             (->> tiered :cleanup (map :rule) set))))
 
     (testing "info-only contains rules without a tier"
-      (is (contains? (set (map :rule (:info-only tiered))) :dynamic-sites)))
+      (is (contains? (->> tiered :info-only (map :rule) set) :dynamic-sites)))
 
     (testing "every entry has rule, group, tier, and suggestion"
       (doseq [tier [:bugs :deprecations :cleanup :info-only]

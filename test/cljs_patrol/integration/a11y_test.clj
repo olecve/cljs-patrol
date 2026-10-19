@@ -558,8 +558,7 @@
           "four bad- cases, no more"))
 
     (testing "each finding carries a hint naming the value the role implies"
-      (let [hint-at (fn [row] (:hint (first (filter #(= row (:row %))
-                                                    aria-live-contradicts-role))))]
+      (let [hint-at (fn [row] (->> aria-live-contradicts-role (filter #(= row (:row %))) first :hint))]
         (is (= ":role \"alert\" implies \"assertive\", not \"polite\" — drop :aria-live, or set it to \"assertive\"."
                (hint-at 63))
             "names the role, both values, and the two ways out")
@@ -838,7 +837,7 @@
 
       (testing "each finding names the constant it found"
         (is (= "Every item announces \"Remove post\". Fold the item into the name."
-               (:hint (first (filter #(= 8 (:row %)) in-lists))))
+               (->> in-lists (filter #(= 8 (:row %))) first :hint))
             "the hint quotes the repeated name"))
 
       (testing "leaves a name that something else overrides"
@@ -1007,7 +1006,7 @@
 
     (testing "names the hidden element that still takes focus"
       (is (= ":button on line 140 is hidden with it and still takes focus."
-             (:hint (first (filter #(= 139 (:row %)) in-hidden))))))
+             (->> in-hidden (filter #(= 139 (:row %))) first :hint))))
 
     (testing "does not follow a hidden wrapper into what cannot take focus"
       (is (not (contains? by-row 150))
@@ -1053,7 +1052,7 @@
 
     (testing "names the nested control and the line it sits on"
       (is (= ":button on line 31 is nested inside it."
-             (:hint (first (filter #(= 29 (:row %)) in-nesting))))))
+             (->> in-nesting (filter #(= 29 (:row %))) first :hint))))
 
     (testing "leaves correct structures alone"
       (is (not (contains? by-row 5))

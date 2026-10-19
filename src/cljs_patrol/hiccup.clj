@@ -511,12 +511,14 @@
                       args)
 
               "assoc"
-              (reduce (fn [acc [key-loc value-loc]]
-                        (if (parser/kw-node? key-loc)
-                          (assoc-in acc [:attrs (z/sexpr key-loc)] value-loc)
-                          (assoc acc :complete? false)))
-                      (contributed (first args))
-                      (partition 2 (rest args)))
+              (->> args
+                   rest
+                   (partition 2)
+                   (reduce (fn [acc [key-loc value-loc]]
+                             (if (parser/kw-node? key-loc)
+                               (assoc-in acc [:attrs (z/sexpr key-loc)] value-loc)
+                               (assoc acc :complete? false)))
+                           (contributed (first args))))
 
               "assoc-in"
               (let [[base path-loc value-loc] args

@@ -301,7 +301,7 @@
                (parse ["(defn view []"
                        "  [(str/lower-case (str/trim (name (:some-long-keyword-name entity-aaaaaaa))))"
                        "   (str/lower-case (str/trim (name (:some-long-keyword-name entity-bbbbbbb))))])"]))]
-    (is (= 2 (count (set (map #(baseline/issue->identity :nested-call-chain %) found)))))))
+    (is (= 2 (->> found (map #(baseline/issue->identity :nested-call-chain %)) set count)))))
 
 (deftest suggestion-names-the-configured-minimum
   (is (str/starts-with? (:nested-call-chain (group/suggestions (idioms/make-group {:min-calls 2}))) "2 or more")))

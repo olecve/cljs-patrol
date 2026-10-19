@@ -382,8 +382,8 @@
   (let [sub-decls (filter #(= :sub (:type %)) declarations)
         event-decls (filter #(= :event (:type %)) declarations)
 
-        sub-usage-kws (set (map :kw (filter #(= :sub (:type %)) usages)))
-        event-usage-kws (set (map :kw (filter #(= :event (:type %)) usages)))
+        sub-usage-kws (->> usages (filter #(= :sub (:type %))) (map :kw) set)
+        event-usage-kws (->> usages (filter #(= :event (:type %))) (map :kw) set)
 
         unused-subs (remove #(contains? sub-usage-kws (:kw %)) sub-decls)
         unused-events (remove #(contains? event-usage-kws (:kw %)) event-decls)

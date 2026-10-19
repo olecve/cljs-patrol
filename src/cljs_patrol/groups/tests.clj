@@ -112,10 +112,12 @@
   "Return the conditional an assertion computes its expectation with, or nil."
   [loc]
   (when (contains? assertion-heads (some-> loc z/down parser/sym-name))
-    (first (filter #(and (= :list (z/tag %))
-                         (contains? conditional-heads (parser/sym-name (z/down %)))
-                         (not (inside-function-literal? % loc)))
-                   (descendant-locs loc)))))
+    (->> loc
+         descendant-locs
+         (filter #(and (= :list (z/tag %))
+                       (contains? conditional-heads (parser/sym-name (z/down %)))
+                       (not (inside-function-literal? % loc))))
+         first)))
 
 (def ^:private branch-heads #{"if" "if-not" "cond" "condp" "case"})
 
