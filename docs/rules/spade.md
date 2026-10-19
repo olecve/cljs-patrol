@@ -8,6 +8,10 @@ that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
 Declarations are read from `defclass` and `defattrs`. A usage is a direct call, qualified (`styles/container-style`) or
 unqualified within the same namespace (`container-style`).
 
+Run this group alone with `--only spade`.
+
+## Rules
+
 ### Unused styles
 
 `unused-styles` · cleanup — A `defclass` or `defattrs` nothing calls.
@@ -18,21 +22,14 @@ unqualified within the same namespace (`container-style`).
   {:color :red})
 
 ;; fix
-(defclass panel-style []
+(defclass legacy-panel-style []
   {:color :red})
-(defn panel [] [:div {:class (panel-style) :id "panel"}])
+(defn panel [] [:div {:class (legacy-panel-style) :id "panel"}])
 ```
 
-<details>
-<summary>Details</summary>
+### `defattrs` in `merge`
 
-Declared with `defclass`/`defattrs` but never called
-
-</details>
-
-### defattrs in merge
-
-`defattrs-in-merge` · deprecations — A `defattrs` merged into props; a `defclass` passed as `:class` says the same.
+`defattrs-in-merge` · deprecations — A `defattrs` merged into props, where a `defclass` passed as `:class` is enough.
 
 ```clojure
 ;; flagged
@@ -43,15 +40,8 @@ Declared with `defclass`/`defattrs` but never called
 ;; fix
 (defclass card-style []
   {:padding "8px"})
-(defn card [props] [:div (merge {:class (card-style)} props)])
+(defn card [] [:div {:class (card-style)}])
 ```
-
-<details>
-<summary>Details</summary>
-
-`defattrs` used inside `merge`; should be `defclass` so callers can pass it via `:class` without merge
-
-</details>
 
 ### Pseudo-selector in Spade main map
 
@@ -72,9 +62,9 @@ Declared with `defclass`/`defattrs` but never called
 <details>
 <summary>Details</summary>
 
-`defclass`/`defattrs` with a `:&`-prefixed key (e.g. `:&:hover`) inside a style map; Spade emits it as an invalid CSS
+A `defclass`/`defattrs` with a `:&`-prefixed key (e.g. `:&:hover`) inside a style map. Spade emits it as an invalid CSS
 property and silently drops the rule. Move the selector into its own sibling vector `[:&:hover {…}]`. Checked in the
-base map and in the map of every nested selector block, at any depth
+base map and in the map of every nested selector block, at any depth.
 
 </details>
 
@@ -98,23 +88,22 @@ base map and in the map of every nested selector block, at any depth
 
 A Spade selector vector begins with 2+ `:&`-prefixed keywords (e.g. `[:&:before :&:after {…}]`); Garden compiles this as
 a descendant selector (`elem:before elem:after`), not the comma-joined selector the author intended. Checked at every
-nesting depth, not only on the declaration's own siblings
+nesting depth, not only on the declaration's own siblings.
 
 </details>
 
 ### Ampersand not at start
 
-`spade-ampersand-not-at-start` · bugs — A `&` anywhere but the front of a string selector, which Garden leaves in as
-text.
+`spade-ampersand-not-at-start` · bugs — A `&` past the front of a string selector, which Garden leaves in as text.
 
 ```clojure
 ;; flagged
 (defclass row-style []
-  ["li:focus-within &" {:outline "none"}])
+  [":not(.disabled)&:hover" {:background "#eee"}])
 
 ;; fix
 (defclass row-style []
-  ["&:focus-within" {:outline "none"}])
+  ["&:not(.disabled):hover" {:background "#eee"}])
 ```
 
 <details>
@@ -123,14 +112,13 @@ text.
 A string selector inside `defclass`/`defattrs` carries `&` anywhere but position 0 (e.g. `["li:focus-within &" {…}]`).
 Garden substitutes the parent-class reference only at the front of a string selector; elsewhere the `&` survives into
 the stylesheet as a literal character, and the rule matches nothing. Checked at every nesting depth; `"&"`, `"&:hover"`
-and `"&[data-x]"` are correct
+and `"&[data-x]"` are correct.
 
 </details>
 
 ### Keyword combinator selector
 
-`spade-keyword-combinator-selector` · bugs — A combinator written as a keyword, which Garden reads as a selector of its
-own.
+`spade-keyword-combinator-selector` · bugs — A combinator written as a keyword, which Garden reads as a selector.
 
 ```clojure
 ;; flagged
@@ -155,6 +143,6 @@ own.
 A Spade selector vector holds a combinator keyword (`:>`, `:+`) alongside another selector, e.g. `[:> :span {…}]`.
 Garden reads a selector vector as a comma-separated list, so this compiles to `.parent >, .parent span {…}` — the first
 half invalid, the second matching every descendant. Use the string form, `["> span" {…}]`. Single-element vectors
-(`[:&:hover {…}]`), string selectors and plain descendant chains (`[:svg :path {…}]`) are left alone
+(`[:&:hover {…}]`), string selectors and plain descendant chains (`[:svg :path {…}]`) are left alone.
 
 </details>

@@ -5,6 +5,11 @@ that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
 
 [← all rule groups](../rules.md) · [← back to the README](../../README.md)
 
+Run this group alone with `--only layout`. Its settings live under `:layout` in `.cljs-patrol/config.edn`; see
+[Layout options](#layout-options).
+
+## Rules
+
 ### Form after split map
 
 `form-after-split-map` · cleanup — A form starting on the line a split map closes on.
@@ -29,8 +34,8 @@ that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
 ```clojure
 (def points [{:x 0 :y 0} {:x 10 :y 0}]) ; maps on one line cannot split
 
-(defn button [] [button {:size :s
-                         :variant :ghost} "Edit"]) ; a short label child
+(defn edit-button [] [button {:size :s
+                              :variant :ghost} "Edit"]) ; a short label child
 ```
 
 <details>
@@ -49,13 +54,14 @@ symbol followed by more forms on that line is still flagged); a single-line form
 vector of data or of bindings, `[{:keys [db]` / `:as cofx} event]`; the second half of a pair — a `let`-like binding, a
 `cond`, `case`, `condp` or `cond->` clause, a reader conditional branch; and braces inside strings, comments and
 regexes, since forms are read from the parse tree rather than from the text. Put each sibling on its own line, aligned
-with the first
+with the first.
 
 </details>
 
 ### Split map after sibling
 
-`split-map-after-sibling` · cleanup — A split map starting after a whole sibling on the same line.
+`split-map-after-sibling` · cleanup · config [`:split-map-after-symbol`](#layout-options) — A split map starting after a
+whole sibling on the same line.
 
 ```clojure
 ;; flagged
@@ -87,7 +93,7 @@ sibling before it. The sibling has to be a map or a vector. Never a sibling: the
 (`(f {:a 1`, `[button {:size :s`); a fn's parameter list or a `let`'s bindings, which are followed by the form's body;
 and a path vector of plain tokens outside a binding form, `(assoc-in db [:a :b] {…})`, which is how a target and its
 value are passed. A plain symbol, `_` included, counts only inside a parameter list or binding and only when configured
-— see [Layout options](#layout-options)
+— see [Layout options](#layout-options).
 
 </details>
 
@@ -99,8 +105,8 @@ The `layout` group reads one key from `.cljs-patrol/config.edn`:
 {:layout {:split-map-after-symbol true}}
 ```
 
-It widens **Split map after sibling** to a map after a plain symbol in a parameter list or binding —
-`(fn [cofx [_ {:keys [id]` / `:as user-group}]]`. Off by default, because cljfmt leaves this shape all over a typical
-codebase and most read it as fine: on one UI codebase of about 1,700 files it adds 127 findings to the 4 reported
-without it. A symbol outside a binding form, `(reset! state {…})`, is the target of a call and is not reported either
-way.
+It widens [Split map after sibling](#split-map-after-sibling) to a map after a plain symbol in a parameter list or
+binding — `(fn [cofx [_ {:keys [id]` / `:as user-group}]]`. Off by default, because cljfmt leaves this shape all over a
+typical codebase and most read it as fine: on one UI codebase of about 1,700 files it adds 127 findings to the 4
+reported without it. A symbol outside a binding form, `(reset! state {…})`, is the target of a call and is not reported
+either way.

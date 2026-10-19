@@ -5,6 +5,10 @@ key that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
 
 [← all rule groups](../rules.md) · [← back to the README](../../README.md)
 
+Run this group alone with `--only docstrings`.
+
+## Rules
+
 ### Docstring summary
 
 `docstring-summary` · cleanup — A multi-line docstring whose first line is not a sentence of its own.
@@ -29,7 +33,7 @@ key that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
 <details>
 <summary>Details</summary>
 
-First line of a multi-line docstring is not a self-contained sentence ending in `.`, `!`, `?`, or `:`
+The first line of a multi-line docstring has to be a self-contained sentence ending in `.`, `!`, `?` or `:`.
 
 </details>
 
@@ -53,13 +57,6 @@ Items without a price are skipped."
   (reduce + (keep :price items)))
 ```
 
-<details>
-<summary>Details</summary>
-
-Continuation lines of a multi-line docstring are indented less than the opening-quote column
-
-</details>
-
 ### Docstring leading/trailing whitespace
 
 `docstring-leading-trailing-whitespace` · cleanup — A docstring starting or ending with whitespace.
@@ -77,10 +74,3 @@ Continuation lines of a multi-line docstring are indented less than the opening-
   [items]
   (reduce + (keep :price items)))
 ```
-
-<details>
-<summary>Details</summary>
-
-Docstring starts or ends with whitespace
-
-</details>

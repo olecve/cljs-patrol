@@ -5,24 +5,29 @@ that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
 
 [← all rule groups](../rules.md) · [← back to the README](../../README.md)
 
+Run this group alone with `--only idioms`. Its settings live under `:idioms` in `.cljs-patrol/config.edn`; see
+[Idioms options](#idioms-options).
+
+## Rules
+
 ### Nested call chain
 
-`nested-call-chain` · cleanup — Nested calls a thread would read top to bottom.
+`nested-call-chain` · cleanup · config [`:min-calls`](#idioms-options) — Nested calls a thread would read top to bottom.
 
 ```clojure
 ;; flagged
 (defn active-users [rows]
   (vec (filter active? (map :user rows))))
 
-(defn first-label [m]
-  (select-keys (first (get-in m [:a])) [:label]))
+(defn top-result [response]
+  (select-keys (first (get-in response [:body :results])) [:id :title]))
 
 ;; fix
 (defn active-users [rows]
   (->> rows (map :user) (filter active?) vec))
 
-(defn first-label [m]
-  (-> m (get-in [:a]) first (select-keys [:label])))
+(defn top-result [response]
+  (-> response (get-in [:body :results]) first (select-keys [:id :title])))
 ```
 
 **Left alone:**
@@ -30,7 +35,7 @@ that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
 ```clojure
 (defn sorted-ids [xs] (vec (sort xs))) ; only two calls
 
-(defn member? [ids id] (contains? (set (map :id ids)) id)) ; a predicate on top reads worse threaded
+(defn member? [items id] (contains? (set (map :id items)) id)) ; a predicate on top reads worse threaded
 
 (defn draft [db] (get-in db (editor-path :draft))) ; the nested call is the path, not the data
 ```
@@ -77,7 +82,7 @@ reads worse at the end of a thread, so `(is (nil? (:id (first xs))))` and `(cont
 call on a literal, which stays the thread's starting value, so `(:question (:params (request-to "/qa")))` is two steps
 above `(request-to "/qa")` rather than three, unless it is the collection of a `->>` step,
 `(->> [3 1 2] (map inc) sort vec)`; the list a reader conditional holds; and anything quoted, discarded or inside
-`(comment …)`
+`(comment …)`.
 
 </details>
 

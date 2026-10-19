@@ -5,9 +5,15 @@ that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
 
 [← all rule groups](../rules.md) · [← back to the README](../../README.md)
 
+Run this group alone with `--only css-order`. Its settings live under `:css-order` in `.cljs-patrol/config.edn`; see
+[Property-order tables](#property-order-tables).
+
+## Rules
+
 ### CSS property order (outside-in)
 
-`css-property-order-outside-in` · cleanup — Style properties out of the order the chosen stylelint table defines.
+`css-property-order-outside-in` · cleanup · config [`:order`](#property-order-tables) — Style properties out of the
+order the chosen stylelint table defines.
 
 ```clojure
 ;; flagged
@@ -42,7 +48,7 @@ are read, so a map that `(merge …)` or `(case …)` builds is left alone. A pr
 property (`--*`) included, is unordered; it only reads as a problem when a ranked property follows it. Maps under four
 ranked properties are not judged, and only the first property out of place in each block is reported — alongside the
 whole block's target order, so the fix needs no guessing. See [Property-order tables](#property-order-tables) for the
-choice of table
+choice of table.
 
 </details>
 

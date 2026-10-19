@@ -5,9 +5,14 @@ that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
 
 [← all rule groups](../rules.md) · [← back to the README](../../README.md)
 
-### Deftest leading article
+Run this group alone with `--only tests`. Its settings live under `:tests` in `.cljs-patrol/config.edn`; see
+[Test paths](#test-paths).
 
-`deftest-leading-article` · cleanup — A test name opening with `a-`, `an-` or `the-`.
+## Rules
+
+### `deftest` leading article
+
+`deftest-leading-article` · cleanup · config [`:paths`](#test-paths) — A test name opening with `a-`, `an-` or `the-`.
 
 ```clojure
 ;; flagged
@@ -36,13 +41,14 @@ article inside the name is grammar, so `escape-closes-the-modal` and `without-on
 left alone, and a word that merely opens with those letters (`another-claim-holds`, `theme-switches-to-dark`) is not an
 article: the hyphen is what tells them apart. The name is read through metadata on the var, so
 `(deftest ^:async the-panel-loads-lazily …)` counts. Point the tool at the test directory to use this group. On a
-codebase that predates the convention, `--baseline-write` snapshots what is there so only new names are reported
+codebase that predates the convention, `--baseline-write` snapshots what is there so only new names are reported.
 
 </details>
 
 ### Assertion message inline
 
-`assertion-message-inline` · cleanup — An assertion message on the same line as what it checks.
+`assertion-message-inline` · cleanup · config [`:paths`](#test-paths) — An assertion message on the same line as what it
+checks.
 
 ```clojure
 ;; flagged
@@ -63,13 +69,13 @@ ran, the other why the answer matters — and a reader scanning a test body for 
 it. Put the message on its own line under the expression, which is how the style guide's own examples are written. The
 closing line of a multi-line expression counts as sharing, so `(is (= 4\n (+ 2 2)) "…")` is flagged while the same
 message on the next line is not. Only a string written out is flagged; a message named by a symbol is not the shape the
-convention is about, and an assertion with no message says nothing either way
+convention is about, and an assertion with no message says nothing either way.
 
 </details>
 
 ### Conditional assertion
 
-`conditional-assertion` · cleanup — A test that works out what to expect while it runs.
+`conditional-assertion` · cleanup · config [`:paths`](#test-paths) — A test that works out what to expect while it runs.
 
 ```clojure
 ;; flagged
@@ -99,13 +105,13 @@ Write a table instead: pair each input with the value it should produce and walk
 its own expectation. A conditional inside a function literal is left alone — `#(when (= 1 (:id %)) %)` handed to `some`
 branches per element of a collection, not per assertion. Reported rather than blocking, because the guard shape has
 defensible uses: a `when` narrowing a `doseq` to the combination under test reads as deliberate. Enforce it with
-`--fail-on` where a project wants it
+`--fail-on` where a project wants it.
 
 </details>
 
 ### Var deref in test
 
-`var-deref-in-test` · cleanup — A test reaching a var through its var quote.
+`var-deref-in-test` · cleanup · config [`:paths`](#test-paths) — A test reaching a var through its var quote.
 
 ```clojure
 ;; flagged
@@ -114,7 +120,7 @@ defensible uses: a `when` narrowing a `doseq` to the combination under test read
 
 ;; fix
 (deftest parses
-  (is (= 1 (app.core/read-count "1"))))
+  (is (= 1 (app.core/read-count "1")))) ; the public fn that calls parse-count
 ```
 
 <details>
@@ -134,13 +140,13 @@ whose name merely ends in `deref`, since the head is compared in full; and anyth
 written out or in reader syntax.
 
 Privacy itself is not checked — nothing here resolves a var across namespaces — so a public var read this way is
-reported too. That is deliberate: it is a var deref whichever it is, and the fix is the same
+reported too. That is deliberate: it is a var deref whichever it is, and the fix is the same.
 
 </details>
 
-### Js hint in test
+### `^js` hint in test
 
-`js-hint-in-test` · cleanup — A `^js` hint in test code, where nothing reads it.
+`js-hint-in-test` · cleanup · config [`:paths`](#test-paths) — A `^js` hint in test code, where nothing reads it.
 
 ```clojure
 ;; flagged
@@ -165,7 +171,7 @@ Both spellings count — `^js` and `^{:tag js}` — wherever they are written: a
 or `doseq` binding, map or vector destructuring, or inline on an expression (`(.-textContent ^js %)`). Left alone:
 `^js/Foo`, which names a type rather than asking for inference, and `^clj`, `^boolean`, `^:private` and every other tag;
 the symbol `js` anywhere but the tag slot, so `^:private js` and `^{:doc js}` are not hints; and anything inside a
-quoted or discarded form
+quoted or discarded form.
 
 </details>
 

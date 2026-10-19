@@ -5,6 +5,10 @@ key that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
 
 [← all rule groups](../rules.md) · [← back to the README](../../README.md)
 
+Run this group alone with `--only typography`.
+
+## Rules
+
 ### Mixed typography token groups
 
 `mixed-token-groups` · deprecations — Typography tokens from two Figma token groups in one style.
@@ -20,10 +24,3 @@ key that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
   {:font system-theme/action-small-font
    :letter-spacing system-theme/action-small-letter-spacing})
 ```
-
-<details>
-<summary>Details</summary>
-
-Typography tokens from different Figma token groups mixed in a single style definition
-
-</details>
