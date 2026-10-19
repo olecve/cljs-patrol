@@ -188,16 +188,22 @@
 
   Read from the nodes rather than the parsed form, so a clause behind a reader
   conditional counts too. Every symbol the clauses write is a name they may exclude,
-  rename or refer over core's, whichever clause it sits in. A `:use`, a `:refer :all` or a
-  `:refer-clojure :only` can take a core name without writing it, so any one of them
-  takes them all."
+  rename or refer over core's, whichever clause it sits in, except the alias after an
+  `:as` or `:as-alias`: `[clojure.set :as set]` names a namespace, and `set` stays core's.
+  A `:use`, a `:refer :all` or a `:refer-clojure :only` can take a core name without
+  writing it, so any one of them takes them all."
   [ns-node]
   (let [tokens (->> (tree-seq n/inner? n/children ns-node)
                     (filter #(= :token (n/tag %)))
                     (map #(try (n/sexpr %) (catch Exception _ nil))))]
     (if (some #{:use :all :only} tokens)
       :all
-      (into #{} (comp (filter symbol?) (map name)) tokens))))
+      (->> (map vector (cons nil tokens) tokens)
+           (remove (fn [[previous _]] (contains? #{:as :as-alias} previous)))
+           (map second)
+           (filter symbol?)
+           (map name)
+           set))))
 
 (def ^:private namespace-changing-heads
   "Top-level calls that switch namespace or refer names after the ns form has run."

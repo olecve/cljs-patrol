@@ -18,7 +18,7 @@
     (is (every? #(= :cleanup (:tier %)) (found)))))
 
 (deftest cond-else-nil-fixture-test
-  (is (= #{"plain" "reader-def-other"} (set (map :test (found :cond-else-nil))))
+  (is (= #{"plain" "reader-def-other" "aliased-cond" "as-alias-cond"} (set (map :test (found :cond-else-nil))))
       "a cond the ns form may take from elsewhere is left alone, a reader conditional included"))
 
 (deftest negated-test-fixture-test
