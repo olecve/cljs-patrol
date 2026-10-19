@@ -20,3 +20,7 @@
 (deftest cond-else-nil-fixture-test
   (is (= #{"plain" "reader-def-other"} (set (map :test (found :cond-else-nil))))
       "a cond the ns form may take from elsewhere is left alone, a reader conditional included"))
+
+(deftest negated-test-fixture-test
+  (is (= ["negated-plain"] (map :test (found :negated-test)))
+      "a when-not the ns form excludes, or the namespace defines in another file, is no fold to ask for"))

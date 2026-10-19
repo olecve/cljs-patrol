@@ -60,10 +60,12 @@ It reports only what it can rewrite without a judgement call:
   `str/replace` and the like, and of a `.method` call — each at the argument counts that take data, so the transducer
   `(map f)` and the two-collection `(map f xs ys)` end the chain. `(get-in db (path))` nests a call too, but the call is
   the path, and threading it reads backwards. A name an enclosing form binds — a `let`, a `for` or `doseq` binding, a fn
-  parameter or a named fn's own name, a `:keys` entry, a `letfn`, a record field, a method parameter — is a local, and
-  gets no data slot whatever core function it shares a name with. A call holding a comment or a `#_` form ends the
-  chain, and so does a step of `->`, `->>`, `some->`, `some->>`, `doto` or `..`, and the step of a `cond->` / `cond->>`
-  pair, which all take an argument they do not write out; an `as->` step and a `cond->` test do write theirs, and count
+  parameter of any `def`-headed form or a named fn's own name, a `:keys` entry, a `letfn`, a record field, a method
+  parameter, an `amap` or `areduce` binding — is a local, and gets no data slot whatever core function it shares a name
+  with. A call holding a comment or a `#_` form ends the chain, and so does a step of `->`, `->>`, `some->`, `some->>`,
+  `doto` or `..`, and the step of a `cond->` / `cond->>` pair, which all take an argument they do not write out, also
+  under metadata, a reader conditional or a `#?@` splice, and inside a thread that is itself a step of `->`; an `as->`
+  step and a `cond->` test do write theirs, and count
 - **Every head is known to be a function** — a keyword, interop (`.method`, `.-field`, `Ctor.`, `js/f`, `Class/static`),
   a `clojure.core` / `cljs.core` or `clojure.string` function written plain, through an alias or through `:refer`, or a
   var the project defines with `defn`, `defn-` or `defmulti`. A project var counts only with one argument, since its
@@ -183,8 +185,9 @@ Left alone, since the scan cannot vouch that it is core's `cond` or that it is c
 
 Why: `if-not` and `when-not` exist for exactly this, and the
 [Clojure Style Guide](https://github.com/bbatsov/clojure-style-guide) asks for them over `(if (not ...) ...)` and
-`(when (not ...) ...)`. They read as one word for the condition the branch runs on, with one pair of parentheses less
-around the test. The rewrite expands to the same code, so the result never changes.
+`(when (not ...) ...)`. The negation moves into the form's name, so the test reads as written, with one pair of
+parentheses less around it. The rewrite behaves the same: the test runs once, the value is the same, and a `recur` stays
+in tail position.
 
 Flagged: an `if` with two or three arguments, or a `when` with one or more, whose test is a call of `not` on one
 argument. Comments and `#_` forms inside do not stop it. The finding is keyed by `if` or `when`, and the fix is the same
@@ -193,11 +196,13 @@ form with `-not` and the test unwrapped.
 Left alone, since the scan cannot vouch that the rewrite means the same:
 
 - a test that is no single `not` call: `not=`, `(not a b)`, a bare `not`, or a `not` already under `if-not` or
-  `when-not`
-- a step of `->`, `->>`, `some->`, `doto`, `..` or a `cond->` pair, whose first argument is not its test
+  `when-not`; and a `not` holding a reader conditional, which may read as `(not)` on one platform
+- a step of `->`, `->>`, `some->`, `some->>`, `doto`, `..` or a `cond->` / `cond->>` pair, whose first argument is not
+  its test, also under metadata, a reader conditional or a `#?@` splice, and a step of a thread that is itself a step of
+  `->`, as the `if` of `(-> m (cond-> flag (if (not x) :a)))`
 - an `if`, `when`, `not`, `if-not` or `when-not` that may not be core's: from another library, referred, named anywhere
-  in the ns form, bound as a local, or defined by the namespace, and every case the [`cond-else-nil`](#cond-else-nil)
-  rule leaves alone for `cond`
+  in the ns form, bound as a local (a `defui` or `defnc` parameter and an `areduce` result included), or defined by the
+  namespace, and every case the [`cond-else-nil`](#cond-else-nil) rule leaves alone for `cond`
 - anything quoted, discarded or inside `(comment …)`
 
 </details>

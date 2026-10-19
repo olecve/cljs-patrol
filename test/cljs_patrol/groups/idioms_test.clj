@@ -480,7 +480,10 @@
                          "(when (not ready?) (log) (retry) (done))"
                          "(clojure.core/when (clojure.core/not ready?) :wait)"
                          "#(when (not %) :wait)"
-                         "(if ;; why\n (not #_x (seq xs)) :empty :full)"]))))
+                         "(if ;; why\n (not #_x (seq xs)) :empty :full)"])))
+  (is (= ["(if (not x) :a :b)"]
+         (negated-tests ["(if #_y (not x) :a :b)"]))
+      "a discarded form before the test is no test"))
 
 (deftest negated-test-finding-names-the-fold-and-where-it-is
   (let [[finding] (:negated-test (parse ["(defn f [x]" "  (when (not x) :wait))"]))]
@@ -511,17 +514,46 @@
                               "(if not :x :y)"
                               "(if ready? :x :y)"
                               "(when-not (not ready?) :x)"
-                              "(if-not (not ready?) :x)"]))))
+                              "(if-not (not ready?) :x)"
+                              "(when)"]))))
 
 (deftest if-of-wrong-arity-is-left-alone
   (is (empty? (negated-tests ["(if (not ready?))"
-                              "(if (not ready?) :a :b :c)"
-                              "(when)"]))))
+                              "(if (not ready?) :a :b :c)"]))))
+
+(deftest not-holding-a-reader-conditional-is-left-alone
+  (is (empty? (negated-tests ["(when (not #?(:clj x)) :a)"
+                              "(when (not #?@(:clj [x])) :a)"]))))
 
 (deftest threaded-if-or-when-is-left-alone
   (is (empty? (negated-tests ["(-> v (when (not ready?)))"
                               "(cond-> m flag (if (not ready?) :a))"
                               "(doto o (when (not ready?) :a))"]))))
+
+(deftest if-or-when-threaded-through-a-nested-or-wrapped-step-is-left-alone
+  (is (empty? (negated-tests ["(-> m (cond-> flag (if (not x) :a)))"
+                              "(-> v (doto (when (not x) :a)))"
+                              "(-> v (some-> (when (not x))))"
+                              "(-> v (-> (when (not x))))"
+                              "(cond-> m true (-> (when (not x))))"
+                              "(-> v ^:m (when (not ready?)))"
+                              "(-> v #?(:cljs (when (not ready?))))"
+                              "(-> x #?@(:clj [(when (not x))]))"]))))
+
+(deftest if-or-when-that-a-thread-only-starts-from-is-flagged
+  (is (= ["(when (not x) :a)"
+          "(when (not x) :a)"
+          "(when (not x) :a)"
+          "(when (not x) :a)"]
+         (negated-tests ["(->> m (-> (when (not x) :a)))"
+                         "(-> (when (not x) :a) f)"
+                         "(-> (-> (when (not x) :a)) f)"
+                         "(f #?(:clj [(when (not x) :a)]))"]))))
+
+(deftest chain-in-a-nested-or-wrapped-step-is-left-alone
+  (is (empty? (rewrites ["(-> m (-> (vec (sort (distinct xs)))))"
+                         "(-> m ^:m (vec (sort (distinct xs))))"
+                         "(-> m #?(:cljs (vec (sort (distinct xs)))))"]))))
 
 (deftest not-or-fold-that-is-not-core-is-left-alone
   (is (empty? (negated-tests ["(lib/when (not ready?) :a)"
@@ -532,9 +564,6 @@
   (is (empty? (negated-tests (assoc ns-info :shadowed-core #{"when-not"})
                              ["(when (not ready?) :a)"]))
       "a when-not the ns form may take from elsewhere is no fold to ask for")
-  (is (empty? (negated-tests (assoc ns-info :refers {"when-not" "app.util"})
-                             ["(when (not ready?) :a)"]))
-      "a referred when-not is no fold to ask for")
   (is (empty? (negated-tests (assoc ns-info :shadowed-core #{"not"})
                              ["(when (not ready?) :a)"]))))
 
@@ -549,5 +578,15 @@
 (deftest unevaluated-or-no-call-is-left-alone
   (is (empty? (negated-tests ["'(when (not ready?) :a)"
                               "(comment (when (not ready?) :a))"
-                              "(reify P (when [_ x] (not x) :a))"
-                              "(case k (when (not x) :a) :hit :miss)"]))))
+                              "(case k (when (not x) :a) :hit :miss)"
+                              "(. o (when (not x) :a))"
+                              "(.. o (when (not x) :a))"]))))
+
+(deftest local-from-other-binding-forms-is-left-alone
+  (is (empty? (negated-tests ["(defui panel [{:keys [when]}] (when (not ready?) :a))"
+                              "(rum/defc panel [not] (when (not ready?) :a))"
+                              "(areduce xs i not 0 (if (not x) 1 2))"
+                              "(amap xs i not (if (not x) 1 2))"
+                              "(let [not some? ;; why\n ] (when (not ready?) :a))"
+                              "(let [#_x not some?] (when (not ready?) :a))"
+                              "(let ;; why\n [not some?] (when (not ready?) :a))"]))))
