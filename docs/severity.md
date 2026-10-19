@@ -6,9 +6,9 @@ Which rules block CI and which only report, and how to choose per tier or per ru
 
 Without `--fail-on`, what fails depends on the run. A plain run fails when a group's own default check trips:
 `re-frame`, `spade`, `typography` and `a11y` block on most of their findings, unused registrations and styles included,
-while `reagent`, `docstrings`, `tests`, `css-order` and `layout` only report. With `--baseline`, every new finding
-fails, whatever its tier. `--fail-on` replaces both with the rules you name. Every issue is still reported regardless;
-only the exit code is gated.
+while `reagent`, `docstrings`, `tests`, `css-order`, `layout` and `idioms` only report. With `--baseline`, every new
+finding fails, whatever its tier. `--fail-on` replaces both with the rules you name. Every issue is still reported
+regardless; only the exit code is gated.
 
 ## Tiers
 
@@ -34,7 +34,7 @@ screen-reader user cannot reach, name or tell apart, and a Spade selector that m
 - `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace`
 - `css-property-order-outside-in`, `deftest-leading-article`, `assertion-message-inline`, `conditional-assertion`,
   `var-deref-in-test`, `js-hint-in-test`
-- `form-after-split-map`, `split-map-after-sibling`
+- `form-after-split-map`, `split-map-after-sibling`, `nested-call-chain`
 
 `dynamic-sites` is info-only — it never affects the exit code.
 

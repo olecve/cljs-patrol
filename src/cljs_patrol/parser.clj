@@ -59,6 +59,20 @@
       (recur (some-> loc z/down z/rightmost))
       loc)))
 
+(defn top-level-name
+  "Return what the top-level form holding loc defines, or nil.
+
+  The var a `def`-like form names, or the keyword a registration such as
+  `(reg-event-fx ::saved …)` is keyed by."
+  [loc]
+  (let [top (last (take-while #(and % (not= :forms (z/tag %))) (iterate z/up loc)))
+        head (some-> top z/down sym-name)]
+    (when (and head (= :list (z/tag top)))
+      (if (str/starts-with? head "def")
+        (some-> (declared-name-loc top) sym-name)
+        (let [id (some-> top z/down z/right)]
+          (when (kw-node? id) (raw id)))))))
+
 (defn position-row
   "Return the line number of zloc, or 0 on error."
   [zloc]

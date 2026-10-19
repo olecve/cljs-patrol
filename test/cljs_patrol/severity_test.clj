@@ -4,6 +4,7 @@
    [cljs-patrol.groups.a11y :as a11y]
    [cljs-patrol.groups.css-order :as css-order]
    [cljs-patrol.groups.docstrings :as docstrings]
+   [cljs-patrol.groups.idioms :as idioms]
    [cljs-patrol.groups.layout :as layout]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
@@ -15,7 +16,7 @@
 
 (def ^:private all-groups
   [re-frame/group spade/group reagent/group typography/group a11y/group docstrings/group
-   css-order/group tests/group layout/group])
+   css-order/group tests/group layout/group idioms/group])
 
 (def ^:private rule->tier
   (severity/collect-rule->tier all-groups))
@@ -129,7 +130,7 @@
            :css-property-order-outside-in
            :deftest-leading-article :assertion-message-inline :conditional-assertion
            :var-deref-in-test :js-hint-in-test
-           :form-after-split-map :split-map-after-sibling}
+           :form-after-split-map :split-map-after-sibling :nested-call-chain}
          (severity/tier->rules rule->tier :cleanup)))
   (is (= #{} (severity/tier->rules rule->tier :unknown))
       "unknown tier returns empty set"))
@@ -229,7 +230,7 @@
                :css-property-order-outside-in
                :deftest-leading-article :assertion-message-inline :conditional-assertion
                :var-deref-in-test :js-hint-in-test
-               :form-after-split-map :split-map-after-sibling}
+               :form-after-split-map :split-map-after-sibling :nested-call-chain}
              (set (map :rule (:cleanup tiered))))))
 
     (testing "info-only contains rules without a tier"

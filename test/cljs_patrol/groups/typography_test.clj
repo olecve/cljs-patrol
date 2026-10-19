@@ -37,8 +37,8 @@
                                 {:usages [(token-ref kw "action-small-font")
                                           (token-ref kw "action-large-letter-spacing")]})]
       (is (= 1 (count (:mixed-token-groups result))))
-      (is (= kw (:decl-kw (first (:mixed-token-groups result)))))
-      (is (= #{"action-small" "action-large"} (:prefixes (first (:mixed-token-groups result)))))))
+      (is (= kw (-> result :mixed-token-groups first :decl-kw)))
+      (is (= #{"action-small" "action-large"} (-> result :mixed-token-groups first :prefixes)))))
 
   (testing "non-typography tokens are ignored when checking prefixes"
     (let [result (group/analyze typography/group
@@ -54,7 +54,7 @@
                                           (token-ref kw-b "body-short-small-font")
                                           (token-ref kw-b "body-short-small-letter-spacing")]})]
       (is (= 1 (count (:mixed-token-groups result))))
-      (is (= kw (:decl-kw (first (:mixed-token-groups result))))))))
+      (is (= kw (-> result :mixed-token-groups first :decl-kw))))))
 
 (deftest failed?-test
   (testing "fails when mixed token groups exist"
