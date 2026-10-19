@@ -5,14 +5,52 @@ that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
 
 [← all rule groups](../rules.md) · [← back to the README](../../README.md)
 
-- **CSS property order (outside-in)** (`css-property-order-outside-in`, cleanup) — a Spade style map writes its
-  properties out of the order the chosen table defines. Each style map is judged on its own — the base map and every
-  nested selector block, at any depth — and only maps written as literals in the declaration body are read, so a map
-  that `(merge …)` or `(case …)` builds is left alone. A property the table does not name, a custom property (`--*`)
-  included, is unordered; it only reads as a problem when a ranked property follows it. Maps under four ranked
-  properties are not judged, and only the first property out of place in each block is reported — alongside the whole
-  block's target order, so the fix needs no guessing. See [Property-order tables](#property-order-tables) for the choice
-  of table
+Run this group alone with `--only css-order`. Its settings live under `:css-order` in `.cljs-patrol/config.edn`; see
+[Property-order tables](#property-order-tables).
+
+## Rules
+
+### CSS property order (outside-in)
+
+`css-property-order-outside-in` · cleanup · config [`:order`](#property-order-tables) — Style properties out of the
+order the chosen stylelint table defines.
+
+```clojure
+;; flagged
+(defclass banner-style []
+  {:color "#333"
+   :display :block
+   :padding "4px"
+   :background "#eee"})
+
+;; fix
+(defclass banner-style []
+  {:display :block
+   :padding "4px"
+   :color "#333"
+   :background "#eee"})
+```
+
+**Left alone:**
+
+```clojure
+(defclass dot-style []
+  {:color :red
+   :display :block}) ; under four ranked properties
+```
+
+<details>
+<summary>Details</summary>
+
+A Spade style map writes its properties out of the order the chosen table defines. Each style map is judged on its own —
+the base map and every nested selector block, at any depth — and only maps written as literals in the declaration body
+are read, so a map that `(merge …)` or `(case …)` builds is left alone. A property the table does not name, a custom
+property (`--*`) included, is unordered; it only reads as a problem when a ranked property follows it. Maps under four
+ranked properties are not judged, and only the first property out of place in each block is reported — alongside the
+whole block's target order, so the fix needs no guessing. See [Property-order tables](#property-order-tables) for the
+choice of table.
+
+</details>
 
 ## Property-order tables
 

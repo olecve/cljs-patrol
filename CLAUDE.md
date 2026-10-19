@@ -126,6 +126,15 @@ So when a change needs documenting:
 - **A new flag** — the page for the feature it belongs to; the README only if it is one a first-time reader needs.
 - **A new config key** — the example in the README's Configuration file section, and the page that explains it.
 
+Every rule's section in `docs/rules/` leads with code, not prose, in this order: a key line,
+`` `rule-key` · tier — Summary. `` (with ``· config [`:option`](#anchor)`` before the dash when a setting changes the
+rule); a block with a `;; flagged` part and a `;; fix` part; a `**Left alone:**` block where the edges need showing;
+and, when the summary is not enough, the full explanation folded into `<details>`. `docs_examples_test.clj` reads every
+chunk of top-level forms, a blank line between forms ending a chunk, and runs it through the rule as a file of its own:
+a flagged example must be reported, a fix or left-alone one must not, every chunk must parse, every rule the group
+declares needs a section, and every key-line link must hit a heading. A fix is only checked against its own rule, so it
+may still trip a sibling rule if copied as is. A rule PR leads with the same kind of examples.
+
 Two things that keep the split honest: every page links back to the README, and a cross-reference between pages is a
 relative link with an anchor (`[Property-order tables](rules/css-order.md#property-order-tables)`), never a bare
 `#anchor`, which silently resolves to the wrong page.
@@ -166,8 +175,8 @@ Register the group in `assemble-groups` in `core.clj`. Then, for every rule it a
   that has none
 - if it holds on `.clj`, add it to the `--fail-on` list of the "Patrol our own sources" step in `test.yml`, or it will
   not gate
-- document it on its group's page under `docs/rules/`; a new group gets a new page, a line in the `docs/rules.md` index,
-  and one line in the README's rule-group list
+- document it on its group's page under `docs/rules/`, examples first (see Documentation); a new group gets a new page,
+  a line in the `docs/rules.md` index, and one line in the README's rule-group list
 
 ## Key Architectural Notes
 
