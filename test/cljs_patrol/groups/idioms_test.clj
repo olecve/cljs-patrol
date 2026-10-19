@@ -47,13 +47,13 @@
 (deftest keyword-interop-and-string-heads-count
   (is (= ["(-> state :value first :text)"
           "(-> props .-table .getFilteredRowModel .-rows)"
-          "(-> e .-target .-textContent str/blank?)"
+          "(-> e .-target .-textContent str/trim)"
           "(-> xs first str java.util.UUID/fromString)"
           "(-> options clj->js Auth0Client. js/Promise.resolve)"
           "(-> xs distinct sort clojure.core/vec)"]
          (rewrites ["(:text (first (:value state)))"
                     "(.-rows (.getFilteredRowModel (.-table props)))"
-                    "(str/blank? (.-textContent (.-target e)))"
+                    "(str/trim (.-textContent (.-target e)))"
                     "(java.util.UUID/fromString (str (first xs)))"
                     "(js/Promise.resolve (Auth0Client. (clj->js options)))"
                     "(clojure.core/vec (sort (distinct xs)))"]))))
@@ -124,9 +124,105 @@
     (is (str/includes? (:hint spanning) "(-> ... distinct sort vec)")
         "a starting value spanning lines is not squeezed onto the hint's one line")))
 
-(deftest call-with-more-than-one-argument-ends-chain
-  (is (empty? (rewrites ["(vec (sort (map f xs)))"
-                         "(vec (sort-by f (distinct xs)))"]))))
+(deftest data-last-call-threads-with-thread-last
+  (is (= ["(->> xs (map g) (filter f) vec)"
+          "(->> m keys (map name) (str/join \", \"))"]
+         (rewrites ["(vec (filter f (map g xs)))"
+                    "(str/join \", \" (map name (keys m)))"]))))
+
+(deftest data-first-call-threads-with-thread-first
+  (is (= ["(-> m (get-in [:a]) first (select-keys [:b]))"
+          "(-> document .createParagraph .createRun (.setText text))"]
+         (rewrites ["(select-keys (first (get-in m [:a])) [:b])"
+                    "(.setText (.createRun (.createParagraph document)) text)"]))))
+
+(deftest call-outside-the-data-slot-ends-chain
+  (is (= ["(-> ks distinct sort vec)"] (rewrites ["(get-in db (vec (sort (distinct ks))))"]))
+      "the nested call is the path, not the map get-in reads")
+  (is (empty? (rewrites ["(vec (sort (map f xs ys)))"
+                         "(vec (distinct (map f)))"
+                         "(vec (sort (js/Math.max (count xs) 1)))"]))
+      "two collections, a transducer, and a host call that is not a method have no data slot"))
+
+(deftest transducer-argument-is-not-the-data
+  (is (= ["(->> xs distinct sort (into [] (map f)))"] (rewrites ["(into [] (map f) (sort (distinct xs)))"]))))
+
+(deftest change-of-direction-reports-the-longest-part-once
+  (is (= ["(->> xs (remove h) (filter g) (map f) sort first)"]
+         (rewrites ["(get (first (sort (map f (filter g (remove h xs))))) :k)"]))
+      "one-argument steps at the turn join the part below, and the part above is too short")
+  (is (= ["(-> m (get-in [:a]) (assoc :b 1) (dissoc :c))"]
+         (rewrites ["(map f (dissoc (assoc (get-in m [:a]) :b 1) :c))"]))
+      "only the longer part is reported, so two threads are never suggested for one form")
+  (is (= ["(->> xs (map h) (filter g) sort vec)"]
+         (rewrites ["(select-keys (dissoc (assoc (vec (sort (filter g (map h xs)))) :a 1) :b) [:c])"]))
+      "the longer part wins wherever it sits")
+  (is (= ["(->> xs (map h) (filter g) vec)"]
+         (rewrites ["(select-keys (dissoc (assoc (vec (filter g (map h xs))) :a 1) :b) [:c])"]))
+      "on a tie the innermost part wins"))
+
+(deftest predicate-at-the-top-is-not-counted
+  (is (empty? (rewrites ["(contains? (set (map :id xs)) id)"
+                         "(pos? (count (filter f xs)))"
+                         "(some #{x} (map f (vals m)))"])))
+  (is (= ["(->> xs (filter f) (map :id) set)"]
+         (rewrites ["(contains? (set (map :id (filter f xs))) id)"]))
+      "the part below the predicate still counts"))
+
+(deftest local-named-like-core-gets-no-data-slot
+  (is (empty? (rewrites ["(defn f [{:keys [filter]}] (vec (filter g (map h xs))))"
+                         "(let [update (fn [m k v] m)] (count (update (vec (sort xs)) :a inc)))"
+                         "(letfn [(merge [a b] a)] (count (merge (vec (sort xs)) b)))"]))
+      "a destructured, let-bound or letfn-bound name is a local")
+  (is (= ["(->> xs (filter g) (map h) vec)"]
+         (rewrites ["(defn f [filtered] (vec (map h (filter g xs))))"]))
+      "a local with a different name changes nothing")
+  (is (empty? (rewrites ["(for [x xs :let [filter f]] (vec (filter g (map h x))))"]))
+      "a :let modifier binds too")
+  (is (= ["(->> a (map h) (filter g) vec)"]
+         (rewrites ["(let [a (filter f xs)] (vec (filter g (map h a))))"]))
+      "a name used in a binding's value is not bound by it")
+  (is (= ["(->> xs (filter g) (map h) vec)" "(->> ys (map f) distinct sort vec)"]
+         (rewrites ["(defn view [x] [:div (filter x)] (vec (map h (filter g xs))))"
+                    "(defn build [x] (let [a (conj x 1)] (vec (sort (distinct (map f ys))))))"]))
+      "a vector in a body and a let below are not parameter lists")
+  (is (empty? (rewrites ["(defn many ([filter] (vec (filter g (map h xs)))) ([a b] a))"
+                         "(defmethod render :x [filter] (vec (filter g (map h xs))))"
+                         "(defmethod render [:a :b] [filter] (vec (filter g (map h xs))))"]))
+      "each arity's parameters, and a method's after its dispatch value, are read"))
+
+(deftest member-access-macro-is-not-a-method
+  (is (= ["(-> xs distinct sort vec)"] (rewrites ["(.. (vec (sort (distinct xs))) getA getB)"]))))
+
+(deftest quoted-and-tagged-literals-stay-the-starting-value
+  (is (empty? (rewrites ["(vec (sort (distinct '(3 1 2))))"
+                         "(vec (sort (distinct #js [1 2])))"]))))
+
+(deftest collection-literal-starts-a-thread-last
+  (is (= ["(->> [3 1 2] (map inc) sort vec)"
+          "(->> '(3 1 2) (map inc) sort vec)"]
+         (rewrites ["(vec (sort (map inc [3 1 2])))"
+                    "(vec (sort (map inc '(3 1 2))))"]))))
+
+(deftest finding-names-the-operator-it-suggests
+  (is (= ['->> '->]
+         (map :kw (:nested-call-chain (parse ["(vec (filter f (map g xs)))"
+                                              "(vec (sort (distinct xs)))"]))))))
+
+(deftest call-of-more-arguments-counts-only-for-a-known-slot
+  (is (= ["(-> xs distinct sort first)"]
+         (rewrites ["(defn pick [m k] (get m k))"
+                    "(pick (first (sort (distinct xs))) :a)"]))
+      "a project function's data slot is not known")
+  (is (empty? (rewrites ["(defn map [f xs] xs)"
+                         "(vec (map f (filter g xs)))"]))
+      "a namespace's own map is not core map"))
+
+(deftest long-arguments-are-shortened-in-the-hint
+  (let [finding (first (:nested-call-chain
+                        (parse ["(vec (filter some-very-long-predicate-name-that-goes-past-the-limit (map g xs)))"])))]
+    (is (str/includes? (:hint finding) "(filter ...)"))
+    (is (str/includes? (:rewrite finding) "some-very-long-predicate-name-that-goes-past-the-limit"))))
 
 (deftest wrapper-below-a-macro-is-not-counted
   (is (empty? (rewrites ["(is (nil? (:id (first xs))))"]))
@@ -205,7 +301,7 @@
                (parse ["(defn view []"
                        "  [(str/lower-case (str/trim (name (:some-long-keyword-name entity-aaaaaaa))))"
                        "   (str/lower-case (str/trim (name (:some-long-keyword-name entity-bbbbbbb))))])"]))]
-    (is (= 2 (count (set (map #(baseline/issue->identity :nested-call-chain %) found)))))))
+    (is (= 2 (->> found (map #(baseline/issue->identity :nested-call-chain %)) set count)))))
 
 (deftest suggestion-names-the-configured-minimum
   (is (str/starts-with? (:nested-call-chain (group/suggestions (idioms/make-group {:min-calls 2}))) "2 or more")))

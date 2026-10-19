@@ -22,8 +22,8 @@
   (when (seq items)
     (str "## " title " (" (count items) ")\n\n"
          (if (:form (first items))
-           (str/join "\n" (map format-dynamic-entry (sort-by :file items)))
-           (str/join "\n" (map format-entry (sort-by (comp str :kw) items))))
+           (->> items (sort-by :file) (map format-dynamic-entry) (str/join "\n"))
+           (->> items (sort-by (comp str :kw)) (map format-entry) (str/join "\n")))
          "\n\n> " suggestion "\n")))
 
 (defn- merge-results [results]

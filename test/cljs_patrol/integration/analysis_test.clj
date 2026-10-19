@@ -18,35 +18,35 @@
     (testing "detects unused re-frame subscription"
       (is (= 1 (count (:unused-subs re-frame-result))))
       (is (= #{:webapp.subs/unused-sub}
-             (set (map :kw (:unused-subs re-frame-result))))))
+             (->> re-frame-result :unused-subs (map :kw) set))))
 
     (testing "detects unused re-frame event"
       (is (= 1 (count (:unused-events re-frame-result))))
       (is (= #{:webapp.events/unused-event}
-             (set (map :kw (:unused-events re-frame-result))))))
+             (->> re-frame-result :unused-events (map :kw) set))))
 
     (testing "detects phantom subscription"
       (is (= 1 (count (:phantom-subs re-frame-result))))
       (is (= #{:webapp.phantom/ghost-sub}
-             (set (map :kw (:phantom-subs re-frame-result))))))
+             (->> re-frame-result :phantom-subs (map :kw) set))))
 
     (testing "does not flag used subscription as unused"
-      (is (not (contains? (set (map :kw (:unused-subs re-frame-result)))
+      (is (not (contains? (->> re-frame-result :unused-subs (map :kw) set)
                           :webapp.subs/used-sub))))
 
     (testing "detects unused Spade styles"
       (is (= 2 (count (:unused-styles spade-result))))
       (is (= #{:webapp.styles/unused-style :webapp.styles/unused-attrs}
-             (set (map :kw (:unused-styles spade-result))))))
+             (->> spade-result :unused-styles (map :kw) set))))
 
     (testing "does not flag used style as unused"
-      (is (not (contains? (set (map :kw (:unused-styles spade-result)))
+      (is (not (contains? (->> spade-result :unused-styles (map :kw) set)
                           :webapp.styles/container-style))))
 
     (testing "detects defattrs used in merge"
       (is (= 1 (count (:defattrs-in-merge spade-result))))
       (is (= #{:webapp.styles/merged-attrs}
-             (set (map :kw (:defattrs-in-merge spade-result))))))
+             (->> spade-result :defattrs-in-merge (map :kw) set))))
 
     (testing "detects pseudo-selectors misplaced inside the main style map"
       (let [findings (:pseudo-in-main-map spade-result)]
@@ -60,12 +60,12 @@
             "the map of a nested selector block carries the same fault as the base map")))
 
     (testing "reads a style declaration whose name carries metadata"
-      (is (contains? (set (map :kw (:pseudo-in-main-map spade-result)))
+      (is (contains? (->> spade-result :pseudo-in-main-map (map :kw) set)
                      :webapp.pseudo-styles/tab-style)
           "(defclass ^:private tab-style …) — the name sits behind a meta node"))
 
     (testing "does not flag pseudo-selectors placed correctly in their own vector"
-      (is (not (contains? (set (map :kw (:pseudo-in-main-map spade-result)))
+      (is (not (contains? (->> spade-result :pseudo-in-main-map (map :kw) set)
                           :webapp.pseudo-styles/icon-button-style))))
 
     (testing "detects consecutive self-selectors in a sibling vector"
@@ -78,7 +78,7 @@
             "a self-pseudo chain nested under another selector is the same defect")))
 
     (testing "does not flag a self-selector chained with a descendant class"
-      (is (not (contains? (set (map :kw (:consecutive-self-selectors spade-result)))
+      (is (not (contains? (->> spade-result :consecutive-self-selectors (map :kw) set)
                           :webapp.pseudo-styles/panel-style))))
 
     (testing "detects defclass used as sole attr"
@@ -86,10 +86,10 @@
       (is (= #{:webapp.styles/sole-attr-style
                :webapp.styles/vector-sole-attr-style
                :webapp.local-styles/local-panel-style}
-             (set (map :kw (:defclass-as-sole-attr reagent-result))))))
+             (->> reagent-result :defclass-as-sole-attr (map :kw) set))))
 
     (testing "does not flag defclass in multi-element :class vector"
-      (is (not (contains? (set (map :kw (:defclass-as-sole-attr reagent-result)))
+      (is (not (contains? (->> reagent-result :defclass-as-sole-attr (map :kw) set)
                           :webapp.styles/vector-multi-class-style))))
 
     (testing "detects redundant `into` around a keyed mapping body"
@@ -99,7 +99,7 @@
                (set (map :kw findings))))))
 
     (testing "does not flag plain-Clojure into forms"
-      (let [forms (set (map :form (:redundant-into-hiccup reagent-result)))]
+      (let [forms (->> reagent-result :redundant-into-hiccup (map :form) set)]
         (is (not-any? #(re-find #"\(into \[\]" %) forms)
             "empty-vec into not flagged")
         (is (not-any? #(re-find #"\(into \[1 2 3\]" %) forms)
@@ -108,7 +108,7 @@
             "arity-1 into not flagged")))
 
     (testing "does not flag the shapes an into around hiccup is allowed to take"
-      (let [forms (set (map :form (:redundant-into-hiccup reagent-result)))
+      (let [forms (->> reagent-result :redundant-into-hiccup (map :form) set)
             flagged? (fn [pattern] (some #(re-find pattern %) forms))]
         (is (not (flagged? #"node->hiccup"))
             "keyless transducer keeps the into that splices its elements in")
@@ -131,7 +131,7 @@
 
     (testing "detects duplicate subscription registration"
       (is (= 2 (count (:duplicate-subs re-frame-result))))
-      (is (= #{:webapp.subs/used-sub} (set (map :kw (:duplicate-subs re-frame-result))))))
+      (is (= #{:webapp.subs/used-sub} (->> re-frame-result :duplicate-subs (map :kw) set))))
 
     (testing "detects deprecated :dispatch-n effect"
       (is (= 1 (count (:deprecated-effects re-frame-result)))))
@@ -149,7 +149,7 @@
       (is (= #{:webapp.styles/sole-attr-style
                :webapp.styles/vector-sole-attr-style
                :webapp.local-styles/local-panel-style}
-             (set (map :kw (:defclass-as-sole-attr reagent-result))))))))
+             (->> reagent-result :defclass-as-sole-attr (map :kw) set))))))
 
 (deftest issues-carry-tier-test
   (let [{:keys [group-results]} (core/run fixture-dir all-groups)

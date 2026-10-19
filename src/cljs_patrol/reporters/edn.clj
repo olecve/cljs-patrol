@@ -41,9 +41,10 @@
   ([enabled-groups dirs run-results fail-on-rules]
    (let [merged (->> enabled-groups
                      (map-indexed (fn [g-idx g]
-                                    [(group/group-id g) (with-absolute-file-paths
-                                                          (merge-results
-                                                           (map #(nth (:group-results %) g-idx) run-results)))]))
+                                    [(group/group-id g) (->> run-results
+                                                             (map #(nth (:group-results %) g-idx))
+                                                             merge-results
+                                                             with-absolute-file-paths)]))
                      (into {}))
          suggestions (->> enabled-groups
                           (map (fn [g] [(group/group-id g) (group/suggestions g)]))
