@@ -37,9 +37,6 @@
   (let [second-loc (some-> vec-loc z/down z/right)]
     (and second-loc (parser/kw-node? second-loc))))
 
-(defn- locs-right [loc]
-  (take-while some? (rest (iterate #(some-> % z/right) loc))))
-
 (defn- first-in-subtree
   "Return the first loc in `loc`'s subtree, `loc` included, satisfying pred."
   [pred loc]
@@ -62,7 +59,7 @@
     (loop [child (some-> list-loc z/down z/right)]
       (cond
         (nil? child) nil
-        (= :vector (z/tag child)) (locs-right child)
+        (= :vector (z/tag child)) (parser/right-siblings child)
         :else (recur (z/right child))))))
 
 (def ^:private mapping-heads #{"map" "map-indexed" "keep" "keep-indexed"})
@@ -82,7 +79,7 @@
       (cond
         (= "for" head-name)
         (when (= :vector (some-> argument z/tag))
-          (locs-right argument))
+          (parser/right-siblings argument))
 
         (contains? mapping-heads head-name)
         (case (some-> argument z/tag)

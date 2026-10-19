@@ -97,8 +97,8 @@
   (boolean (and start (>= i start) (even? (- i start)))))
 
 (defn- children [container-loc]
-  (->> (iterate z/right (z/down container-loc))
-       (take-while some?)
+  (->> container-loc
+       parser/child-locs
        (remove #(= :uneval (z/tag %)))
        vec))
 

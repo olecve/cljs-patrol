@@ -239,7 +239,7 @@
 (defn- visible-from?
   "True when `body-start` or any sibling to its right carries visible content."
   [body-start]
-  (boolean (some visible-content? (take-while some? (iterate #(some-> % z/right) body-start)))))
+  (boolean (some visible-content? (when body-start (cons body-start (parser/right-siblings body-start))))))
 
 (defn- icon-only-branches?
   "True when every branch a form could render is icon markup.
@@ -472,7 +472,7 @@
   [vec-loc]
   (let [slot (hiccup/props-slot vec-loc)
         body-start (if slot (z/right slot) (some-> vec-loc z/down z/right))]
-    (hiccup/right-siblings (some-> body-start z/left))))
+    (parser/right-siblings (some-> body-start z/left))))
 
 (defn- announces-something?
   "True when a `[:caption …]` carries anything to announce.
@@ -686,10 +686,6 @@
         (and (= :a tag) readable? (attr-written? attrs :href))
         (and readable? (interactive-via-role? attrs)))))
 
-(defn- child-locs [loc]
-  (when-let [first-child (z/down loc)]
-    (take-while some? (iterate #(some-> % z/right) first-child))))
-
 (defn- content-loc? [loc ns-info component-aliases]
   (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
              (interactive-content? (hiccup/attrs-info loc) tag))))
@@ -720,7 +716,7 @@
   [loc]
   (if (= :vector (z/tag loc))
     (body-locs loc)
-    (child-locs loc)))
+    (parser/child-locs loc)))
 
 (defn- first-matching-descendant
   "Return the first vector among `locs` and their descendants satisfying `match?`, or nil.
@@ -941,7 +937,7 @@
                             (reduced :labels)
                             :else (let [inner (verdict (body-locs child))]
                                     (if (= :orphan inner) acc (reduced inner)))))
-                        :else (let [inner (verdict (child-locs child))]
+                        :else (let [inner (verdict (parser/child-locs child))]
                                 (if (= :orphan inner) acc (reduced inner)))))
                     :orphan
                     locs))]

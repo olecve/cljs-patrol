@@ -521,7 +521,7 @@
               "assoc-in"
               (let [[base path-loc value-loc] args
                     path-keys (when (= :vector (some-> path-loc z/tag))
-                                (vec (take-while some? (iterate z/right (z/down path-loc)))))
+                                (vec (parser/child-locs path-loc)))
                     outer-key (first path-keys)
                     readable-key? (and outer-key (parser/kw-node? outer-key))]
                 (cond-> (contributed base)
@@ -610,11 +610,6 @@
   [loc]
   (contains? unrendered-parent-tags (some-> loc z/tag)))
 
-(defn right-siblings
-  "Return the locs to the right of loc, loc itself excluded."
-  [loc]
-  (take-while some? (rest (iterate #(some-> % z/right) loc))))
-
 (def ^:private tail-result-heads
   "Forms whose value is the value of the last form written inside them."
   #{"do" "let" "let*" "letfn" "when" "when-not" "when-let" "when-some" "when-first"
@@ -633,7 +628,7 @@
   answers for itself, which is right for a call, a literal, or a symbol."
   [loc]
   (let [head-name (when (= :list (z/tag loc)) (some-> loc z/down parser/sym-name))
-        args (when head-name (right-siblings (z/down loc)))
+        args (when head-name (parser/right-siblings (z/down loc)))
         branches (cond
                    (contains? tail-result-heads head-name) (take-last 1 args)
                    (contains? branch-result-heads head-name) (take 2 (rest args))
