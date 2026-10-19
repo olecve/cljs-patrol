@@ -60,10 +60,10 @@ It reports only what it can rewrite without a judgement call:
   `str/replace` and the like, and of a `.method` call — each at the argument counts that take data, so the transducer
   `(map f)` and the two-collection `(map f xs ys)` end the chain. `(get-in db (path))` nests a call too, but the call is
   the path, and threading it reads backwards. A name an enclosing form binds — a `let`, a `for` or `doseq` binding, a fn
-  parameter or a named fn's own name, a `letfn`, a record field, a method parameter — is a local, and gets no data slot
-  whatever core function it shares a name with. A call holding a comment or a `#_` form ends the chain, and so does a
-  step of `->`, `->>`, `some->`, `some->>`, `doto` or `..`, and the step of a `cond->` / `cond->>` pair, which all take
-  an argument they do not write out; an `as->` step and a `cond->` test do write theirs, and count
+  parameter or a named fn's own name, a `:keys` entry, a `letfn`, a record field, a method parameter — is a local, and
+  gets no data slot whatever core function it shares a name with. A call holding a comment or a `#_` form ends the
+  chain, and so does a step of `->`, `->>`, `some->`, `some->>`, `doto` or `..`, and the step of a `cond->` / `cond->>`
+  pair, which all take an argument they do not write out; an `as->` step and a `cond->` test do write theirs, and count
 - **Every head is known to be a function** — a keyword, interop (`.method`, `.-field`, `Ctor.`, `js/f`, `Class/static`),
   a `clojure.core` / `cljs.core` or `clojure.string` function written plain, through an alias or through `:refer`, or a
   var the project defines with `defn`, `defn-` or `defmulti`. A project var counts only with one argument, since its
@@ -131,14 +131,17 @@ it. clj-kondo's `:cond-else` asks for `:else` over `true` or `:default`; this go
 Left alone, since the scan cannot vouch that it is core's `cond` or that it is called:
 
 - `condp` and `case`, which throw when nothing matches and need their default, and a `cond` holding only the one clause
-- a `cond` the ns form may take from somewhere else: any ns form that writes the symbol `cond`, in an `:exclude`, a
-  `:refer`, a `:refer-macros` or a `:rename`, behind a reader conditional too, and any with a `:use`, a `:refer :all` or
-  a `:refer-clojure :only`. A file with no ns form is left alone as well. `clojure.core/cond` and `cljs.core/cond` are
-  core's wherever they are written
-- a `cond` the namespace defines itself, from another library through an alias, or a local: a `let` or `for` binding, a
-  fn parameter or a named fn's own name, a `{:keys [:cond]}` entry, a record field or a method parameter
-- a list that only looks like a call: a method a `reify`, `deftype`, `defrecord`, `extend-type`, `extend-protocol` or
-  `proxy` defines, a member of `.` or `..`, and a `case` test constant
+- a `cond` the file may take from somewhere else: an ns form that writes the symbol `cond` anywhere, in an `:exclude`, a
+  `:refer`, a `:refer-macros` or a `:rename`, behind a reader conditional too, or has a `:use`, a `:refer :all` or a
+  `:refer-clojure :only`; a second ns form, an `in-ns` or a top-level `require`, `use`, `refer` or `refer-clojure`; a
+  `def` of `cond` behind a top-level reader conditional; and a file with no ns form at all. `clojure.core/cond` and
+  `cljs.core/cond` are core's wherever they are written
+- a `cond` the namespace defines itself at the top level, from another library through an alias, or a local: a let-like
+  or `for` binding, a fn parameter or a named fn's own name, a `:keys`, `:syms` or `:strs` entry, a record field or a
+  method parameter
+- a list that only looks like a call, even under metadata or a reader conditional: a method a `reify`, `deftype`,
+  `defrecord`, `extend-type`, `extend-protocol`, `proxy`, `specify` or `specify!` defines, a `definterface` or
+  `defprotocol` signature, a member of `.` or `..`, and a `case` test constant
 - anything quoted, discarded or inside `(comment …)`
 
 </details>

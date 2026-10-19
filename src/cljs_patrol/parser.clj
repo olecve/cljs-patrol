@@ -183,8 +183,8 @@
                               :refers {}
                               :shadowed-core :all})
 
-(defn- shadowed-core
-  "Return the names an ns form may take from core, or :all when it may take any.
+(defn- shadowed-by-ns-form
+  "Return the core names an ns form may shadow, or :all when it may shadow any.
 
   Read from the nodes rather than the parsed form, so a clause behind a reader
   conditional counts too. Every symbol the clauses write is a name they may exclude,
@@ -199,19 +199,64 @@
       :all
       (into #{} (comp (filter symbol?) (map name)) tokens))))
 
+(def ^:private namespace-changing-heads
+  "Top-level calls that switch namespace or refer names after the ns form has run."
+  #{"ns" "in-ns" "require" "use" "refer" "refer-clojure"})
+
+(defn- list-head-name
+  "Return the name of the symbol heading list node, or nil."
+  [node]
+  (when (= :list (n/tag node))
+    (let [head (first (remove n/whitespace-or-comment? (n/children node)))
+          value (when (= :token (some-> head n/tag)) (try (n/sexpr head) (catch Exception _ nil)))]
+      (when (symbol? value) (name value)))))
+
+(defn- shadowed-by-other-forms
+  "Return the core names the top-level forms besides the ns form may shadow, or :all.
+
+  A second ns form, an `in-ns` or a top-level `require` can bring in any name. A `def`
+  behind a top-level reader conditional replaces core's on its side only, and is no
+  definition the rules read, so its name is shadowed too."
+  [top-level-nodes]
+  (let [inner-lists (fn [node]
+                      (if (= :reader-macro (n/tag node))
+                        (filter #(= :list (n/tag %)) (tree-seq n/inner? n/children node))
+                        [node]))
+        lists (mapcat inner-lists top-level-nodes)]
+    (if (some #(contains? namespace-changing-heads (list-head-name %)) lists)
+      :all
+      (->> top-level-nodes
+           (filter #(= :reader-macro (n/tag %)))
+           (mapcat inner-lists)
+           (filter #(some-> (list-head-name %) (str/starts-with? "def")))
+           (keep #(let [named (second (remove n/whitespace-or-comment? (n/children %)))
+                        value (when (= :token (some-> named n/tag)) (try (n/sexpr named) (catch Exception _ nil)))]
+                    (when (symbol? value) (name value))))
+           set))))
+
+(defn- shadowed-core
+  "Return the core names a file may shadow, or :all when it may shadow any."
+  [ns-node other-nodes]
+  (let [by-ns (shadowed-by-ns-form ns-node)
+        by-others (shadowed-by-other-forms other-nodes)]
+    (if (or (= :all by-ns) (= :all by-others))
+      :all
+      (into by-ns by-others))))
+
 (defn- find-ns-info
   "Find and parse the ns form from a rewrite-clj zip.
 
   z/of-file positions at the first top-level form (not a :forms wrapper).
   Walk top-level siblings with z/right until the ns form is found."
   [zloc]
-  (loop [loc zloc]
-    (when (and loc (not (z/end? loc)))
-      (if (and (= :list (z/tag loc))
-               (= "ns" (sym-name (z/down loc))))
-        (try (assoc (parse-ns-form (z/sexpr loc)) :shadowed-core (shadowed-core (z/node loc)))
-             (catch Exception _ empty-ns-info))
-        (recur (z/right loc))))))
+  (let [top-level (take-while #(and % (not (z/end? %))) (iterate z/right zloc))]
+    (when-let [ns-loc (first (filter #(and (= :list (z/tag %)) (= "ns" (sym-name (z/down %)))) top-level))]
+      (try (assoc (parse-ns-form (z/sexpr ns-loc))
+                  :shadowed-core (shadowed-core (z/node ns-loc)
+                                                (->> top-level
+                                                     (remove #(identical? (z/node %) (z/node ns-loc)))
+                                                     (map z/node))))
+           (catch Exception _ empty-ns-info)))))
 
 (def ^:private empty-result {:decls []
                              :usages []

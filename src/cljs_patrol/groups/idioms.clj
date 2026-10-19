@@ -127,12 +127,16 @@
     (when-not (some #(contains? #{:comment :uneval} (n/tag %)) children)
       children)))
 
+(defn- code-forms
+  "Return the child nodes of node that are code: no whitespace, comment or `#_` form."
+  [node]
+  (remove #(or (n/whitespace-or-comment? %) (= :uneval (n/tag %))) (n/children node)))
+
 (defn- index-in-parent
   "Return the position of loc among its parent's children, the head at 0, or nil."
   [loc]
   (when-let [parent (z/up loc)]
-    (->> (n/children (z/node parent))
-         (remove #(or (n/whitespace? %) (contains? #{:comment :uneval} (n/tag %))))
+    (->> (code-forms (z/node parent))
          (keep-indexed (fn [i child] (when (identical? child (z/node loc)) i)))
          first)))
 
@@ -181,23 +185,49 @@
 (def ^:private let-like-heads
   "Forms whose first argument is a vector of binding pairs."
   #{"let" "let*" "loop" "loop*" "when-let" "if-let" "when-some" "if-some" "when-first"
-    "binding" "with-open" "with-redefs" "with-let" "doseq" "for" "dotimes" "go-loop"})
+    "binding" "with-open" "with-redefs" "with-let" "with-local-vars" "doseq" "for" "dotimes"
+    "go-loop"})
 
 (def ^:private fn-like-heads #{"fn" "fn*" "defn" "defn-" "defmacro" "defmethod"})
 
-(defn- symbol-names
-  "Return the name of every symbol or keyword written in node, at any depth.
+(defn- token-value [node]
+  (when (= :token (n/tag node))
+    (try (n/sexpr node) (catch Exception _ nil))))
 
-  Read on the binding side, this is every name it may bind and some it does not: the
-  `:cond` of `{:keys [:cond]}` binds `cond`, while the `:id` of `{id :id}` binds nothing.
-  Reading too many names as locals only gives up a finding."
+(defn- keys-entry?
+  "True when node is the key of a destructuring map entry naming its locals: `:keys`, `:syms`, `:strs`."
   [node]
-  (->> (tree-seq n/inner? n/children node)
-       (keep #(when (= :token (n/tag %))
-                (let [value (try (n/sexpr %) (catch Exception _ nil))]
-                  (when (or (symbol? value) (keyword? value))
-                    (name value)))))
-       set))
+  (let [value (token-value node)]
+    (and (keyword? value) (contains? #{"keys" "syms" "strs"} (name value)))))
+
+(defn- symbol-names
+  "Return the names node binds when it sits on the binding side, at any depth.
+
+  An unqualified symbol, and every symbol or keyword in the vector of a `:keys`, `:syms`
+  or `:strs` entry, `{:keys [:cond app/id]}` binding `cond` and `id`. A default under
+  `:or` reads as bound too, which only gives up a finding."
+  [node]
+  (letfn [(keyed-names [vector-node]
+            (keep #(let [value (token-value %)]
+                     (when (or (symbol? value) (keyword? value)) (name value)))
+                  (code-forms vector-node)))
+          (names [node]
+            (cond
+              (= :token (n/tag node))
+              (let [value (token-value node)]
+                (when (and (symbol? value) (nil? (namespace value))) [(name value)]))
+
+              (= :map (n/tag node))
+              (->> (code-forms node)
+                   (partition-all 2)
+                   (mapcat (fn [[k v]]
+                             (if (and (keys-entry? k) (= :vector (some-> v n/tag)))
+                               (keyed-names v)
+                               (concat (names k) (some-> v names))))))
+
+              (n/inner? node)
+              (mapcat names (n/children node))))]
+    (set (names node))))
 
 (defn- binding-sides
   "Return the binding-side nodes of a binding vector, `:let` modifiers included."
@@ -228,7 +258,10 @@
             after-dispatch))))
 
 (defn- names-bound-by
-  "Return the names list-node binds for its body: let bindings, fn parameters, a catch name."
+  "Return the names list-node binds for its body.
+
+  Let-like and `letfn` bindings, fn parameters and a named fn's own name, the fields of a
+  `deftype` or `defrecord`, and the name of a `catch` or `as->`."
   [list-node]
   (let [[head & arguments] (code-children list-node)
         head-name (when (= :token (some-> head n/tag))
@@ -247,10 +280,7 @@
         (and (= "fn" head-name) (= :token (some-> arguments first n/tag)))
         (into (symbol-names (first arguments))))
 
-      (contains? #{"deftype" "defrecord"} head-name)
-      (some-> (nth arguments 1 nil) symbol-names)
-
-      (contains? #{"catch" "as->"} head-name)
+      (contains? #{"deftype" "defrecord" "catch" "as->"} head-name)
       (some-> (nth arguments 1 nil) symbol-names))))
 
 (def ^:private method-defining-heads
@@ -258,10 +288,19 @@
   #{"reify" "deftype" "defrecord" "extend-type" "extend-protocol" "proxy" "specify" "specify!"
     "definterface" "defprotocol"})
 
-(defn- parent-head
-  "Return the name of the symbol heading the list loc sits in, or nil."
+(defn- site
+  "Return the outermost of loc and what wraps it without changing it: metadata, a reader conditional."
   [loc]
   (let [parent (z/up loc)]
+    (cond
+      (= :meta (some-> parent z/tag)) (recur parent)
+      (= :reader-macro (some-> parent z/up z/tag)) (recur (z/up parent))
+      :else loc)))
+
+(defn- parent-head
+  "Return the name of the symbol heading the list loc's site sits in, or nil."
+  [loc]
+  (let [parent (z/up (site loc))]
     (when (= :list (some-> parent z/tag))
       (some-> parent z/down parser/sym-name))))
 
@@ -487,36 +526,21 @@
   (and (= :token (n/tag node))
        (nil? (n/sexpr node))))
 
-(defn- clause-forms
-  "Return the forms after the head of a list, with comments and `#_` forms left out.
-
-  Neither changes which clause a `cond` picks, so unlike a thread, a `cond` holding one
-  is still read."
-  [list-node]
-  (->> (n/children list-node)
-       (remove #(or (n/whitespace-or-comment? %) (= :uneval (n/tag %))))
-       rest))
-
 (defn- case-constant?
   "True when loc is a test constant of the `case` it sits in, a list of constants and no call."
   [loc]
   (boolean
    (when (= "case" (parent-head loc))
-     (let [index (index-in-parent loc)
-           size (->> (z/up loc)
-                     z/node
-                     n/children
-                     (remove #(or (n/whitespace? %) (contains? #{:comment :uneval} (n/tag %))))
-                     count)]
+     (let [index (index-in-parent (site loc))
+           size (->> (site loc) z/up z/node code-forms count)]
        (and (even? index)
             (not (and (odd? size) (= index (dec size)))))))))
 
 (defn- member-position?
   "True when loc names a member of `.` or `..`, `(. o (cond a b))` calling a method `cond`."
   [loc]
-  (boolean
-   (and (contains? #{"." ".."} (parent-head loc))
-        (>= (index-in-parent loc) 2))))
+  (and (contains? #{"." ".."} (parent-head loc))
+       (>= (index-in-parent (site loc)) 2)))
 
 (defn- core-name-shadowed?
   "True when the ns form may take the unqualified name from somewhere other than core."
@@ -533,28 +557,31 @@
   counts: a method a `reify` defines, a member of `..` and a `case` constant list are no
   calls."
   [loc ns-info file]
-  (let [head (some-> loc z/down (describe-head ns-info))
-        arguments (clause-forms (z/node loc))
-        [test-node value-node] (take-last 2 arguments)]
-    (when (and (= "cond" (:name head))
-               (>= (count arguments) 4)
-               (even? (count arguments))
-               (always-true? test-node)
-               (written-nil? value-node)
-               (not (and (= :local (:kind head))
-                         (or (core-name-shadowed? ns-info "cond") (locally-bound? loc "cond"))))
-               (not (method-definition? loc))
-               (not (member-position? loc))
-               (not (case-constant? loc))
-               (not (unevaluated? loc)))
-      {:type ::else-nil
-       :head head
-       :form (str "(" (z/string (z/down loc)) " " (n/string (first arguments)) " ... "
-                  (n/string test-node) " nil)")
-       :else-text (n/string test-node)
-       :position (try (z/position loc) (catch Exception _ [0 1]))
-       :file file
-       :test (parser/top-level-name loc)})))
+  (when (= "cond" (some-> loc z/down parser/sym-name))
+    (let [head (describe-head (z/down loc) ns-info)
+          arguments (rest (code-forms (z/node loc)))
+          [test-node value-node] (take-last 2 arguments)]
+      (when (and (= "cond" (:name head))
+                 (>= (count arguments) 4)
+                 (even? (count arguments))
+                 (always-true? test-node)
+                 (written-nil? value-node)
+                 (not (and (= :local (:kind head))
+                           (or (core-name-shadowed? ns-info "cond") (locally-bound? loc "cond"))))
+                 (not (method-definition? loc))
+                 (not (member-position? loc))
+                 (not (case-constant? loc))
+                 (not (unevaluated? loc)))
+        {:type ::else-nil
+         :head head
+         :head-text (z/string (z/down loc))
+         :fn-literal? (= :fn (z/tag loc))
+         :first-clause (map n/string (take 2 arguments))
+         :clauses-between (- (quot (count arguments) 2) 2)
+         :else-text (n/string test-node)
+         :position (try (z/position loc) (catch Exception _ [0 1]))
+         :file file
+         :test (parser/top-level-name loc)}))))
 
 (defn- handle [min-calls loc ns-info file]
   (let [found (keep identity [(when (= :list (z/tag loc)) (definition loc ns-info file))
@@ -713,11 +740,23 @@
       :name "cond"}
      (select-keys (settle-head head definitions) [:kind :library :name])))
 
-(defn- else-nil-finding [{:keys [form else-text position file test]}]
+(defn- else-nil-form
+  "Spell out a cond by its first clause and its else clause, counting the clauses between.
+
+  This is the finding's identity in a baseline, so it leaves out what churns: the clauses
+  between, and a first value too long to show."
+  [{:keys [head-text fn-literal? first-clause clauses-between else-text]}]
+  (let [[first-test first-value] first-clause]
+    (str (if fn-literal? "#(" "(") head-text " " first-test " " (shown first-value text-max)
+         (when (pos? clauses-between) (str " ..." clauses-between " more..."))
+         " " else-text " nil)")))
+
+(defn- else-nil-finding [{:keys [else-text position file test]
+                          :as candidate}]
   (let [[row col] position]
     (cond-> {:kw 'cond
              :type :cond-else-nil
-             :form (parser/normalize-form form)
+             :form (parser/normalize-form (else-nil-form candidate))
              :file file
              :row row
              :col col
