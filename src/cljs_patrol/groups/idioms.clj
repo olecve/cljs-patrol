@@ -6,7 +6,8 @@
   so the rewrite expands back to exactly the code that was written. That slot also has to
   be where the function takes its data: `(get-in db (path))` nests a call, but the call is
   the path, and threading the path reads backwards. So a step with more than one argument
-  counts only for a function whose data slot is known, core, `clojure.string` and interop.
+  counts only for a function whose data slot is known: a core or `clojure.string`
+  function, or a `.method` call.
 
   Every head is also known to be a function. Threading cannot change what a macro does,
   but it changes how it reads: `(-> xs sort vec delay)` looks like four steps run in order,
@@ -36,79 +37,82 @@
   #{"lower-case" "upper-case" "capitalize" "trim" "triml" "trimr" "trim-newline" "blank?"
     "split-lines"})
 
-(defn- arity [& counts] (set counts))
-
-(defn- at-least [minimum] #(>= % minimum))
-
 (def ^:private data-slots
   "Where a function of more than one argument takes its data, and the argument counts it does so at.
 
   Keyed by library and name. A count outside the set has no data slot a thread can fill:
   `(map f)` is a transducer, and `(map f xs ys)` maps over two collections."
-  {[:core "map"] [:last (arity 2)]
-   [:core "mapv"] [:last (arity 2)]
-   [:core "mapcat"] [:last (arity 2)]
-   [:core "map-indexed"] [:last (arity 2)]
-   [:core "filter"] [:last (arity 2)]
-   [:core "filterv"] [:last (arity 2)]
-   [:core "remove"] [:last (arity 2)]
-   [:core "keep"] [:last (arity 2)]
-   [:core "keep-indexed"] [:last (arity 2)]
-   [:core "take"] [:last (arity 2)]
-   [:core "drop"] [:last (arity 2)]
-   [:core "take-while"] [:last (arity 2)]
-   [:core "drop-while"] [:last (arity 2)]
-   [:core "take-last"] [:last (arity 2)]
-   [:core "drop-last"] [:last (arity 2)]
-   [:core "sort"] [:last (arity 2)]
-   [:core "sort-by"] [:last (arity 2 3)]
-   [:core "group-by"] [:last (arity 2)]
-   [:core "partition"] [:last (arity 2 3 4)]
-   [:core "partition-all"] [:last (arity 2 3)]
-   [:core "partition-by"] [:last (arity 2)]
-   [:core "interpose"] [:last (arity 2)]
-   [:core "some"] [:last (arity 2)]
-   [:core "every?"] [:last (arity 2)]
-   [:core "not-any?"] [:last (arity 2)]
-   [:core "reduce"] [:last (arity 2 3)]
-   [:core "into"] [:last (arity 2 3)]
-   [:core "cons"] [:last (arity 2)]
-   [:string "join"] [:last (arity 2)]
-   [:core "get"] [:first (arity 2 3)]
-   [:core "get-in"] [:first (arity 2 3)]
+  {[:core "map"] [:last #{2}]
+   [:core "mapv"] [:last #{2}]
+   [:core "mapcat"] [:last #{2}]
+   [:core "map-indexed"] [:last #{2}]
+   [:core "filter"] [:last #{2}]
+   [:core "filterv"] [:last #{2}]
+   [:core "remove"] [:last #{2}]
+   [:core "keep"] [:last #{2}]
+   [:core "keep-indexed"] [:last #{2}]
+   [:core "take"] [:last #{2}]
+   [:core "drop"] [:last #{2}]
+   [:core "take-while"] [:last #{2}]
+   [:core "drop-while"] [:last #{2}]
+   [:core "take-last"] [:last #{2}]
+   [:core "drop-last"] [:last #{2}]
+   [:core "sort"] [:last #{2}]
+   [:core "sort-by"] [:last #{2 3}]
+   [:core "group-by"] [:last #{2}]
+   [:core "partition"] [:last #{2 3 4}]
+   [:core "partition-all"] [:last #{2 3}]
+   [:core "partition-by"] [:last #{2}]
+   [:core "interpose"] [:last #{2}]
+   [:core "some"] [:last #{2}]
+   [:core "every?"] [:last #{2}]
+   [:core "not-any?"] [:last #{2}]
+   [:core "reduce"] [:last #{2 3}]
+   [:core "into"] [:last #{2 3}]
+   [:core "cons"] [:last #{2}]
+   [:string "join"] [:last #{2}]
+   [:core "get"] [:first #{2 3}]
+   [:core "get-in"] [:first #{2 3}]
    [:core "assoc"] [:first #(and (>= % 3) (odd? %))]
-   [:core "assoc-in"] [:first (arity 3)]
-   [:core "update"] [:first (at-least 3)]
-   [:core "update-in"] [:first (at-least 3)]
-   [:core "dissoc"] [:first (at-least 2)]
-   [:core "select-keys"] [:first (arity 2)]
-   [:core "merge"] [:first (at-least 2)]
-   [:core "conj"] [:first (at-least 2)]
-   [:core "disj"] [:first (at-least 2)]
-   [:core "contains?"] [:first (arity 2)]
-   [:core "find"] [:first (arity 2)]
-   [:core "nth"] [:first (arity 2 3)]
-   [:core "subs"] [:first (arity 2 3)]
-   [:core "update-vals"] [:first (arity 2)]
-   [:core "update-keys"] [:first (arity 2)]
-   [:string "split"] [:first (arity 2 3)]
-   [:string "replace"] [:first (arity 3)]
-   [:string "replace-first"] [:first (arity 3)]
-   [:string "starts-with?"] [:first (arity 2)]
-   [:string "ends-with?"] [:first (arity 2)]
-   [:string "includes?"] [:first (arity 2)]
-   [:string "index-of"] [:first (arity 2 3)]})
+   [:core "assoc-in"] [:first #{3}]
+   [:core "update"] [:first #(>= % 3)]
+   [:core "update-in"] [:first #(>= % 3)]
+   [:core "dissoc"] [:first #(>= % 2)]
+   [:core "select-keys"] [:first #{2}]
+   [:core "merge"] [:first #(>= % 2)]
+   [:core "conj"] [:first #(>= % 2)]
+   [:core "disj"] [:first #(>= % 2)]
+   [:core "contains?"] [:first #{2}]
+   [:core "find"] [:first #{2}]
+   [:core "nth"] [:first #{2 3}]
+   [:core "subs"] [:first #{2 3}]
+   [:core "update-vals"] [:first #{2}]
+   [:core "update-keys"] [:first #{2}]
+   [:string "split"] [:first #{2 3}]
+   [:string "replace"] [:first #{3}]
+   [:string "replace-first"] [:first #{3}]
+   [:string "starts-with?"] [:first #{2}]
+   [:string "ends-with?"] [:first #{2}]
+   [:string "includes?"] [:first #{2}]
+   [:string "index-of"] [:first #{2 3}]})
 
 (def ^:private core-namespaces #{"clojure.core" "cljs.core"})
 
-(def ^:private wrappers
-  "Calls that turn what they wrap into a test or an empty-or-nil, and read worse ending a thread.
+(defn- wrapper?
+  "True when a call named head-name turns what it wraps into a test or an empty-or-nil.
 
-  `(not (str/blank? (:description m)))` threads to `(-> m :description str/blank? not)`.
-  At the top of what would be threaded, one of these is not counted toward the chain,
-  whether or not something the chain stops at sits above it: `(is (nil? (:id (first xs))))`
-  reads no better as `(is (-> xs first :id nil?))`."
-  #{"not" "boolean" "some?" "nil?" "seq" "empty?" "not-empty" "true?" "false?"})
+  Ending a thread, one reads worse than wrapped around it: `(not (str/blank? (:title m)))`
+  threads to `(-> m :title str/blank? not)`, and `(contains? (set ids) id)` to
+  `(-> ids set (contains? id))`. At the top of what would be threaded, one is not counted
+  toward the chain, whether or not something the chain stops at sits above it:
+  `(is (nil? (:id (first xs))))` reads no better as `(is (-> xs first :id nil?))`. A
+  predicate is a name ending in `?`; `not`, `boolean`, `seq`, `not-empty` and `some` are the
+  others."
+  [head-name]
+  (boolean
+   (when head-name
+     (or (str/ends-with? head-name "?")
+         (contains? #{"not" "boolean" "seq" "not-empty" "some"} head-name)))))
 
 (defn- code-children
   "Return the child nodes of node other than whitespace, or nil when one is a comment or `#_`.
@@ -159,15 +163,99 @@
   "True when sym-str names a host call: `.method`, `.-field`, `Ctor.`, `js/f` or `Class/static`.
 
   A qualifier names a class when its last segment is capitalized, `java.util.UUID/randomUUID`
-  as much as `ImageIO/read`; a lower-case one, `some.lib/f`, is a namespace."
+  as much as `ImageIO/read`; a lower-case one, `some.lib/f`, is a namespace. `..` is the
+  member-access threading macro, not a member."
   [sym-str]
   (let [slash (str/index-of sym-str "/")
         qualifier (when (and slash (pos? slash)) (subs sym-str 0 slash))]
     (boolean
-     (or (and (str/starts-with? sym-str ".") (> (count sym-str) 1))
-         (and (str/ends-with? sym-str ".") (> (count sym-str) 1) (nil? slash))
-         (= "js" qualifier)
-         (class-name? (some-> qualifier (str/split #"\.") last))))))
+     (and (not= ".." sym-str)
+          (or (and (str/starts-with? sym-str ".") (> (count sym-str) 1))
+              (and (str/ends-with? sym-str ".") (> (count sym-str) 1) (nil? slash))
+              (= "js" qualifier)
+              (class-name? (some-> qualifier (str/split #"\.") last)))))))
+
+(def ^:private let-like-heads
+  "Forms whose first argument is a vector of binding pairs."
+  #{"let" "let*" "loop" "loop*" "when-let" "if-let" "when-some" "if-some" "when-first"
+    "binding" "with-open" "with-redefs" "with-let" "doseq" "for" "dotimes" "go-loop"})
+
+(def ^:private fn-like-heads #{"fn" "fn*" "defn" "defn-" "defmacro" "defmethod"})
+
+(defn- symbol-names
+  "Return the names of every unqualified symbol written in node, at any depth."
+  [node]
+  (->> (tree-seq n/inner? n/children node)
+       (keep #(when (= :token (n/tag %))
+                (let [value (try (n/sexpr %) (catch Exception _ nil))]
+                  (when (and (symbol? value) (nil? (namespace value)))
+                    (name value)))))
+       set))
+
+(defn- binding-sides
+  "Return the binding-side nodes of a binding vector, `:let` modifiers included."
+  [vector-node]
+  (let [elements (vec (code-children vector-node))]
+    (->> (range 0 (count elements) 2)
+         (mapcat (fn [i]
+                   (let [binding-node (nth elements i)
+                         value-node (get elements (inc i))]
+                     (if (and (= :let (try (n/sexpr binding-node) (catch Exception _ nil)))
+                              (= :vector (some-> value-node n/tag)))
+                       (binding-sides value-node)
+                       [binding-node])))))))
+
+(defn- parameter-vectors
+  "Return the parameter vectors of a fn-like form from its arguments.
+
+  The first vector is the parameter list of a single arity, and the vector opening each
+  arity list of a multi-arity form. A `defmethod` has its dispatch value first, which may be
+  a vector too. A vector in a body, the return of a Hiccup view, is not a parameter list."
+  [head-name arguments]
+  (let [after-dispatch (if (= "defmethod" head-name) (drop 2 arguments) arguments)]
+    (if-let [single (first (filter #(= :vector (n/tag %)) after-dispatch))]
+      [single]
+      (keep #(when (= :list (n/tag %))
+               (let [opening (first (code-children %))]
+                 (when (= :vector (some-> opening n/tag)) opening)))
+            after-dispatch))))
+
+(defn- names-bound-by
+  "Return the names list-node binds for its body: let bindings, fn parameters, a catch name."
+  [list-node]
+  (let [[head & arguments] (code-children list-node)
+        head-name (when (= :token (some-> head n/tag))
+                    (some-> (try (n/sexpr head) (catch Exception _ nil)) name))]
+    (cond
+      (contains? let-like-heads head-name)
+      (some->> arguments first binding-sides (mapcat symbol-names) set)
+
+      (= "letfn" head-name)
+      (some->> arguments first code-children (keep #(some-> % code-children first symbol-names)) (apply concat) set)
+
+      (contains? fn-like-heads head-name)
+      (->> (parameter-vectors head-name arguments)
+           (mapcat symbol-names)
+           set)
+
+      (contains? #{"catch" "as->"} head-name)
+      (some-> (nth arguments 1 nil) symbol-names)
+
+      :else nil)))
+
+(defn- locally-bound?
+  "True when a form enclosing loc binds the unqualified name, so it is a local and not a var.
+
+  Every binding form above loc is read, whatever part of it loc sits in: a local that shadows
+  `filter` in one branch is reason enough to vouch for no `filter` there. Only a name core's
+  data-slot table holds is ever asked about, so the walk runs for few calls."
+  [loc unqualified-name]
+  (loop [current (z/up loc)]
+    (cond
+      (nil? current) false
+      (and (contains? #{:list :fn} (z/tag current))
+           (contains? (names-bound-by (z/node current)) unqualified-name)) true
+      :else (recur (z/up current)))))
 
 (defn- describe-var
   "Classify the var full-ns/var-name: core or `clojure.string`, or a var to look up."
@@ -220,66 +308,64 @@
            vec))))
 
 (defn- data-slot
-  "Return [direction argument-loc] for the argument loc threads, or nil when it threads none.
+  "Return [direction argument-loc head] for the argument loc threads, or nil when it threads none.
 
   One argument threads either way, `:either`. With more, the head's data slot decides:
   `:last` for `(map f xs)`, `:first` for `(get m k)` and a method call. Which function the
   head names, and whether it takes this many arguments, is settled once every file is
   read; this reads it as core unless the namespace says otherwise, and a head that turns
-  out to be something else ends the chain."
+  out to be something else ends the chain. An unqualified name a form above binds is a
+  local, and core's data slot says nothing about it: `(filter g xs)` threads nothing once
+  `filter` is destructured. A local called with one argument still threads, since a local
+  is never a macro."
   [loc ns-info]
   (when-let [arguments (seq (call-arguments loc))]
-    (if (= 1 (count arguments))
-      [:either (first arguments)]
-      (let [{:keys [kind library name method?]} (describe-head (z/down loc) ns-info)
-            [direction] (when (contains? #{:core :local} kind)
-                          (get data-slots [(or library :core) name]))]
-        (cond
-          direction
-          [direction (if (= :last direction) (last arguments) (first arguments))]
+    (let [{:keys [kind library name method?]
+           :as head} (describe-head (z/down loc) ns-info)]
+      (if (= 1 (count arguments))
+        [:either (first arguments) head]
+        (let [[direction] (when (and (contains? #{:core :local} kind)
+                                     (not (and (= :local kind) (locally-bound? loc name))))
+                            (get data-slots [(or library :core) name]))]
+          (cond
+            direction [direction (if (= :last direction) (last arguments) (first arguments)) head]
+            (and (= :host kind) method?) [:first (first arguments) head]))))))
 
-          (and (= :host kind) method?)
-          [:first (first arguments)])))))
+(defn- link-shaped?
+  "True when loc has the shape of a link, whatever its head.
 
-(defn- link?
-  "True when loc is a call that can sit inside a chain.
-
-  The list a reader conditional holds is not a call: `#?(:clj x)` reads as `(:clj x)`.
-  A `#(…)` is a function value wherever it is an argument, so it can only start a chain."
-  [loc ns-info]
+  A link is a list that is not a step of a threading form and not the list a reader
+  conditional holds, `#?(:clj x)` reading as `(:clj x)`. A `#(…)` is a function value
+  wherever it is an argument, so it can only start a chain."
+  [loc]
   (and (= :list (z/tag loc))
-       (some? (data-slot loc ns-info))
        (not= :reader-macro (some-> loc z/up z/tag))
        (not (threaded-step? loc))))
 
-(defn- start?
-  "True when loc can start a chain: a link, or a `#(…)` whose body is a call."
-  [loc ns-info]
-  (or (link? loc ns-info)
-      (and (= :fn (z/tag loc)) (some? (data-slot loc ns-info)))))
-
 (defn- inner-link?
-  "True when loc is a link a chain above it walks into, so no chain starts at loc."
+  "True when loc, a call, is a link the chain above it walks into, so no chain starts at loc."
   [loc ns-info]
   (let [parent (z/up loc)]
     (boolean
      (and parent
-          (link? loc ns-info)
-          (start? parent ns-info)
+          (link-shaped? loc)
+          (or (link-shaped? parent) (= :fn (z/tag parent)))
           (identical? (z/node loc) (some-> (data-slot parent ns-info) second z/node))))))
 
+(def ^:private literal-reader-tags #{"#js" "#inst" "#uuid"})
+
 (defn- literal?
-  "True when loc is written out as a value: a string, number, keyword, or collection literal."
+  "True when loc is written out as a value: a string, number, keyword, quoted form, or collection literal."
   [loc]
   (case (z/tag loc)
-    (:map :vector :set :multi-line :regex) true
+    (:map :vector :set :multi-line :regex :quote) true
     :token (not (symbol? (try (z/sexpr loc) (catch Exception _ nil))))
+    :reader-macro (boolean (some #(str/starts-with? (z/string loc) %) literal-reader-tags))
     false))
 
-(defn- level [loc ns-info]
-  (let [[direction argument] (data-slot loc ns-info)
-        arguments (call-arguments loc)]
-    {:head (describe-head (z/down loc) ns-info)
+(defn- level [loc [direction argument head]]
+  (let [arguments (call-arguments loc)]
+    {:head head
      :direction direction
      :arity (count arguments)
      :fn-literal? (= :fn (z/tag loc))
@@ -311,21 +397,25 @@
 
   Whether each head is a function is decided once every file has been read, since a
   head may name a var defined in another one. A run shorter than min-calls is dropped
-  here: setting a head aside later only shortens it."
+  here: setting a head aside later only shortens it. Each loc's data slot is read once."
   [min-calls loc ns-info file]
-  (when (and (start? loc ns-info) (not (inner-link? loc ns-info)))
-    (let [levels (loop [current loc
-                        found []]
-                   (let [found (conj found (level current ns-info))
-                         argument (second (data-slot current ns-info))]
-                     (if (link? argument ns-info)
-                       (recur argument found)
-                       found)))]
-      (when (and (>= (count levels) min-calls) (not (unevaluated? loc)))
-        {:type ::chain
-         :levels levels
-         :file file
-         :test (parser/top-level-name loc)}))))
+  (when (and (or (link-shaped? loc) (= :fn (z/tag loc)))
+             (not (inner-link? loc ns-info)))
+    (when-let [slot (data-slot loc ns-info)]
+      (let [levels (loop [current loc
+                          current-slot slot
+                          found []]
+                     (let [found (conj found (level current current-slot))
+                           argument (second current-slot)
+                           next-slot (when (link-shaped? argument) (data-slot argument ns-info))]
+                       (if next-slot
+                         (recur argument next-slot found)
+                         found)))]
+        (when (and (>= (count levels) min-calls) (not (unevaluated? loc)))
+          {:type ::chain
+           :levels levels
+           :file file
+           :test (parser/top-level-name loc)})))))
 
 (def ^:private def-kinds
   {"defn" :fn
@@ -392,18 +482,25 @@
 (defn- split-by-direction
   "Split run where its steps stop agreeing on which slot they thread into.
 
-  One-argument steps agree with either; `(get (map f xs) k)` reads as neither thread."
+  Read from the innermost step up, so a one-argument step between a `->>` part below and a
+  `->` part above joins the part below: `(contains? (set (map :id xs)) id)` keeps
+  `(->> xs (map :id) set)` whole."
   [run]
-  (:runs (reduce (fn [{:keys [runs direction]} {step-direction :direction
-                                                :as step}]
-                   (if (or (= :either step-direction) (nil? direction) (= direction step-direction))
-                     {:runs (conj (pop runs) (conj (peek runs) step))
-                      :direction (if (= :either step-direction) direction step-direction)}
-                     {:runs (conj runs [step])
-                      :direction step-direction}))
-                 {:runs [[]]
-                  :direction nil}
-                 run)))
+  (loop [steps (reverse run)
+         current []
+         direction nil
+         done []]
+    (if-let [{step-direction :direction
+              :as step} (first steps)]
+      (if (or (= :either step-direction) (nil? direction) (= direction step-direction))
+        (recur (rest steps)
+               (conj current step)
+               (if (= :either step-direction) direction step-direction)
+               done)
+        (recur (rest steps) [step] step-direction (conj done current)))
+      (->> (conj done current)
+           (map (comp vec reverse))
+           reverse))))
 
 (defn- runs
   "Split levels into the maximal runs whose every level is a step, threading one way."
@@ -414,15 +511,20 @@
        (mapcat split-by-direction)))
 
 (defn- drop-wrappers [run]
-  (drop-while #(contains? wrappers (:head-name %)) run))
+  (drop-while #(wrapper? (:head-name %)) run))
 
 (defn- keep-literal-call
   "Leave a call on a literal as the thread's starting value rather than a step of it.
 
   `(:question (:params (request-to \"/qa\")))` threads to `(-> (request-to \"/qa\") :params
-  :question)`: a path or a constant reads backwards at the head of a thread."
+  :question)`: a path or a constant reads backwards at the head of a thread. A collection is
+  a sequence pipeline's natural start, so a `->>` step on one stays a step:
+  `(->> [3 1 2] (map inc) sort vec)`."
   [run]
-  (if (:literal-argument? (last run)) (butlast run) run))
+  (let [innermost (last run)]
+    (if (and (:literal-argument? innermost) (not= :last (:direction innermost)))
+      (butlast run)
+      run)))
 
 (def ^:private text-max 40)
 
@@ -433,23 +535,25 @@
     "..."
     text))
 
+(defn- operator [run]
+  (if (some #(= :last (:direction %)) run) "->>" "->"))
+
 (defn- rewrite
   "Spell out the thread for run, every part whole or, given a limit, shortened."
   [run limit]
-  (let [operator (if (some #(= :last (:direction %)) run) "->>" "->")
-        step (fn [{:keys [head-text other-arguments]}]
+  (let [step (fn [{:keys [head-text other-arguments]}]
                (if (seq other-arguments)
                  (str "(" head-text " " (str/join " " (map #(shown % limit) other-arguments)) ")")
                  head-text))
-        thread (str operator " " (shown (:argument-text (last run)) limit) " "
-                    (str/join " " (map step (reverse run))))]
+        steps (->> run reverse (map step) (str/join " "))
+        thread (str (operator run) " " (shown (:argument-text (last run)) limit) " " steps)]
     (if (:fn-literal? (first run))
       (str "#(" thread ")")
       (str "(" thread ")"))))
 
 (defn- finding [{:keys [file test]} run]
   (let [[row col] (:position (first run))]
-    (cond-> {:kw '->
+    (cond-> {:kw (symbol (operator run))
              :type :nested-call-chain
              :form (-> run first :form-text parser/normalize-form)
              :file file
@@ -472,16 +576,26 @@
               [var (if (every? #(= :fn (:kind %)) defined) :fn :other)]))
        (into {})))
 
+(defn- longest-run
+  "Return the longest run of a chain that is long enough to report, or nil.
+
+  Threading two runs of one chain would nest one thread inside the other, so a chain is
+  reported once, as its longest run; the innermost wins a tie."
+  [min-calls runs]
+  (->> runs
+       (map (comp keep-literal-call drop-wrappers))
+       (filter #(>= (count %) min-calls))
+       (reduce (fn [best run] (if (>= (count run) (count best)) run best)) nil)))
+
 (defn- analyze* [min-calls {:keys [declarations]}]
   (let [definitions (function-definitions declarations)]
     {:nested-call-chain
      (->> declarations
           (filter #(= ::chain (:type %)))
-          (mapcat (fn [candidate]
-                    (->> (runs (:levels candidate) definitions)
-                         (map (comp keep-literal-call drop-wrappers))
-                         (filter #(>= (count %) min-calls))
-                         (map #(finding candidate %)))))
+          (keep (fn [candidate]
+                  (some->> (runs (:levels candidate) definitions)
+                           (longest-run min-calls)
+                           (finding candidate))))
           vec)}))
 
 (defn- suggestion [min-calls]
@@ -492,9 +606,10 @@
        "one-argument call counts when its head is known to be a function: a keyword, "
        "interop, core and clojure.string functions, and the project's own defn and "
        "defmulti. A call of more arguments counts only where the nested call is the "
-       "function's data, the collection of (map f xs) or the map of (get m k), for core, "
-       "clojure.string and method calls. A " (str/join ", " (sort wrappers)) " at the top of "
-       "the thread is not counted, and a call on a literal stays the thread's starting value."))
+       "function's data, the collection of (map f xs) or the map of (get m k), for core and "
+       "clojure.string functions and method calls. A predicate, not, boolean, seq, not-empty "
+       "or some at the top of the thread is not counted, and a call on a literal stays the "
+       "thread's starting value unless it is the collection of a ->> step."))
 
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup
