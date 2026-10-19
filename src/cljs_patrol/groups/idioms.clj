@@ -186,12 +186,16 @@
 (def ^:private fn-like-heads #{"fn" "fn*" "defn" "defn-" "defmacro" "defmethod"})
 
 (defn- symbol-names
-  "Return the names of every unqualified symbol written in node, at any depth."
+  "Return the name of every symbol or keyword written in node, at any depth.
+
+  Read on the binding side, this is every name it may bind and some it does not: the
+  `:cond` of `{:keys [:cond]}` binds `cond`, while the `:id` of `{id :id}` binds nothing.
+  Reading too many names as locals only gives up a finding."
   [node]
   (->> (tree-seq n/inner? n/children node)
        (keep #(when (= :token (n/tag %))
                 (let [value (try (n/sexpr %) (catch Exception _ nil))]
-                  (when (and (symbol? value) (nil? (namespace value)))
+                  (when (or (symbol? value) (keyword? value))
                     (name value)))))
        set))
 
@@ -237,25 +241,59 @@
       (some->> arguments first code-children (keep #(some-> % code-children first symbol-names)) (apply concat) set)
 
       (contains? fn-like-heads head-name)
-      (->> (parameter-vectors head-name arguments)
-           (mapcat symbol-names)
-           set)
+      (cond-> (->> (parameter-vectors head-name arguments)
+                   (mapcat symbol-names)
+                   set)
+        (and (= "fn" head-name) (= :token (some-> arguments first n/tag)))
+        (into (symbol-names (first arguments))))
+
+      (contains? #{"deftype" "defrecord"} head-name)
+      (some-> (nth arguments 1 nil) symbol-names)
 
       (contains? #{"catch" "as->"} head-name)
       (some-> (nth arguments 1 nil) symbol-names))))
+
+(def ^:private method-defining-heads
+  "Forms whose lists define methods: a list's head names the method, and its vector the parameters."
+  #{"reify" "deftype" "defrecord" "extend-type" "extend-protocol" "proxy" "specify" "specify!"
+    "definterface" "defprotocol"})
+
+(defn- parent-head
+  "Return the name of the symbol heading the list loc sits in, or nil."
+  [loc]
+  (let [parent (z/up loc)]
+    (when (= :list (some-> parent z/tag))
+      (some-> parent z/down parser/sym-name))))
+
+(defn- method-definition?
+  "True when loc is a list defining a method, not a call: `(toString [_] …)` in a `reify`."
+  [loc]
+  (and (= :list (z/tag loc))
+       (contains? method-defining-heads (parent-head loc))))
+
+(defn- method-parameter-names
+  "Return the names a method definition binds for its body, one arity or several."
+  [loc]
+  (->> (code-children (z/node loc))
+       rest
+       (parameter-vectors "fn")
+       (mapcat symbol-names)
+       set))
 
 (defn- locally-bound?
   "True when a form enclosing loc binds the unqualified name, so it is a local and not a var.
 
   Every binding form above loc is read, whatever part of it loc sits in: a local that shadows
   `filter` in one branch is reason enough to vouch for no `filter` there. Only a name core's
-  data-slot table holds is ever asked about, so the walk runs for few calls."
+  data-slot table holds, or `cond`, is ever asked about, so the walk runs for few calls."
   [loc unqualified-name]
   (loop [current (z/up loc)]
     (cond
       (nil? current) false
       (and (contains? #{:list :fn} (z/tag current))
            (contains? (names-bound-by (z/node current)) unqualified-name)) true
+      (and (method-definition? current)
+           (contains? (method-parameter-names current) unqualified-name)) true
       :else (recur (z/up current)))))
 
 (defn- describe-var
@@ -442,8 +480,8 @@
   "True when node is a test no value can fail: a keyword or `true`."
   [node]
   (and (= :token (n/tag node))
-       (or (keyword? (n/sexpr node))
-           (true? (n/sexpr node)))))
+       (let [value (n/sexpr node)]
+         (or (keyword? value) (true? value)))))
 
 (defn- written-nil? [node]
   (and (= :token (n/tag node))
@@ -459,11 +497,41 @@
        (remove #(or (n/whitespace-or-comment? %) (= :uneval (n/tag %))))
        rest))
 
+(defn- case-constant?
+  "True when loc is a test constant of the `case` it sits in, a list of constants and no call."
+  [loc]
+  (boolean
+   (when (= "case" (parent-head loc))
+     (let [index (index-in-parent loc)
+           size (->> (z/up loc)
+                     z/node
+                     n/children
+                     (remove #(or (n/whitespace? %) (contains? #{:comment :uneval} (n/tag %))))
+                     count)]
+       (and (even? index)
+            (not (and (odd? size) (= index (dec size)))))))))
+
+(defn- member-position?
+  "True when loc names a member of `.` or `..`, `(. o (cond a b))` calling a method `cond`."
+  [loc]
+  (boolean
+   (and (contains? #{"." ".."} (parent-head loc))
+        (>= (index-in-parent loc) 2))))
+
+(defn- core-name-shadowed?
+  "True when the ns form may take the unqualified name from somewhere other than core."
+  [{:keys [shadowed-core]} unqualified-name]
+  (or (= :all shadowed-core)
+      (contains? shadowed-core unqualified-name)))
+
 (defn- else-nil-candidate
   "Record a `cond` whose last clause pairs an always-true test with `nil`, or nil.
 
   Whether the head is core's `cond` is settled once every file is read, since the
-  namespace may define a `cond` of its own. A name a form above binds is a local."
+  namespace may define a `cond` of its own. An unqualified `cond` is core's only when the
+  ns form names no `cond` and nothing above binds one, and only a list in call position
+  counts: a method a `reify` defines, a member of `..` and a `case` constant list are no
+  calls."
   [loc ns-info file]
   (let [head (some-> loc z/down (describe-head ns-info))
         arguments (clause-forms (z/node loc))
@@ -473,11 +541,16 @@
                (even? (count arguments))
                (always-true? test-node)
                (written-nil? value-node)
-               (not (and (= :local (:kind head)) (locally-bound? loc "cond")))
+               (not (and (= :local (:kind head))
+                         (or (core-name-shadowed? ns-info "cond") (locally-bound? loc "cond"))))
+               (not (method-definition? loc))
+               (not (member-position? loc))
+               (not (case-constant? loc))
                (not (unevaluated? loc)))
       {:type ::else-nil
        :head head
-       :form (z/string loc)
+       :form (str "(" (z/string (z/down loc)) " " (n/string (first arguments)) " ... "
+                  (n/string test-node) " nil)")
        :else-text (n/string test-node)
        :position (try (z/position loc) (catch Exception _ [0 1]))
        :file file

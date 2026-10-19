@@ -180,7 +180,24 @@
 
 (def ^:private empty-ns-info {:ns-name "unknown"
                               :aliases {}
-                              :refers {}})
+                              :refers {}
+                              :shadowed-core :all})
+
+(defn- shadowed-core
+  "Return the names an ns form may take from core, or :all when it may take any.
+
+  Read from the nodes rather than the parsed form, so a clause behind a reader
+  conditional counts too. Every symbol the clauses write is a name they may exclude,
+  rename or refer over core's, whichever clause it sits in. A `:use`, a `:refer :all` or a
+  `:refer-clojure :only` can take a core name without writing it, so any one of them
+  takes them all."
+  [ns-node]
+  (let [tokens (->> (tree-seq n/inner? n/children ns-node)
+                    (filter #(= :token (n/tag %)))
+                    (map #(try (n/sexpr %) (catch Exception _ nil))))]
+    (if (some #{:use :all :only} tokens)
+      :all
+      (into #{} (comp (filter symbol?) (map name)) tokens))))
 
 (defn- find-ns-info
   "Find and parse the ns form from a rewrite-clj zip.
@@ -192,7 +209,7 @@
     (when (and loc (not (z/end? loc)))
       (if (and (= :list (z/tag loc))
                (= "ns" (sym-name (z/down loc))))
-        (try (parse-ns-form (z/sexpr loc))
+        (try (assoc (parse-ns-form (z/sexpr loc)) :shadowed-core (shadowed-core (z/node loc)))
              (catch Exception _ empty-ns-info))
         (recur (z/right loc))))))
 

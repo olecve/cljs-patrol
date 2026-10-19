@@ -6,8 +6,9 @@
 
 (def ^:private fixture-dir "test-projects/idioms-app/src")
 
-(defn- found []
-  (-> (core/run fixture-dir [idioms/group]) :group-results first :nested-call-chain))
+(defn- found
+  ([] (found :nested-call-chain))
+  ([rule] (-> (core/run fixture-dir [idioms/group]) :group-results first rule)))
 
 (deftest nested-call-chain-fixture-test
   (testing "a function defined in another file counts, referred or through an alias"
@@ -15,3 +16,7 @@
 
   (testing "carries the cleanup tier"
     (is (every? #(= :cleanup (:tier %)) (found)))))
+
+(deftest cond-else-nil-fixture-test
+  (is (= ["plain"] (map :test (found :cond-else-nil)))
+      "a cond the ns form may take from elsewhere is left alone, a reader conditional included"))
