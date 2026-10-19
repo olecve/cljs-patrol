@@ -1,9 +1,9 @@
 (ns cljs-patrol.groups.idioms
   "Rule group: code a core idiom says more plainly.
 
-  Nested calls a threading macro would read top to bottom, and a `cond` closing on an
-  `:else nil` it returns anyway. Each rule reports only what it can rewrite without a
-  judgement call.
+  Nested calls a threading macro would read top to bottom, a `cond` closing on an
+  `:else nil` it returns anyway, and an `if` or `when` testing a `not`. Each rule reports
+  only what it can rewrite without a judgement call.
 
   For a thread, every step passes the call below it in the slot a thread fills, the first
   argument for `->` or the last for `->>`, so the rewrite expands back to exactly the code
@@ -593,10 +593,60 @@
          :file file
          :test (parser/top-level-name loc)}))))
 
+(def ^:private negatable-forms
+  "Forms a `not` around the test folds into, with the form that folds it and the argument counts they take."
+  {"if" ["if-not" #{2 3}]
+   "when" ["when-not" any?]})
+
+(defn- describe-name
+  "Classify an unqualified name the file does not write, as describe-head would if it did."
+  [unqualified-name {:keys [ns-name refers]}]
+  (if-let [referred-ns (get refers unqualified-name)]
+    (describe-var referred-ns unqualified-name)
+    {:kind :local
+     :var (keyword ns-name unqualified-name)
+     :name unqualified-name}))
+
+(defn- negated-test-candidate
+  "Record an `if` or `when` whose test is a call of `not`, or nil.
+
+  The form the finding asks for, `if-not` or `when-not`, has to be core's too. A step of a
+  thread takes its test from the thread, so its first argument is no test."
+  [loc ns-info file]
+  (some (fn [[form-name [folded-name arity?]]]
+          (when-let [head (core-call-head loc ns-info form-name)]
+            (let [[test-node & body] (rest (code-forms (z/node loc)))]
+              (when (and (arity? (inc (count body)))
+                         (= :list (some-> test-node n/tag))
+                         (not (threaded-step? loc))
+                         (unshadowed-local? loc ns-info folded-name))
+                (let [test-loc (->> loc z/down parser/right-siblings
+                                    (filter #(identical? test-node (z/node %)))
+                                    first)
+                      [negated & more] (rest (code-forms test-node))]
+                  (when-let [not-head (when (and negated (empty? more))
+                                        (core-call-head test-loc ns-info "not"))]
+                    {:type ::negated-test
+                     :form-name form-name
+                     :folded-name folded-name
+                     :head head
+                     :not-head not-head
+                     :folded-head (describe-name folded-name ns-info)
+                     :head-text (z/string (z/down loc))
+                     :fn-literal? (= :fn (z/tag loc))
+                     :test-text (n/string test-node)
+                     :negated-text (n/string negated)
+                     :body (map n/string body)
+                     :position (try (z/position loc) (catch Exception _ [0 1]))
+                     :file file
+                     :test (parser/top-level-name loc)}))))))
+        negatable-forms))
+
 (defn- handle [min-calls loc ns-info file]
   (let [found (keep identity [(when (= :list (z/tag loc)) (definition loc ns-info file))
                               (chain-candidate min-calls loc ns-info file)
-                              (else-nil-candidate loc ns-info file)])]
+                              (else-nil-candidate loc ns-info file)
+                              (negated-test-candidate loc ns-info file)])]
     (when (seq found)
       {:decls (vec found)
        :usages []
@@ -773,6 +823,35 @@
              :hint (str "Drop the " else-text " nil clause: a cond no clause matches returns nil")}
       test (assoc :test test))))
 
+(defn- negated-test-form
+  "Spell out an `if` or `when` by its test and its first two branches, counting the rest.
+
+  This is the finding's identity in a baseline, so a branch too long to show is left out."
+  [{:keys [head-text fn-literal? test-text body]}]
+  (let [shown-body (map #(shown % text-max) (take 2 body))
+        more (- (count body) 2)]
+    (str (if fn-literal? "#(" "(") head-text " " test-text
+         (apply str (map #(str " " %) shown-body))
+         (when (pos? more) (str " ..." more " more..."))
+         ")")))
+
+(defn- negated-test-finding [{:keys [form-name folded-name negated-text position file test]
+                              :as candidate}]
+  (let [[row col] position]
+    (cond-> {:kw (symbol form-name)
+             :type :negated-test
+             :form (parser/normalize-form (negated-test-form candidate))
+             :file file
+             :row row
+             :col col
+             :hint (str "Write (" folded-name " " (shown negated-text text-max) " ...)")}
+      test (assoc :test test))))
+
+(defn- negated-test? [{:keys [form-name folded-name head not-head folded-head]} definitions]
+  (and (core-named? head definitions form-name)
+       (core-named? not-head definitions "not")
+       (core-named? folded-head definitions folded-name)))
+
 (defn- analyze* [min-calls {:keys [declarations]}]
   (let [definitions (function-definitions declarations)]
     {:nested-call-chain
@@ -786,7 +865,11 @@
      :cond-else-nil
      (->> declarations
           (filter #(and (= ::else-nil (:type %)) (core-named? (:head %) definitions "cond")))
-          (mapv else-nil-finding))}))
+          (mapv else-nil-finding))
+     :negated-test
+     (->> declarations
+          (filter #(and (= ::negated-test (:type %)) (negated-test? % definitions)))
+          (mapv negated-test-finding))}))
 
 (defn- suggestion [min-calls]
   (str min-calls " or more calls nested one inside another, each passing the one below it "
@@ -806,20 +889,28 @@
        "A cond no clause matches returns nil already, so the clause adds nothing, yet it reads "
        "as a default someone chose, and the reader has to check that it is not. Drop it."))
 
+(def ^:private negated-test-suggestion
+  (str "An if or when whose test is (not x). if-not and when-not say the same with one form "
+       "less, and put the condition the branch runs on first. Write (if-not x a b) or "
+       "(when-not x ...)."))
+
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup
   (group-id [_] :idioms)
   (group-name [_] "Idioms")
   (parse-handlers [_] {:handle-list (fn [loc ns-info file] (handle min-calls loc ns-info file))})
   (analyze [_ data] (analyze* min-calls data))
-  (summary-lines [_ {:keys [nested-call-chain cond-else-nil]}]
+  (summary-lines [_ {:keys [nested-call-chain cond-else-nil negated-test]}]
     [["Nested call chain:" (count nested-call-chain)]
-     ["Cond else nil:" (count cond-else-nil)]])
+     ["Cond else nil:" (count cond-else-nil)]
+     ["Negated test:" (count negated-test)]])
   (failed? [_ _] false)
   (suggestions [_] {:nested-call-chain (suggestion min-calls)
-                    :cond-else-nil else-nil-suggestion})
+                    :cond-else-nil else-nil-suggestion
+                    :negated-test negated-test-suggestion})
   (rule->tier [_] {:nested-call-chain :cleanup
-                   :cond-else-nil :cleanup})
+                   :cond-else-nil :cleanup
+                   :negated-test :cleanup})
   (file-extensions [_] extensions))
 
 (defn make-group

@@ -146,6 +146,62 @@ Left alone, since the scan cannot vouch that it is core's `cond` or that it is c
 
 </details>
 
+### Negated test
+
+`negated-test` · cleanup — An `if` or `when` whose test is a `not`.
+
+```clojure
+;; flagged
+(defn retry-label [ready? attempts]
+  (if (not ready?) "Waiting" (str attempts " attempts")))
+
+(defn warn! [ready?]
+  (when (not ready?)
+    (js/console.warn "not ready")))
+
+;; fix
+(defn retry-label [ready? attempts]
+  (if-not ready? "Waiting" (str attempts " attempts")))
+
+(defn warn! [ready?]
+  (when-not ready?
+    (js/console.warn "not ready")))
+```
+
+**Left alone:**
+
+```clojure
+(defn differs? [a b] (if (not= a b) :changed :same)) ; not= is no not
+
+(defn step [v ready?] (-> v (when (not ready?)))) ; a threaded when takes its test from the thread
+
+(defn guarded [not ready?] (when (not ready?) :wait)) ; a local not
+```
+
+<details>
+<summary>Details</summary>
+
+Why: `if-not` and `when-not` exist for exactly this, and the
+[Clojure Style Guide](https://github.com/bbatsov/clojure-style-guide) asks for them over `(if (not ...) ...)` and
+`(when (not ...) ...)`. They read as one word for the condition the branch runs on, with one pair of parentheses less
+around the test. The rewrite expands to the same code, so the result never changes.
+
+Flagged: an `if` with two or three arguments, or a `when` with one or more, whose test is a call of `not` on one
+argument. Comments and `#_` forms inside do not stop it. The finding is keyed by `if` or `when`, and the fix is the same
+form with `-not` and the test unwrapped.
+
+Left alone, since the scan cannot vouch that the rewrite means the same:
+
+- a test that is no single `not` call: `not=`, `(not a b)`, a bare `not`, or a `not` already under `if-not` or
+  `when-not`
+- a step of `->`, `->>`, `some->`, `doto`, `..` or a `cond->` pair, whose first argument is not its test
+- an `if`, `when`, `not`, `if-not` or `when-not` that may not be core's: from another library, referred, named anywhere
+  in the ns form, bound as a local, or defined by the namespace, and every case the [`cond-else-nil`](#cond-else-nil)
+  rule leaves alone for `cond`
+- anything quoted, discarded or inside `(comment …)`
+
+</details>
+
 ## Idioms options
 
 The `idioms` group reads one key from `.cljs-patrol/config.edn`:

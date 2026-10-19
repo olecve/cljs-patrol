@@ -460,3 +460,94 @@
   (is (empty? (else-nils ["'(cond (pos? n) :up :else nil)"
                           "(comment (cond (pos? n) :up :else nil))"
                           "#_(cond (pos? n) :up :else nil)"]))))
+
+(defn- negated-tests
+  ([lines] (negated-tests ns-info lines))
+  ([file-ns-info lines]
+   (->> lines (parse idioms/group file-ns-info) :negated-test (mapv :form))))
+
+(deftest if-or-when-testing-not-is-flagged
+  (is (= ["(if (not ready?) :wait :go)"
+          "(if (not ready?) :wait)"
+          "(when (not ready?) (log) (retry))"
+          "(when (not ready?) (log) (retry) ...1 more...)"
+          "(clojure.core/when (clojure.core/not ready?) :wait)"
+          "#(when (not %) :wait)"
+          "(if (not #_x (seq xs)) :empty :full)"]
+         (negated-tests ["(if (not ready?) :wait :go)"
+                         "(if (not ready?) :wait)"
+                         "(when (not ready?)\n  (log)\n  (retry))"
+                         "(when (not ready?) (log) (retry) (done))"
+                         "(clojure.core/when (clojure.core/not ready?) :wait)"
+                         "#(when (not %) :wait)"
+                         "(if ;; why\n (not #_x (seq xs)) :empty :full)"]))))
+
+(deftest negated-test-finding-names-the-fold-and-where-it-is
+  (let [[finding] (:negated-test (parse ["(defn f [x]" "  (when (not x) :wait))"]))]
+    (is (= {:kw 'when
+            :type :negated-test
+            :file "views.cljs"
+            :row 2
+            :col 3
+            :test "f"
+            :hint "Write (when-not x ...)"}
+           (dissoc finding :form)))))
+
+(deftest negated-test-hint-leaves-out-a-long-test
+  (is (= ["Write (when-not ... ...)"]
+         (->> ["(when (not (contains? selected-document-ids document-id)) :a)"]
+              parse
+              :negated-test
+              (mapv :hint)))))
+
+(deftest negated-test-form-leaves-out-a-long-branch
+  (is (= ["(if (not ready?) ... :go)"]
+         (negated-tests ["(if (not ready?)\n  (let [a 1]\n    (inc a))\n  :go)"]))))
+
+(deftest test-that-is-no-single-not-is-left-alone
+  (is (empty? (negated-tests ["(if (not= a b) :x :y)"
+                              "(if (not a b) :x :y)"
+                              "(if (not) :x :y)"
+                              "(if not :x :y)"
+                              "(if ready? :x :y)"
+                              "(when-not (not ready?) :x)"
+                              "(if-not (not ready?) :x)"]))))
+
+(deftest if-of-wrong-arity-is-left-alone
+  (is (empty? (negated-tests ["(if (not ready?))"
+                              "(if (not ready?) :a :b :c)"
+                              "(when)"]))))
+
+(deftest threaded-if-or-when-is-left-alone
+  (is (empty? (negated-tests ["(-> v (when (not ready?)))"
+                              "(cond-> m flag (if (not ready?) :a))"
+                              "(doto o (when (not ready?) :a))"]))))
+
+(deftest not-or-fold-that-is-not-core-is-left-alone
+  (is (empty? (negated-tests ["(lib/when (not ready?) :a)"
+                              "(when (lib/not ready?) :a)"
+                              "(let [not some?] (when (not ready?) :a))"
+                              "(let [when-not f] (when (not ready?) :a))"
+                              "(let [when f] (when (not ready?) :a))"])))
+  (is (empty? (negated-tests (assoc ns-info :shadowed-core #{"when-not"})
+                             ["(when (not ready?) :a)"]))
+      "a when-not the ns form may take from elsewhere is no fold to ask for")
+  (is (empty? (negated-tests (assoc ns-info :refers {"when-not" "app.util"})
+                             ["(when (not ready?) :a)"]))
+      "a referred when-not is no fold to ask for")
+  (is (empty? (negated-tests (assoc ns-info :shadowed-core #{"not"})
+                             ["(when (not ready?) :a)"]))))
+
+(deftest fold-or-not-the-namespace-defines-is-left-alone
+  (is (empty? (negated-tests ["(defmacro when-not [& body] body)"
+                              "(when (not ready?) :a)"])))
+  (is (empty? (negated-tests ["(defn not [x] x)"
+                              "(when (not ready?) :a)"])))
+  (is (empty? (negated-tests ["(defmacro when [test & body] body)"
+                              "(when (not ready?) :a)"]))))
+
+(deftest unevaluated-or-no-call-is-left-alone
+  (is (empty? (negated-tests ["'(when (not ready?) :a)"
+                              "(comment (when (not ready?) :a))"
+                              "(reify P (when [_ x] (not x) :a))"
+                              "(case k (when (not x) :a) :hit :miss)"]))))
