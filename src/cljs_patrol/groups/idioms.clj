@@ -548,30 +548,40 @@
   (or (= :all shadowed-core)
       (contains? shadowed-core unqualified-name)))
 
-(defn- else-nil-candidate
-  "Record a `cond` whose last clause pairs an always-true test with `nil`, or nil.
+(defn- unshadowed-local?
+  "True when no name the ns form takes and no local above loc hides core's unqualified-name."
+  [loc ns-info unqualified-name]
+  (not (or (core-name-shadowed? ns-info unqualified-name)
+           (locally-bound? loc unqualified-name))))
 
-  Whether the head is core's `cond` is settled once every file is read, since the
-  namespace may define a `cond` of its own. An unqualified `cond` is core's only when the
-  ns form names no `cond` and nothing above binds one, and only a list in call position
-  counts: a method a `reify` defines, a member of `..` and a `case` constant list are no
-  calls."
-  [loc ns-info file]
-  (when (= "cond" (some-> loc z/down parser/sym-name))
-    (let [head (describe-head (z/down loc) ns-info)
-          arguments (rest (code-forms (z/node loc)))
-          [test-node value-node] (take-last 2 arguments)]
-      (when (and (= "cond" (:name head))
-                 (>= (count arguments) 4)
-                 (even? (count arguments))
-                 (always-true? test-node)
-                 (written-nil? value-node)
-                 (not (and (= :local (:kind head))
-                           (or (core-name-shadowed? ns-info "cond") (locally-bound? loc "cond"))))
+(defn- core-call-head
+  "Return the head of loc when it may call core's core-name, or nil.
+
+  Whether the head is core's is settled once every file is read, since the namespace may
+  define the name itself. An unqualified head is core's only when the ns form names it
+  nowhere and nothing above binds it, and only a list in call position counts: a method a
+  `reify` defines, a member of `..` and a `case` constant list are no calls."
+  [loc ns-info core-name]
+  (when (= core-name (some-> loc z/down parser/sym-name))
+    (let [head (describe-head (z/down loc) ns-info)]
+      (when (and (= core-name (:name head))
+                 (or (not= :local (:kind head)) (unshadowed-local? loc ns-info core-name))
                  (not (method-definition? loc))
                  (not (member-position? loc))
                  (not (case-constant? loc))
                  (not (unevaluated? loc)))
+        head))))
+
+(defn- else-nil-candidate
+  "Record a `cond` whose last clause pairs an always-true test with `nil`, or nil."
+  [loc ns-info file]
+  (when-let [head (core-call-head loc ns-info "cond")]
+    (let [arguments (rest (code-forms (z/node loc)))
+          [test-node value-node] (take-last 2 arguments)]
+      (when (and (>= (count arguments) 4)
+                 (even? (count arguments))
+                 (always-true? test-node)
+                 (written-nil? value-node))
         {:type ::else-nil
          :head head
          :head-text (z/string (z/down loc))
@@ -732,12 +742,12 @@
        (filter #(>= (count %) min-calls))
        (reduce (fn [best run] (if (>= (count run) (count best)) run best)) nil)))
 
-(defn- core-cond?
-  "True when head, settled against the project's definitions, is core's `cond`."
-  [head definitions]
+(defn- core-named?
+  "True when head, settled against the project's definitions, is core's core-name."
+  [head definitions core-name]
   (= {:kind :core
       :library :core
-      :name "cond"}
+      :name core-name}
      (select-keys (settle-head head definitions) [:kind :library :name])))
 
 (defn- else-nil-form
@@ -775,7 +785,7 @@
           vec)
      :cond-else-nil
      (->> declarations
-          (filter #(and (= ::else-nil (:type %)) (core-cond? (:head %) definitions)))
+          (filter #(and (= ::else-nil (:type %)) (core-named? (:head %) definitions "cond")))
           (mapv else-nil-finding))}))
 
 (defn- suggestion [min-calls]
