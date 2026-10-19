@@ -320,13 +320,17 @@
           "(cond (pos? n) :up :default nil)"
           "(clojure.core/cond (pos? n) :up :else nil)"
           "(cond (pos? n) :up (neg? n) :down :else nil)"
-          "#(cond (pos? %) :up :else nil)"]
+          "#(cond (pos? %) :up :else nil)"
+          "(cond (pos? n) :up ;; falls through :else nil)"
+          "(cond (pos? n) :up #_(neg? n) :else nil)"]
          (else-nils ["(cond (pos? n) :up :else nil)"
                      "(cond (pos? n) :up true nil)"
                      "(cond (pos? n) :up :default nil)"
                      "(clojure.core/cond (pos? n) :up :else nil)"
                      "(cond (pos? n) :up\n      (neg? n) :down\n      :else nil)"
-                     "#(cond (pos? %) :up :else nil)"]))))
+                     "#(cond (pos? %) :up :else nil)"
+                     "(cond (pos? n) :up\n      ;; falls through\n      :else nil)"
+                     "(cond (pos? n) :up #_(neg? n) :else nil)"]))))
 
 (deftest else-nil-finding-names-the-clause-and-where-it-is
   (let [[finding] (:cond-else-nil (parse ["(defn sign [n]" "  (cond (pos? n) :up :default nil))"]))]
@@ -345,7 +349,13 @@
                           "(cond (pos? n) :up flag nil)"
                           "(cond :else nil)"
                           "(cond (pos? n) :up :else nil :odd)"
-                          "(cond (pos? n) :up (neg? n) :else nil)"]))))
+                          "(cond (pos? n) :up (neg? n) :else nil)"
+                          "(cond (pos? n) :up #?(:clj :else) nil)"
+                          "(cond (pos? n) :up :else #?(:clj nil))"]))))
+
+(deftest unreadable-last-clause-is-left-alone
+  (is (empty? (else-nils ["(cond (pos? n) :up ^:m :else nil)"
+                          "(cond (pos? n) :up :else ^:m nil)"]))))
 
 (deftest condp-and-case-are-left-alone
   (is (empty? (else-nils ["(condp = n 1 :one nil)"
@@ -364,4 +374,4 @@
 (deftest unevaluated-cond-is-left-alone
   (is (empty? (else-nils ["'(cond (pos? n) :up :else nil)"
                           "(comment (cond (pos? n) :up :else nil))"
-                          "(cond (pos? n) :up #_(neg? n) :else nil)"]))))
+                          "#_(cond (pos? n) :up :else nil)"]))))

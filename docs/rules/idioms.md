@@ -123,8 +123,9 @@ a default someone chose, though, and every reader has to stop and check that it 
 clauses that decide something, the same reason `(when x y)` reads better than `(if x y nil)`.
 
 Flagged: the last clause of a `cond` whose test no value can fail, `:else` or any other keyword or `true`, paired with a
-literal `nil`. clj-kondo's `:cond-else` asks for `:else` over `true` or `:default`; this goes one step further when the
-value is `nil`.
+literal `nil`. Comments and `#_` forms between the clauses change nothing about which clause runs, so they do not stop
+it. clj-kondo's `:cond-else` asks for `:else` over `true` or `:default`; this goes one step further when the value is
+`nil`.
 
 Left alone: `condp` and `case`, which throw when nothing matches and need their default; a `cond` holding only the one
 clause; a `cond` from another library, a local named `cond`, or one the namespace defines itself; and anything quoted,

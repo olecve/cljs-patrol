@@ -441,10 +441,25 @@
          :file file}))))
 
 (defn- always-true?
-  "True when loc is a test no value can fail: a keyword or `true`."
-  [loc]
-  (or (parser/kw-node? loc)
-      (and (= :token (z/tag loc)) (= "true" (z/string loc)))))
+  "True when node is a test no value can fail: a keyword or `true`."
+  [node]
+  (and (= :token (n/tag node))
+       (or (keyword? (n/sexpr node))
+           (true? (n/sexpr node)))))
+
+(defn- written-nil? [node]
+  (and (= :token (n/tag node))
+       (nil? (n/sexpr node))))
+
+(defn- clause-forms
+  "Return the forms after the head of a list, with comments and `#_` forms left out.
+
+  Neither changes which clause a `cond` picks, so unlike a thread, a `cond` holding one
+  is still read."
+  [list-node]
+  (->> (n/children list-node)
+       (remove #(or (n/whitespace-or-comment? %) (= :uneval (n/tag %))))
+       rest))
 
 (defn- else-nil-candidate
   "Record a `cond` whose last clause pairs an always-true test with `nil`, or nil.
@@ -453,19 +468,19 @@
   namespace may define a `cond` of its own. A name a form above binds is a local."
   [loc ns-info file]
   (let [head (describe-head (z/down loc) ns-info)
-        arguments (call-arguments loc)
-        [test-loc value-loc] (take-last 2 arguments)]
+        arguments (clause-forms (z/node loc))
+        [test-node value-node] (take-last 2 arguments)]
     (when (and (= "cond" (:name head))
                (>= (count arguments) 4)
                (even? (count arguments))
-               (always-true? test-loc)
-               (= "nil" (z/string value-loc))
+               (always-true? test-node)
+               (written-nil? value-node)
                (not (and (= :local (:kind head)) (locally-bound? loc "cond")))
                (not (unevaluated? loc)))
       {:type ::else-nil
        :head head
        :form (z/string loc)
-       :else-text (z/string test-loc)
+       :else-text (n/string test-node)
        :position (try (z/position loc) (catch Exception _ [0 1]))
        :file file
        :test (parser/top-level-name loc)})))
