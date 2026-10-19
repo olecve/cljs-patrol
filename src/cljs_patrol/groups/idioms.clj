@@ -303,9 +303,7 @@
     (when (and (seq children)
                (= :token (n/tag (first children)))
                (not (contains? #{"quote" "comment"} (parser/sym-name (z/down loc)))))
-      (->> (iterate z/right (z/right (z/down loc)))
-           (take (dec (count children)))
-           vec))))
+      (->> loc z/down parser/right-siblings vec))))
 
 (defn- data-slot
   "Return [direction argument-loc head] for the argument loc threads, or nil when it threads none.
