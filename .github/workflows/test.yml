@@ -1,19 +1,19 @@
 name: Test
 
 on:
+  # A branch is checked through its pull request, so each commit runs once. With a push
+  # trigger on every branch too, one of the two runs was cancelled, and GitHub shows a
+  # cancelled run as a failed check on the PR.
   push:
-    # Every branch, so work in progress is checked before a PR exists.
-    # '**' matches branches only, leaving tag pushes to the release workflow.
-    branches: ['**']
+    branches: [main]
   pull_request:
     branches: [main]
 
-# A PR branch is covered by both triggers. Grouping them under one branch-derived
-# key with cancel-in-progress means the second run supersedes the first instead of
-# building the native binary twice.
+# A new commit on a PR supersedes the run on the previous one. A run on main is never
+# cancelled, so every merge commit keeps its own result.
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
