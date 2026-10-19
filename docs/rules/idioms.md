@@ -207,6 +207,63 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 
 </details>
 
+### Into empty
+
+`into-empty` · cleanup — An `into` an empty vector or set literal, which `vec` or `set` builds by name.
+
+```clojure
+;; flagged
+(defn tag-ids [tags]
+  (into #{} (map :id tags)))
+
+(defn titles [docs]
+  (into [] (map :title docs)))
+
+;; fix
+(defn tag-ids [tags]
+  (set (map :id tags)))
+
+(defn titles [docs]
+  (vec (map :title docs)))
+```
+
+**Left alone:**
+
+```clojure
+(defn ids [rows] (into [] rows)) ; rows may be an array, which vec would alias
+
+(defn ids [rows] (into [] (map :id) rows)) ; a transducer
+
+(defn ids [base rows] (into base (map :id rows))) ; no empty literal
+```
+
+<details>
+<summary>Details</summary>
+
+Why: `vec` and `set` say what they build in their name, where `(into [] …)` makes the reader take in a general merge and
+an empty literal to see the same thing. Given a vector or a set already, they return it rather than copying it. The
+elements and the type of the result are the same either way.
+
+Flagged: a two-argument `into` whose target is an empty `[]` or `#{}` literal, comments inside it included. The finding
+is keyed by `into` and asks for `vec` or `set`.
+
+`vec` aliases a Java or JavaScript array, so mutating the array later changes the vector, where `into` copies it. So
+`(into [] xs)` is flagged only where `xs` cannot be an array: a collection literal, or a call of a core function that
+never returns one, such as `map`, `filter`, `keep`, `keys`, `vals`, `concat`, `distinct`, `sort` or `range`. A local, a
+host call and a function of the project's own are left alone. `set` copies whatever it reads, so `(into #{} xs)` is
+flagged for any `xs`.
+
+Left alone as well:
+
+- an `into` with a transducer, a target that is not empty or carries metadata, or a `{}` or `()` target
+- a step of a thread, which takes its source from the thread
+- an `into`, `vec`, `set` or source function that may not be core's: from another library, named in the ns form, bound
+  as a local, or defined by the namespace, and every case the [`cond-else-nil`](#cond-else-nil) rule leaves alone for
+  `cond`
+- anything quoted, discarded or inside `(comment …)`
+
+</details>
+
 ## Idioms options
 
 The `idioms` group reads one key from `.cljs-patrol/config.edn`:
