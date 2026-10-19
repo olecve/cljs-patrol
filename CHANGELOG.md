@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.0.35] - 2026-10-19
+
+* Stop giving every release two headings in the changelog by @olecve in https://github.com/olecve/cljs-patrol/pull/84
+* Flag the staircase cljfmt's keypair split leaves behind by @olecve in https://github.com/olecve/cljs-patrol/pull/85
+* Flag nested one-argument call chains a thread would read better by @olecve in https://github.com/olecve/cljs-patrol/pull/86
+* Let nested-call-chain thread through a call's data slot, first or last by @olecve in https://github.com/olecve/cljs-patrol/pull/87
+* Share the child and right-sibling loc walks through parser by @olecve in https://github.com/olecve/cljs-patrol/pull/88
+* Walk a call's arguments with parser/right-siblings in idioms by @olecve in https://github.com/olecve/cljs-patrol/pull/89
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.34...v0.0.35
+
 ## [v0.0.34] - 2026-10-05
 
 * Flag a ^js type hint written in test code by @olecve in https://github.com/olecve/cljs-patrol/pull/80
