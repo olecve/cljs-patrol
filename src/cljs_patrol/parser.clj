@@ -73,6 +73,17 @@
         (let [id (some-> top z/down z/right)]
           (when (kw-node? id) (raw id)))))))
 
+(defn child-locs
+  "Return the locs of loc's children, in order, or nil when it has none."
+  [loc]
+  (when-let [first-child (some-> loc z/down)]
+    (take-while some? (iterate #(some-> % z/right) first-child))))
+
+(defn right-siblings
+  "Return the locs to the right of loc, loc itself excluded."
+  [loc]
+  (take-while some? (rest (iterate #(some-> % z/right) loc))))
+
 (defn position-row
   "Return the line number of zloc, or 0 on error."
   [zloc]

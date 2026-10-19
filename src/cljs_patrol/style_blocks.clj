@@ -13,17 +13,14 @@
 (defn style-decl? [list-loc]
   (contains? style-decl-fns (parser/sym-name (z/down list-loc))))
 
-(defn children [loc]
-  (take-while some? (iterate z/right (z/down loc))))
-
 (defn map-key-locs [map-loc]
-  (take-nth 2 (children map-loc)))
+  (take-nth 2 (parser/child-locs map-loc)))
 
 (defn selector-head
   "Zlocs of a nested selector vector up to its style map.
   Garden reads those as the selector; the map and anything after it is the body."
   [vector-loc]
-  (take-while #(not= :map (z/tag %)) (children vector-loc)))
+  (take-while #(not= :map (z/tag %)) (parser/child-locs vector-loc)))
 
 (defn selector-label [vector-loc]
   (->> vector-loc selector-head (map parser/raw) (str/join " ")))
@@ -33,7 +30,7 @@
   That is what separates a selector block from one of Garden's value vectors, such as the
   `[[0 :auto]]` in `{:margin [[0 :auto]]}`."
   [vector-loc]
-  (boolean (some #(= :map (z/tag %)) (children vector-loc))))
+  (boolean (some #(= :map (z/tag %)) (parser/child-locs vector-loc))))
 
 (defn nested-vectors
   "Every vector under `loc`, depth-first, without descending into style maps."
@@ -43,7 +40,7 @@
               :map nil
               :vector (cons child (nested-vectors child))
               (nested-vectors child)))
-          (children loc)))
+          (parser/child-locs loc)))
 
 (defn selector-blocks [loc]
   (filter selector-block? (nested-vectors loc)))
@@ -62,4 +59,4 @@
                       :selector selector}]
                :vector (style-maps child (str/trim (str selector " " (selector-label child))))
                nil))
-           (children loc))))
+           (parser/child-locs loc))))
