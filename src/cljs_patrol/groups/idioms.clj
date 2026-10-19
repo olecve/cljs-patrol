@@ -465,7 +465,7 @@
   Whether the head is core's `cond` is settled once every file is read, since the
   namespace may define a `cond` of its own. A name a form above binds is a local."
   [loc ns-info file]
-  (let [head (describe-head (z/down loc) ns-info)
+  (let [head (some-> loc z/down (describe-head ns-info))
         arguments (clause-forms (z/node loc))
         [test-node value-node] (take-last 2 arguments)]
     (when (and (= "cond" (:name head))

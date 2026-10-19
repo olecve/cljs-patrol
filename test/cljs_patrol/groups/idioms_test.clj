@@ -353,6 +353,9 @@
                           "(cond (pos? n) :up #?(:clj :else) nil)"
                           "(cond (pos? n) :up :else #?(:clj nil))"]))))
 
+(deftest empty-list-is-left-alone
+  (is (empty? (else-nils ["()" "#()" "[()]"]))))
+
 (deftest unreadable-last-clause-is-left-alone
   (is (empty? (else-nils ["(cond (pos? n) :up ^:m :else nil)"
                           "(cond (pos? n) :up :else ^:m nil)"]))))
