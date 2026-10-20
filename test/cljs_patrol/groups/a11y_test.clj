@@ -199,3 +199,15 @@
 
     (testing "aria-live-contradicts-role suggestion references the ARIA implicit-value rule"
       (is (re-find #"Implicit Value for Role" (:aria-live-contradicts-role suggestions))))))
+
+(deftest make-group-label-props-test
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":label-props must be a keyword or a collection of keywords"
+                        (a11y/make-group {:component-aliases {'my.ui/switch {:label-props "label"
+                                                                             :tag :switch}}}))
+      "string shape is rejected")
+  (is (thrown? clojure.lang.ExceptionInfo
+               (a11y/make-group {:component-aliases {'my.ui/switch {:label-props ["label"]
+                                                                    :tag :switch}}}))
+      "collection of strings is rejected")
+  (is (some? (a11y/make-group {:component-aliases {'my.ui/switch {:tag :switch}}}))
+      "absent label props are none"))

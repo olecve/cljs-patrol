@@ -21,3 +21,7 @@
 (defn stepper [attrs] attrs)
 
 (defn range-slider [attrs] attrs)
+
+(defn toggle [attrs] attrs)
+
+(defn icon-button [attrs & children] attrs)
