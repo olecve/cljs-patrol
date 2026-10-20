@@ -409,13 +409,35 @@
     :as info} tag]
   (and (= :map kind) (some? attrs) (aria-hidden? attrs) (focusable? info tag)))
 
+(def ^:private widget-role-tags
+  "Widget roles taken as tags, for a wrapper that sets its role inside itself.
+
+  No HTML element is called `<switch>`, so these count only when `:component-aliases`
+  maps a wrapper onto one: `{my.ui/switch :switch}` says the wrapper renders an element
+  carrying that role. WAI-ARIA marks all five Accessible Name Required."
+  #{:combobox :searchbox :slider :spinbutton :switch})
+
 (def ^:private accessible-name-required-tags
-  "Native tags whose element has no intrinsic accessible name.
+  "Tags whose element has no intrinsic accessible name.
 
   A visible `<label>` associated by id, `:aria-label`, or `:aria-labelledby` is
   required — `:placeholder` is a hint, not a name. `:dialog` matches native
   `<dialog>` and any wrapper aliased to `:dialog` via `:component-aliases`."
-  #{:textarea :dialog})
+  (into #{:textarea :dialog} widget-role-tags))
+
+(def ^:private label-named-tags
+  "Tags of the name-required elements a `<label>` may name.
+  A label names a wrapper aliased to a widget role when the wrapper renders a labelable
+  control: a Radix switch or select trigger is a `<button>`, a combobox an `<input>`.
+  A slider thumb written as a `<span>` is not one, but the wrapper cannot be seen into."
+  (conj widget-role-tags :textarea))
+
+(defn- widget-role-vector?
+  "True when a vector stands for a widget role, which only an aliased component does.
+  Written out, `[:switch …]` renders an unknown element with no role at all."
+  [tag loc]
+  (and (contains? widget-role-tags tag)
+       (nil? (some-> loc z/down parser/raw hiccup/parse-tag))))
 
 (def ^:private accessible-name-attrs
   "Attributes that give an element a programmatic name.
@@ -499,19 +521,6 @@
                           (and (= :caption (some-> value z/down parser/raw hiccup/parse-tag))
                                (announces-something? value))))
                       (body-locs loc)))))
-
-(defn- missing-accessible-name? [{:keys [kind attrs]} tag loc]
-  (cond
-    (contains? accessible-name-required-tags tag)
-    (case kind
-      :absent true
-      :non-map true
-      :map (or (nil? attrs) (not (has-accessible-name? attrs)))
-      (:dynamic :dynamic-map) false)
-
-    (and (= kind :map) attrs (name-required-attrs? attrs))
-    (and (not (has-accessible-name? attrs))
-         (not (named-by-caption? loc tag)))))
 
 (def ^:private role->implicit-aria-live
   "Live-region roles mapped to the `aria-live` politeness each implies.
@@ -863,6 +872,70 @@
   "Spellings of the `for` attribute Reagent sends to the DOM as `for`."
   [:for :html-for :htmlFor])
 
+(defn- label-vector?
+  "True when a vector renders a `<label>`, as a Hiccup tag or through React interop."
+  [loc]
+  (and (= :vector (z/tag loc))
+       (let [head (some-> loc z/down parser/raw)]
+         (or (= :label (hiccup/parse-tag head))
+             (and (= ":>" head) (= "\"label\"" (some-> loc z/down z/right parser/raw)))))))
+
+(defn- inside-label?
+  "True when a `<label>` vector encloses the element."
+  [loc]
+  (boolean (some label-vector? (take-while some? (rest (iterate z/up loc))))))
+
+(defn- named-by-label?
+  "True when a `<label>` may name the element.
+  One wrapping it may, and so may one anywhere on the page whose `for` points at an id
+  the element carries, written out or in the tag shorthand. An id that cannot be read
+  counts, since the label it is built for cannot be ruled out."
+  [attrs loc]
+  (or (inside-label? loc)
+      (some? (shorthand-id loc))
+      (attr-written? attrs :id)))
+
+(defn- name-required-tag?
+  "True when the element's tag alone requires an accessible name."
+  [tag loc]
+  (and (contains? accessible-name-required-tags tag)
+       (or (not (contains? widget-role-tags tag)) (widget-role-vector? tag loc))))
+
+(defn- cannot-be-props?
+  "True when a native element's second child is one Reagent never takes as props.
+  Reagent reads a map there as props at runtime, so a symbol, a deref or a call may
+  hold one; a string, a number, a keyword or a vector cannot."
+  [child]
+  (case (z/tag child)
+    (:vector :multi-line) true
+    :token (not (symbol? (z/sexpr child)))
+    false))
+
+(defn- props-name-nothing?
+  "True when the element's props demonstrably carry no accessible name.
+  A component's second child is an argument, which a wrapper may take as its name
+  whatever its shape, so only a native element's can be read past a missing map."
+  [{:keys [kind attrs]} loc]
+  (case kind
+    :absent true
+    :map (and (some? attrs) (not (has-accessible-name? attrs)) (not (aria-hidden? attrs)))
+    :non-map (and (some? (some-> loc z/down parser/raw hiccup/parse-tag))
+                  (cannot-be-props? (z/right (z/down loc))))
+    false))
+
+(defn- missing-accessible-name? [{:keys [kind attrs]
+                                  :as info} tag loc]
+  (cond
+    (name-required-tag? tag loc)
+    (and (props-name-nothing? info loc)
+         (not (and (contains? label-named-tags tag) (named-by-label? attrs loc)))
+         (not (and (= :switch tag) (seq (body-locs loc)))))
+
+    (and (= kind :map) attrs (name-required-attrs? attrs))
+    (and (not (has-accessible-name? attrs))
+         (not (aria-hidden? attrs))
+         (not (named-by-caption? loc tag)))))
+
 (def ^:private dom-attr-prefixes ["aria-" "data-" "on-" "on"])
 
 (def ^:private dom-attr-keys
@@ -929,8 +1002,9 @@
                         (let [tag (vector-tag child ns-info component-aliases)]
                           (cond
                             (nil? tag) (reduced :opaque)
-                            (and (contains? labelable-tags tag)
-                                 (not (hidden-input? (:attrs (hiccup/attrs-info child)) tag)))
+                            (or (widget-role-vector? tag child)
+                                (and (contains? labelable-tags tag)
+                                     (not (hidden-input? (:attrs (hiccup/attrs-info child)) tag))))
                             (reduced :labels)
                             :else (let [inner (verdict (body-locs child))]
                                     (if (= :orphan inner) acc (reduced inner)))))
@@ -1223,7 +1297,11 @@
           "so a decorative icon wants `:aria-hidden true` instead of a role — "
           "and any wrapper listed under `:a11y "
           ":component-aliases` in `.cljs-patrol/config.edn` — e.g. "
-          "`{my.ui/drawer :dialog, my.ui/textarea :textarea}`. "
+          "`{my.ui/drawer :dialog, my.ui/textarea :textarea}`, including one that sets "
+          "its role inside itself, mapped to the widget role it renders: `:combobox`, "
+          "`:searchbox`, `:slider`, `:spinbutton` or `:switch`. A `<label>` wrapping a "
+          "textarea or a widget that renders a labelable control, or one whose `for` may "
+          "point at its `:id`, names it. "
           "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
           "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")
      :repeated-accessible-name

@@ -910,15 +910,15 @@
       (is (not (contains? by-row 158))
           "ok-let-bound-opaque-merge, a call naming no key holds an unknown map"))
 
-    (testing "flags a binding whose value cannot be read"
-      (is (contains? by-row 136)
-          "bad-let-bound-call, bound to an opaque call")
-      (is (contains? by-row 141)
-          "bad-let-bound-symbol, bound to another symbol"))
+    (testing "leaves a binding whose value cannot be read alone"
+      (is (not (contains? by-row 136))
+          "ok-let-bound-call, an opaque call may return a name")
+      (is (not (contains? by-row 141))
+          "ok-let-bound-symbol, another symbol may hold one"))
 
     (testing "a parameter of the same name shadows the enclosing binding"
-      (is (contains? by-row 147)
-          "bad-parameter-shadows-let-bound-props, the fn parameter is what the body sees"))))
+      (is (not (contains? by-row 147))
+          "ok-parameter-shadows-let-bound-props, the fn parameter is what the body sees, and it may hold a name"))))
 
 (deftest aria-hidden-focusable-fixture-test
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
@@ -1264,3 +1264,73 @@
     (testing "flags exactly the bad- cases"
       (is (= 6 (count in-labels))
           "six bad- cases in the fixture, no more"))))
+
+(def ^:private widgets-file (str fixture-dir "/widgets.cljs"))
+
+(defn- fn-names
+  "Name the fixture function each finding sits in, by the last defn above its row."
+  [findings]
+  (let [defn-rows (->> (str/split-lines (slurp widgets-file))
+                       (keep-indexed (fn [index line]
+                                       (when-let [[_ fn-name] (re-find #"^\(defn (\S+)" line)]
+                                         [(inc index) fn-name]))))]
+    (->> findings
+         (filter #(= widgets-file (:file %)))
+         (map (fn [{:keys [row]}]
+                (->> defn-rows
+                     (take-while #(<= (first %) row))
+                     last
+                     second)))
+         set)))
+
+(def ^:private widget-aliases
+  {'blogapp.ui/range-slider :slider
+   'blogapp.ui/search-field :searchbox
+   'blogapp.ui/select :combobox
+   'blogapp.ui/stepper :spinbutton
+   'blogapp.ui/switch :switch})
+
+(defn- widget-findings [rule component-aliases]
+  (let [{:keys [group-results]} (core/run fixture-dir [(a11y/make-group {:component-aliases component-aliases})])]
+    (get (first group-results) rule)))
+
+(deftest missing-accessible-name-widget-fixture-test
+  (is (= #{"bad-switch-unnamed"
+           "bad-refer-switch-no-attrs"
+           "bad-select-unnamed"
+           "bad-search-field-placeholder-only"
+           "bad-stepper-unnamed"
+           "bad-slider-unnamed"
+           "bad-switch-beside-its-label"
+           "bad-textarea-id-nil"
+           "bad-textarea-under-label-key"
+           "bad-dialog-in-label"
+           "bad-select-with-children"
+           "bad-switch-in-interop-div"
+           "bad-textarea-string-child"
+           "bad-textarea-keyword-child"
+           "bad-textarea-vector-child"
+           "bad-dialog-with-id"}
+         (fn-names (widget-findings :missing-accessible-name widget-aliases)))
+      "every widget alias, and only an unnamed one, is reported")
+  (is (= #{"bad-textarea-id-nil"
+           "bad-textarea-under-label-key"
+           "bad-dialog-in-label"
+           "bad-textarea-string-child"
+           "bad-textarea-keyword-child"
+           "bad-textarea-vector-child"
+           "bad-dialog-with-id"}
+         (fn-names (widget-findings :missing-accessible-name {})))
+      "unmapped wrappers stay inert")
+  (is (= #{:combobox :searchbox :slider :spinbutton :switch :textarea :dialog}
+         (->> (widget-findings :missing-accessible-name widget-aliases)
+              (filter #(= widgets-file (:file %)))
+              (map :kw)
+              set))
+      "each finding names the widget role its wrapper is mapped to"))
+
+(deftest label-not-associated-widget-fixture-test
+  (is (= #{"bad-dialog-in-label"
+           "bad-label-around-literal-switch"}
+         (fn-names (widget-findings :label-not-associated widget-aliases)))
+      "label around aliased widget labels it"))
