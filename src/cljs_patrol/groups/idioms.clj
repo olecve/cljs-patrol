@@ -3,8 +3,8 @@
 
   Nested calls a threading macro would read top to bottom, a `cond` closing on an
   `:else nil` it returns anyway, an `if` or `when` testing a `not`, an `into` from a
-  collection into an empty vector or set, and a `+` or `-` of a literal `1`. Each rule
-  reports only what it can rewrite without a judgement call.
+  collection into an empty vector or set, a `+` or `-` of a literal `1`, and a `not` of
+  an `=`. Each rule reports only what it can rewrite without a judgement call.
 
   For a thread, every step passes the call below it in the slot a thread fills, the first
   argument for `->` or the last for `->>`, so the rewrite expands back to exactly the code
@@ -577,8 +577,8 @@
   (and (= :token (n/tag node))
        (nil? (n/sexpr node))))
 
-(defn- case-constant?
-  "True when loc is a test constant of the `case` it sits in, a list of constants and no call."
+(defn- case-test?
+  "True when loc is a test of the `case` it sits in."
   [loc]
   (boolean
    (when (= "case" (parent-head loc))
@@ -586,6 +586,11 @@
            size (->> (site loc) z/up z/node code-forms count)]
        (and (even? index)
             (not (and (odd? size) (= index (dec size)))))))))
+
+(defn- case-constant?
+  "True when loc is a test of a `case` or sits inside one, `[(f x)]` or `((f x) y)`: data and no call."
+  [loc]
+  (boolean (some case-test? (take-while some? (iterate z/up loc)))))
 
 (defn- member-position?
   "True when loc names a member of `.` or `..`, `(. o (cond a b))` calling a method `cond`."
@@ -658,13 +663,53 @@
    :var (keyword ns-name unqualified-name)
    :name unqualified-name})
 
+(defn- equality-call?
+  "True when node is a list headed by a symbol named `=`, from whichever namespace."
+  [node]
+  (and (= :list (n/tag node))
+       (let [head (some-> (first (code-forms node)) token-value)]
+         (and (symbol? head) (= "=" (name head))))))
+
+(defn- negated-equality-candidate
+  "Record a `not` of an `=` call, or nil.
+
+  `not=` is defined as `(not (= x y))` and `(not (apply = x y more))`, and as `false` for
+  one argument, so the rewrite holds for any arguments, a reader conditional among them
+  included. Metadata or a reader conditional around the
+  `=` hides what it is, and a step of a thread takes an argument the `not` does not show."
+  [loc ns-info file]
+  (when-let [head (core-call-head loc ns-info "not")]
+    (let [[equality & more] (rest (code-forms (z/node loc)))]
+      (when (and equality
+                 (empty? more)
+                 (equality-call? equality)
+                 (>= (count (code-forms equality)) 3)
+                 (not (threaded-step? loc))
+                 (core-name-unshadowed? loc ns-info "not="))
+        (let [equality-loc (->> loc z/down parser/right-siblings
+                                (filter #(identical? equality (z/node %)))
+                                first)]
+          (when-let [equality-head (core-call-head equality-loc ns-info "=")]
+            {:type ::negated-equality
+             :head head
+             :equality-head equality-head
+             :not-equal-head (describe-name "not=" ns-info)
+             :fn-literal? (= :fn (z/tag loc))
+             :head-text (z/string (z/down loc))
+             :equality-text (n/string equality)
+             :arguments (->> equality code-forms rest (map n/string))
+             :position (try (z/position loc) (catch Exception _ [0 1]))
+             :file file
+             :test (parser/top-level-name loc)}))))))
+
 (defn- negated-test-candidate
   "Record an `if` or `when` whose test is a call of `not`, or nil.
 
   The form the finding asks for, `if-not` or `when-not`, has to be core's too. A step of a
   thread takes its test from the thread, so its first argument is no test. A reader
   conditional the `not` holds may read as nothing on one platform, where `(not)` and
-  `when-not` part ways."
+  `when-not` part ways. A `not` of an `=` that `negated-equality` reports is its, whose
+  `not=` fix keeps the `if` or `when`, so the `not` is read for that rule here too."
   [loc ns-info file]
   (let [form-name (some-> loc z/down parser/sym-name)
         [folded-name arity?] (get negatable-forms form-name)]
@@ -683,6 +728,7 @@
                                            (not= :reader-macro (n/tag negated)))
                                   (core-call-head test-loc ns-info "not"))]
               {:type ::negated-test
+               :equality (negated-equality-candidate test-loc ns-info file)
                :form-name form-name
                :folded-name folded-name
                :head head
@@ -806,7 +852,8 @@
                               (else-nil-candidate loc ns-info file)
                               (negated-test-candidate loc ns-info file)
                               (into-empty-candidate loc ns-info file)
-                              (plus-minus-one-candidate loc ns-info file)])]
+                              (plus-minus-one-candidate loc ns-info file)
+                              (negated-equality-candidate loc ns-info file)])]
     (when (seq found)
       {:decls (vec found)
        :usages []
@@ -1007,8 +1054,14 @@
              :hint (str "Write (" folded-name " " (shown negated-text text-max) " ...)")}
       test (assoc :test test))))
 
-(defn- negated-test? [{:keys [form-name folded-name head not-head folded-head]} definitions]
-  (and (core-named? head definitions form-name)
+(defn- negated-equality? [{:keys [head equality-head not-equal-head]} definitions]
+  (and (core-named? head definitions "not")
+       (core-named? equality-head definitions "=")
+       (core-named? not-equal-head definitions "not=")))
+
+(defn- negated-test? [{:keys [equality form-name folded-name head not-head folded-head]} definitions]
+  (and (not (some-> equality (negated-equality? definitions)))
+       (core-named? head definitions form-name)
        (core-named? not-head definitions "not")
        (core-named? folded-head definitions folded-name)))
 
@@ -1058,6 +1111,18 @@
              :hint (plus-minus-one-hint candidate)}
       test (assoc :test test))))
 
+(defn- negated-equality-finding [{:keys [fn-literal? head-text equality-text arguments position file test]}]
+  (let [[row col] position
+        call (str "not= " (str/join " " (map #(shown % text-max) arguments)))]
+    (cond-> {:kw 'not
+             :type :negated-equality
+             :form (parser/normalize-form (str (if fn-literal? "#(" "(") head-text " " equality-text ")"))
+             :file file
+             :row row
+             :col col
+             :hint (str "Write " (if fn-literal? "#(" "(") call ")")}
+      test (assoc :test test))))
+
 (defn- analyze* [min-calls {:keys [declarations]}]
   (let [definitions (function-definitions declarations)]
     {:nested-call-chain
@@ -1083,7 +1148,11 @@
      :plus-minus-one
      (->> declarations
           (filter #(and (= ::plus-minus-one (:type %)) (plus-minus-one? % definitions)))
-          (mapv plus-minus-one-finding))}))
+          (mapv plus-minus-one-finding))
+     :negated-equality
+     (->> declarations
+          (filter #(and (= ::negated-equality (:type %)) (negated-equality? % definitions)))
+          (mapv negated-equality-finding))}))
 
 (defn- suggestion [min-calls]
   (str min-calls " or more calls nested one inside another, each passing the one below it "
@@ -1122,29 +1191,36 @@
        "counts: in ClojureScript (+ 1 s) puts the 1 before a string s, where inc puts it "
        "after. A number operand, as in (+ 30 1), is arithmetic spelled out and is left alone."))
 
+(def ^:private negated-equality-suggestion
+  (str "(not (= a b)): negating an equality. not= says it in one name, and is defined as "
+       "exactly that. Write (not= a b)."))
+
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup
   (group-id [_] :idioms)
   (group-name [_] "Idioms")
   (parse-handlers [_] {:handle-list (fn [loc ns-info file] (handle min-calls loc ns-info file))})
   (analyze [_ data] (analyze* min-calls data))
-  (summary-lines [_ {:keys [nested-call-chain cond-else-nil negated-test into-empty plus-minus-one]}]
+  (summary-lines [_ {:keys [nested-call-chain cond-else-nil negated-test into-empty plus-minus-one negated-equality]}]
     [["Nested call chain:" (count nested-call-chain)]
      ["Cond else nil:" (count cond-else-nil)]
      ["Negated test:" (count negated-test)]
      ["Into empty:" (count into-empty)]
-     ["Plus or minus one:" (count plus-minus-one)]])
+     ["Plus or minus one:" (count plus-minus-one)]
+     ["Negated equality:" (count negated-equality)]])
   (failed? [_ _] false)
   (suggestions [_] {:nested-call-chain (suggestion min-calls)
                     :cond-else-nil else-nil-suggestion
                     :negated-test negated-test-suggestion
                     :into-empty into-empty-suggestion
-                    :plus-minus-one plus-minus-one-suggestion})
+                    :plus-minus-one plus-minus-one-suggestion
+                    :negated-equality negated-equality-suggestion})
   (rule->tier [_] {:nested-call-chain :cleanup
                    :cond-else-nil :cleanup
                    :negated-test :cleanup
                    :into-empty :cleanup
-                   :plus-minus-one :cleanup})
+                   :plus-minus-one :cleanup
+                   :negated-equality :cleanup})
   (file-extensions [_] extensions))
 
 (defn make-group
