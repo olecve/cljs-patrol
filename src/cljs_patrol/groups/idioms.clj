@@ -2,8 +2,9 @@
   "Rule group: code a core idiom says more plainly.
 
   Nested calls a threading macro would read top to bottom, a `cond` closing on an
-  `:else nil` it returns anyway, and an `if` or `when` testing a `not`. Each rule reports
-  only what it can rewrite without a judgement call.
+  `:else nil` it returns anyway, an `if` or `when` testing a `not`, and an `into` from a
+  collection into an empty vector or set. Each rule reports only what it can rewrite
+  without a judgement call.
 
   For a thread, every step passes the call below it in the slot a thread fills, the first
   argument for `->` or the last for `->>`, so the rewrite expands back to exactly the code
@@ -678,11 +679,78 @@
                :file file
                :test (parser/top-level-name loc)})))))))
 
+(def ^:private into-empty-builders
+  "Empty collection literals `into` can fill, with the core function that builds the same collection."
+  {:vector "vec"
+   :set "set"})
+
+(def ^:private fresh-collection-fns
+  "Core functions that return a seq or a new plain vector, list, hash set or hash map.
+
+  Never an array, which `vec` aliases where `into` copies it; never a set, which `set`
+  returns as it is where `into` builds a hash set, a sorted one included; and never a
+  reducible `vec` and `set` cannot read. `conj` and `merge` are not among them: given one
+  argument, they return it."
+  #{"map" "mapcat" "map-indexed" "filter" "remove" "keep" "keep-indexed" "concat" "distinct"
+    "dedupe" "keys" "vals" "range" "repeat" "take" "drop" "take-while" "drop-while" "take-last"
+    "drop-last" "butlast" "rest" "next" "sort" "sort-by" "reverse" "partition" "partition-all"
+    "partition-by" "interpose" "interleave" "flatten" "cons" "list" "vector" "hash-set"
+    "tree-seq" "re-seq" "zipmap" "group-by" "frequencies" "select-keys"})
+
+(defn- fresh-source
+  "Return what vouches that node, the source of an `into`, reads the same to `vec` or `set`, or nil.
+
+  A collection literal vouches for itself, as `:literal`. A call vouches through its head,
+  which has to settle as one of the core functions in `fresh-collection-fns`."
+  [node source-loc ns-info]
+  (case (n/tag node)
+    (:vector :map :set :quote) :literal
+    :list (let [head-name (some-> source-loc z/down parser/sym-name)]
+            (when (contains? fresh-collection-fns head-name)
+              (core-call-head source-loc ns-info head-name)))
+    nil))
+
+(defn- into-empty-candidate
+  "Record an `into` from one collection into an empty vector or set literal, or nil.
+
+  `vec` aliases an array, and `set` returns a set as it is, a sorted one included, where
+  `into` builds a new collection either way. So it counts only where the source is a
+  literal or a call `fresh-source` vouches for. A step of a thread takes its source from
+  the thread."
+  [loc ns-info file]
+  (when-let [head (core-call-head loc ns-info "into")]
+    (let [[target source & more] (rest (code-forms (z/node loc)))
+          builder (get into-empty-builders (some-> target n/tag))]
+      (when (and builder
+                 source
+                 (empty? more)
+                 (empty? (code-forms target))
+                 (not (threaded-step? loc))
+                 (core-name-unshadowed? loc ns-info builder))
+        (let [source-loc (->> loc z/down parser/right-siblings
+                              (filter #(identical? source (z/node %)))
+                              first)
+              vouch (fresh-source source source-loc ns-info)]
+          (when vouch
+            {:type ::into-empty
+             :builder builder
+             :head head
+             :builder-head (describe-name builder ns-info)
+             :source-head (when (map? vouch) vouch)
+             :fn-literal? (= :fn (z/tag loc))
+             :head-text (z/string (z/down loc))
+             :target-text (n/string target)
+             :source-text (n/string source)
+             :position (try (z/position loc) (catch Exception _ [0 1]))
+             :file file
+             :test (parser/top-level-name loc)}))))))
+
 (defn- handle [min-calls loc ns-info file]
   (let [found (keep identity [(when (= :list (z/tag loc)) (definition loc ns-info file))
                               (chain-candidate min-calls loc ns-info file)
                               (else-nil-candidate loc ns-info file)
-                              (negated-test-candidate loc ns-info file)])]
+                              (negated-test-candidate loc ns-info file)
+                              (into-empty-candidate loc ns-info file)])]
     (when (seq found)
       {:decls (vec found)
        :usages []
@@ -888,6 +956,23 @@
        (core-named? not-head definitions "not")
        (core-named? folded-head definitions folded-name)))
 
+(defn- into-empty? [{:keys [builder head builder-head source-head]} definitions]
+  (and (core-named? head definitions "into")
+       (core-named? builder-head definitions builder)
+       (or (nil? source-head) (core-named? source-head definitions (:name source-head)))))
+
+(defn- into-empty-finding [{:keys [builder fn-literal? head-text target-text source-text position file test]}]
+  (let [[row col] position]
+    (cond-> {:kw 'into
+             :type :into-empty
+             :form (parser/normalize-form (str (if fn-literal? "#(" "(") head-text " " target-text " "
+                                               source-text ")"))
+             :file file
+             :row row
+             :col col
+             :hint (str "Write (" builder " " (shown source-text text-max) ")")}
+      test (assoc :test test))))
+
 (defn- analyze* [min-calls {:keys [declarations]}]
   (let [definitions (function-definitions declarations)]
     {:nested-call-chain
@@ -905,7 +990,11 @@
      :negated-test
      (->> declarations
           (filter #(and (= ::negated-test (:type %)) (negated-test? % definitions)))
-          (mapv negated-test-finding))}))
+          (mapv negated-test-finding))
+     :into-empty
+     (->> declarations
+          (filter #(and (= ::into-empty (:type %)) (into-empty? % definitions)))
+          (mapv into-empty-finding))}))
 
 (defn- suggestion [min-calls]
   (str min-calls " or more calls nested one inside another, each passing the one below it "
@@ -930,23 +1019,33 @@
        "name, so the test reads as written, with one pair of parentheses less. Write "
        "(if-not x a b) or (when-not x ...)."))
 
+(def ^:private into-empty-suggestion
+  (str "(into [] xs) or (into #{} xs): pouring one collection into an empty vector or set. vec "
+       "and set name the collection they build. Write (vec xs) or (set xs). It counts only "
+       "where xs is a literal or a call of a core function returning a seq or a new plain "
+       "collection: vec aliases an array, and set returns a set, a sorted one included, "
+       "where into builds a new collection."))
+
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup
   (group-id [_] :idioms)
   (group-name [_] "Idioms")
   (parse-handlers [_] {:handle-list (fn [loc ns-info file] (handle min-calls loc ns-info file))})
   (analyze [_ data] (analyze* min-calls data))
-  (summary-lines [_ {:keys [nested-call-chain cond-else-nil negated-test]}]
+  (summary-lines [_ {:keys [nested-call-chain cond-else-nil negated-test into-empty]}]
     [["Nested call chain:" (count nested-call-chain)]
      ["Cond else nil:" (count cond-else-nil)]
-     ["Negated test:" (count negated-test)]])
+     ["Negated test:" (count negated-test)]
+     ["Into empty:" (count into-empty)]])
   (failed? [_ _] false)
   (suggestions [_] {:nested-call-chain (suggestion min-calls)
                     :cond-else-nil else-nil-suggestion
-                    :negated-test negated-test-suggestion})
+                    :negated-test negated-test-suggestion
+                    :into-empty into-empty-suggestion})
   (rule->tier [_] {:nested-call-chain :cleanup
                    :cond-else-nil :cleanup
-                   :negated-test :cleanup})
+                   :negated-test :cleanup
+                   :into-empty :cleanup})
   (file-extensions [_] extensions))
 
 (defn make-group

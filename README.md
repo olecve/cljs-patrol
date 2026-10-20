@@ -57,8 +57,8 @@ Analysis is split into independent rule groups. By default all groups run.
 - **[`layout`](docs/rules/layout.md)** — the staircase cljfmt's `:split-keypairs-over-multiple-lines?` leaves behind and
   `cljfmt check` accepts
 - **[`idioms`](docs/rules/idioms.md)** — code a core idiom says more plainly: three or more calls nested one inside
-  another that a `->` or `->>` thread would read top to bottom, a `cond` closing on an `:else nil` it returns anyway,
-  and an `if` or `when` whose test is a `not`
+  another that a `->` or `->>` thread would read top to bottom, a `cond` closing on an `:else nil` it returns anyway, an
+  `if` or `when` whose test is a `not`, and an `into` from a collection into an empty vector or set
 - **[`css-order`](docs/rules/css-order.md)** — Spade style properties out of the
   [order](docs/rules/css-order.md#property-order-tables) a stylelint config defines
 

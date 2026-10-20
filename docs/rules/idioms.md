@@ -133,11 +133,11 @@ it. clj-kondo's `:cond-else` asks for `:else` over `true` or `:default`; this go
 Left alone, since the scan cannot vouch that it is core's `cond` or that it is called:
 
 - `condp` and `case`, which throw when nothing matches and need their default, and a `cond` holding only the one clause
-- a `cond` the file may take from somewhere else: an ns form that writes the symbol `cond` anywhere, in an `:exclude`, a
-  `:refer`, a `:refer-macros` or a `:rename`, behind a reader conditional too, or has a `:use`, a `:refer :all` or a
-  `:refer-clojure :only`; a second ns form, an `in-ns` or a top-level `require`, `use`, `refer` or `refer-clojure`; a
-  `def` of `cond` behind a top-level reader conditional; and a file with no ns form at all. `clojure.core/cond` and
-  `cljs.core/cond` are core's wherever they are written
+- a `cond` the file may take from somewhere else: an ns form that writes the symbol `cond` anywhere but as an `:as` or
+  `:as-alias` alias, in an `:exclude`, a `:refer`, a `:refer-macros` or a `:rename`, behind a reader conditional too, or
+  has a `:use`, a `:refer :all` or a `:refer-clojure :only`; a second ns form, an `in-ns` or a top-level `require`,
+  `use`, `refer` or `refer-clojure`; a `def` of `cond` behind a top-level reader conditional; and a file with no ns form
+  at all. `clojure.core/cond` and `cljs.core/cond` are core's wherever they are written
 - a `cond` the namespace defines itself at the top level, from another library through an alias, or a local: a let-like
   or `for` binding, a fn parameter or a named fn's own name, a `:keys`, `:syms` or `:strs` entry, a record field or a
   method parameter
@@ -201,8 +201,71 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
   its test, also under metadata, a reader conditional or a `#?@` splice, and a step of a thread that is itself a step of
   `->`, as the `if` of `(-> m (cond-> flag (if (not x) :a)))`
 - an `if`, `when`, `not`, `if-not` or `when-not` that may not be core's: from another library, referred, named anywhere
-  in the ns form, bound as a local (a `defui` or `defnc` parameter and an `areduce` result included), or defined by the
-  namespace, and every case the [`cond-else-nil`](#cond-else-nil) rule leaves alone for `cond`
+  in the ns form but as an `:as` alias, bound as a local (a `defui` or `defnc` parameter and an `areduce` result
+  included), or defined by the namespace, and every case the [`cond-else-nil`](#cond-else-nil) rule leaves alone for
+  `cond`
+- anything quoted, discarded or inside `(comment …)`
+
+</details>
+
+### Into empty
+
+`into-empty` · cleanup — An `into` an empty vector or set literal, which `vec` or `set` builds by name.
+
+```clojure
+;; flagged
+(defn tag-ids [tags]
+  (into #{} (map :id tags)))
+
+(defn titles [docs]
+  (into [] (map :title docs)))
+
+;; fix
+(defn tag-ids [tags]
+  (set (map :id tags)))
+
+(defn titles [docs]
+  (vec (map :title docs)))
+```
+
+**Left alone:**
+
+```clojure
+(defn ids [rows] (into [] rows)) ; rows may be an array, which vec would alias
+
+(defn ids [rows] (into #{} rows)) ; rows may be a sorted set, which set would keep sorted
+
+(defn ids [rows] (into [] (map :id) rows)) ; a transducer
+
+(defn ids [base rows] (into base (map :id rows))) ; no empty literal
+```
+
+<details>
+<summary>Details</summary>
+
+Why: `vec` and `set` say what they build in their name, where `(into [] …)` makes the reader take in a general merge and
+an empty literal to see the same thing. For every source the rule accepts, the result has the same elements, in the same
+order, and the same type.
+
+Flagged: a two-argument `into` whose target is an empty `[]` or `#{}` literal, comments inside it included. The finding
+is keyed by `into` and asks for `vec` or `set`.
+
+`into` always builds a new collection, and `vec` and `set` do not quite: `vec` aliases a Java or JavaScript array, so
+mutating the array later changes the vector; `set` returns a set it is given as it is, so a sorted set stays sorted; and
+neither reads a reducible that only `reduce` can, such as `(r/map f xs)`. So the source has to be a collection literal,
+or a call of a core function that returns a seq or a new plain collection: `map`, `filter`, `keep`, `keys`, `vals`,
+`concat`, `distinct`, `sort`, `range`, `vector` and the like. `conj` and `merge` are not among them, since given one
+argument they return it, nor are `vec` and `set`.
+
+Left alone, since the scan cannot vouch that the rewrite means the same:
+
+- a source that is a local, a host call, a reader conditional, or a function of another library or of the project
+
+- an `into` with a transducer, a target that is not empty or carries metadata, or a `{}` or `()` target
+- a step of a thread, which takes its source from the thread
+- an `into`, `vec`, `set` or source function that may not be core's: from another library, named in the ns form, bound
+  as a local, or defined by the namespace, and every case the [`cond-else-nil`](#cond-else-nil) rule leaves alone for
+  `cond`
 - anything quoted, discarded or inside `(comment …)`
 
 </details>
