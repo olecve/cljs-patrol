@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.0.37] - 2026-10-20
+
+* Require a name of a wrapper aliased to a widget role by @olecve in https://github.com/olecve/cljs-patrol/pull/97
+* Let an a11y alias name the props its wrapper takes an accessible name from by @olecve in https://github.com/olecve/cljs-patrol/pull/98
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.36...v0.0.37
+
 ## [v0.0.36] - 2026-10-20
 
 * Lead every rule's docs with flagged, fix and left-alone examples the build checks by @olecve in https://github.com/olecve/cljs-patrol/pull/90
