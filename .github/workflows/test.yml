@@ -56,7 +56,7 @@ jobs:
         # these groups has to be added here, or it will not gate.
         run: >-
           clojure -M:run --experimental-clj --only docstrings,tests,layout,idioms
-          --fail-on docstring-summary,docstring-indentation,docstring-leading-trailing-whitespace,deftest-leading-article,assertion-message-inline,conditional-assertion,form-after-split-map,split-map-after-sibling,nested-call-chain,cond-else-nil,negated-test,into-empty,plus-minus-one
+          --fail-on docstring-summary,docstring-indentation,docstring-leading-trailing-whitespace,deftest-leading-article,assertion-message-inline,conditional-assertion,form-after-split-map,split-map-after-sibling,nested-call-chain,cond-else-nil,negated-test,into-empty,plus-minus-one,negated-equality
           src test build.clj
 
   native-verify:
