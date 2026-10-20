@@ -130,18 +130,18 @@
                          :open true}]
        [:dialog dialog-props])]))
 
-;; Bound to a call -> unreadable, flagged as before.
-(defn bad-let-bound-call []
+;; Bound to a call -> unreadable, may hold a name, OK.
+(defn ok-let-bound-call []
   (let [dialog-props (build-dialog-props)]
     [:dialog dialog-props]))
 
-;; Bound to another symbol -> unreadable, flagged as before.
-(defn bad-let-bound-symbol [incoming]
+;; Bound to another symbol -> unreadable, may hold a name, OK.
+(defn ok-let-bound-symbol [incoming]
   (let [dialog-props incoming]
     [:dialog dialog-props]))
 
-;; A parameter of the same name shadows the outer binding -> flagged.
-(defn bad-parameter-shadows-let-bound-props []
+;; A parameter of the same name shadows the outer binding -> unreadable, OK.
+(defn ok-parameter-shadows-let-bound-props []
   (let [dialog-props {:aria-label "Export"}]
     (fn [dialog-props]
       [:dialog dialog-props])))

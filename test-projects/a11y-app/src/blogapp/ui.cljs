@@ -11,3 +11,13 @@
 (defn dialog-root [attrs & children] attrs)
 
 (defn button [attrs & children] attrs)
+
+(defn switch [attrs] attrs)
+
+(defn select [attrs & children] attrs)
+
+(defn search-field [attrs] attrs)
+
+(defn stepper [attrs] attrs)
+
+(defn range-slider [attrs] attrs)
