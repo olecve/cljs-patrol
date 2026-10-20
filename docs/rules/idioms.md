@@ -307,7 +307,7 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 
 (defn total [a b] (+ a b 1)) ; more than one operand
 
-(defn next-page [page] (-> page (+ 1))) ; a threaded step takes its operand from the thread
+(defn shift [page offset] (-> page (+ offset 1))) ; a threaded step takes its operand from the thread
 
 (defn next-page [inc page] (+ page 1)) ; a local inc
 ```
@@ -317,11 +317,13 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 
 Why: `inc` and `dec` name the step, so the reader sees a value move by one without checking the literal, and `#(+ % 1)`
 becomes plain `inc`. The rewrite behaves the same: ClojureScript defines `inc` and `dec` as `(+ x 1)` and `(- x 1)`, and
-in Clojure they run the same number operations as adding or subtracting `1`, overflow checks and `*unchecked-math*`
-included.
+in Clojure the call `(inc x)` runs the same number operation as `(+ x 1)`, overflow checks and `*unchecked-math*`
+included. Passing `inc` itself as a value is the one place Clojure differs: under `*unchecked-math*`, `#(+ % 1)` wraps
+on overflow where `inc` throws. So the bare function is asked for only in `.cljs` files, and `#(inc %)` elsewhere.
 
 Flagged: a `+` or `-` of exactly two arguments whose second is the literal `1`, also inside a `#(…)`. The finding is
-keyed by `+` or `-`, and asks for `inc` or `dec`, or for the bare function when the `#(…)` only passes its argument on.
+keyed by `+` or `-`, and asks for `inc` or `dec`, or, in a `.cljs` file, for the bare function when the `#(…)` only
+passes its argument on.
 
 Left alone, since the scan cannot vouch that the rewrite means the same:
 
@@ -329,9 +331,12 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
   `"a1"`
 - a `1.0`, `1N` or `1M`; an operand that is a number, as in `(range 1 (+ 30 1))`, arithmetic spelled out rather than a
   step; and an operand that is a reader conditional, which may read as nothing on one platform
-- a step of a thread, which takes its operand from the thread
-- a `+`, `-`, `inc` or `dec` that may not be core's: from another library, named in the ns form, bound as a local, or
-  defined by the namespace, and every case the [`cond-else-nil`](#cond-else-nil) rule leaves alone for `cond`
+- a step of a thread, a thread written as a `#(…)` included, as the `+` of `#(-> % (+ a 1))`, which takes its operand
+  from the thread
+- a `+`, `-`, `inc` or `dec` that may not be core's: from another library, named in the ns form, bound as a local (a
+  `letfn` parameter, a `this-as` name and an `are` template name included), or defined by the namespace (declared, a
+  protocol method, or defined below the top level included), and every case the [`cond-else-nil`](#cond-else-nil) rule
+  leaves alone for `cond`. A macro the scan does not know, such as a `core.match` pattern, can bind a name it cannot see
 - anything quoted, discarded or inside `(comment …)`
 
 </details>

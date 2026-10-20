@@ -23,7 +23,8 @@
   "Walk `lines` the way the parser walks a file, and return the group's result map."
   ([lines] (parse idioms/group lines))
   ([rule-group lines] (parse rule-group ns-info lines))
-  ([rule-group file-ns-info lines]
+  ([rule-group file-ns-info lines] (parse rule-group file-ns-info "views.cljs" lines))
+  ([rule-group file-ns-info file lines]
    (let [{:keys [handle-list]} (group/parse-handlers rule-group)
          declarations (loop [loc (z/of-string (str/join "\n" lines) {:track-position? true})
                              found []]
@@ -31,7 +32,7 @@
                           found
                           (recur (z/next loc)
                                  (if (#{:list :fn} (z/tag loc))
-                                   (into found (:decls (handle-list loc file-ns-info "views.cljs")))
+                                   (into found (:decls (handle-list loc file-ns-info file)))
                                    found))))]
      (group/analyze rule-group {:declarations declarations}))))
 
@@ -589,7 +590,15 @@
                               "(amap xs i not (if (not x) 1 2))"
                               "(let [not some? ;; why\n ] (when (not ready?) :a))"
                               "(let [#_x not some?] (when (not ready?) :a))"
-                              "(let ;; why\n [not some?] (when (not ready?) :a))"]))))
+                              "(let ;; why\n [not some?] (when (not ready?) :a))"
+                              "(letfn [(step [not x] (when (not x) :a))] (step f 1))"
+                              "(this-as not (when (not ready?) :a))"
+                              "(are [not x] (when (not x) :a) f 1)"
+                              "(-> x (as-> not (when (not ready?) :a)))"]))))
+
+(deftest if-or-when-in-a-thread-written-as-a-fn-literal-is-left-alone
+  (is (empty? (negated-tests ["(map #(-> % (when (not y) 1)) xs)"
+                              "(map #(cond-> % t (if (not y) 1 2)) xs)"]))))
 
 (defn- into-empties
   ([lines] (into-empties ns-info lines))
@@ -744,6 +753,19 @@
             :hint "Write (inc page)"}
            finding))))
 
+(deftest plus-minus-one-hint-asks-for-a-call-in-a-clojure-fn-literal
+  (is (= ["Write #(inc %)" "Write #(dec %1)"]
+         (->> ["#(+ % 1)" "#(- %1 1)"]
+              (parse idioms/group ns-info "core.clj")
+              :plus-minus-one
+              (mapv :hint)))
+      "unchecked math wraps (+ % 1) and (inc %) alike, where inc as a value checks")
+  (is (= ["Write #(inc %)"]
+         (->> ["#(+ % 1)"]
+              (parse idioms/group ns-info "core.cljc")
+              :plus-minus-one
+              (mapv :hint)))))
+
 (deftest plus-minus-one-hint-asks-for-the-bare-function-in-a-fn-literal
   (is (= [['+ "#(+ % 1)" "Write inc"]
           ['- "#(- %1 1)" "Write dec"]
@@ -793,14 +815,33 @@
                                 "(->> n (- m 1))"
                                 "(cond-> n flag (+ m 1))"
                                 "(-> n (inc) #?(:cljs (+ m 1)))"
-                                "(-> m (->> (+ n 1)))"]))))
+                                "(-> m (->> (+ n 1)))"
+                                "(some-> n (+ m 1))"
+                                "(some->> n (+ m 1))"
+                                "(doto n (+ m 1))"
+                                "(cond->> n flag (- m 1))"
+                                "#(-> % (+ off 1))"
+                                "#(->> % (- total 1))"
+                                "#(cond-> % x (+ y 1))"
+                                "#(doto % (- y 1))"
+                                "#(some-> % (+ y 1))"])))
+  (is (= ["(+ v 1)" "(+ n 1)"]
+         (plus-minus-ones ["(as-> n v (+ v 1))"
+                           "(as-> (+ n 1) v (str v))"]))
+      "an as-> step writes its operand out, and its value binds nothing"))
 
 (deftest plus-minus-one-or-step-that-is-not-core-is-left-alone
   (is (empty? (plus-minus-ones ["(lib/+ n 1)"
                                 "(let [inc f] (+ n 1))"
                                 "(let [dec f] (- n 1))"
                                 "(let [+ f] (+ n 1))"
-                                "(fn [- n] (- n 1))"])))
+                                "(fn [- n] (- n 1))"
+                                "(letfn [(step [inc x] (+ x 1))] (step f 1))"
+                                "(letfn [(step ([x] x) ([inc x] (+ x 1)))] (step f 1))"
+                                "(this-as inc (+ x 1))"
+                                "(try (f) (catch :default inc (+ x 1)))"
+                                "(are [inc x] (= 2 (+ x 1)) f 1)"
+                                "(-> x (as-> inc (+ y 1)))"])))
   (is (empty? (plus-minus-ones (assoc ns-info :shadowed-core #{"inc"})
                                ["(+ n 1)"]))
       "an inc the ns form may take from elsewhere is no step to ask for")

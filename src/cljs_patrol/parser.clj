@@ -217,12 +217,33 @@
           value (when (= :token (some-> head n/tag)) (try (n/sexpr head) (catch Exception _ nil)))]
       (when (symbol? value) (name value)))))
 
+(defn- written-name
+  "Return the name of the symbol node writes, under any metadata, or nil."
+  [node]
+  (let [node (if (= :meta (some-> node n/tag)) (last (n/children node)) node)
+        value (when (= :token (some-> node n/tag)) (try (n/sexpr node) (catch Exception _ nil)))]
+    (when (symbol? value) (name value))))
+
+(defn- defined-names
+  "Return the vars a list node defines: a `def`-headed form's, a `declare`'s, a `defprotocol`'s methods."
+  [node]
+  (let [head (list-head-name node)
+        arguments (rest (remove n/whitespace-or-comment? (n/children node)))]
+    (concat
+     (when (= "declare" head)
+       (keep written-name arguments))
+     (when (= "defprotocol" head)
+       (keep list-head-name arguments))
+     (when (some-> head (str/starts-with? "def"))
+       (keep written-name [(first arguments)])))))
+
 (defn- shadowed-by-other-forms
   "Return the core names the top-level forms besides the ns form may shadow, or :all.
 
-  A second ns form, an `in-ns` or a top-level `require` can bring in any name. A `def`
-  behind a top-level reader conditional replaces core's on its side only, and is no
-  definition the rules read, so its name is shadowed too."
+  A second ns form, an `in-ns` or a top-level `require` can bring in any name. Every var
+  the file defines has its name shadowed too, at any depth: the rules settle a top-level
+  `def` the same way, and read none in a `do`, a reader conditional or a function body,
+  nor a `declare` or a protocol's methods, which replace core's var all the same."
   [top-level-nodes]
   (let [inner-lists (fn [node]
                       (if (= :reader-macro (n/tag node))
@@ -231,13 +252,9 @@
         lists (mapcat inner-lists top-level-nodes)]
     (if (some #(contains? namespace-changing-heads (list-head-name %)) lists)
       :all
-      (->> top-level-nodes
-           (filter #(= :reader-macro (n/tag %)))
-           (mapcat inner-lists)
-           (filter #(some-> (list-head-name %) (str/starts-with? "def")))
-           (keep #(let [named (second (remove n/whitespace-or-comment? (n/children %)))
-                        value (when (= :token (some-> named n/tag)) (try (n/sexpr named) (catch Exception _ nil)))]
-                    (when (symbol? value) (name value))))
+      (->> (mapcat #(tree-seq n/inner? n/children %) top-level-nodes)
+           (filter #(= :list (n/tag %)))
+           (mapcat defined-names)
            set))))
 
 (defn- shadowed-core

@@ -159,10 +159,10 @@
       :else loc)))
 
 (defn- parent-head
-  "Return the name of the symbol heading the list loc's site sits in, or nil."
+  "Return the name of the symbol heading the list or `#(…)` loc's site sits in, or nil."
   [loc]
   (let [parent (z/up (site loc))]
-    (when (= :list (some-> parent z/tag))
+    (when (contains? #{:list :fn} (some-> parent z/tag))
       (some-> parent z/down parser/sym-name))))
 
 (def ^:private first-slot-threading-heads
@@ -302,10 +302,12 @@
 (defn- names-bound-by
   "Return the names list-node binds for its body.
 
-  Let-like and `letfn` bindings, the parameters of a fn or any `def`-headed form, a
-  `defui` or `defnc` as much as a `defn`, a named fn's own name, the fields of a `deftype`
-  or `defrecord`, the name of a `catch` or `as->`, and the index and result of an `amap`
-  or `areduce`. A comment or `#_` form among them changes nothing they bind."
+  Let-like bindings, the names and parameters of a `letfn`'s functions, the parameters of a
+  fn or any `def`-headed form, a `defui` or `defnc` as much as a `defn`, a named fn's own
+  name, the fields of a `deftype` or `defrecord`, the name of a `catch`, `as->` or
+  `this-as`, the template names of an `are`, and the index and result of an `amap` or
+  `areduce`. An `as->` that is a step of a thread has its name first, so either of its first
+  two symbols counts. A comment or `#_` form among them changes nothing they bind."
   [list-node]
   (let [[head & arguments] (code-forms list-node)
         head-name (when (= :token (some-> head n/tag))
@@ -315,7 +317,11 @@
       (some->> arguments first binding-sides (mapcat symbol-names) set)
 
       (= "letfn" head-name)
-      (some->> arguments first code-forms (keep #(some-> % code-forms first symbol-names)) (apply concat) set)
+      (some->> arguments first code-forms
+               (mapcat #(let [[fn-name & fn-arguments] (code-forms %)]
+                          (concat (some-> fn-name symbol-names)
+                                  (mapcat symbol-names (parameter-vectors "fn" fn-arguments)))))
+               set)
 
       (or (contains? fn-like-heads head-name) (some-> head-name (str/starts-with? "def")))
       (cond-> (->> (parameter-vectors head-name arguments)
@@ -324,8 +330,20 @@
         (and (= "fn" head-name) (= :token (some-> arguments first n/tag)))
         (into (symbol-names (first arguments))))
 
-      (contains? #{"catch" "as->"} head-name)
+      (= "catch" head-name)
       (some-> (nth arguments 1 nil) symbol-names)
+
+      (= "as->" head-name)
+      (->> (take 2 arguments)
+           (filter #(= :token (n/tag %)))
+           (mapcat symbol-names)
+           set)
+
+      (= "this-as" head-name)
+      (some-> (first arguments) symbol-names)
+
+      (= "are" head-name)
+      (some-> (first arguments) symbol-names)
 
       (contains? #{"amap" "areduce"} head-name)
       (->> (take 2 (rest arguments))
@@ -1016,10 +1034,15 @@
        (core-named? step-head definitions step-name)))
 
 (defn- plus-minus-one-hint
-  "Spell out the step the finding asks for: the bare function for `#(+ % 1)`, a call otherwise."
-  [{:keys [step-name fn-literal? operand-text]}]
+  "Spell out the step the finding asks for: the bare function for `#(+ % 1)`, a call otherwise.
+
+  Only in ClojureScript: in Clojure, `*unchecked-math*` turns `(+ % 1)` into an add that
+  wraps on overflow, and the call `(inc %)` with it, where `inc` passed as a value checks."
+  [{:keys [step-name fn-literal? operand-text file]}]
   (cond
-    (and fn-literal? (contains? #{"%" "%1"} operand-text)) (str "Write " step-name)
+    (and fn-literal?
+         (contains? #{"%" "%1"} operand-text)
+         (str/ends-with? file ".cljs")) (str "Write " step-name)
     fn-literal? (str "Write #(" step-name " " (shown operand-text text-max) ")")
     :else (str "Write (" step-name " " (shown operand-text text-max) ")")))
 
@@ -1095,9 +1118,9 @@
 (def ^:private plus-minus-one-suggestion
   (str "(+ x 1) or (- x 1): adding or subtracting a literal 1. inc and dec name the step, "
        "so the reader sees a counter move by one without checking the literal. Write (inc x) "
-       "or (dec x), and inc or dec for #(+ % 1). Only a trailing 1 counts: in ClojureScript "
-       "(+ 1 s) puts the 1 before a string s, where inc puts it after. A number operand, "
-       "as in (+ 30 1), is arithmetic spelled out and is left alone."))
+       "or (dec x), and, in ClojureScript, inc or dec for #(+ % 1). Only a trailing 1 "
+       "counts: in ClojureScript (+ 1 s) puts the 1 before a string s, where inc puts it "
+       "after. A number operand, as in (+ 30 1), is arithmetic spelled out and is left alone."))
 
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup

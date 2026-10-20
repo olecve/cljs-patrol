@@ -27,4 +27,4 @@
 
 (deftest plus-minus-one-fixture-test
   (is (= ["plus-one-plain"] (map :test (found :plus-minus-one)))
-      "an inc the namespace defines in another file, or a dec the ns form excludes, is no step to ask for"))
+      "an inc or dec the namespace defines, declares or excludes, anywhere in it, is no step to ask for"))
