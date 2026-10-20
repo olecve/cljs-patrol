@@ -1,5 +1,17 @@
 # Changelog
 
+## [v0.0.36] - 2026-10-20
+
+* Lead every rule's docs with flagged, fix and left-alone examples the build checks by @olecve in https://github.com/olecve/cljs-patrol/pull/90
+* Run CI once per PR commit, so no cancelled run shows as a failed check by @olecve in https://github.com/olecve/cljs-patrol/pull/92
+* Flag a cond closing on an :else nil it returns anyway by @olecve in https://github.com/olecve/cljs-patrol/pull/91
+* Flag an if or when whose test is a not by @olecve in https://github.com/olecve/cljs-patrol/pull/93
+* Flag an into an empty vector or set that vec or set builds by name by @olecve in https://github.com/olecve/cljs-patrol/pull/94
+* Flag a + or - of a trailing literal 1 that inc or dec names by @olecve in https://github.com/olecve/cljs-patrol/pull/95
+* Flag a not of an = that not= names by @olecve in https://github.com/olecve/cljs-patrol/pull/96
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.35...v0.0.36
+
 ## [v0.0.35] - 2026-10-19
 
 * Stop giving every release two headings in the changelog by @olecve in https://github.com/olecve/cljs-patrol/pull/84
