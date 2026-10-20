@@ -24,3 +24,7 @@
 (deftest negated-test-fixture-test
   (is (= ["negated-plain"] (map :test (found :negated-test)))
       "a when-not the ns form excludes, or the namespace defines in another file, is no fold to ask for"))
+
+(deftest plus-minus-one-fixture-test
+  (is (= ["plus-one-plain"] (map :test (found :plus-minus-one)))
+      "an inc the namespace defines in another file, or a dec the ns form excludes, is no step to ask for"))

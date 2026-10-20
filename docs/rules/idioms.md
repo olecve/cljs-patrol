@@ -270,6 +270,72 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 
 </details>
 
+### Plus or minus one
+
+`plus-minus-one` · cleanup — A `+` or `-` of a literal `1`, which `inc` or `dec` names.
+
+```clojure
+;; flagged
+(defn next-page [page]
+  (+ page 1))
+
+(defn last-index [items]
+  (- (count items) 1))
+
+(defn bump-all [counts]
+  (map #(+ % 1) counts))
+
+;; fix
+(defn next-page [page]
+  (inc page))
+
+(defn last-index [items]
+  (dec (count items)))
+
+(defn bump-all [counts]
+  (map inc counts))
+```
+
+**Left alone:**
+
+```clojure
+(defn next-page [page] (+ 1 page)) ; a leading 1 goes before a string, where inc puts it after
+
+(defn half-step [x] (+ x 1.0)) ; a double, which inc would not add
+
+(def last-day (+ 30 1)) ; arithmetic on numbers, spelled out
+
+(defn total [a b] (+ a b 1)) ; more than one operand
+
+(defn next-page [page] (-> page (+ 1))) ; a threaded step takes its operand from the thread
+
+(defn next-page [inc page] (+ page 1)) ; a local inc
+```
+
+<details>
+<summary>Details</summary>
+
+Why: `inc` and `dec` name the step, so the reader sees a value move by one without checking the literal, and `#(+ % 1)`
+becomes plain `inc`. The rewrite behaves the same: ClojureScript defines `inc` and `dec` as `(+ x 1)` and `(- x 1)`, and
+in Clojure they run the same number operations as adding or subtracting `1`, overflow checks and `*unchecked-math*`
+included.
+
+Flagged: a `+` or `-` of exactly two arguments whose second is the literal `1`, also inside a `#(…)`. The finding is
+keyed by `+` or `-`, and asks for `inc` or `dec`, or for the bare function when the `#(…)` only passes its argument on.
+
+Left alone, since the scan cannot vouch that the rewrite means the same:
+
+- a leading `1`, as in `(+ 1 x)`: ClojureScript's `+` joins strings, so `(+ 1 "a")` is `"1a"` where `(inc "a")` is
+  `"a1"`
+- a `1.0`, `1N` or `1M`; an operand that is a number, as in `(range 1 (+ 30 1))`, arithmetic spelled out rather than a
+  step; and an operand that is a reader conditional, which may read as nothing on one platform
+- a step of a thread, which takes its operand from the thread
+- a `+`, `-`, `inc` or `dec` that may not be core's: from another library, named in the ns form, bound as a local, or
+  defined by the namespace, and every case the [`cond-else-nil`](#cond-else-nil) rule leaves alone for `cond`
+- anything quoted, discarded or inside `(comment …)`
+
+</details>
+
 ## Idioms options
 
 The `idioms` group reads one key from `.cljs-patrol/config.edn`:

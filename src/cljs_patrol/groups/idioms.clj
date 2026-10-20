@@ -2,9 +2,9 @@
   "Rule group: code a core idiom says more plainly.
 
   Nested calls a threading macro would read top to bottom, a `cond` closing on an
-  `:else nil` it returns anyway, an `if` or `when` testing a `not`, and an `into` from a
-  collection into an empty vector or set. Each rule reports only what it can rewrite
-  without a judgement call.
+  `:else nil` it returns anyway, an `if` or `when` testing a `not`, an `into` from a
+  collection into an empty vector or set, and a `+` or `-` of a literal `1`. Each rule
+  reports only what it can rewrite without a judgement call.
 
   For a thread, every step passes the call below it in the slot a thread fills, the first
   argument for `->` or the last for `->>`, so the rewrite expands back to exactly the code
@@ -745,12 +745,50 @@
              :file file
              :test (parser/top-level-name loc)}))))))
 
+(def ^:private one-steps
+  "Arithmetic a trailing literal `1` turns into a step by one, with the core function that takes it."
+  {"+" "inc"
+   "-" "dec"})
+
+(defn- plus-minus-one-candidate
+  "Record a call adding `1` to one argument or subtracting `1` from it, or nil.
+
+  Only a trailing `1` counts: in ClojureScript, `(+ 1 s)` puts the `1` before a string `s`
+  where `inc` puts it after. A number operand is arithmetic spelled out, `(+ 30 1)` beside
+  a `(+ 200 10)`, and no step. A reader conditional may read as nothing on one platform,
+  where `(+ 1)` and `(inc)` part ways, and a step of a thread takes its operand from the
+  thread."
+  [loc ns-info file]
+  (let [head-name (some-> loc z/down parser/sym-name)
+        step-name (get one-steps head-name)]
+    (when-let [head (when step-name (core-call-head loc ns-info head-name))]
+      (let [[operand one & more] (rest (code-forms (z/node loc)))]
+        (when (and one
+                   (empty? more)
+                   (= "1" (n/string one))
+                   (not= :reader-macro (n/tag operand))
+                   (not (and (= :token (n/tag operand)) (number? (n/sexpr operand))))
+                   (not (threaded-step? loc))
+                   (core-name-unshadowed? loc ns-info step-name))
+          {:type ::plus-minus-one
+           :head-name head-name
+           :step-name step-name
+           :head head
+           :step-head (describe-name step-name ns-info)
+           :fn-literal? (= :fn (z/tag loc))
+           :head-text (z/string (z/down loc))
+           :operand-text (n/string operand)
+           :position (try (z/position loc) (catch Exception _ [0 1]))
+           :file file
+           :test (parser/top-level-name loc)})))))
+
 (defn- handle [min-calls loc ns-info file]
   (let [found (keep identity [(when (= :list (z/tag loc)) (definition loc ns-info file))
                               (chain-candidate min-calls loc ns-info file)
                               (else-nil-candidate loc ns-info file)
                               (negated-test-candidate loc ns-info file)
-                              (into-empty-candidate loc ns-info file)])]
+                              (into-empty-candidate loc ns-info file)
+                              (plus-minus-one-candidate loc ns-info file)])]
     (when (seq found)
       {:decls (vec found)
        :usages []
@@ -973,6 +1011,30 @@
              :hint (str "Write (" builder " " (shown source-text text-max) ")")}
       test (assoc :test test))))
 
+(defn- plus-minus-one? [{:keys [head-name step-name head step-head]} definitions]
+  (and (core-named? head definitions head-name)
+       (core-named? step-head definitions step-name)))
+
+(defn- plus-minus-one-hint
+  "Spell out the step the finding asks for: the bare function for `#(+ % 1)`, a call otherwise."
+  [{:keys [step-name fn-literal? operand-text]}]
+  (cond
+    (and fn-literal? (contains? #{"%" "%1"} operand-text)) (str "Write " step-name)
+    fn-literal? (str "Write #(" step-name " " (shown operand-text text-max) ")")
+    :else (str "Write (" step-name " " (shown operand-text text-max) ")")))
+
+(defn- plus-minus-one-finding [{:keys [head-name fn-literal? head-text operand-text position file test]
+                                :as candidate}]
+  (let [[row col] position]
+    (cond-> {:kw (symbol head-name)
+             :type :plus-minus-one
+             :form (parser/normalize-form (str (if fn-literal? "#(" "(") head-text " " operand-text " 1)"))
+             :file file
+             :row row
+             :col col
+             :hint (plus-minus-one-hint candidate)}
+      test (assoc :test test))))
+
 (defn- analyze* [min-calls {:keys [declarations]}]
   (let [definitions (function-definitions declarations)]
     {:nested-call-chain
@@ -994,7 +1056,11 @@
      :into-empty
      (->> declarations
           (filter #(and (= ::into-empty (:type %)) (into-empty? % definitions)))
-          (mapv into-empty-finding))}))
+          (mapv into-empty-finding))
+     :plus-minus-one
+     (->> declarations
+          (filter #(and (= ::plus-minus-one (:type %)) (plus-minus-one? % definitions)))
+          (mapv plus-minus-one-finding))}))
 
 (defn- suggestion [min-calls]
   (str min-calls " or more calls nested one inside another, each passing the one below it "
@@ -1026,26 +1092,36 @@
        "collection: vec aliases an array, and set returns a set, a sorted one included, "
        "where into builds a new collection."))
 
+(def ^:private plus-minus-one-suggestion
+  (str "(+ x 1) or (- x 1): adding or subtracting a literal 1. inc and dec name the step, "
+       "so the reader sees a counter move by one without checking the literal. Write (inc x) "
+       "or (dec x), and inc or dec for #(+ % 1). Only a trailing 1 counts: in ClojureScript "
+       "(+ 1 s) puts the 1 before a string s, where inc puts it after. A number operand, "
+       "as in (+ 30 1), is arithmetic spelled out and is left alone."))
+
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup
   (group-id [_] :idioms)
   (group-name [_] "Idioms")
   (parse-handlers [_] {:handle-list (fn [loc ns-info file] (handle min-calls loc ns-info file))})
   (analyze [_ data] (analyze* min-calls data))
-  (summary-lines [_ {:keys [nested-call-chain cond-else-nil negated-test into-empty]}]
+  (summary-lines [_ {:keys [nested-call-chain cond-else-nil negated-test into-empty plus-minus-one]}]
     [["Nested call chain:" (count nested-call-chain)]
      ["Cond else nil:" (count cond-else-nil)]
      ["Negated test:" (count negated-test)]
-     ["Into empty:" (count into-empty)]])
+     ["Into empty:" (count into-empty)]
+     ["Plus or minus one:" (count plus-minus-one)]])
   (failed? [_ _] false)
   (suggestions [_] {:nested-call-chain (suggestion min-calls)
                     :cond-else-nil else-nil-suggestion
                     :negated-test negated-test-suggestion
-                    :into-empty into-empty-suggestion})
+                    :into-empty into-empty-suggestion
+                    :plus-minus-one plus-minus-one-suggestion})
   (rule->tier [_] {:nested-call-chain :cleanup
                    :cond-else-nil :cleanup
                    :negated-test :cleanup
-                   :into-empty :cleanup})
+                   :into-empty :cleanup
+                   :plus-minus-one :cleanup})
   (file-extensions [_] extensions))
 
 (defn make-group
