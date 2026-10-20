@@ -162,20 +162,24 @@
   "Attribute keys that give a screen-reader-readable name to an element."
   #{:aria-label :aria-labelledby :title})
 
+(defn- meaningful-name-value?
+  "True when a name attribute's value names something.
+  A non-empty literal does, and so does a value that cannot be read."
+  [value-loc]
+  (let [v (literal-sexpr value-loc)]
+    (cond
+      (= v ::absent) false
+      (= v ::non-literal) true
+      (or (nil? v) (false? v)) false
+      (and (string? v) (empty? v)) false
+      :else true)))
+
 (defn- meaningful-text-name?
   "True when attrs supplies a non-empty accessible name.
 
   Checks :aria-label, :aria-labelledby, and :title. Non-literal values are optimistically accepted."
   [attrs]
-  (some (fn [k]
-          (let [v (literal-sexpr (get attrs k))]
-            (cond
-              (= v ::absent) false
-              (= v ::non-literal) true
-              (or (nil? v) (false? v)) false
-              (and (string? v) (empty? v)) false
-              :else true)))
-        text-name-keys))
+  (some #(meaningful-name-value? (get attrs %)) text-name-keys))
 
 (defn- interactive-via-role? [attrs]
   (contains? empty-interactive-roles (literal-sexpr (get attrs :role))))
@@ -467,15 +471,7 @@
         ["dialog" "alertdialog" "img" "listbox" "grid" "tree" "tablist" "menu" "menubar"]))
 
 (defn- has-accessible-name? [attrs]
-  (some (fn [k]
-          (let [v (literal-sexpr (get attrs k))]
-            (cond
-              (= v ::absent) false
-              (= v ::non-literal) true
-              (or (nil? v) (false? v)) false
-              (and (string? v) (empty? v)) false
-              :else true)))
-        accessible-name-attrs))
+  (some #(meaningful-name-value? (get attrs %)) accessible-name-attrs))
 
 (defn- name-required-attrs?
   "True when attrs claim a role that must carry its own accessible name.
@@ -585,8 +581,8 @@
     (when-let [full-ns (get refers head-str)]
       (symbol full-ns head-str))))
 
-(defn- resolve-component-tag
-  "Return the native tag mapped to a resolved component symbol, or nil.
+(defn- resolve-component-alias
+  "Return the `{:tag … :label-props …}` alias a resolved component symbol is mapped to, or nil.
 
   A `some.ns/*` key maps every var in that namespace, so a large icon or widget
   namespace costs one entry rather than one per var. An exact symbol wins over it."
@@ -596,6 +592,36 @@
       (or (get component-aliases full-sym)
           (when-let [component-ns (namespace full-sym)]
             (get component-aliases (symbol component-ns "*")))))))
+
+(defn- resolve-component-tag
+  "Return the native tag mapped to a resolved component symbol, or nil."
+  [head-str ns-info component-aliases]
+  (:tag (resolve-component-alias head-str ns-info component-aliases)))
+
+(defn- element-info
+  "Classify the element's props, reading a wrapper's label props as its accessible name.
+
+  An alias may list the props its wrapper wires to an accessible name of its own, such
+  as a `:label` rendered as a visible label. The first that names something names the
+  element, read as its name text. Beside a written `:aria-label` there is no telling
+  which of the two the wrapper keeps, so it is read as a reference instead: the element
+  is named, and neither is taken for the one name every item announces. A written
+  `:aria-labelledby` is a reference already, and every rule asking for a constant
+  name passes over it."
+  [loc ns-info component-aliases]
+  (let [{:keys [attrs]
+         :as info} (hiccup/attrs-info loc)
+        label-props (some-> loc z/down parser/raw
+                            (resolve-component-alias ns-info component-aliases)
+                            :label-props)
+        label-value (->> label-props
+                         (map #(get attrs %))
+                         (filter meaningful-name-value?)
+                         first)]
+    (cond
+      (nil? label-value) info
+      (attr-written? attrs :aria-label) (assoc-in info [:attrs :aria-labelledby] label-value)
+      :else (assoc-in info [:attrs :aria-label] label-value))))
 
 (def ^:private repeating-forms
   "Forms that render their body once per item of a collection."
@@ -1073,7 +1099,7 @@
   produces false positives."
   [loc ns-info component-aliases]
   (and (control? loc ns-info component-aliases)
-       (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
+       (let [{:keys [kind attrs]} (element-info loc ns-info component-aliases)]
          (case kind
            (:absent :non-map) true
            :map (and (some? attrs) (not (meaningful-text-name? attrs)))
@@ -1134,7 +1160,7 @@
                (not (hiccup/inside-style-decl? loc))
                (not (hiccup/inside-ns-form? loc)))
       (when-let [tag (vector-tag loc ns-info component-aliases)]
-        (let [info (hiccup/attrs-info loc)
+        (let [info (element-info loc ns-info component-aliases)
               aria-live-conflict (contradicting-aria-live info)
               repeated-name (repeated-accessible-name info tag loc ns-info component-aliases)
               nested-control (nested-interactive-loc info loc tag ns-info component-aliases)
@@ -1362,7 +1388,10 @@
           "element is text that happens to be a "
           "<label> — clicking it focuses nothing and it contributes no accessible name, "
           "however much a sighted reader takes it for the field's label. Give it :for with "
-          "the control's :id, or wrap the control in it. Note that naming the field with "
+          "the control's :id, or wrap the control in it. A label written beside its "
+          "control, as in [:div [:label \"Email\"] [:input …]], usually leaves that "
+          "sibling control unnamed as well, and the same :for and :id fix both. "
+          "Note that naming the field with "
           ":aria-label instead leaves the visible text and the announced name saying "
           "different things, which speech-input users cannot bridge (WCAG 2.5.3). A "
           "component or a call among the label's children ends the check rather than "
@@ -1418,13 +1447,33 @@
      :label-not-associated :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
+(defn- normalize-alias
+  "Read an alias value as `{:tag … :label-props #{…}}`, from a bare tag or a map.
+  `:label-props` may be one keyword or a collection of them; any other shape throws,
+  since reading it as no props would report every call it was written to name."
+  [alias-value]
+  (if-not (map? alias-value)
+    {:tag alias-value}
+    (let [label-props (:label-props alias-value)]
+      (assoc alias-value
+             :label-props (cond
+                            (nil? label-props) #{}
+                            (keyword? label-props) #{label-props}
+                            (and (coll? label-props) (every? keyword? label-props)) (set label-props)
+                            :else (throw (ex-info (str ":a11y :component-aliases :label-props must be "
+                                                       "a keyword or a collection of keywords, got "
+                                                       (pr-str label-props))
+                                                  {:label-props label-props})))))))
+
 (defn make-group
   "Return an a11y RuleGroup configured with the given map (see `A11yGroup`).
   Supported keys:
     :component-aliases {full-qualified-symbol native-tag-keyword} — treat
-      calls to the named symbol as the given native tag for a11y checks."
+      calls to the named symbol as the given native tag for a11y checks. The
+      value may instead be {:tag native-tag-keyword :label-props #{prop …}},
+      naming the props the wrapper wires to an accessible name of its own."
   ([] (make-group nil))
   ([{:keys [component-aliases]}]
-   (->A11yGroup (or component-aliases {}))))
+   (->A11yGroup (update-vals (or component-aliases {}) normalize-alias))))
 
 (def group (make-group))

@@ -1267,21 +1267,23 @@
 
 (def ^:private widgets-file (str fixture-dir "/widgets.cljs"))
 
-(defn- fn-names
-  "Name the fixture function each finding sits in, by the last defn above its row."
-  [findings]
-  (let [defn-rows (->> (str/split-lines (slurp widgets-file))
+(defn- fn-names-in
+  "Name the fixture function each finding in a file sits in, by the last defn above its row."
+  [file findings]
+  (let [defn-rows (->> (str/split-lines (slurp file))
                        (keep-indexed (fn [index line]
                                        (when-let [[_ fn-name] (re-find #"^\(defn (\S+)" line)]
                                          [(inc index) fn-name]))))]
     (->> findings
-         (filter #(= widgets-file (:file %)))
+         (filter #(= file (:file %)))
          (map (fn [{:keys [row]}]
                 (->> defn-rows
                      (take-while #(<= (first %) row))
                      last
                      second)))
          set)))
+
+(defn- fn-names [findings] (fn-names-in widgets-file findings))
 
 (def ^:private widget-aliases
   {'blogapp.ui/range-slider :slider
@@ -1334,3 +1336,42 @@
            "bad-label-around-literal-switch"}
          (fn-names (widget-findings :label-not-associated widget-aliases)))
       "label around aliased widget labels it"))
+
+(def ^:private label-props-file (str fixture-dir "/label_props.cljs"))
+
+(def ^:private label-props-aliases
+  {'blogapp.ui/icon-button {:label-props #{:label}
+                            :tag :button}
+   'blogapp.ui/switch :switch
+   'blogapp.ui/toggle {:label-props [:label :label-text]
+                       :tag :switch}})
+
+(deftest label-props-fixture-test
+  (let [results (->> (core/run fixture-dir [(a11y/make-group {:component-aliases label-props-aliases})])
+                     :group-results
+                     first)]
+    (is (= #{"bad-toggle-unlabeled"
+             "bad-toggle-blank-label"
+             "bad-toggle-blank-label-beside-blank-aria-label"
+             "bad-switch-label-prop-not-listed"}
+           (fn-names-in label-props-file (:missing-accessible-name results)))
+        "label prop listed on alias names wrapper, and only non-blank one")
+    (is (= #{"bad-icon-button-unlabeled"}
+           (fn-names-in label-props-file (:empty-interactive-element results)))
+        "label prop names aliased button too")
+    (is (= #{"bad-repeated-literal-label"}
+           (fn-names-in label-props-file (:repeated-accessible-name results)))
+        "label prop alone is read as name text, never beside aria-label, and alt inside button it names names nothing")))
+
+(deftest label-props-glob-fixture-test
+  (let [glob-aliases {'blogapp.ui/* {:label-props :label
+                                     :tag :switch}}
+        findings (->> (core/run fixture-dir [(a11y/make-group {:component-aliases glob-aliases})])
+                      :group-results
+                      first
+                      :missing-accessible-name
+                      (fn-names-in label-props-file))]
+    (is (contains? findings "bad-toggle-unlabeled")
+        "glob key maps every var to its map value")
+    (is (not (contains? findings "ok-toggle-label"))
+        "single keyword reads as one label prop")))
