@@ -196,7 +196,8 @@ form with `-not` and the test unwrapped.
 Left alone, since the scan cannot vouch that the rewrite means the same:
 
 - a test that is no single `not` call: `not=`, `(not a b)`, a bare `not`, or a `not` already under `if-not` or
-  `when-not`; and a `not` holding a reader conditional, which may read as `(not)` on one platform
+  `when-not`; a `not` holding a reader conditional, which may read as `(not)` on one platform; and a `not` of an `=`,
+  which [`negated-equality`](#negated-equality) asks to write as `not=`, keeping the `if` or `when`
 - a step of `->`, `->>`, `some->`, `some->>`, `doto`, `..` or a `cond->` / `cond->>` pair, whose first argument is not
   its test, also under metadata, a reader conditional or a `#?@` splice, and a step of a thread that is itself a step of
   `->`, as the `if` of `(-> m (cond-> flag (if (not x) :a)))`
@@ -337,6 +338,57 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
   `letfn` parameter, a `this-as` name and an `are` template name included), or defined by the namespace (declared, a
   protocol method, or defined below the top level included), and every case the [`cond-else-nil`](#cond-else-nil) rule
   leaves alone for `cond`. A macro the scan does not know, such as a `core.match` pattern, can bind a name it cannot see
+- anything quoted, discarded or inside `(comment …)`
+
+</details>
+
+### Negated equality
+
+`negated-equality` · cleanup — A `not` of an `=`, which `not=` names.
+
+```clojure
+;; flagged
+(defn changed? [before after]
+  (not (= before after)))
+
+(defn label [status]
+  (if (not (= status :done)) "Open" "Done"))
+
+;; fix
+(defn changed? [before after]
+  (not= before after))
+
+(defn label [status]
+  (if (not= status :done) "Open" "Done"))
+```
+
+**Left alone:**
+
+```clojure
+(defn differs? [a b] (not (== a b))) ; == has no not= of its own
+
+(defn step [ok? a b] (-> ok? (not (= a b)))) ; a threaded not takes the thread's value as well
+
+(defn changed? [= a b] (not (= a b))) ; a local =
+```
+
+<details>
+<summary>Details</summary>
+
+Why: `not=` says in one name what `(not (= …))` spells out in two, and the
+[Clojure Style Guide](https://github.com/bbatsov/clojure-style-guide) asks for it. The rewrite behaves the same: core
+defines `not=` as `(not (apply = x y more))`, in ClojureScript and in Clojure, so it holds for any arguments.
+
+Flagged: a `not` of one argument, an `=` call of two or more, also inside a `#(…)`. The finding is keyed by `not`, and
+the fix is `not=` with the same arguments. An `if` or `when` testing `(not (= a b))` is reported here and not by
+[`negated-test`](#negated-test): `(if (not= a b) …)` reads as plainly as `if-not` would.
+
+Left alone, since the scan cannot vouch that the rewrite means the same:
+
+- an `=` under metadata or a reader conditional, an `=` of one argument, and a `not` of more than one
+- a step of a thread, which takes an argument the `not` does not show
+- a `not`, `=` or `not=` that may not be core's: from another library, named in the ns form, bound as a local, or
+  defined by the namespace, and every case the [`cond-else-nil`](#cond-else-nil) rule leaves alone for `cond`
 - anything quoted, discarded or inside `(comment …)`
 
 </details>

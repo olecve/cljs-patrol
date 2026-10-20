@@ -856,3 +856,92 @@
                                 "#_(+ n 1)"
                                 "(case x (+ n 1) :a :b)"
                                 "(. o (- n 1))"]))))
+
+(defn- negated-equalities
+  ([lines] (negated-equalities ns-info lines))
+  ([file-ns-info lines]
+   (->> lines (parse idioms/group file-ns-info) :negated-equality (mapv :form))))
+
+(deftest not-of-an-equality-is-flagged
+  (is (= ["(not (= before after))"
+          "(not (= a b c))"
+          "#(not (= % :done))"
+          "(cljs.core/not (clojure.core/= a b))"
+          "(not (= a #?(:clj b :cljs c)))"
+          "(not (= ;; why a b))"]
+         (negated-equalities ["(not (= before after))"
+                              "(not (= a b c))"
+                              "#(not (= % :done))"
+                              "(cljs.core/not (clojure.core/= a b))"
+                              "(not (= a #?(:clj b :cljs c)))"
+                              "(not #_old (= ;; why\n a b))"]))))
+
+(deftest negated-equality-finding-names-not-equal-and-where-it-is
+  (let [[finding] (:negated-equality (parse ["(defn f [a b]" "  (not (= a b)))"]))]
+    (is (= {:kw 'not
+            :type :negated-equality
+            :form "(not (= a b))"
+            :file "views.cljs"
+            :row 2
+            :col 3
+            :test "f"
+            :hint "Write (not= a b)"}
+           finding))))
+
+(deftest negated-equality-hint-keeps-a-fn-literal-and-shortens-a-long-argument
+  (is (= ["Write #(not= % :done)"
+          "Write (not= ... :done)"]
+         (->> ["#(not (= % :done))"
+               "(not (= (get-in response [:body :results :status]) :done))"]
+              parse
+              :negated-equality
+              (mapv :hint)))))
+
+(deftest negated-equality-tested-by-if-or-when-is-not-negated-test
+  (let [result (parse ["(if (not (= a b)) :x :y)"
+                       "(when (not (clojure.core/= a b)) :x)"])]
+    (is (= ["(not (= a b))" "(not (clojure.core/= a b))"]
+           (mapv :form (:negated-equality result))))
+    (is (empty? (:negated-test result))))
+  (is (= ["(when (not (:= m)) :x)"]
+         (negated-tests ["(when (not (:= m)) :x)"]))
+      "a keyword named = is no equality"))
+
+(deftest not-of-what-is-no-equality-is-left-alone
+  (is (empty? (negated-equalities ["(not (== a b))"
+                                   "(not (not= a b))"
+                                   "(not (= a))"
+                                   "(not (=))"
+                                   "(not (= a b) c)"
+                                   "(not ^:m (= a b))"
+                                   "(not #?(:clj (= a b) :cljs (= a c)))"
+                                   "(not eq)"
+                                   "(not)"
+                                   "(not [= a b])"]))))
+
+(deftest threaded-negated-equality-is-left-alone
+  (is (empty? (negated-equalities ["(-> ok? (not (= a b)))"
+                                   "(->> ok? (not (= a b)))"
+                                   "#(-> % (not (= a b)))"]))))
+
+(deftest negated-equality-that-is-not-core-is-left-alone
+  (is (empty? (negated-equalities ["(lib/not (= a b))"
+                                   "(not (lib/= a b))"
+                                   "(let [= f] (not (= a b)))"
+                                   "(let [not f] (not (= a b)))"
+                                   "(let [not= f] (not (= a b)))"])))
+  (is (empty? (negated-equalities (assoc ns-info :shadowed-core #{"not="})
+                                  ["(not (= a b))"]))
+      "a not= the ns form may take from elsewhere is no fix to ask for")
+  (is (empty? (negated-equalities ["(defn not= [a b] a)"
+                                   "(not (= a b))"])))
+  (is (empty? (negated-equalities ["(defn = [a b] a)"
+                                   "(not (= a b))"])))
+  (is (empty? (negated-equalities ["(defmacro not [x] x)"
+                                   "(not (= a b))"]))))
+
+(deftest unevaluated-negated-equality-is-left-alone
+  (is (empty? (negated-equalities ["'(not (= a b))"
+                                   "(comment (not (= a b)))"
+                                   "#_(not (= a b))"
+                                   "(case x (not (= a b)) :a :b)"]))))

@@ -28,3 +28,7 @@
 (deftest plus-minus-one-fixture-test
   (is (= ["plus-one-plain"] (map :test (found :plus-minus-one)))
       "an inc or dec the namespace defines, declares or excludes, anywhere in it, is no step to ask for"))
+
+(deftest negated-equality-fixture-test
+  (is (= ["negated-equality-plain"] (map :test (found :negated-equality)))
+      "a not= the namespace defines in another file is no fix to ask for"))
