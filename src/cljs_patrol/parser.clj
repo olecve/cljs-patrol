@@ -206,8 +206,8 @@
            set))))
 
 (def ^:private namespace-changing-heads
-  "Top-level calls that switch namespace or refer names after the ns form has run."
-  #{"ns" "in-ns" "require" "use" "refer" "refer-clojure"})
+  "Top-level calls that switch namespace, refer names, or define vars no form names after the ns form has run."
+  #{"ns" "in-ns" "require" "use" "refer" "refer-clojure" "load" "intern"})
 
 (defn- list-head-name
   "Return the name of the symbol heading list node, or nil."

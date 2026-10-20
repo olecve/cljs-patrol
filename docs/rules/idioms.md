@@ -136,14 +136,16 @@ Left alone, since the scan cannot vouch that it is core's `cond` or that it is c
 - a `cond` the file may take from somewhere else: an ns form that writes the symbol `cond` anywhere but as an `:as` or
   `:as-alias` alias, in an `:exclude`, a `:refer`, a `:refer-macros` or a `:rename`, behind a reader conditional too, or
   has a `:use`, a `:refer :all` or a `:refer-clojure :only`; a second ns form, an `in-ns` or a top-level `require`,
-  `use`, `refer` or `refer-clojure`; a `def` of `cond` behind a top-level reader conditional; and a file with no ns form
-  at all. `clojure.core/cond` and `cljs.core/cond` are core's wherever they are written
+  `use`, `refer`, `refer-clojure`, `load` or `intern`; a `cond` the file declares or defines below the top level, or a
+  protocol method named `cond`; and a file with no ns form at all. `clojure.core/cond` and `cljs.core/cond` are core's
+  wherever they are written
 - a `cond` the namespace defines itself at the top level, from another library through an alias, or a local: a let-like
   or `for` binding, a fn parameter or a named fn's own name, a `:keys`, `:syms` or `:strs` entry, a record field or a
   method parameter
 - a list that only looks like a call, even under metadata or a reader conditional: a method a `reify`, `deftype`,
   `defrecord`, `extend-type`, `extend-protocol`, `proxy`, `specify` or `specify!` defines, a `definterface` or
-  `defprotocol` signature, a member of `.` or `..`, and a `case` test constant
+  `defprotocol` signature, a member of `.` or `..`, and a `case` test constant or a list inside one, as in
+  `(case x [(cond …)] …)`
 - anything quoted, discarded or inside `(comment …)`
 
 </details>
@@ -196,8 +198,8 @@ form with `-not` and the test unwrapped.
 Left alone, since the scan cannot vouch that the rewrite means the same:
 
 - a test that is no single `not` call: `not=`, `(not a b)`, a bare `not`, or a `not` already under `if-not` or
-  `when-not`; a `not` holding a reader conditional, which may read as `(not)` on one platform; and a `not` of an `=`,
-  which [`negated-equality`](#negated-equality) asks to write as `not=`, keeping the `if` or `when`
+  `when-not`; a `not` holding a reader conditional, which may read as `(not)` on one platform; and a `not` of an `=`
+  that [`negated-equality`](#negated-equality) reports, asking for `not=` and keeping the `if` or `when`
 - a step of `->`, `->>`, `some->`, `some->>`, `doto`, `..` or a `cond->` / `cond->>` pair, whose first argument is not
   its test, also under metadata, a reader conditional or a `#?@` splice, and a step of a thread that is itself a step of
   `->`, as the `if` of `(-> m (cond-> flag (if (not x) :a)))`
@@ -377,11 +379,13 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 
 Why: `not=` says in one name what `(not (= …))` spells out in two, and the
 [Clojure Style Guide](https://github.com/bbatsov/clojure-style-guide) asks for it. The rewrite behaves the same: core
-defines `not=` as `(not (apply = x y more))`, in ClojureScript and in Clojure, so it holds for any arguments.
+defines `not=` as `(not (= x y))` for two arguments, `(not (apply = x y more))` for more and `false` for one, in
+ClojureScript and in Clojure, so it holds for any arguments.
 
 Flagged: a `not` of one argument, an `=` call of two or more, also inside a `#(…)`. The finding is keyed by `not`, and
 the fix is `not=` with the same arguments. An `if` or `when` testing `(not (= a b))` is reported here and not by
-[`negated-test`](#negated-test): `(if (not= a b) …)` reads as plainly as `if-not` would.
+[`negated-test`](#negated-test): `(if (not= a b) …)` reads as plainly as `if-not` would. Where this rule leaves the
+`not` alone, a `not=` that is not core's for one, `negated-test` still reports the `if` or `when`.
 
 Left alone, since the scan cannot vouch that the rewrite means the same:
 

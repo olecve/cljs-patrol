@@ -31,4 +31,4 @@
 
 (deftest negated-equality-fixture-test
   (is (= ["negated-equality-plain"] (map :test (found :negated-equality)))
-      "a not= the namespace defines in another file is no fix to ask for"))
+      "a not= the namespace defines in another file, loads or interns is no fix to ask for"))

@@ -945,3 +945,34 @@
                                    "(comment (not (= a b)))"
                                    "#_(not (= a b))"
                                    "(case x (not (= a b)) :a :b)"]))))
+
+(deftest call-inside-a-case-constant-is-left-alone
+  (let [result (parse ["(case x [(not (= a b))] 1 2)"
+                       "(case x ((not (= a b)) foo) 1 2)"
+                       "(case x [(if (not (pos? a)) 1 2)] 1 2)"
+                       "(case x [(+ n 1)] 1 2)"
+                       "(case x [(into [] (map inc xs))] 1 2)"
+                       "(case x [(cond a 1 :else nil)] 1 2)"])]
+    (is (every? empty? (vals (dissoc result :nested-call-chain))))))
+
+(deftest call-in-a-case-result-is-flagged
+  (is (= ["(not (= a b))" "(not (= c d))"]
+         (negated-equalities ["(case x :k (not (= a b)) (not (= c d)))"]))))
+
+(deftest negated-test-reports-a-not-of-an-equality-negated-equality-cannot
+  (is (= ["(if (not (lib/= a b)) 1 2)"
+          "(when (not (= a)) 1)"
+          "(when (not (= a b)) 1)"
+          "(when (not (= a b)) 1)"]
+         (negated-tests ["(if (not (lib/= a b)) 1 2)"
+                         "(when (not (= a)) 1)"
+                         "(fn [= a b] (when (not (= a b)) 1))"
+                         "(fn [not= a b] (when (not (= a b)) 1))"])))
+  (is (= ["(if (not (= a b)) 1 2)"]
+         (negated-tests (assoc ns-info :shadowed-core #{"not="})
+                        ["(if (not (= a b)) 1 2)"]))
+      "a not= the ns form may take from elsewhere leaves the fold to negated-test")
+  (is (= ["(if (not (= a b)) 1 2)"]
+         (negated-tests ["(defn not= [a b] a)"
+                         "(if (not (= a b)) 1 2)"]))
+      "a not= the namespace defines leaves the fold to negated-test"))
