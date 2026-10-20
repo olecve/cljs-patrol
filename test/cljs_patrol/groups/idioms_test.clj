@@ -23,7 +23,8 @@
   "Walk `lines` the way the parser walks a file, and return the group's result map."
   ([lines] (parse idioms/group lines))
   ([rule-group lines] (parse rule-group ns-info lines))
-  ([rule-group file-ns-info lines]
+  ([rule-group file-ns-info lines] (parse rule-group file-ns-info "views.cljs" lines))
+  ([rule-group file-ns-info file lines]
    (let [{:keys [handle-list]} (group/parse-handlers rule-group)
          declarations (loop [loc (z/of-string (str/join "\n" lines) {:track-position? true})
                              found []]
@@ -31,7 +32,7 @@
                           found
                           (recur (z/next loc)
                                  (if (#{:list :fn} (z/tag loc))
-                                   (into found (:decls (handle-list loc file-ns-info "views.cljs")))
+                                   (into found (:decls (handle-list loc file-ns-info file)))
                                    found))))]
      (group/analyze rule-group {:declarations declarations}))))
 
@@ -589,7 +590,15 @@
                               "(amap xs i not (if (not x) 1 2))"
                               "(let [not some? ;; why\n ] (when (not ready?) :a))"
                               "(let [#_x not some?] (when (not ready?) :a))"
-                              "(let ;; why\n [not some?] (when (not ready?) :a))"]))))
+                              "(let ;; why\n [not some?] (when (not ready?) :a))"
+                              "(letfn [(step [not x] (when (not x) :a))] (step f 1))"
+                              "(this-as not (when (not ready?) :a))"
+                              "(are [not x] (when (not x) :a) f 1)"
+                              "(-> x (as-> not (when (not ready?) :a)))"]))))
+
+(deftest if-or-when-in-a-thread-written-as-a-fn-literal-is-left-alone
+  (is (empty? (negated-tests ["(map #(-> % (when (not y) 1)) xs)"
+                              "(map #(cond-> % t (if (not y) 1 2)) xs)"]))))
 
 (defn- into-empties
   ([lines] (into-empties ns-info lines))
@@ -714,3 +723,136 @@
   (is (empty? (into-empties ["'(into #{} (keys m))"
                              "(comment (into #{} (keys m)))"
                              "#_(into #{} (keys m))"]))))
+
+(defn- plus-minus-ones
+  ([lines] (plus-minus-ones ns-info lines))
+  ([file-ns-info lines]
+   (->> lines (parse idioms/group file-ns-info) :plus-minus-one (mapv :form))))
+
+(deftest plus-or-minus-trailing-one-is-flagged
+  (is (= ["(+ page 1)"
+          "(- (count items) 1)"
+          "#(+ % 1)"
+          "(cljs.core/+ n 1)"
+          "(- ^long n 1)"]
+         (plus-minus-ones ["(+ page 1)"
+                           "(- (count items) 1)"
+                           "#(+ % 1)"
+                           "(cljs.core/+ n 1)"
+                           "(- ^long n 1)"]))))
+
+(deftest plus-minus-one-finding-names-the-step-and-where-it-is
+  (let [[finding] (:plus-minus-one (parse ["(defn f [page]" "  (+ page 1))"]))]
+    (is (= {:kw '+
+            :type :plus-minus-one
+            :form "(+ page 1)"
+            :file "views.cljs"
+            :row 2
+            :col 3
+            :test "f"
+            :hint "Write (inc page)"}
+           finding))))
+
+(deftest plus-minus-one-hint-asks-for-a-call-in-a-clojure-fn-literal
+  (is (= ["Write #(inc %)" "Write #(dec %1)"]
+         (->> ["#(+ % 1)" "#(- %1 1)"]
+              (parse idioms/group ns-info "core.clj")
+              :plus-minus-one
+              (mapv :hint)))
+      "unchecked math wraps (+ % 1) and (inc %) alike, where inc as a value checks")
+  (is (= ["Write #(inc %)"]
+         (->> ["#(+ % 1)"]
+              (parse idioms/group ns-info "core.cljc")
+              :plus-minus-one
+              (mapv :hint)))))
+
+(deftest plus-minus-one-hint-asks-for-the-bare-function-in-a-fn-literal
+  (is (= [['+ "#(+ % 1)" "Write inc"]
+          ['- "#(- %1 1)" "Write dec"]
+          ['+ "#(+ (:n %) 1)" "Write #(inc (:n %))"]
+          ['- "#(- (count (filter :selected? (:permission-options %))) 1)" "Write #(dec ...)"]]
+         (->> ["#(+ % 1)" "#(- %1 1)" "#(+ (:n %) 1)" "#(- (count (filter :selected? (:permission-options %))) 1)"]
+              parse
+              :plus-minus-one
+              (mapv (juxt :kw :form :hint))))))
+
+(deftest plus-minus-one-finding-shortens-a-long-operand-in-the-hint-only
+  (is (= [["(- (count (filter :selected? available-permission-options)) 1)" "Write (dec ...)"]]
+         (->> ["(- (count (filter :selected? available-permission-options)) 1)"]
+              parse
+              :plus-minus-one
+              (mapv (juxt :form :hint))))))
+
+(deftest plus-or-minus-what-is-no-trailing-one-is-left-alone
+  (is (empty? (plus-minus-ones ["(+ 1 page)"
+                                "(- 1 n)"
+                                "(+ x 1.0)"
+                                "(+ x 1N)"
+                                "(+ x 1M)"
+                                "(+ x 2)"
+                                "(+ x +1)"
+                                "(+ x y 1)"
+                                "(+ x 1 1)"
+                                "(+ 30 1)"
+                                "(- 0.5 1)"
+                                "(+ x)"
+                                "(+ x one)"
+                                "(* x 1)"
+                                "(+ x #?(:cljs 1))"]))))
+
+(deftest plus-minus-one-with-comments-inside-is-flagged
+  (is (= ["(+ n 1)"
+          "(- n 1)"]
+         (plus-minus-ones ["(+ n ;; next\n 1)"
+                           "(- n #_2 1)"]))))
+
+(deftest plus-minus-one-of-a-reader-conditional-is-left-alone
+  (is (empty? (plus-minus-ones ["(+ #?(:clj n) 1)"
+                                "(+ #?@(:clj [a b]) 1)"]))))
+
+(deftest threaded-plus-minus-one-is-left-alone
+  (is (empty? (plus-minus-ones ["(-> n (+ m 1))"
+                                "(->> n (- m 1))"
+                                "(cond-> n flag (+ m 1))"
+                                "(-> n (inc) #?(:cljs (+ m 1)))"
+                                "(-> m (->> (+ n 1)))"
+                                "(some-> n (+ m 1))"
+                                "(some->> n (+ m 1))"
+                                "(doto n (+ m 1))"
+                                "(cond->> n flag (- m 1))"
+                                "#(-> % (+ off 1))"
+                                "#(->> % (- total 1))"
+                                "#(cond-> % x (+ y 1))"
+                                "#(doto % (- y 1))"
+                                "#(some-> % (+ y 1))"])))
+  (is (= ["(+ v 1)" "(+ n 1)"]
+         (plus-minus-ones ["(as-> n v (+ v 1))"
+                           "(as-> (+ n 1) v (str v))"]))
+      "an as-> step writes its operand out, and its value binds nothing"))
+
+(deftest plus-minus-one-or-step-that-is-not-core-is-left-alone
+  (is (empty? (plus-minus-ones ["(lib/+ n 1)"
+                                "(let [inc f] (+ n 1))"
+                                "(let [dec f] (- n 1))"
+                                "(let [+ f] (+ n 1))"
+                                "(fn [- n] (- n 1))"
+                                "(letfn [(step [inc x] (+ x 1))] (step f 1))"
+                                "(letfn [(step ([x] x) ([inc x] (+ x 1)))] (step f 1))"
+                                "(this-as inc (+ x 1))"
+                                "(try (f) (catch :default inc (+ x 1)))"
+                                "(are [inc x] (= 2 (+ x 1)) f 1)"
+                                "(-> x (as-> inc (+ y 1)))"])))
+  (is (empty? (plus-minus-ones (assoc ns-info :shadowed-core #{"inc"})
+                               ["(+ n 1)"]))
+      "an inc the ns form may take from elsewhere is no step to ask for")
+  (is (empty? (plus-minus-ones ["(defn dec [n] n)"
+                                "(- n 1)"])))
+  (is (empty? (plus-minus-ones ["(defmacro + [& xs] xs)"
+                                "(+ n 1)"]))))
+
+(deftest unevaluated-plus-minus-one-is-left-alone
+  (is (empty? (plus-minus-ones ["'(+ n 1)"
+                                "(comment (+ n 1))"
+                                "#_(+ n 1)"
+                                "(case x (+ n 1) :a :b)"
+                                "(. o (- n 1))"]))))
