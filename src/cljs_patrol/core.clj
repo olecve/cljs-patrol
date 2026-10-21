@@ -18,6 +18,7 @@
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
+   [cljs-patrol.groups.testing-library :as testing-library]
    [cljs-patrol.groups.tests :as tests]
    [cljs-patrol.groups.typography :as typography]
    [cljs-patrol.parser :as parser]
@@ -44,6 +45,7 @@
    (docstrings/make-group (get config :docstrings) clj?)
    (css-order/make-group (get config :css-order))
    (tests/make-group (get config :tests) clj?)
+   testing-library/group
    (layout/make-group (get config :layout) clj?)
    (idioms/make-group (get config :idioms) clj?)])
 

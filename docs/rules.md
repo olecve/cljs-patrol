@@ -11,6 +11,7 @@ Every rule, one page per rule group. For the one-line summary of each group, see
 - **[`typography`](rules/typography.md)**
 - **[`a11y`](rules/a11y.md)**
 - **[`tests`](rules/tests.md)**
+- **[`testing-library`](rules/testing-library.md)**
 - **[`docstrings`](rules/docstrings.md)**
 - **[`layout`](rules/layout.md)**
 - **[`css-order`](rules/css-order.md)**
