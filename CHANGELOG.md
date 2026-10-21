@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.0.39] - 2026-10-21
+
+* Report an :id no other literal in the run can point a label at by @olecve in https://github.com/olecve/cljs-patrol/pull/102
+* Cut every rule suggestion to a sentence or two and link its docs by @olecve in https://github.com/olecve/cljs-patrol/pull/103
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.38...v0.0.39
+
 ## [v0.0.38] - 2026-10-21
 
 * Refuse a baseline write that adds findings unless --allow-new by @olecve in https://github.com/olecve/cljs-patrol/pull/101
