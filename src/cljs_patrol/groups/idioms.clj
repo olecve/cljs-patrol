@@ -1157,32 +1157,26 @@
 (defn- suggestion [min-calls]
   (str min-calls " or more calls nested one inside another, each passing its result to the "
        "next, so they read from the inside out. Rewrite them as the -> or ->> thread the "
-       "finding spells out, which reads top to bottom in the order the calls run. "
-       (group/docs-link "idioms" "nested-call-chain")))
+       "finding spells out, which reads top to bottom in the order the calls run."))
 
 (def ^:private else-nil-suggestion
   (str "A cond ends in :else nil, or another keyword or true paired with nil. A cond no clause "
-       "matches returns nil already, so the clause only looks like a chosen default. Drop it. "
-       (group/docs-link "idioms" "cond-else-nil")))
+       "matches returns nil already, so the clause only looks like a chosen default. Drop it."))
 
 (def ^:private negated-test-suggestion
   (str "An if or when tests (not x). Write (if-not x a b) or (when-not x ...), which carry the "
-       "negation in their name. "
-       (group/docs-link "idioms" "negated-test")))
+       "negation in their name."))
 
 (def ^:private into-empty-suggestion
   (str "(into [] xs) or (into #{} xs) pours a collection into an empty vector or set. Write "
-       "(vec xs) or (set xs), which name the collection they build. "
-       (group/docs-link "idioms" "into-empty")))
+       "(vec xs) or (set xs), which name the collection they build."))
 
 (def ^:private plus-minus-one-suggestion
   (str "(+ x 1) or (- x 1) adds or subtracts a literal 1. Write (inc x) or (dec x), which name "
-       "the step, and, in ClojureScript, inc or dec for #(+ % 1). "
-       (group/docs-link "idioms" "plus-or-minus-one")))
+       "the step, and, in ClojureScript, inc or dec for #(+ % 1)."))
 
 (def ^:private negated-equality-suggestion
-  (str "(not (= a b)) negates an equality. Write (not= a b), which says it in one name. "
-       (group/docs-link "idioms" "negated-equality")))
+  "(not (= a b)) negates an equality. Write (not= a b), which says it in one name.")
 
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup
@@ -1204,6 +1198,13 @@
                     :into-empty into-empty-suggestion
                     :plus-minus-one plus-minus-one-suggestion
                     :negated-equality negated-equality-suggestion})
+  (docs-anchors [_]
+    {:cond-else-nil "cond-else-nil"
+     :into-empty "into-empty"
+     :negated-equality "negated-equality"
+     :negated-test "negated-test"
+     :nested-call-chain "nested-call-chain"
+     :plus-minus-one "plus-or-minus-one"})
   (rule->tier [_] {:nested-call-chain :cleanup
                    :cond-else-nil :cleanup
                    :negated-test :cleanup

@@ -203,15 +203,16 @@
   (suggestions [_]
     {:docstring-summary
      (str "The first line of a multi-line docstring is not a summary sentence of its own. End it "
-          "with '.', '!', '?' or ':' and put the rest of the prose on the next lines. "
-          (group/docs-link "docstrings" "docstring-summary"))
+          "with '.', '!', '?' or ':' and put the rest of the prose on the next lines.")
      :docstring-indentation
      (str "A docstring line is indented less than the opening quote. Indent the continuation "
-          "lines at least to the column of the opening quote. "
-          (group/docs-link "docstrings" "docstring-indentation"))
+          "lines at least to the column of the opening quote.")
      :docstring-leading-trailing-whitespace
-     (str "A docstring starts or ends with whitespace. Remove it. "
-          (group/docs-link "docstrings" "docstring-leadingtrailing-whitespace"))})
+     "A docstring starts or ends with whitespace. Remove it."})
+  (docs-anchors [_]
+    {:docstring-indentation "docstring-indentation"
+     :docstring-leading-trailing-whitespace "docstring-leadingtrailing-whitespace"
+     :docstring-summary "docstring-summary"})
   (rule->tier [_]
     {:docstring-summary :cleanup
      :docstring-indentation :cleanup

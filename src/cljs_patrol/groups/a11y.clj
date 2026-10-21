@@ -983,7 +983,8 @@
         (and (not shorthand) (string? literal) (re-matches #"\S+" literal)) literal))))
 
 (defn- unreferenced-id-hint [id]
-  (format "No other literal in the run contains the id %s, so no label points at it. Point a [:label {:for %s}] at it, or pass :aria-label."
+  (format (str "No other literal in the run contains the id %s, so no label points at it. "
+               "Point a [:label {:for %s}] at it, or pass :aria-label.")
           (pr-str id) (pr-str id)))
 
 (def ^:private id-reference-names
@@ -1418,52 +1419,53 @@
   (suggestions [_]
     {:img-alt-missing
      (str "Every :img needs :alt (WCAG 1.1.1). Use :alt \"\" for a decorative image, otherwise "
-          "text that says what the image shows. "
-          (group/docs-link "a11y" "img-missing-alt"))
+          "text that says what the image shows.")
      :invalid-tabindex
      (str "tabindex must be 0 or a negative integer (WCAG 2.4.3). A positive value breaks the natural "
           "focus order and a non-integer may not make the element focusable; use 0, or -1 for focus "
-          "from code only. "
-          (group/docs-link "a11y" "invalid-tabindex"))
+          "from code only.")
      :on-click-on-non-interactive
      (str "A mouse, pointer or touch handler sits on a non-interactive tag, so keyboard users cannot "
           "trigger it (WCAG 2.1.1). Use :button or :a with :href, or add a :role such as \"button\" "
-          "and a keyboard handler like :on-key-down. "
-          (group/docs-link "a11y" "on-click-on-non-interactive-tag"))
+          "and a keyboard handler like :on-key-down.")
      :empty-interactive-element
      (str "A button or link has no text and no :aria-label, :aria-labelledby or :title, so screen "
           "readers announce nothing (WCAG 4.1.2). Add visible text, or an :aria-label for an "
-          "icon-only control. "
-          (group/docs-link "a11y" "empty-interactive-element"))
+          "icon-only control.")
      :missing-accessible-name
-     (str "A form control, dialog or named container has no accessible name (WCAG 4.1.2). Add "
-          ":aria-label, :aria-labelledby with the id of a visible label, or a [:label {:for id}]; "
-          ":placeholder is not a name. "
-          (group/docs-link "a11y" "missing-accessible-name"))
+     (str "A form control, dialog or named container has no accessible name (WCAG 4.1.2). Add :aria-label "
+          "or :aria-labelledby with a visible label's id; a textarea or widget may take a [:label {:for id}]. "
+          "A decorative :role \"img\" wants :aria-hidden true.")
      :repeated-accessible-name
      (str "Every item of a collection names its control with the same literal string, so a screen "
           "reader hears \"Remove, Remove, Remove\" (WCAG 2.4.6). Build the item into the name, as in "
-          "(str \"Remove \" (:title item)), or point :aria-labelledby at the row's own label. "
-          (group/docs-link "a11y" "repeated-accessible-name"))
+          "(str \"Remove \" (:title item)), or point :aria-labelledby at the row's own label.")
      :aria-hidden-focusable
      (str "An element with :aria-hidden true, or something inside it, can still take focus, so a "
           "screen reader lands on silence (WCAG 4.1.2). Drop :aria-hidden and name the element, or "
-          "for a mouse-only affordance set :tabIndex -1 and prevent focus on mouse down. "
-          (group/docs-link "a11y" "aria-hidden-on-a-focusable-element"))
+          "for a mouse-only affordance set :tabIndex -1 and prevent focus on mouse down.")
      :label-not-associated
      (str "A :label is tied to no control, so clicking it focuses nothing and it names nothing "
-          "(WCAG 1.3.1). Give it :for with the control's :id, or wrap the control inside it. "
-          (group/docs-link "a11y" "label-not-associated"))
+          "(WCAG 1.3.1). Give it :for with the control's :id, or wrap the control inside it.")
      :nested-interactive-element
      (str "An interactive element contains another one, which the HTML content model bans and screen "
           "readers announce as overlapping controls. Make the wrapper a plain :div with the two "
-          "controls as siblings, or drop the outer control. "
-          (group/docs-link "a11y" "nested-interactive-element"))
+          "controls as siblings, or drop the outer control.")
      :aria-live-contradicts-role
      (str "The :aria-live politeness differs from what the :role implies, and the attribute wins "
           "(WAI-ARIA Implicit Value for Role). Drop :aria-live and let the role speak, or change it to "
-          "match: \"status\" and \"log\" imply polite, \"alert\" assertive. "
-          (group/docs-link "a11y" "aria-live-contradicts-role"))})
+          "match: \"status\" and \"log\" imply polite, \"alert\" assertive.")})
+  (docs-anchors [_]
+    {:aria-hidden-focusable "aria-hidden-on-a-focusable-element"
+     :aria-live-contradicts-role "aria-live-contradicts-role"
+     :empty-interactive-element "empty-interactive-element"
+     :img-alt-missing "img-missing-alt"
+     :invalid-tabindex "invalid-tabindex"
+     :label-not-associated "label-not-associated"
+     :missing-accessible-name "missing-accessible-name"
+     :nested-interactive-element "nested-interactive-element"
+     :on-click-on-non-interactive "on-click-on-non-interactive-tag"
+     :repeated-accessible-name "repeated-accessible-name"})
   (rule->tier [_]
     {:img-alt-missing :bugs
      :invalid-tabindex :bugs

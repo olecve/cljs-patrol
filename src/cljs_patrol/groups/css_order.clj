@@ -111,9 +111,8 @@
 (defn- suggestion [order]
   (let [{:keys [package]} (get orders/sources order)]
     (str "Style map properties are out of the order " package " defines. Move the reported property "
-         "as the hint says. To use another table, set {:css-order {:order ...}} or --css-order: "
-         (str/join ", " (map name orders/names)) ". "
-         (group/docs-link "css-order" "css-property-order-outside-in"))))
+         "as the hint says, or pick another table with {:css-order {:order :smacss}} in "
+         ".cljs-patrol/config.edn or --css-order: " (str/join ", " (map name orders/names)) ".")))
 
 (defrecord CssOrderGroup [order]
   group/RuleGroup
@@ -124,6 +123,8 @@
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ _] false)
   (suggestions [_] {:css-property-order-outside-in (suggestion order)})
+  (docs-anchors [_]
+    {:css-property-order-outside-in "css-property-order-outside-in"})
   (rule->tier [_]
     {:css-property-order-outside-in :cleanup})
   (file-extensions [_] #{".cljs" ".cljc"}))

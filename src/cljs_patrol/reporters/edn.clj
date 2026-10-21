@@ -49,9 +49,13 @@
          suggestions (->> enabled-groups
                           (map (fn [g] [(group/group-id g) (group/suggestions g)]))
                           (into {}))
+         docs (->> enabled-groups
+                   (map (fn [g] [(group/group-id g) (group/docs-urls g)]))
+                   (into {}))
          output (merge {:source-dirs (mapv fs/absolute-path dirs)
                         :results merged
-                        :suggestions suggestions}
+                        :suggestions suggestions
+                        :docs docs}
                        (count-by-tier merged fail-on-rules))]
      (println (pr-str output)))))
 

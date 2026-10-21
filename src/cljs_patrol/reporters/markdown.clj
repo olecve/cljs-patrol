@@ -18,13 +18,13 @@
                               :as item}]
   (str "- `" (fs/absolute-path file) ":" row "` — `" (str/trim form) "`" (hint-suffix item)))
 
-(defn- section [title suggestion items]
+(defn- section [title {:keys [text docs]} items]
   (when (seq items)
     (str "## " title " (" (count items) ")\n\n"
          (if (:form (first items))
            (->> items (sort-by :file) (map format-dynamic-entry) (str/join "\n"))
            (->> items (sort-by (comp str :kw)) (map format-entry) (str/join "\n")))
-         "\n\n> " suggestion "\n")))
+         "\n\n> " text (when docs (str " [Docs](" docs ")")) "\n")))
 
 (defn- merge-results [results]
   (apply merge-with (fn [a b] (if (sequential? a) (into a b) b)) results))
@@ -33,12 +33,12 @@
   (let [sections (for [group-idx (range (count enabled-groups))
                        :let [group (nth enabled-groups group-idx)
                              merged (merge-results (map #(nth (:group-results %) group-idx) run-results))
-                             suggestions (group/suggestions group)]
+                             guides (group/guides group)]
                        [issue-key items] (sort-by key merged)
                        :when (and (sequential? items) (seq items))
                        :let [title (-> (name issue-key) (str/replace #"-" " ") str/capitalize)
-                             suggestion (get suggestions issue-key "")]]
-                   (section title suggestion items))
+                             guide (get guides issue-key)]]
+                   (section title guide items))
         summary (for [group-idx (range (count enabled-groups))
                       :let [group (nth enabled-groups group-idx)
                             merged (merge-results (map #(nth (:group-results %) group-idx) run-results))]

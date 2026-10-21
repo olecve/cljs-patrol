@@ -450,35 +450,51 @@
   (failed? [_ result] (failed?* result))
   (suggestions [_]
     {:duplicate-subs
-     (str "Two reg-sub calls share one keyword, so the second silently replaces the first. Remove the duplicate. " (group/docs-link "re-frame" "duplicate-subscriptions"))
+     "Two reg-sub calls share one keyword, so the second silently replaces the first. Remove the duplicate."
      :duplicate-events
-     (str "Two reg-event-* calls share one keyword, so the second silently replaces the first. Remove the duplicate. " (group/docs-link "re-frame" "duplicate-events"))
+     "Two reg-event-* calls share one keyword, so the second silently replaces the first. Remove the duplicate."
      :unused-subs
-     (str "Nothing subscribes to this reg-sub. Remove it, or subscribe to it where the value is needed. " (group/docs-link "re-frame" "unused-subscriptions"))
+     "Nothing subscribes to this reg-sub. Remove it, or subscribe to it where the value is needed."
      :unused-events
-     (str "Nothing dispatches this event. Remove its reg-event-*, or dispatch it where it should fire. " (group/docs-link "re-frame" "unused-events"))
+     "Nothing dispatches this event. Remove its reg-event-*, or dispatch it where it should fire."
      :phantom-subs
-     (str "Nothing registers this subscription with reg-sub, usually a keyword typo or a wrong namespace alias. Fix the keyword at the subscribe call. " (group/docs-link "re-frame" "phantom-subscriptions"))
+     (str "Nothing registers this subscription with reg-sub, usually a keyword typo or a wrong namespace alias. Fix the "
+          "keyword at the subscribe call.")
      :phantom-events
-     (str "Nothing registers this event with reg-event-*. Fix the keyword at the dispatch call, or add the missing reg-event-*. " (group/docs-link "re-frame" "phantom-events"))
+     "Nothing registers this event with reg-event-*. Fix the keyword at the dispatch call, or add the missing reg-event-*."
      :deprecated-effects
-     (str ":dispatch-n is deprecated. Replace it with :fx, one [:dispatch event] tuple per event. " (group/docs-link "re-frame" "deprecated-effects"))
+     ":dispatch-n is deprecated. Replace it with :fx, one [:dispatch event] tuple per event."
      :dynamic-sites
-     (str "This dispatch or subscribe uses a computed keyword the tool cannot resolve. Check by hand that it reaches the right handler. " (group/docs-link "re-frame" "dynamic-dispatchsubscribe-sites"))
+     (str "This dispatch or subscribe uses a computed keyword the tool cannot resolve. Check by hand that it reaches the "
+          "right handler.")
      :reg-sub-=>-1-arity
      (str ":=> calls its fn with the signal value and the query vector's parameters, which a one-argument fn "
-          "silently drops. Use :->, which passes the signal value alone. "
-          (group/docs-link "re-frame" "reg-sub--with-a-1-arity-fn"))
+          "silently drops. Use :->, which passes the signal value alone.")
      :reg-event-fx-db-only
-     (str "This reg-event-fx returns only :db. Use reg-event-db, whose handler returns the new db directly. " (group/docs-link "re-frame" "reg-event-fx-db-only"))
+     "This reg-event-fx returns only :db. Use reg-event-db, whose handler returns the new db directly."
      :reg-event-fx-empty
-     (str "This reg-event-fx returns nil or an empty effects map, so it does nothing. Remove it, or return the effects it was meant to. " (group/docs-link "re-frame" "reg-event-fx-empty"))
+     (str "This reg-event-fx returns nil or an empty effects map, so it does nothing. Remove it, or return the effects it "
+          "was meant to.")
      :reg-event-db-empty
      (str "This reg-event-db returns nil or {}, which wipes the whole app-db. Return the changed db, such as "
-          "(assoc db :panel nil), or a named initial value for a deliberate reset. "
-          (group/docs-link "re-frame" "reg-event-db-empty"))
+          "(assoc db :panel nil), or a named initial value for a deliberate reset.")
      :reg-event-db-returning-effects
-     (str "This reg-event-db returns an effects map like {:db ... :dispatch ...}, which becomes the whole app-db while the effects are dropped. Use reg-event-fx. " (group/docs-link "re-frame" "reg-event-db-returning-effects"))})
+     (str "This reg-event-db returns an effects map like {:db ... :dispatch ...}, which becomes the whole app-db "
+          "while the effects are dropped. Use reg-event-fx.")})
+  (docs-anchors [_]
+    {:deprecated-effects "deprecated-effects"
+     :duplicate-events "duplicate-events"
+     :duplicate-subs "duplicate-subscriptions"
+     :dynamic-sites "dynamic-dispatchsubscribe-sites"
+     :phantom-events "phantom-events"
+     :phantom-subs "phantom-subscriptions"
+     :reg-event-db-empty "reg-event-db-empty"
+     :reg-event-db-returning-effects "reg-event-db-returning-effects"
+     :reg-event-fx-db-only "reg-event-fx-db-only"
+     :reg-event-fx-empty "reg-event-fx-empty"
+     :reg-sub-=>-1-arity "reg-sub--with-a-1-arity-fn"
+     :unused-events "unused-events"
+     :unused-subs "unused-subscriptions"})
   (rule->tier [_]
     {:duplicate-subs :bugs
      :duplicate-events :bugs

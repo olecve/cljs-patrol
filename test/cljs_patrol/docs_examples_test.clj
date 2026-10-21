@@ -56,11 +56,11 @@
   [heading]
   (-> heading
       str/lower-case
-      (str/replace #"[^\p{L}\p{N}\- ]" "")
+      (str/replace #"[^\p{L}\p{N}_\- ]" "")
       (str/replace " " "-")))
 
 (defn- rule-sections
-  "Return {:rule :flagged :fix :left-alone :links} for every rule section of a docs page.
+  "Return {:rule :anchor :flagged :fix :left-alone :links} for every rule section of a docs page.
 
   A section is the text under one heading; it is a rule's when it holds a key line."
   [text]
@@ -146,22 +146,29 @@
                   (str "fix or left-alone example is flagged:\n" code)))))))))
 
 (def ^:private suggestion-limit
-  "Characters a suggestion may spend before its docs link: a sentence or two naming the fix."
+  "Characters a suggestion may spend: a sentence or two naming the fix, the docs carrying the rest."
   280)
 
-(deftest suggestions-are-short-and-link-their-docs
+(deftest suggestions-are-short-and-anchor-their-docs
   (doseq [rule-group (assemble-groups {} false)
           :let [page (name (group/group-id rule-group))
                 text (slurp (io/file "docs/rules" (str page ".md")))
-                rule->anchor (->> (rule-sections text) (map (juxt :rule :anchor)) (into {}))]
-          [rule suggestion] (group/suggestions rule-group)]
-    (testing (str page " " (name rule))
-      (let [[_ body linked-page anchor] (re-find #"(?s)^(.*?) ?Docs: https://github\.com/olecve/cljs-patrol/blob/main/docs/rules/([^.]+)\.md#(\S+)$" suggestion)]
-        (is (some? body)
-            "suggestion ends with a docs link")
-        (is (<= (count body) suggestion-limit)
-            (str "suggestion runs past " suggestion-limit " characters: " (count body)))
-        (is (= page linked-page)
-            "link points at group's page")
-        (is (= (rule->anchor rule) anchor)
-            (str "link points at #" anchor ", not at rule's section #" (rule->anchor rule)))))))
+                rule->anchor (->> (rule-sections text) (map (juxt :rule :anchor)) (into {}))
+                anchors (group/docs-anchors rule-group)]]
+    (testing page
+      (is (= (set (keys (group/suggestions rule-group))) (set (keys anchors)))
+          "every rule with a suggestion has a docs anchor, and no other rule does")
+      (doseq [[rule suggestion] (group/suggestions rule-group)]
+        (testing (name rule)
+          (is (<= (count suggestion) suggestion-limit)
+              (str "suggestion runs past " suggestion-limit " characters: " (count suggestion)))
+          (is (= (rule->anchor rule) (get anchors rule))
+              (str "anchor #" (get anchors rule) " is not rule's section #" (rule->anchor rule))))))))
+
+(deftest docs-headings-have-distinct-anchors
+  (doseq [^java.io.File page (.listFiles (io/file "docs/rules"))
+          :when (str/ends-with? (.getName page) ".md")
+          :let [headings (map second (re-seq #"(?m)^#+ (.*)$" (slurp page)))
+                duplicates (->> headings (map heading-anchor) frequencies (filter #(< 1 (val %))) (map key))]]
+    (is (empty? duplicates)
+        (str (.getName page) ": headings share anchors GitHub would suffix, so a link misses: " (vec duplicates)))))

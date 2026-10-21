@@ -96,8 +96,9 @@
   (suggestions [_]
     {:mixed-token-groups
      (str "A style declaration uses typography tokens from more than one group. Use tokens with "
-          "one prefix only, such as action-small-font with action-small-letter-spacing. "
-          (group/docs-link "typography" "mixed-typography-token-groups"))})
+          "one prefix only, such as action-small-font with action-small-letter-spacing.")})
+  (docs-anchors [_]
+    {:mixed-token-groups "mixed-typography-token-groups"})
   (rule->tier [_]
     {:mixed-token-groups :deprecations})
   (file-extensions [_] #{".cljs" ".cljc"}))

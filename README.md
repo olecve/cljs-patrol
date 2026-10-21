@@ -108,7 +108,9 @@ clojure -M:run --output edn src/cljs/myapp
 ```
 
 File paths in the output are absolute, making it easy to read files directly. The output includes a `:suggestions` map
-with fix guidance for each issue type, useful for AI-assisted remediation. Combinable with other flags:
+with a short fix for each issue type, and a `:docs` map with the URL of each rule's section in the docs of the running
+version (`docs/rules/<group>.md` in this repository), where the edge cases and examples live. Combinable with other
+flags:
 
 ```bash
 clojure -M:run --only re-frame --output edn src/cljs/myapp

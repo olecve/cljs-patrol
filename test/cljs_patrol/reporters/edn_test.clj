@@ -4,6 +4,7 @@
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.reporters.edn :as edn-reporter]
    [clojure.edn :as edn]
+   [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private kw-item {:kw :my-ns/sub
@@ -37,6 +38,9 @@
 
     (testing "contains suggestions keyed by group-id"
       (is (contains? (:suggestions parsed) :re-frame)))
+
+    (testing "contains docs urls keyed by group-id"
+      (is (str/includes? (get-in parsed [:docs :re-frame :unused-subs]) "/docs/rules/re-frame.md#unused-subscriptions")))
 
     (testing "result items have absolute file paths"
       (let [items (get-in parsed [:results :re-frame :unused-subs])]

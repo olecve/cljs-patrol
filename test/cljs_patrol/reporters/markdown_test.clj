@@ -55,7 +55,9 @@
       (is (str/includes? output "`:my-ns/sub`"))
       (is (re-find #"src/subs\.cljs:3`" output)))
     (testing "includes suggestion"
-      (is (str/includes? output "Nothing subscribes to this reg-sub")))))
+      (is (str/includes? output "Nothing subscribes to this reg-sub")))
+    (testing "links rule's docs"
+      (is (str/includes? output "[Docs](https://github.com/olecve/cljs-patrol/blob/")))))
 
 (deftest dynamic-sites-section-test
   (let [output (run-report [{:source-dir "src"

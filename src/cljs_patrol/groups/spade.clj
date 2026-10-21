@@ -169,19 +169,28 @@
   (failed? [_ result] (failed?* result))
   (suggestions [_]
     {:unused-styles
-     (str "Nothing calls this defclass or defattrs. Remove it, or call it where the style should apply. " (group/docs-link "spade" "unused-styles"))
+     "Nothing calls this defclass or defattrs. Remove it, or call it where the style should apply."
      :defattrs-in-merge
-     (str "This defattrs is merged into props. Declare it with defclass and pass it as :class, so no merge is needed. " (group/docs-link "spade" "defattrs-in-merge"))
+     "This defattrs is merged into props. Declare it with defclass and pass it as :class, so no merge is needed."
      :pseudo-in-main-map
-     (str "Spade emits a pseudo-selector key inside a style map as an invalid CSS property and drops the rule. Move it into its own vector after the map, e.g. [:&:hover {...}]. " (group/docs-link "spade" "pseudo-selector-in-spade-main-map"))
+     (str "Spade emits a pseudo-selector key inside a style map as an invalid CSS property and drops the rule. Move it into "
+          "its own vector after the map, e.g. [:&:hover {...}].")
      :consecutive-self-selectors
      (str "Garden compiles [:&:before :&:after {...}] to a descendant selector, not a comma-joined one. "
-          "Split it into sibling vectors [:&:before {...}] [:&:after {...}]. "
-          (group/docs-link "spade" "consecutive-self-selectors"))
+          "Split it into sibling vectors [:&:before {...}] [:&:after {...}].")
      :spade-ampersand-not-at-start
-     (str "Garden replaces & only at the start of a string selector; anywhere else it stays as literal text and the rule matches nothing. Move & to the front, or restructure the selector. " (group/docs-link "spade" "ampersand-not-at-start"))
+     (str "Garden replaces & only at the start of a string selector; anywhere else it stays as literal text and the rule "
+          "matches nothing. Move & to the front, or restructure the selector.")
      :spade-keyword-combinator-selector
-     (str "Garden reads a keyword combinator like :> as its own selector in a comma list, not as a link to the next element. Use the string form, e.g. [\"> span\" {...}]. " (group/docs-link "spade" "keyword-combinator-selector"))})
+     (str "Garden reads a keyword combinator like :> as its own selector in a comma list, not as a link to the next "
+          "element. Use the string form, e.g. [\"> span\" {...}].")})
+  (docs-anchors [_]
+    {:consecutive-self-selectors "consecutive-self-selectors"
+     :defattrs-in-merge "defattrs-in-merge"
+     :pseudo-in-main-map "pseudo-selector-in-spade-main-map"
+     :spade-ampersand-not-at-start "ampersand-not-at-start"
+     :spade-keyword-combinator-selector "keyword-combinator-selector"
+     :unused-styles "unused-styles"})
   (rule->tier [_]
     {:unused-styles :cleanup
      :defattrs-in-merge :deprecations

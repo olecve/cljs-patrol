@@ -394,25 +394,26 @@
   (suggestions [_]
     {:deftest-leading-article
      (str "A test name opens with \"a-\", \"an-\" or \"the-\". Drop the article: "
-          "the-panel-opens becomes panel-opens. "
-          (group/docs-link "tests" "deftest-leading-article"))
+          "the-panel-opens becomes panel-opens.")
      :assertion-message-inline
      (str "An assertion message shares a line with the expression it describes. "
-          "Move the message to its own line under the expression. "
-          (group/docs-link "tests" "assertion-message-inline"))
+          "Move the message to its own line under the expression.")
      :conditional-assertion
      (str "A test works out what to expect while it runs, with a conditional in the expected value, "
           "around assertions, or as a guard that can skip them. Write a table of inputs and expected "
-          "values and walk it with doseq. "
-          (group/docs-link "tests" "conditional-assertion"))
+          "values and walk it with doseq.")
      :js-hint-in-test
      (str "A ^js type hint in a test namespace does nothing, because a test build never runs "
-          ":advanced optimizations. Remove it. "
-          (group/docs-link "tests" "js-hint-in-test"))
+          ":advanced optimizations. Remove it.")
      :var-deref-in-test
      (str "A test reads a var through its var quote, such as @#'ns/x or (deref (var ns/x)). "
-          "Call it through the public function that uses it, or move it where it can be public. "
-          (group/docs-link "tests" "var-deref-in-test"))})
+          "Call it through the public function that uses it, or move it where it can be public.")})
+  (docs-anchors [_]
+    {:assertion-message-inline "assertion-message-inline"
+     :conditional-assertion "conditional-assertion"
+     :deftest-leading-article "deftest-leading-article"
+     :js-hint-in-test "js-hint-in-test"
+     :var-deref-in-test "var-deref-in-test"})
   (rule->tier [_]
     {:deftest-leading-article :cleanup
      :assertion-message-inline :cleanup

@@ -273,7 +273,7 @@
                {:quiet? (:quiet-baseline opts)
                 :source-dir source-dir
                 :fail-on-rules fail-on-rules
-                :suggestions (group/suggestions rule-group)})))
+                :guides (group/guides rule-group)})))
           (print-baseline-console-summary
            {:new-issues new-issues
             :present present
@@ -297,7 +297,7 @@
       (do
         (doseq [{:keys [group-results]} run-results]
           (doseq [[rule-group result] (map vector enabled-groups group-results)]
-            (console/report result fail-on-rules (group/suggestions rule-group)))
+            (console/report result fail-on-rules (group/guides rule-group)))
           (print-summary enabled-groups group-results))
         (when (seq fail-on-rules)
           (let [{:keys [blocking warning]} (severity/count-by-fail-on

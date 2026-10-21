@@ -81,7 +81,9 @@
 
     (testing "sections include suggestion descriptions"
       (let [s (first (filter #(= "Unused subs" (:title %)) sections))]
-        (is (str/includes? (:description s) "reg-sub"))))))
+        (is (str/includes? (:description s) "reg-sub"))
+        (is (str/includes? (:description s) "Docs: https://github.com/olecve/cljs-patrol/blob/")
+            "description carries docs link")))))
 
 (deftest write-report-test
   (let [run-results [{:source-dir "src"

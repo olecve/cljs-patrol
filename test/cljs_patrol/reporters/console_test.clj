@@ -49,19 +49,19 @@
 (deftest report-renders-suggestions-test
   (testing "prints the rule's suggestion under a non-empty section"
     (let [out (with-out-str
-                (console/report {:unused-subs [kw-item]} nil {:unused-subs "Remove it."}))]
+                (console/report {:unused-subs [kw-item]} nil {:unused-subs {:text "Remove it."}}))]
       (is (str/includes? out "Remove it.")
           "the explanation reaches default console output")))
 
   (testing "prints nothing for a section with no findings"
     (let [out (with-out-str
-                (console/report {:unused-subs []} nil {:unused-subs "Remove it."}))]
+                (console/report {:unused-subs []} nil {:unused-subs {:text "Remove it."}}))]
       (is (not (str/includes? out "Remove it."))
           "an empty section has nothing to explain")))
 
   (testing "wraps a long suggestion instead of emitting one long line"
     (let [out (with-out-str
-                (console/report {:img-alt-missing [kw-item]} nil {:img-alt-missing long-suggestion}))
+                (console/report {:img-alt-missing [kw-item]} nil {:img-alt-missing {:text long-suggestion}}))
           body (remove str/blank? (str/split-lines out))]
       (is (every? #(<= (count %) 100) body)
           "no line runs past a readable width")
@@ -71,14 +71,15 @@
   (testing "prints the suggestion in the baseline report too"
     (let [out (with-out-str
                 (console/report-with-baseline {:unused-subs [kw-item]} #{}
-                                              {:suggestions {:unused-subs "Remove it."}}))]
+                                              {:guides {:unused-subs {:text "Remove it."}}}))]
       (is (str/includes? out "Remove it.")
           "a baselined section explains itself as well"))))
 
 (deftest report-puts-docs-link-on-own-line-test
   (let [out (with-out-str
               (console/report {:img-alt-missing [kw-item]} nil
-                              {:img-alt-missing (str long-suggestion " Docs: https://example.com/rules.md#img")}))]
+                              {:img-alt-missing {:text long-suggestion
+                                                 :docs "https://example.com/rules.md#img"}}))]
     (is (some #(= "  Docs: https://example.com/rules.md#img" %) (str/split-lines out))
         "link line stands alone, unwrapped")
     (is (not-any? #(str/ends-with? % "Docs:") (str/split-lines out))

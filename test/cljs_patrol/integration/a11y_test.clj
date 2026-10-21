@@ -1356,12 +1356,11 @@
     (is (= (sort-by :row (filter #(= ids-file (:file %)) findings))
            (filter #(= ids-file (:file %)) findings))
         "findings keep source order")
-    (is (= #{"No other literal in the run contains the id \"orphan-select\", so no label points at it. Point a [:label {:for \"orphan-select\"}] at it, or pass :aria-label."
-             "No other literal in the run contains the id \"orphan-notes\", so no label points at it. Point a [:label {:for \"orphan-notes\"}] at it, or pass :aria-label."
-             "No other literal in the run contains the id \"orphan-shorthand\", so no label points at it. Point a [:label {:for \"orphan-shorthand\"}] at it, or pass :aria-label."}
+    (is (= #{"orphan-select" "orphan-notes" "orphan-shorthand"}
            (->> findings
                 (filter #(= ids-file (:file %)))
                 (keep :hint)
+                (map #(second (re-find #"contains the id \"([^\"]+)\", so no label points at it" %)))
                 set))
         "each finding names its id")))
 

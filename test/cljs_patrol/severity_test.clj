@@ -12,6 +12,7 @@
    [cljs-patrol.groups.tests :as tests]
    [cljs-patrol.groups.typography :as typography]
    [cljs-patrol.severity :as severity]
+   [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private all-groups
@@ -241,6 +242,11 @@
               entry (get tiered tier)]
         (is (every? entry [:rule :group :tier :suggestion])
             (str "entry under " tier " missing keys"))))))
+
+(deftest format-rules-links-docs-test
+  (is (str/includes? (severity/format-rules (severity/list-rules [re-frame/group]))
+                     "\n      https://github.com/olecve/cljs-patrol/blob/")
+      "every rule line is followed by its docs url"))
 
 (deftest list-rules-respects-group-filter-test
   (let [tiered (severity/list-rules [re-frame/group])

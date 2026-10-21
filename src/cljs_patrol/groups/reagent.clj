@@ -216,9 +216,14 @@
   (failed? [_ result] (failed?* result))
   (suggestions [_]
     {:defclass-as-sole-attr
-     (str "Every use of this defclass is {:class (style-fn)}. Declare it with defattrs and pass (style-fn) as the props map, without the :class wrapper. " (group/docs-link "reagent" "defclass-as-sole-attr"))
+     (str "Every use of this defclass is {:class (style-fn)}. Declare it with defattrs and pass (style-fn) as the props "
+          "map, without the :class wrapper.")
      :redundant-into-hiccup
-     (str "The mapped body already gives every element a :key, so the into does nothing useful. Put the sequence inside the Hiccup vector: [:<> (for [x xs] ^{:key x} [item x])]. " (group/docs-link "reagent" "redundant-into-around-hiccup"))})
+     (str "The mapped body already gives every element a :key, so the into does nothing useful. Put the sequence "
+          "inside the Hiccup vector: [:<> (for [x xs] ^{:key x} [item x])].")})
+  (docs-anchors [_]
+    {:defclass-as-sole-attr "defclass-as-sole-attr"
+     :redundant-into-hiccup "redundant-into-around-hiccup"})
   (rule->tier [_]
     {:defclass-as-sole-attr :deprecations
      :redundant-into-hiccup :cleanup})

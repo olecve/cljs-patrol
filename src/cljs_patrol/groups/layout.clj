@@ -359,13 +359,14 @@
   (suggestions [_]
     {:form-after-split-map
      (str "A form starts on the line where a map split over several lines closes, a staircase "
-          "that `cljfmt check` accepts. Put each sibling on its own line, aligned with the first. "
-          (group/docs-link "layout" "form-after-split-map"))
+          "that `cljfmt check` accepts. Put each sibling on its own line, aligned with the first.")
      :split-map-after-sibling
      (str "A map split over several lines starts after a sibling form on the same line, so its "
           "pairs hang off a column far to the right. Start the map on its own line, aligned with "
-          "the sibling before it. "
-          (group/docs-link "layout" "split-map-after-sibling"))})
+          "the sibling before it.")})
+  (docs-anchors [_]
+    {:form-after-split-map "form-after-split-map"
+     :split-map-after-sibling "split-map-after-sibling"})
   (rule->tier [_]
     {:form-after-split-map :cleanup
      :split-map-after-sibling :cleanup})
