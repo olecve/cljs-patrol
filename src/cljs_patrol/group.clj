@@ -23,3 +23,11 @@
   for every group on every file."
   [clj?]
   (cond-> cljs-extensions clj? (conj ".clj")))
+
+(def ^:private docs-base-url "https://github.com/olecve/cljs-patrol/blob/main/docs/rules/")
+
+(defn docs-link
+  "Build the line that closes a rule's suggestion: the URL of its section in the rule docs.
+  `page` names the docs page, the group's id, and `anchor` the anchor GitHub gives the rule's heading."
+  [page anchor]
+  (str "Docs: " docs-base-url page ".md#" anchor))

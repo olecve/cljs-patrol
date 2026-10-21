@@ -33,7 +33,9 @@ Run this group alone with `--only docstrings`.
 <details>
 <summary>Details</summary>
 
-The first line of a multi-line docstring has to be a self-contained sentence ending in `.`, `!`, `?` or `:`.
+The first line of a multi-line docstring has to be a self-contained sentence ending in `.`, `!`, `?` or `:`. Put any
+further prose on the lines after it. See the
+[Clojure Style Guide](https://github.com/bbatsov/clojure-style-guide#docstring-summary).
 
 </details>
 
@@ -57,6 +59,14 @@ Items without a price are skipped."
   (reduce + (keep :price items)))
 ```
 
+<details>
+<summary>Details</summary>
+
+Continuation lines of a multi-line docstring are indented at least to the column of the opening quote. See the
+[Clojure Style Guide](https://github.com/bbatsov/clojure-style-guide#docstring-indentation).
+
+</details>
+
 ### Docstring leading/trailing whitespace
 
 `docstring-leading-trailing-whitespace` · cleanup — A docstring starting or ending with whitespace.
@@ -74,3 +84,11 @@ Items without a price are skipped."
   [items]
   (reduce + (keep :price items)))
 ```
+
+<details>
+<summary>Details</summary>
+
+A docstring that starts or ends with whitespace. See the
+[Clojure Style Guide](https://github.com/bbatsov/clojure-style-guide#docstring-leading-trailing-whitespace).
+
+</details>

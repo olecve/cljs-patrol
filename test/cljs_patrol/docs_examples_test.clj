@@ -51,6 +51,14 @@
 (defn- code-blocks [text]
   (map second (re-seq #"(?s)```clojure\n(.*?)```" text)))
 
+(defn- heading-anchor
+  "Return the anchor GitHub gives a heading."
+  [heading]
+  (-> heading
+      str/lower-case
+      (str/replace #"[^\p{L}\p{N}\- ]" "")
+      (str/replace " " "-")))
+
 (defn- rule-sections
   "Return {:rule :flagged :fix :left-alone :links} for every rule section of a docs page.
 
@@ -63,6 +71,7 @@
               [_ flagged fix] (when example (re-find #"(?s);; flagged\n(.*?)(?:;; fix\n(.*))?$" example))]
         :when rule]
     {:rule rule
+     :anchor (-> section str/split-lines first heading-anchor)
      :flagged (some-> flagged chunks)
      :fix (some-> fix chunks)
      :left-alone (some-> left-alone chunks)
@@ -72,11 +81,7 @@
   "Return the anchors GitHub gives the headings of a page."
   [text]
   (->> (re-seq #"(?m)^#+ (.*)$" text)
-       (map (fn [[_ heading]]
-              (-> heading
-                  str/lower-case
-                  (str/replace #"[^\p{L}\p{N}\- ]" "")
-                  (str/replace " " "-"))))
+       (map (fn [[_ heading]] (heading-anchor heading)))
        set))
 
 (defn- findings
@@ -139,3 +144,24 @@
                   (str "fix or left-alone example does not parse:\n" code "\n" warnings))
               (is (zero? count)
                   (str "fix or left-alone example is flagged:\n" code)))))))))
+
+(def ^:private suggestion-limit
+  "Characters a suggestion may spend before its docs link: a sentence or two naming the fix."
+  280)
+
+(deftest suggestions-are-short-and-link-their-docs
+  (doseq [rule-group (assemble-groups {} false)
+          :let [page (name (group/group-id rule-group))
+                text (slurp (io/file "docs/rules" (str page ".md")))
+                rule->anchor (->> (rule-sections text) (map (juxt :rule :anchor)) (into {}))]
+          [rule suggestion] (group/suggestions rule-group)]
+    (testing (str page " " (name rule))
+      (let [[_ body linked-page anchor] (re-find #"(?s)^(.*?) ?Docs: https://github\.com/olecve/cljs-patrol/blob/main/docs/rules/([^.]+)\.md#(\S+)$" suggestion)]
+        (is (some? body)
+            "suggestion ends with a docs link")
+        (is (<= (count body) suggestion-limit)
+            (str "suggestion runs past " suggestion-limit " characters: " (count body)))
+        (is (= page linked-page)
+            "link points at group's page")
+        (is (= (rule->anchor rule) anchor)
+            (str "link points at #" anchor ", not at rule's section #" (rule->anchor rule)))))))

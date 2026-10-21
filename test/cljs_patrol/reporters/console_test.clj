@@ -75,6 +75,15 @@
       (is (str/includes? out "Remove it.")
           "a baselined section explains itself as well"))))
 
+(deftest report-puts-docs-link-on-own-line-test
+  (let [out (with-out-str
+              (console/report {:img-alt-missing [kw-item]} nil
+                              {:img-alt-missing (str long-suggestion " Docs: https://example.com/rules.md#img")}))]
+    (is (some #(= "  Docs: https://example.com/rules.md#img" %) (str/split-lines out))
+        "link line stands alone, unwrapped")
+    (is (not-any? #(str/ends-with? % "Docs:") (str/split-lines out))
+        "no line ends on dangling label")))
+
 (deftest report-kw-sections-test
   (testing "prints kw-based sections using keyword format"
     (let [out (with-out-str

@@ -24,3 +24,22 @@ Run this group alone with `--only typography`.
   {:font system-theme/action-small-font
    :letter-spacing system-theme/action-small-letter-spacing})
 ```
+
+<details>
+<summary>Details</summary>
+
+A style declaration (`defclass` or `defattrs`) whose typography tokens come from more than one Figma token group. Each
+declaration takes its tokens from a single group, the one prefix they share: `action-small-font` +
+`action-small-letter-spacing` + `action-small-text-case`. The available groups:
+
+- `caption-{small,medium,large,xlarge}`
+- `body-short-{small,medium,large}`
+- `body-long-{small,medium,large}`
+- `subhead-{small,medium,large}`
+- `heading-reg-{small,medium,large,xlarge}`
+- `heading-bold-{small,medium,large,xlarge}`
+- `action-{small,medium,large}`
+- `code-compact-{small,medium,large}`
+- `code-reg-{small,medium,large}`
+
+</details>

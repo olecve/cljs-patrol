@@ -223,7 +223,7 @@ the same with less.
 
 ### `reg-sub` `:=>` with a 1-arity fn
 
-`reg-sub-=>-1-arity` · cleanup — `:=>` with a one-argument fn, which never sees the query vector.
+`reg-sub-=>-1-arity` · cleanup — `:=>` with a one-argument fn, which never sees the query parameters.
 
 ```clojure
 ;; flagged
@@ -242,8 +242,8 @@ the same with less.
 <details>
 <summary>Details</summary>
 
-A `reg-sub` uses the `:=>` sugar with a one-argument fn. `:=>` calls it with the signal value and the query vector, so
-in ClojureScript the query vector is silently dropped. Use `:->`, which passes the signal value alone.
+A `reg-sub` uses the `:=>` sugar with a one-argument fn. `:=>` calls it with the signal value and the query vector's
+parameters, so in ClojureScript a one-argument fn silently drops them. Use `:->`, which passes the signal value alone.
 
 </details>
 

@@ -87,8 +87,8 @@ base map and in the map of every nested selector block, at any depth.
 <summary>Details</summary>
 
 A Spade selector vector begins with 2+ `:&`-prefixed keywords (e.g. `[:&:before :&:after {…}]`); Garden compiles this as
-a descendant selector (`elem:before elem:after`), not the comma-joined selector the author intended. Checked at every
-nesting depth, not only on the declaration's own siblings.
+a descendant selector (`elem:before elem:after`), not the comma-joined selector the author intended. Split it into
+sibling vectors. Checked at every nesting depth, not only on the declaration's own siblings.
 
 </details>
 

@@ -109,17 +109,11 @@
   [["CSS property order:" (count css-property-order-outside-in)]])
 
 (defn- suggestion [order]
-  (let [{:keys [package url]} (get orders/sources order)]
-    (str "Style map keys run out of the order " package " defines (" url "), embedded here verbatim "
-         "and applied the way stylelint-order applies it to CSS. Each config draws the line between "
-         "layout and looks differently — recess puts typography ahead of background and border, "
-         "concentric puts border and background ahead of text — so read a finding against the table "
-         "in use. Pick another with {:css-order {:order :smacss}} in .cljs-patrol/config.edn or "
-         "--css-order smacss; available: " (str/join ", " (map name orders/names)) ". A property the "
-         "table does not name — a custom property included — is left unordered and only reads as a "
-         "problem when a ranked property follows it. Blocks under four properties are not judged, and "
-         "only the first property out of place in each block is reported: resequencing the rest is a "
-         "write-time call.")))
+  (let [{:keys [package]} (get orders/sources order)]
+    (str "Style map properties are out of the order " package " defines. Move the reported property "
+         "as the hint says. To use another table, set {:css-order {:order ...}} or --css-order: "
+         (str/join ", " (map name orders/names)) ". "
+         (group/docs-link "css-order" "css-property-order-outside-in"))))
 
 (defrecord CssOrderGroup [order]
   group/RuleGroup

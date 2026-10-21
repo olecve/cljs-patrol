@@ -24,12 +24,15 @@
           (str/split (str/trim text) #"\s+")))
 
 (defn- print-suggestion
-  "Print a rule's suggestion under its header, wrapped and indented.
+  "Print a rule's suggestion under its header, wrapped and indented, with its docs link on a line of its own.
   Skipped for empty sections, where there is nothing to explain."
   [suggestion items]
   (when (and (seq suggestion) (seq items))
-    (doseq [line (wrap-words suggestion-width suggestion)]
-      (println (str "  " line)))
+    (let [[prose link] (str/split suggestion #" (?=Docs: )" 2)]
+      (doseq [line (wrap-words suggestion-width prose)]
+        (println (str "  " line)))
+      (when link
+        (println (str "  " link))))
     (println)))
 
 (defn- section-header [title items blocking?]

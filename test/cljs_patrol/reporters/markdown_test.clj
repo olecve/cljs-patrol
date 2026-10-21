@@ -55,7 +55,7 @@
       (is (str/includes? output "`:my-ns/sub`"))
       (is (re-find #"src/subs\.cljs:3`" output)))
     (testing "includes suggestion"
-      (is (str/includes? output "Registered with reg-sub but never subscribed to")))))
+      (is (str/includes? output "Nothing subscribes to this reg-sub")))))
 
 (deftest dynamic-sites-section-test
   (let [output (run-report [{:source-dir "src"

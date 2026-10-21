@@ -95,14 +95,9 @@
   (failed? [_ result] (failed?* result))
   (suggestions [_]
     {:mixed-token-groups
-     (str "A style declaration uses typography tokens from more than one group. "
-          "Each declaration must use tokens from a single group (same prefix). "
-          "Example: action-small-font + action-small-letter-spacing + action-small-text-case. "
-          "Available groups: caption-{small,medium,large,xlarge}, "
-          "body-short-{small,medium,large}, body-long-{small,medium,large}, "
-          "subhead-{small,medium,large}, heading-reg-{small,medium,large,xlarge}, "
-          "heading-bold-{small,medium,large,xlarge}, action-{small,medium,large}, "
-          "code-compact-{small,medium,large}, code-reg-{small,medium,large}.")})
+     (str "A style declaration uses typography tokens from more than one group. Use tokens with "
+          "one prefix only, such as action-small-font with action-small-letter-spacing. "
+          (group/docs-link "typography" "mixed-typography-token-groups"))})
   (rule->tier [_]
     {:mixed-token-groups :deprecations})
   (file-extensions [_] #{".cljs" ".cljc"}))
