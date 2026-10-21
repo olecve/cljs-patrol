@@ -602,6 +602,27 @@
          (baseline/diff-baseline #{} #{}))
       "both empty"))
 
+(deftest find-added-identities-test
+  (let [path (tmp-baseline-path)]
+    (is (= {:added #{}}
+           (baseline/find-added-identities path #{id-a}))
+        "nothing to compare before first write")
+    (baseline/write-baseline path #{id-a id-b})
+    (is (= {:added #{}}
+           (baseline/find-added-identities path #{id-a id-b}))
+        "same findings add nothing")
+    (is (= {:added #{}}
+           (baseline/find-added-identities path #{id-a}))
+        "fixed findings add nothing")
+    (is (= {:added #{id-c}}
+           (baseline/find-added-identities path #{id-a id-c}))
+        "finding missing from baseline is added")
+    (spit path (pr-str {:version 999
+                        :issues []}))
+    (is (re-find #"version"
+                 (:error (baseline/find-added-identities path #{id-a})))
+        "unreadable baseline reports its error")))
+
 (deftest collect-identities-test
   (let [run-results [{:source-dir "src"
                       :group-results [{:unused-subs [{:kw :app/a

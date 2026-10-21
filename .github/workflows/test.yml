@@ -94,3 +94,27 @@ jobs:
           "$GITHUB_WORKSPACE/target/cljs-patrol" --only a11y --baseline-write src
           grep -q ':issues' src/.cljs-patrol/baseline.edn
           "$GITHUB_WORKSPACE/target/cljs-patrol" --only a11y --baseline src
+
+      - name: Refuse a baseline write that adds findings unless --allow-new
+        run: |
+          cd test-projects/a11y-app
+          patrol="$GITHUB_WORKSPACE/target/cljs-patrol"
+          "$patrol" --only a11y --baseline-write src
+          "$patrol" --only a11y --baseline-write src
+          cp src/.cljs-patrol/baseline.edn before.edn
+          printf '(ns blogapp.added)\n(defn notes [] [:textarea])\n' > src/blogapp/added.cljs
+          if "$patrol" --only a11y --baseline-write src > refused.txt; then exit 1; fi
+          grep -q 'Refusing to write' refused.txt
+          grep -q 'src/blogapp/added.cljs' refused.txt
+          cmp before.edn src/.cljs-patrol/baseline.edn
+          "$patrol" --only a11y --baseline-write --allow-new src
+          grep -q 'blogapp/added.cljs' src/.cljs-patrol/baseline.edn
+          rm src/blogapp/added.cljs
+          "$patrol" --only a11y --baseline-write src
+          if grep -q 'blogapp/added.cljs' src/.cljs-patrol/baseline.edn; then exit 1; fi
+          if "$patrol" --allow-new src > stray.txt; then exit 1; fi
+          grep -q 'only applies to --baseline-write' stray.txt
+          echo '[1 2 3]' > src/.cljs-patrol/baseline.edn
+          if "$patrol" --only a11y --baseline-write src > unreadable.txt; then exit 1; fi
+          grep -q 'Re-run --baseline-write --allow-new' unreadable.txt
+          "$patrol" --only a11y --baseline-write --allow-new src
