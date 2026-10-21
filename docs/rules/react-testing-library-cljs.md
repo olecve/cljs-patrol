@@ -1,14 +1,14 @@
-# Testing Library rules
+# react-testing-library-cljs rules
 
-The rules of the `testing-library` group: how test code uses the queries of
+The rules of the `react-testing-library-cljs` group: how test code uses the queries of
 [react-testing-library-cljs](https://github.com/olecve/react-testing-library-cljs), what each rule flags and what it
 deliberately leaves alone. Each rule carries the key that `--fail-on` and the baseline use, and its
 [tier](../severity.md#tiers).
 
 [← all rule groups](../rules.md) · [← back to the README](../../README.md)
 
-Run this group alone with `--only testing-library`. A query is recognized by what its name resolves to through the
-namespace's `:require`, so the group reports nothing in code that does not use the library.
+Run this group alone with `--only react-testing-library-cljs`. A query is recognized by what its name resolves to
+through the namespace's `:require`, so the group reports nothing in code that does not use the library.
 
 ## Rules
 

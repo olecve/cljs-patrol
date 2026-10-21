@@ -7,9 +7,9 @@
    [cljs-patrol.groups.idioms :as idioms]
    [cljs-patrol.groups.layout :as layout]
    [cljs-patrol.groups.re-frame :as re-frame]
+   [cljs-patrol.groups.react-testing-library-cljs :as react-testing-library-cljs]
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
-   [cljs-patrol.groups.testing-library :as testing-library]
    [cljs-patrol.groups.tests :as tests]
    [cljs-patrol.groups.typography :as typography]
    [cljs-patrol.severity :as severity]
@@ -18,7 +18,7 @@
 
 (def ^:private all-groups
   [re-frame/group spade/group reagent/group typography/group a11y/group docstrings/group
-   css-order/group tests/group testing-library/group layout/group idioms/group])
+   css-order/group tests/group react-testing-library-cljs/group layout/group idioms/group])
 
 (def ^:private rule->tier
   (severity/collect-rule->tier all-groups))

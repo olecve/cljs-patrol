@@ -1,13 +1,13 @@
-(ns cljs-patrol.integration.testing-library-test
+(ns cljs-patrol.integration.react-testing-library-cljs-test
   (:require
    [cljs-patrol.core :as core]
-   [cljs-patrol.groups.testing-library :as testing-library]
+   [cljs-patrol.groups.react-testing-library-cljs :as react-testing-library-cljs]
    [clojure.test :refer [deftest is]]))
 
-(def ^:private fixture-dir "test-projects/testing-library-app/src/webapp")
+(def ^:private fixture-dir "test-projects/react-testing-library-cljs-app/src/webapp")
 
 (defn- result []
-  (-> (core/run fixture-dir [testing-library/group]) :group-results first))
+  (-> (core/run fixture-dir [react-testing-library-cljs/group]) :group-results first))
 
 (defn- fn-names-of
   "Name the deftest each finding sits in, as the fixture's `:test` records it."

@@ -46,7 +46,7 @@
   (testing "--disable removes specific group"
     (let [groups (filter-groups default-groups {:disable #{:spade}})]
       (is (= 10 (count groups)))
-      (is (= #{:re-frame :reagent :typography :a11y :docstrings :css-order :tests :testing-library :layout :idioms}
+      (is (= #{:re-frame :reagent :typography :a11y :docstrings :css-order :tests :react-testing-library-cljs :layout :idioms}
              (set (map group/group-id groups))))))
 
   (testing "--only takes precedence over --disable"

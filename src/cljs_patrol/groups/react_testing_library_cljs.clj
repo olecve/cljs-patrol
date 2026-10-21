@@ -1,4 +1,4 @@
-(ns cljs-patrol.groups.testing-library
+(ns cljs-patrol.groups.react-testing-library-cljs
   "Rule group: misuse of react-testing-library-cljs queries in test code."
   (:require
    [cljs-patrol.group :as group]
@@ -120,10 +120,10 @@
 (defn- summary-lines* [{:keys [get-by-presence-check]}]
   [["Get-by presence check:" (count get-by-presence-check)]])
 
-(defrecord TestingLibraryGroup []
+(defrecord ReactTestingLibraryCljsGroup []
   group/RuleGroup
-  (group-id [_] :testing-library)
-  (group-name [_] "Testing Library")
+  (group-id [_] :react-testing-library-cljs)
+  (group-name [_] "react-testing-library-cljs")
   (parse-handlers [_] {:handle-list handle-list})
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
@@ -139,4 +139,4 @@
     {:get-by-presence-check :cleanup})
   (file-extensions [_] group/cljs-extensions))
 
-(def group (->TestingLibraryGroup))
+(def group (->ReactTestingLibraryCljsGroup))
