@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.38] - 2026-10-21
+
+* Refuse a baseline write that adds findings unless --allow-new by @olecve in https://github.com/olecve/cljs-patrol/pull/101
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.37...v0.0.38
+
 ## [v0.0.37] - 2026-10-20
 
 * Require a name of a wrapper aliased to a widget role by @olecve in https://github.com/olecve/cljs-patrol/pull/97
