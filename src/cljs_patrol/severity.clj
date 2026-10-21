@@ -105,7 +105,7 @@
   [:bugs :deprecations :cleanup :info-only])
 
 (defn list-rules
-  "Return a map of tier -> sorted seq of {:rule :group :suggestion} entries.
+  "Return a map of tier -> sorted seq of {:rule :group :suggestion :docs} entries.
   Rules absent from a group's rule->tier go under :info-only."
   [groups]
   (let [entries (for [g groups
@@ -116,7 +116,8 @@
                   {:rule rule
                    :group gid
                    :tier (get tier-map rule :info-only)
-                   :suggestion suggestion})]
+                   :suggestion suggestion
+                   :docs (group/docs-url g rule)})]
     (->> entries
          (group-by :tier)
          (map (fn [[tier es]]
@@ -135,9 +136,10 @@
          line (concat [(str "\n" (if (= tier :info-only)
                                    "info-only (do not block CI):"
                                    (str (name tier) ":")))]
-                      (for [{:keys [rule group suggestion]} entries]
-                        (format "  %-25s (%s)  %s"
-                                (str rule)
-                                (name group)
-                                (truncate suggestion 80))))]
+                      (for [{:keys [rule group suggestion docs]} entries]
+                        (cond-> (format "  %-25s (%s)  %s"
+                                        (str rule)
+                                        (name group)
+                                        (truncate suggestion 80))
+                          docs (str "\n      " docs))))]
      line)))

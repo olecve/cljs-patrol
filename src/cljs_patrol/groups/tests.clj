@@ -393,64 +393,27 @@
   (failed? [_ result] (failed?* result))
   (suggestions [_]
     {:deftest-leading-article
-     (str "A test var opens with \"a-\", \"an-\" or \"the-\". A test named after the claim it "
-          "makes is a sentence, and the article at the front of one carries nothing an "
-          "identifier needs: the reader is looking for the subject, and the first word is "
-          "not it. Drop it — the-status-label-is-rendered becomes "
-          "status-label-is-rendered. Only the front is flagged; an article inside the name "
-          "is grammar, so escape-closes-the-modal is left alone. Point the tool at the test "
-          "directory to use this group, and snapshot an existing codebase with "
-          "--baseline-write so only new names are reported.")
+     (str "A test name opens with \"a-\", \"an-\" or \"the-\". Drop the article: "
+          "the-panel-opens becomes panel-opens.")
      :assertion-message-inline
-     (str "An assertion's message shares a line with the expression it describes. The two "
-          "say different things — one is what ran, the other why the answer matters — and "
-          "a reader scanning a test body for either has to read past the other to find it. "
-          "Put the message on its own line under the expression, which is how the style "
-          "guide's own examples are written. Only a string written out is flagged; a "
-          "message named by a symbol is not the shape the convention is about.")
+     (str "An assertion message shares a line with the expression it describes. "
+          "Move the message to its own line under the expression.")
      :conditional-assertion
-     (str "A test decides what to assert while it runs. Three shapes, one defect: the test "
-          "does not state what it expects, it works it out. An expected value computed by "
-          "a conditional — (is (= actual (if owner? false true))) — re-derives the answer, "
-          "so a mistake shared with the code under test passes unnoticed and a reader "
-          "cannot see the expectation without simulating it. A conditional choosing "
-          "between assertions is the same thing spread over two branches. A guard that can "
-          "skip the assertion, (when x (is …)), is the worst of the three: when it does not "
-          "hold, the test runs no assertion at all and passes having checked nothing. "
-          "Write a table instead — pair each input with the value it should produce and "
-          "walk it with doseq, so every case states its own expectation. A conditional "
-          "inside a function literal is left alone: #(when (= 1 (:id %)) %) handed to some "
-          "is a predicate over a collection, not the test choosing. Nor is a guard always "
-          "wrong: a when narrowing a doseq to the combination under test reads as "
-          "deliberate, which is why this reports rather than blocks. Enforce it with "
-          "--fail-on where a project wants it.")
+     (str "A test works out what to expect while it runs, with a conditional in the expected value, "
+          "around assertions, or as a guard that can skip them. Write a table of inputs and expected "
+          "values and walk it with doseq.")
      :js-hint-in-test
-     (str "A `^js` type hint in a test namespace does nothing. The hint exists so that "
-          "shadow-cljs infers an extern and the Closure compiler leaves a JS interop "
-          "property name alone under :advanced optimizations (shadow-cljs User's Guide, "
-          "14.2.1 Externs Inference). A test build never runs :advanced, so nothing reads "
-          "the hint and nothing would change if it were not there. Remove it. Both "
-          "spellings count, ^js and ^{:tag js}, wherever they are written — a parameter, "
-          "a let or destructuring binding, or inline on an expression. `^js/Foo` names a "
-          "type rather than asking for inference and is left alone, as are `^clj`, "
-          "`^boolean` and every other tag. Only test namespaces: a hint in source can be "
-          "load-bearing, and only a release build's infer warnings can say which.")
+     (str "A ^js type hint in a test namespace does nothing, because a test build never runs "
+          ":advanced optimizations. Remove it.")
      :var-deref-in-test
-     (str "A test reads a var through its var quote — @#'ns/x, (deref #'ns/x), @(var ns/x) "
-          "or (deref (var ns/x)). Reaching for the var object rather than calling the thing "
-          "couples the test to how the namespace is put together, and a var that is "
-          "^:private is reached this way precisely because it was not meant to be. Call it "
-          "through the public entry point that uses it, or move it somewhere it can be "
-          "public. Only in a namespace whose name ends in -test: a var deref is legal "
-          "anywhere, and without an anchor the rule would report production code. The "
-          "anchor is the namespace rather than an enclosing deftest, since the reads that "
-          "matter sit in a fixture or a helper as often as inside a test. A var quote that "
-          "is not "
-          "dereferenced is left alone — with-redefs-fn and use-fixtures take one — as is a "
-          "deref of anything else, a call to another function whose name merely ends in "
-          "deref, and anything inside a quoted or discarded form. Privacy itself is not "
-          "checked, since nothing here resolves a var across namespaces, so a public var "
-          "read this way is reported too; the fix is the same either way.")})
+     (str "A test reads a var through its var quote, such as @#'ns/x or (deref (var ns/x)). "
+          "Call it through the public function that uses it, or move it where it can be public.")})
+  (docs-anchors [_]
+    {:assertion-message-inline "assertion-message-inline"
+     :conditional-assertion "conditional-assertion"
+     :deftest-leading-article "deftest-leading-article"
+     :js-hint-in-test "js-hint-in-test"
+     :var-deref-in-test "var-deref-in-test"})
   (rule->tier [_]
     {:deftest-leading-article :cleanup
      :assertion-message-inline :cleanup

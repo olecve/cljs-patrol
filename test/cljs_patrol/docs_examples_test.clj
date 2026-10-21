@@ -51,8 +51,16 @@
 (defn- code-blocks [text]
   (map second (re-seq #"(?s)```clojure\n(.*?)```" text)))
 
+(defn- heading-anchor
+  "Return the anchor GitHub gives a heading."
+  [heading]
+  (-> heading
+      str/lower-case
+      (str/replace #"[^\p{L}\p{N}_\- ]" "")
+      (str/replace " " "-")))
+
 (defn- rule-sections
-  "Return {:rule :flagged :fix :left-alone :links} for every rule section of a docs page.
+  "Return {:rule :anchor :flagged :fix :left-alone :links} for every rule section of a docs page.
 
   A section is the text under one heading; it is a rule's when it holds a key line."
   [text]
@@ -63,6 +71,7 @@
               [_ flagged fix] (when example (re-find #"(?s);; flagged\n(.*?)(?:;; fix\n(.*))?$" example))]
         :when rule]
     {:rule rule
+     :anchor (-> section str/split-lines first heading-anchor)
      :flagged (some-> flagged chunks)
      :fix (some-> fix chunks)
      :left-alone (some-> left-alone chunks)
@@ -72,11 +81,7 @@
   "Return the anchors GitHub gives the headings of a page."
   [text]
   (->> (re-seq #"(?m)^#+ (.*)$" text)
-       (map (fn [[_ heading]]
-              (-> heading
-                  str/lower-case
-                  (str/replace #"[^\p{L}\p{N}\- ]" "")
-                  (str/replace " " "-"))))
+       (map (fn [[_ heading]] (heading-anchor heading)))
        set))
 
 (defn- findings
@@ -139,3 +144,31 @@
                   (str "fix or left-alone example does not parse:\n" code "\n" warnings))
               (is (zero? count)
                   (str "fix or left-alone example is flagged:\n" code)))))))))
+
+(def ^:private suggestion-limit
+  "Characters a suggestion may spend: a sentence or two naming the fix, the docs carrying the rest."
+  280)
+
+(deftest suggestions-are-short-and-anchor-their-docs
+  (doseq [rule-group (assemble-groups {} false)
+          :let [page (name (group/group-id rule-group))
+                text (slurp (io/file "docs/rules" (str page ".md")))
+                rule->anchor (->> (rule-sections text) (map (juxt :rule :anchor)) (into {}))
+                anchors (group/docs-anchors rule-group)]]
+    (testing page
+      (is (= (set (keys (group/suggestions rule-group))) (set (keys anchors)))
+          "every rule with a suggestion has a docs anchor, and no other rule does")
+      (doseq [[rule suggestion] (group/suggestions rule-group)]
+        (testing (name rule)
+          (is (<= (count suggestion) suggestion-limit)
+              (str "suggestion runs past " suggestion-limit " characters: " (count suggestion)))
+          (is (= (rule->anchor rule) (get anchors rule))
+              (str "anchor #" (get anchors rule) " is not rule's section #" (rule->anchor rule))))))))
+
+(deftest docs-headings-have-distinct-anchors
+  (doseq [^java.io.File page (.listFiles (io/file "docs/rules"))
+          :when (str/ends-with? (.getName page) ".md")
+          :let [headings (map second (re-seq #"(?m)^#+ (.*)$" (slurp page)))
+                duplicates (->> headings (map heading-anchor) frequencies (filter #(< 1 (val %))) (map key))]]
+    (is (empty? duplicates)
+        (str (.getName page) ": headings share anchors GitHub would suffix, so a link misses: " (vec duplicates)))))

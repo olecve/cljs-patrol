@@ -23,13 +23,15 @@
           []
           (str/split (str/trim text) #"\s+")))
 
-(defn- print-suggestion
-  "Print a rule's suggestion under its header, wrapped and indented.
+(defn- print-guide
+  "Print a rule's guide under its header: the suggestion wrapped and indented, then its docs link on a line of its own.
   Skipped for empty sections, where there is nothing to explain."
-  [suggestion items]
-  (when (and (seq suggestion) (seq items))
-    (doseq [line (wrap-words suggestion-width suggestion)]
+  [{:keys [text docs]} items]
+  (when (and (seq text) (seq items))
+    (doseq [line (wrap-words suggestion-width text)]
       (println (str "  " line)))
+    (when docs
+      (println (str "  Docs: " docs)))
     (println)))
 
 (defn- section-header [title items blocking?]
@@ -40,9 +42,9 @@
 (defn print-section
   ([title items] (print-section title items false nil))
   ([title items blocking?] (print-section title items blocking? nil))
-  ([title items blocking? suggestion]
+  ([title items blocking? guide]
    (println (section-header title items blocking?))
-   (print-suggestion suggestion items)
+   (print-guide guide items)
    (if (empty? items)
      (println "  (none)")
      (doseq [item (sort-by (comp str :kw) items)]
@@ -52,9 +54,9 @@
 (defn print-dynamic-section
   ([title items] (print-dynamic-section title items false nil))
   ([title items blocking?] (print-dynamic-section title items blocking? nil))
-  ([title items blocking? suggestion]
+  ([title items blocking? guide]
    (println (section-header title items blocking?))
-   (print-suggestion suggestion items)
+   (print-guide guide items)
    (if (empty? items)
      (println "  (none)")
      (doseq [{:keys [file form row]
@@ -73,14 +75,14 @@
 (defn report
   ([result] (report result nil nil))
   ([result fail-on-rules] (report result fail-on-rules nil))
-  ([result fail-on-rules suggestions]
+  ([result fail-on-rules guides]
    (doseq [[rule-key items] result
            :when (sequential? items)]
      (let [blocking? (blocking-rule? fail-on-rules rule-key)
-           suggestion (get suggestions rule-key)]
+           guide (get guides rule-key)]
        (if (and (seq items) (:form (first items)))
-         (print-dynamic-section (key->title rule-key) items blocking? suggestion)
-         (print-section (key->title rule-key) items blocking? suggestion))))))
+         (print-dynamic-section (key->title rule-key) items blocking? guide)
+         (print-section (key->title rule-key) items blocking? guide))))))
 
 (defn- format-tagged-entry [{:keys [file kw row]} tag]
   (format "  %-7s %-60s %s:%d" tag (str kw) file row))
@@ -96,10 +98,10 @@
     :quiet? - if true, only print new issues
     :source-dir - used to relativize file paths for identity matching
     :fail-on-rules - if non-empty, section headers for matching rules get [BLOCKING]
-    :suggestions - rule-key -> explanation, printed under a non-empty section"
+    :guides - rule-key -> {:text :docs}, printed under a non-empty section"
   ([result new-identities]
    (report-with-baseline result new-identities {}))
-  ([result new-identities {:keys [quiet? source-dir fail-on-rules suggestions]}]
+  ([result new-identities {:keys [quiet? source-dir fail-on-rules guides]}]
    (doseq [[rule-key items] result
            :when (and (sequential? items) (seq items))]
      (let [dynamic? (:form (first items))
@@ -111,7 +113,7 @@
                            items)]
        (when (seq items-to-show)
          (println (section-header (key->title rule-key) items-to-show blocking?))
-         (print-suggestion (get suggestions rule-key) items-to-show)
+         (print-guide (get guides rule-key) items-to-show)
          (doseq [item (sort-by (if dynamic? :file (comp str :kw)) items-to-show)]
            (let [id (baseline/issue->identity rule-key item source-dir)
                  tag (if (contains? new-identities id) "[NEW]" "[BASE]")]

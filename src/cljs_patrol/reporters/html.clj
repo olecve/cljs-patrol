@@ -122,13 +122,14 @@
       (some :hint items) (conj :hint))))
 
 (defn- aggregate-sections [g g-idx run-results]
-  (let [suggs (group/suggestions g)
+  (let [guides (group/guides g)
         first-result (-> run-results first :group-results (nth g-idx))
         display-keys (keep (fn [[k v]] (when (sequential? v) k)) first-result)]
     (mapv (fn [k]
             (let [all-items (vec (mapcat #(-> % :group-results (nth g-idx) (get k)) run-results))]
               {:title (key->title k)
-               :description (get suggs k "")
+               :description (let [{:keys [text docs]} (get guides k)]
+                              (str text (when docs (str " Docs: " docs))))
                :columns (infer-columns all-items)
                :items all-items
                :rule-key k}))

@@ -11,20 +11,15 @@
   "Order name -> where its property list came from, in the order the docs list them."
   (array-map
    :recess {:resource "cljs_patrol/recess_order.edn"
-            :package "stylelint-config-recess-order"
-            :url "https://github.com/stormwarning/stylelint-config-recess-order"}
+            :package "stylelint-config-recess-order"}
    :clean {:resource "cljs_patrol/clean_order.edn"
-           :package "stylelint-config-clean-order"
-           :url "https://github.com/kutsan/stylelint-config-clean-order"}
+           :package "stylelint-config-clean-order"}
    :concentric {:resource "cljs_patrol/concentric_order.edn"
-                :package "stylelint-config-concentric-order"
-                :url "https://github.com/ream88/stylelint-config-concentric-order"}
+                :package "stylelint-config-concentric-order"}
    :smacss {:resource "cljs_patrol/smacss_order.edn"
-            :package "stylelint-config-property-sort-order-smacss"
-            :url "https://github.com/cahamilton/stylelint-config-property-sort-order-smacss"}
+            :package "stylelint-config-property-sort-order-smacss"}
    :idiomatic {:resource "cljs_patrol/idiomatic_order.edn"
-               :package "stylelint-config-idiomatic-order"
-               :url "https://github.com/ream88/stylelint-config-idiomatic-order"}))
+               :package "stylelint-config-idiomatic-order"}))
 
 (def default-order :recess)
 

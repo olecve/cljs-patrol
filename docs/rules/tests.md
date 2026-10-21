@@ -171,7 +171,8 @@ Both spellings count — `^js` and `^{:tag js}` — wherever they are written: a
 or `doseq` binding, map or vector destructuring, or inline on an expression (`(.-textContent ^js %)`). Left alone:
 `^js/Foo`, which names a type rather than asking for inference, and `^clj`, `^boolean`, `^:private` and every other tag;
 the symbol `js` anywhere but the tag slot, so `^:private js` and `^{:doc js}` are not hints; and anything inside a
-quoted or discarded form.
+quoted or discarded form. Only test code is read: a hint in source can be load-bearing, and only a release build's infer
+warnings can say which.
 
 </details>
 

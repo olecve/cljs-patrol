@@ -358,24 +358,15 @@
   (failed? [_ _] false)
   (suggestions [_]
     {:form-after-split-map
-     (str "A form starts on the line where a map split over several lines closes: the next "
-          "map of a vector, the next argument of a call, the next child of a Hiccup element. "
-          "cljfmt's :split-keypairs-over-multiple-lines? splits every map onto one line per "
-          "pair but leaves the forms around it where they are, so the result passes "
-          "`cljfmt check` and reads as a staircase. Put each sibling on its own line, aligned "
-          "with the first. A short string child on the closing line of a Hiccup element's "
-          "props, [button {...} \"Edit\"], is left alone, as is the second half of a binding "
-          "pair, a cond clause or a case clause.")
+     (str "A form starts on the line where a map split over several lines closes, a staircase "
+          "that `cljfmt check` accepts. Put each sibling on its own line, aligned with the first.")
      :split-map-after-sibling
-     (str "A map split over several lines starts after a whole sibling form on the same "
-          "line, as the second map of [{:keys [db]} {:keys [id] :as profile}] or of "
-          "(f {:db db} {:id id :source s}) does once cljfmt splits it. Its pairs then hang "
-          "off a column far to the right of the form they belong to. Start the map on its own "
-          "line, aligned with the sibling before it. Only a map or vector sibling counts by "
-          "default, and not a path vector of plain tokens, a fn's parameters or a let's "
-          "bindings; a map after the head of a call or Hiccup element is never one. Set "
-          ":layout {:split-map-after-symbol true} to also report a map after a plain symbol "
-          "in a parameter list or binding, as in (fn [_ {:keys [id] :as user}]).")})
+     (str "A map split over several lines starts after a sibling form on the same line, so its "
+          "pairs hang off a column far to the right. Start the map on its own line, aligned with "
+          "the sibling before it.")})
+  (docs-anchors [_]
+    {:form-after-split-map "form-after-split-map"
+     :split-map-after-sibling "split-map-after-sibling"})
   (rule->tier [_]
     {:form-after-split-map :cleanup
      :split-map-after-sibling :cleanup})

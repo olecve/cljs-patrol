@@ -2,6 +2,7 @@
   "Baseline support for cljs-patrol: identity extraction, file I/O, and diff logic."
   (:require
    [cljs-patrol.fs :as fs]
+   [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
@@ -210,10 +211,6 @@
 (defn- sort-issues [issues]
   (vec (sort-by sort-key issues)))
 
-(def ^:private tool-version
-  (or (some-> (io/resource "cljs_patrol/VERSION") slurp str/trim not-empty)
-      "dev"))
-
 (def ^:private tier-order
   "Canonical order for `:tier->total`.
   `:bugs` first: it's the reviewer's load-bearing question."
@@ -257,7 +254,7 @@
   (with-open [w (io/writer path)]
     (.write w (str "{:version " baseline-version "\n"))
     (.write w (str " :generated-at \"" (Instant/now) "\"\n"))
-    (.write w (str " :tool-version \"" tool-version "\"\n"))
+    (.write w (str " :tool-version \"" group/tool-version "\"\n"))
     (write-summary w (summarize sorted rule->tier))
     (.write w " :issues\n [")
     (doseq [[i issue] (map-indexed vector sorted)]

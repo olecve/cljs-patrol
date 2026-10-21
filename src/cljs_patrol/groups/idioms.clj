@@ -1155,45 +1155,28 @@
           (mapv negated-equality-finding))}))
 
 (defn- suggestion [min-calls]
-  (str min-calls " or more calls nested one inside another, each passing the one below it "
-       "where a thread would: the first argument, read with ->, or the last, read with ->>. "
-       "The reader has to start at the innermost form and work outwards; a thread reads top "
-       "to bottom in the order the calls run. Rewrite it as the finding spells out. A "
-       "one-argument call counts when its head is known to be a function: a keyword, "
-       "interop, core and clojure.string functions, and the project's own defn and "
-       "defmulti. A call of more arguments counts only where the nested call is the "
-       "function's data, the collection of (map f xs) or the map of (get m k), for core and "
-       "clojure.string functions and method calls. A predicate, not, boolean, seq, not-empty "
-       "or some at the top of the thread is not counted, and a call on a literal stays the "
-       "thread's starting value unless it is the collection of a ->> step."))
+  (str min-calls " or more calls nested one inside another, each passing its result to the "
+       "next, so they read from the inside out. Rewrite them as the -> or ->> thread the "
+       "finding spells out, which reads top to bottom in the order the calls run."))
 
 (def ^:private else-nil-suggestion
-  (str "A cond whose last clause is :else nil, or another keyword or true paired with nil. "
-       "A cond no clause matches returns nil already, so the clause adds nothing, yet it reads "
-       "as a default someone chose, and the reader has to check that it is not. Drop it."))
+  (str "A cond ends in :else nil, or another keyword or true paired with nil. A cond no clause "
+       "matches returns nil already, so the clause only looks like a chosen default. Drop it."))
 
 (def ^:private negated-test-suggestion
-  (str "An if or when whose test is (not x). if-not and when-not carry the negation in their "
-       "name, so the test reads as written, with one pair of parentheses less. Write "
-       "(if-not x a b) or (when-not x ...)."))
+  (str "An if or when tests (not x). Write (if-not x a b) or (when-not x ...), which carry the "
+       "negation in their name."))
 
 (def ^:private into-empty-suggestion
-  (str "(into [] xs) or (into #{} xs): pouring one collection into an empty vector or set. vec "
-       "and set name the collection they build. Write (vec xs) or (set xs). It counts only "
-       "where xs is a literal or a call of a core function returning a seq or a new plain "
-       "collection: vec aliases an array, and set returns a set, a sorted one included, "
-       "where into builds a new collection."))
+  (str "(into [] xs) or (into #{} xs) pours a collection into an empty vector or set. Write "
+       "(vec xs) or (set xs), which name the collection they build."))
 
 (def ^:private plus-minus-one-suggestion
-  (str "(+ x 1) or (- x 1): adding or subtracting a literal 1. inc and dec name the step, "
-       "so the reader sees a counter move by one without checking the literal. Write (inc x) "
-       "or (dec x), and, in ClojureScript, inc or dec for #(+ % 1). Only a trailing 1 "
-       "counts: in ClojureScript (+ 1 s) puts the 1 before a string s, where inc puts it "
-       "after. A number operand, as in (+ 30 1), is arithmetic spelled out and is left alone."))
+  (str "(+ x 1) or (- x 1) adds or subtracts a literal 1. Write (inc x) or (dec x), which name "
+       "the step, and, in ClojureScript, inc or dec for #(+ % 1)."))
 
 (def ^:private negated-equality-suggestion
-  (str "(not (= a b)): negating an equality. not= says it in one name, and is defined as "
-       "exactly that. Write (not= a b)."))
+  "(not (= a b)) negates an equality. Write (not= a b), which says it in one name.")
 
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup
@@ -1215,6 +1198,13 @@
                     :into-empty into-empty-suggestion
                     :plus-minus-one plus-minus-one-suggestion
                     :negated-equality negated-equality-suggestion})
+  (docs-anchors [_]
+    {:cond-else-nil "cond-else-nil"
+     :into-empty "into-empty"
+     :negated-equality "negated-equality"
+     :negated-test "negated-test"
+     :nested-call-chain "nested-call-chain"
+     :plus-minus-one "plus-or-minus-one"})
   (rule->tier [_] {:nested-call-chain :cleanup
                    :cond-else-nil :cleanup
                    :negated-test :cleanup

@@ -216,9 +216,14 @@
   (failed? [_ result] (failed?* result))
   (suggestions [_]
     {:defclass-as-sole-attr
-     "Declared with defclass but every usage is {:class (style-fn)}. Use defattrs instead to avoid the :class wrapper."
+     (str "Every use of this defclass is {:class (style-fn)}. Declare it with defattrs and pass (style-fn) as the props "
+          "map, without the :class wrapper.")
      :redundant-into-hiccup
-     "The mapped body already attaches a `:key` to every element it produces, so nothing is left for the `into` to earn: write the sequence inside the Hiccup vector instead — `[:<> (for [x xs] ^{:key x} [item x])]`. A keyless sequence is not flagged; there the `into` is load-bearing, splicing the elements in as positional children so React never sees a sequence missing its keys."})
+     (str "The mapped body already gives every element a :key, so the into does nothing useful. Put the sequence "
+          "inside the Hiccup vector: [:<> (for [x xs] ^{:key x} [item x])].")})
+  (docs-anchors [_]
+    {:defclass-as-sole-attr "defclass-as-sole-attr"
+     :redundant-into-hiccup "redundant-into-around-hiccup"})
   (rule->tier [_]
     {:defclass-as-sole-attr :deprecations
      :redundant-into-hiccup :cleanup})

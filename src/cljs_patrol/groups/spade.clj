@@ -169,17 +169,28 @@
   (failed? [_ result] (failed?* result))
   (suggestions [_]
     {:unused-styles
-     "Declared with defclass or defattrs but never called. Remove the declaration, or add a call site where the style should be applied."
+     "Nothing calls this defclass or defattrs. Remove it, or call it where the style should apply."
      :defattrs-in-merge
-     "Declared with defattrs but used inside merge. Use defclass instead so callers can pass it via :class without merge."
+     "This defattrs is merged into props. Declare it with defclass and pass it as :class, so no merge is needed."
      :pseudo-in-main-map
-     "Pseudo-selector key placed inside the main style map. Spade emits it as an invalid CSS property, so the rule is silently dropped. Move it out into its own vector, e.g. [:&:hover {...}], after the main map."
+     (str "Spade emits a pseudo-selector key inside a style map as an invalid CSS property and drops the rule. Move it into "
+          "its own vector after the map, e.g. [:&:hover {...}].")
      :consecutive-self-selectors
-     "Two or more self-selector keywords (e.g. :&:before :&:after) appear consecutively before the style map. Garden treats [:a :b {...}] as a descendant selector (a b), not the comma-joined selector the author intended. Split into separate sibling vectors ([:&:before {...}] [:&:after {...}]) or use a set for comma-join (#{:&:before :&:after})."
+     (str "Garden compiles [:&:before :&:after {...}] to a descendant selector, not a comma-joined one. "
+          "Split it into sibling vectors [:&:before {...}] [:&:after {...}].")
      :spade-ampersand-not-at-start
-     "Garden only substitutes & at the start of a string selector; move & to position 0 or restructure the selector."
+     (str "Garden replaces & only at the start of a string selector; anywhere else it stays as literal text and the rule "
+          "matches nothing. Move & to the front, or restructure the selector.")
      :spade-keyword-combinator-selector
-     "Combinators inside Spade selector vectors are treated as separate selectors joined by ,, not applied to the following element. Use the string form, e.g. [\"> span\" {...}] for the child combinator."})
+     (str "Garden reads a keyword combinator like :> as its own selector in a comma list, not as a link to the next "
+          "element. Use the string form, e.g. [\"> span\" {...}].")})
+  (docs-anchors [_]
+    {:consecutive-self-selectors "consecutive-self-selectors"
+     :defattrs-in-merge "defattrs-in-merge"
+     :pseudo-in-main-map "pseudo-selector-in-spade-main-map"
+     :spade-ampersand-not-at-start "ampersand-not-at-start"
+     :spade-keyword-combinator-selector "keyword-combinator-selector"
+     :unused-styles "unused-styles"})
   (rule->tier [_]
     {:unused-styles :cleanup
      :defattrs-in-merge :deprecations
