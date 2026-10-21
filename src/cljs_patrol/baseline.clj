@@ -17,7 +17,7 @@
   "Rules identified by the var they name plus the file it is in.
   A test var's name is what the finding is about, so it is the identity; the row moves
   whenever anything above it does."
-  #{:deftest-leading-article})
+  #{:deftest-leading-article :lookup-helper-name})
 
 (def ^:private form-keyed-rules
   "Rules identified by the form at fault plus the file it is in.

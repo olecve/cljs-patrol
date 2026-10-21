@@ -58,3 +58,46 @@ or an `is` whose name an enclosing form binds anew, a `let` or `fn` local, a `le
 `binding`, since the name then may not be the library's.
 
 </details>
+
+### Lookup helper name
+
+`lookup-helper-name` · cleanup — A helper returning a lookup, named without the prefix of what that lookup does on a
+miss.
+
+```clojure
+;; flagged
+(defn- query-save-button []
+  (s/get-by-role "button" {:name "Save"}))
+
+;; fix
+(defn- get-save-button []
+  (s/get-by-role "button" {:name "Save"}))
+```
+
+**Left alone:**
+
+```clojure
+(defn- query-save-button []
+  (s/query-by-role "button" {:name "Save"})) ; named for the lookup it returns
+
+(defn- save-button-text []
+  (.-textContent (s/get-by-role "button" {:name "Save"}))) ; returns more than the lookup
+```
+
+<details>
+<summary>Details</summary>
+
+A lookup's prefix says what it does when nothing matches: `get-by-*` throws, `query-by-*` returns nil and `find-by-*`
+returns a promise that rejects. A helper that only returns a lookup hands that behavior to its caller, so its name
+carries the same prefix: `get-`, `query-` or `find-`. A `query-` helper wrapping `get-by-*` is the costly case: the
+caller asserts absence through it, `(is (nil? (query-save-button)))`, and gets an error instead of a pass. The hint
+names the rename, keeping the rest of the name.
+
+Reported for a `defn` or `defn-` with one arity whose body is a single call to a lookup of `screen` or `within`,
+recognized through the namespace's `:require` as for the [presence check](#get-by-presence-check). The `-all-` forms
+take the same prefix, so `get-rows` may return `get-all-by-role`. A nested lookup is judged by the outer call, as in
+`(within/get-by-role (s/get-by-role "radiogroup") "radio")`. Left alone: a body doing anything besides the lookup, or
+handing it to another function; a helper with several arities; a `defmethod`, or a function bound with `def` or `fn`;
+and a lookup whose name a parameter, a `let`, a `letfn`, a `with-redefs` or a `binding` binds anew.
+
+</details>
