@@ -367,3 +367,34 @@
       {:declarations (mapcat :declarations results)
        :usages (mapcat :usages results)
        :dynamic-sites (mapcat :dynamic-sites results)})))
+
+(defn descendant-locs
+  "Return the locs strictly inside `loc`, confined to it.
+
+  On the file's own zipper rather than a `z/subzip` of it: a subzip restarts position
+  tracking, and a finding reported from one names line 1 of the form instead of its line
+  in the file."
+  [loc]
+  (let [inside? (fn [candidate]
+                  (loop [current candidate]
+                    (cond
+                      (nil? current) false
+                      (identical? (z/node current) (z/node loc)) true
+                      :else (recur (z/up current)))))]
+    (take-while #(and % (not (z/end? %)) (inside? %))
+                (rest (iterate #(some-> % z/next) loc)))))
+
+(defn enclosing-definition-name
+  "Return the name of the nearest enclosing `def`-like form, or nil.
+
+  A deref's own text is often just a var name, so two reads of one var in a file would be
+  a single baseline identity. What the read sits in — a test, a fixture, a helper — tells
+  them apart and moves with the code, where a row does not."
+  [loc]
+  (loop [current (z/up loc)]
+    (cond
+      (nil? current) nil
+      (and (= :list (z/tag current))
+           (some-> current z/down sym-name (str/starts-with? "def")))
+      (some-> (declared-name-loc current) sym-name)
+      :else (recur (z/up current)))))

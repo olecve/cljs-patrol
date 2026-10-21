@@ -22,7 +22,8 @@
   (str "(:require [re-frame.core :as rf]"
        " [spade.core :refer [defclass defattrs]]"
        " [clojure.string :as str]"
-       " [clojure.test :refer [deftest is testing]])"))
+       " [clojure.test :refer [deftest is testing]]"
+       " [react-testing-library-cljs.screen :as s])"))
 
 (defn- chunks
   "Split code into chunks of top-level forms, a blank line between two forms ending a chunk.

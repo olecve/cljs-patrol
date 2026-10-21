@@ -7,6 +7,7 @@
    [cljs-patrol.groups.idioms :as idioms]
    [cljs-patrol.groups.layout :as layout]
    [cljs-patrol.groups.re-frame :as re-frame]
+   [cljs-patrol.groups.react-testing-library-cljs :as react-testing-library-cljs]
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
    [cljs-patrol.groups.tests :as tests]
@@ -17,7 +18,7 @@
 
 (def ^:private all-groups
   [re-frame/group spade/group reagent/group typography/group a11y/group docstrings/group
-   css-order/group tests/group layout/group idioms/group])
+   css-order/group tests/group react-testing-library-cljs/group layout/group idioms/group])
 
 (def ^:private rule->tier
   (severity/collect-rule->tier all-groups))
@@ -129,7 +130,7 @@
            :docstring-summary :docstring-indentation
            :docstring-leading-trailing-whitespace
            :css-property-order-outside-in
-           :deftest-leading-article :assertion-message-inline :conditional-assertion
+           :deftest-leading-article :assertion-message-inline :conditional-assertion :get-by-presence-check
            :var-deref-in-test :js-hint-in-test
            :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality}
          (severity/tier->rules rule->tier :cleanup)))
@@ -229,7 +230,7 @@
                :docstring-summary :docstring-indentation
                :docstring-leading-trailing-whitespace
                :css-property-order-outside-in
-               :deftest-leading-article :assertion-message-inline :conditional-assertion
+               :deftest-leading-article :assertion-message-inline :conditional-assertion :get-by-presence-check
                :var-deref-in-test :js-hint-in-test
                :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality}
              (->> tiered :cleanup (map :rule) set))))

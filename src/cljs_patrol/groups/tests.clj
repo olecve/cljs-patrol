@@ -87,33 +87,17 @@
            (contains? #{"fn" "fn*"} (parser/sym-name (z/down current)))) true
       :else (recur (z/up current)))))
 
-(defn- descendant-locs
-  "Return the locs strictly inside `loc`, confined to it.
-
-  On the file's own zipper rather than a `z/subzip` of it: a subzip restarts position
-  tracking, and a finding reported from one names line 1 of the form instead of its line
-  in the file."
-  [loc]
-  (let [inside? (fn [candidate]
-                  (loop [current candidate]
-                    (cond
-                      (nil? current) false
-                      (identical? (z/node current) (z/node loc)) true
-                      :else (recur (z/up current)))))]
-    (take-while #(and % (not (z/end? %)) (inside? %))
-                (rest (iterate #(some-> % z/next) loc)))))
-
 (defn- holds-assertion? [loc]
   (boolean (some #(and (= :list (z/tag %))
                        (contains? assertion-heads (parser/sym-name (z/down %))))
-                 (descendant-locs loc))))
+                 (parser/descendant-locs loc))))
 
 (defn- conditional-in-assertion
   "Return the conditional an assertion computes its expectation with, or nil."
   [loc]
   (when (contains? assertion-heads (some-> loc z/down parser/sym-name))
     (->> loc
-         descendant-locs
+         parser/descendant-locs
          (filter #(and (= :list (z/tag %))
                        (contains? conditional-heads (parser/sym-name (z/down %)))
                        (not (inside-function-literal? % loc))))
@@ -186,21 +170,6 @@
     (boolean (some #(under-path? file %) paths))
     (boolean (and ns-name (str/ends-with? ns-name "-test")))))
 
-(defn- enclosing-definition-name
-  "Return the name of the nearest enclosing `def`-like form, or nil.
-
-  A deref's own text is often just a var name, so two reads of one var in a file would be
-  a single baseline identity. What the read sits in — a test, a fixture, a helper — tells
-  them apart and moves with the code, where a row does not."
-  [loc]
-  (loop [current (z/up loc)]
-    (cond
-      (nil? current) nil
-      (and (= :list (z/tag current))
-           (some-> current z/down parser/sym-name (str/starts-with? "def")))
-      (some-> (parser/declared-name-loc current) parser/sym-name)
-      :else (recur (z/up current)))))
-
 (defn- inside-written-out-quote?
   "True when a `(quote …)` list encloses loc.
 
@@ -268,7 +237,7 @@
       (when-let [deref-loc (deref-around var-loc)]
         (when (and (not (hiccup/inside-unrendered-form? deref-loc))
                    (not (inside-written-out-quote? deref-loc)))
-          (var-deref-finding deref-loc (enclosing-definition-name deref-loc) file))))))
+          (var-deref-finding deref-loc (parser/enclosing-definition-name deref-loc) file))))))
 
 (def ^:private js-tag "js")
 
@@ -326,7 +295,7 @@
     (when-let [hint-loc (js-type-hint loc)]
       (when-not (or (hiccup/inside-unrendered-form? hint-loc)
                     (inside-written-out-quote? hint-loc))
-        (js-hint-finding hint-loc (enclosing-definition-name hint-loc) file)))))
+        (js-hint-finding hint-loc (parser/enclosing-definition-name hint-loc) file)))))
 
 (defn- leading-article-finding [loc file]
   (when (contains? deftest-heads (some-> loc z/down parser/sym-name))

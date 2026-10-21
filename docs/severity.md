@@ -33,7 +33,7 @@ screen-reader user cannot reach, name or tell apart, and a Spade selector that m
 - `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `redundant-into-hiccup`
 - `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace`
 - `css-property-order-outside-in`, `deftest-leading-article`, `assertion-message-inline`, `conditional-assertion`,
-  `var-deref-in-test`, `js-hint-in-test`
+  `var-deref-in-test`, `js-hint-in-test`, `get-by-presence-check`
 - `form-after-split-map`, `split-map-after-sibling`, `nested-call-chain`, `cond-else-nil`, `negated-test`, `into-empty`,
   `plus-minus-one`, `negated-equality`
 
