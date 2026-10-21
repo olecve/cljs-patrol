@@ -36,7 +36,8 @@
   time a line moves above a finding."
   #{:assertion-message-inline :conditional-assertion :var-deref-in-test :js-hint-in-test
     :form-after-split-map :split-map-after-sibling :nested-call-chain
-    :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality})
+    :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality
+    :get-by-presence-check})
 
 (def ^:private keyword-keyed-rules
   "Rules where the issue is uniquely identified by its keyword."
