@@ -157,20 +157,35 @@
      (or (seq blocking-new)
          (and strict-baseline (seq fixed-issues))))))
 
+(defn- analyze-groups [source-dir parsed-data enabled-groups]
+  {:source-dir source-dir
+   :group-results (mapv (fn [group]
+                          (->> parsed-data
+                               (group/analyze group)
+                               (severity/annotate-tiers group)))
+                        enabled-groups)})
+
+(defn run-all
+  "Analyze each of source-dirs with enabled-groups, return one {:source-dir … :group-results [...]} per directory.
+  Each directory is judged on its own findings, while `:usages-in-run` hands every group the
+  usages of all of them, for a rule whose evidence may sit in another directory of the run."
+  [source-dirs enabled-groups]
+  (let [parsed (mapv #(parser/analyze-project % enabled-groups) source-dirs)
+        usages-in-run (vec (mapcat :usages parsed))]
+    (mapv (fn [source-dir {:keys [declarations dynamic-sites usages]}]
+            (analyze-groups source-dir
+                            {:declarations declarations
+                             :dynamic-sites dynamic-sites
+                             :usages usages
+                             :usages-in-run usages-in-run}
+                            enabled-groups))
+          source-dirs
+          parsed)))
+
 (defn run
   "Analyze source-dir with enabled-groups, return {:source-dir source-dir :group-results [...]}."
   [source-dir enabled-groups]
-  (let [{:keys [declarations dynamic-sites usages]} (parser/analyze-project source-dir enabled-groups)
-        parsed-data {:declarations declarations
-                     :dynamic-sites dynamic-sites
-                     :usages usages}
-        group-results (mapv (fn [group]
-                              (->> parsed-data
-                                   (group/analyze group)
-                                   (severity/annotate-tiers group)))
-                            enabled-groups)]
-    {:source-dir source-dir
-     :group-results group-results}))
+  (first (run-all [source-dir] enabled-groups)))
 
 (defn- run-results->results [run-results]
   (mapcat :group-results run-results))
@@ -350,7 +365,7 @@
                           "."))
             (println (str "WARN: --experimental-clj does nothing here. No enabled group reads .clj; "
                           "the groups that can are docstrings, tests, layout and idioms.")))))
-      (let [run-results (cond-> (mapv #(run % enabled-groups) dirs)
+      (let [run-results (cond-> (run-all dirs enabled-groups)
                           (:files opts) (filter-run-results (:files opts)))]
         (cond
           (:baseline-write opts)

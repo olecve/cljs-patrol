@@ -9,6 +9,7 @@
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
+   [rewrite-clj.node :as n]
    [rewrite-clj.zip :as z]))
 
 (def ^:private snippet-edn-max
@@ -962,6 +963,125 @@
          (not (aria-hidden? attrs))
          (not (named-by-caption? loc tag)))))
 
+(defn- unreferenced-id-candidate
+  "Return the literal id an element relies on for its name, else nil.
+  Only an element that [[missing-accessible-name?]] lets go on its id alone qualifies,
+  and only an id written out as one whitespace-free string, in the props or the tag
+  shorthand. Either way the element writes one literal containing it."
+  [{:keys [attrs]
+    :as info} tag loc]
+  (when (and (name-required-tag? tag loc)
+             (contains? label-named-tags tag)
+             (props-name-nothing? info loc)
+             (not (inside-label? loc))
+             (not (and (= :switch tag) (seq (body-locs loc)))))
+    (let [shorthand (shorthand-id loc)
+          id-written? (attr-written? attrs :id)
+          literal (literal-sexpr (get attrs :id))]
+      (cond
+        (and shorthand (not id-written?)) shorthand
+        (and (not shorthand) (string? literal) (re-matches #"\S+" literal)) literal))))
+
+(defn- unreferenced-id-hint [id]
+  (format "No other literal in the run contains the id %s, so no label points at it. Point a [:label {:for %s}] at it, or pass :aria-label."
+          (pr-str id) (pr-str id)))
+
+(def ^:private id-reference-names
+  "Names an attribute pointing at an element by its id goes by.
+  It is spelled as a Reagent key, as a DOM property, or as the string a `#js` object,
+  `js-obj` or `.setAttribute` takes."
+  #{"for" "html-for" "htmlFor" "aria-labelledby" ".-htmlFor" "-htmlFor"})
+
+(defn- literal-value
+  "Return the sexpr of a token or string node the source writes out, else ::non-literal."
+  [node]
+  (if (contains? #{:token :multi-line} (n/tag node))
+    (try (n/sexpr node) (catch Exception _ ::non-literal))
+    ::non-literal))
+
+(defn- literal-text
+  "Return the text a literal value could spell an id with, or nil for a symbol left unquoted.
+  A keyword gives its name and a number or character its printed form, since `str`,
+  `name` and Reagent all render them that way."
+  [value quoted?]
+  (cond
+    (= ::non-literal value) nil
+    (string? value) value
+    (keyword? value) (name value)
+    (or (number? value) (char? value)) (str value)
+    (symbol? value) (when quoted? (name value))))
+
+(defn- computed-reference?
+  "True when the value names an id-reference attribute and the value after it is not written out."
+  [value next-value]
+  (and (or (string? value) (symbol? value) (keyword? value))
+       (contains? id-reference-names (name value))
+       (not (or (string? next-value)
+                (number? next-value)
+                (and (keyword? next-value) (not= ::non-literal next-value))))))
+
+(defn- quoting?
+  "True when the node quotes its children, so a symbol inside is written out as a name."
+  [node]
+  (or (contains? #{:quote :syntax-quote} (n/tag node))
+      (and (= :list (n/tag node))
+           (= 'quote (some-> (first (remove n/whitespace-or-comment? (n/children node))) literal-value)))))
+
+(defn- scan-file-literals [root-node]
+  (let [literals (volatile! (transient {}))
+        computed? (volatile! false)
+        visit (fn visit [parent]
+                (let [quoted? (quoting? parent)]
+                  (loop [children (seq (n/children parent))
+                         previous ::none]
+                    (if-let [child (first children)]
+                      (cond
+                        (n/whitespace-or-comment? child) (recur (next children) previous)
+                        (n/inner? child) (do (visit child)
+                                             (when (computed-reference? previous ::non-literal)
+                                               (vreset! computed? true))
+                                             (recur (next children) ::non-literal))
+                        :else (let [value (literal-value child)
+                                    text (literal-text value quoted?)]
+                                (when text
+                                  (vswap! literals assoc! text (inc (get @literals text 0))))
+                                (when (computed-reference? previous value)
+                                  (vreset! computed? true))
+                                (recur (next children) value)))
+                      (when (computed-reference? previous nil)
+                        (vreset! computed? true))))))]
+    (visit root-node)
+    {:literals (persistent! @literals)
+     :computed-reference? @computed?}))
+
+(def ^:private file-literals-root
+  "Root node of the file whose literals were last collected.
+  Keyed by identity, as [[aria-reference-index]] is, so a file parsed again is collected again."
+  (atom nil))
+
+(defn- file-literals
+  "Collect what can point an id at an element in the file of `loc`, once per file.
+  An id is referenced when another literal in the run contains it: a `:for`, an
+  `aria-labelledby` list, a markup string, or a constant either is built from. Lists are
+  where a file is met, so a file holding none, not even an `ns` form, is not read."
+  [loc]
+  (let [root (file-root loc)]
+    (when-not (identical? (z/node root) @file-literals-root)
+      (reset! file-literals-root (z/node root))
+      {:decls []
+       :dynamics []
+       :usages [(assoc (scan-file-literals (z/node root)) :type ::file-literals)]})))
+
+(defn- unreferenced-id?
+  "True when nothing in the run can point at the candidate's id.
+  Another literal containing the id refers to it. Once any reference in the run is
+  computed, so does any other literal the id contains, since it may be one of the pieces
+  the reference is built from."
+  [literals computed-reference? {:keys [id]}]
+  (and (= 1 (->> literals (filter #(str/includes? (key %) id)) (map val) (reduce + 0)))
+       (not (and computed-reference?
+                 (some #(and (not= id %) (str/includes? id %)) (keys literals))))))
+
 (def ^:private dom-attr-prefixes ["aria-" "data-" "on-" "on"])
 
 (def ^:private dom-attr-keys
@@ -1164,6 +1284,7 @@
               aria-live-conflict (contradicting-aria-live info)
               repeated-name (repeated-accessible-name info tag loc ns-info component-aliases)
               nested-control (nested-interactive-loc info loc tag ns-info component-aliases)
+              unreferenced-id (unreferenced-id-candidate info tag loc)
               hidden-self? (aria-hidden-focusable? info tag)
               hidden-descendant (when-not hidden-self?
                                   (hidden-focusable-descendant info loc ns-info component-aliases))
@@ -1188,6 +1309,11 @@
 
                        (missing-accessible-name? info tag loc)
                        (conj (assoc base :type :missing-accessible-name))
+
+                       unreferenced-id
+                       (conj (assoc base
+                                    :type ::unreferenced-id-candidate
+                                    :id unreferenced-id))
 
                        (label-not-associated? info tag loc ns-info component-aliases)
                        (conj (assoc base :type :label-not-associated))
@@ -1217,17 +1343,28 @@
              :dynamics []
              :usages usages}))))))
 
-(defn- analyze* [{:keys [usages]}]
+(defn- analyze* [{:keys [usages usages-in-run]}]
   ;; The parser pools :usages across ALL enabled groups into one seq before
   ;; each group's `analyze` is called (see parser/analyze-project + core/run).
   ;; This filter is REQUIRED to keep other groups' usages (:sub, :event,
   ;; :style-call, ...) out of the a11y result — not defensive code.
-  (let [by-type (group-by :type usages)]
+  (let [by-type (group-by :type usages)
+        run-files (filter #(= ::file-literals (:type %)) (or usages-in-run usages))
+        literals (apply merge-with + (map :literals run-files))
+        computed-reference? (some :computed-reference? run-files)
+        unreferenced-ids (->> (::unreferenced-id-candidate by-type)
+                              (filter #(unreferenced-id? literals computed-reference? %))
+                              (map #(-> %
+                                        (assoc :type :missing-accessible-name
+                                               :hint (unreferenced-id-hint (:id %)))
+                                        (dissoc :id))))]
     {:img-alt-missing (vec (:img-alt-missing by-type))
      :invalid-tabindex (vec (:invalid-tabindex by-type))
      :on-click-on-non-interactive (vec (:on-click-on-non-interactive by-type))
      :empty-interactive-element (vec (:empty-interactive-element by-type))
-     :missing-accessible-name (vec (:missing-accessible-name by-type))
+     :missing-accessible-name (->> (concat (:missing-accessible-name by-type) unreferenced-ids)
+                                   (sort-by (juxt :file :row :col))
+                                   vec)
      :label-not-associated (vec (:label-not-associated by-type))
      :aria-hidden-focusable (vec (:aria-hidden-focusable by-type))
      :nested-interactive-element (vec (:nested-interactive-element by-type))
@@ -1272,7 +1409,9 @@
   (group-name [_] "A11y")
   (parse-handlers [_]
     {:handle-vector (fn [loc ns-info file]
-                      (handle-vector* loc ns-info file component-aliases))})
+                      (handle-vector* loc ns-info file component-aliases))
+     :handle-list (fn [loc _ns-info _file]
+                    (file-literals loc))})
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ result] (failed?* result))
@@ -1327,7 +1466,8 @@
           "its role inside itself, mapped to the widget role it renders: `:combobox`, "
           "`:searchbox`, `:slider`, `:spinbutton` or `:switch`. A `<label>` wrapping a "
           "textarea or a widget that renders a labelable control, or one whose `for` may "
-          "point at its `:id`, names it. "
+          "point at its `:id`, names it. An element named only by a literal `:id` is "
+          "reported when no other literal in the run contains that id. "
           "See: WCAG 2.1 SC 4.1.2 Name, Role, Value — "
           "https://www.w3.org/WAI/WCAG21/Understanding/name-role-value")
      :repeated-accessible-name

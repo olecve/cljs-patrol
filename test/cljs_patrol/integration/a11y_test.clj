@@ -1331,6 +1331,69 @@
               set))
       "each finding names the widget role its wrapper is mapped to"))
 
+(def ^:private ids-project "test-projects/a11y-ids")
+
+(def ^:private ids-file (str ids-project "/app/idsapp/ids.cljs"))
+
+(defn- run-ids-project
+  ([dirs] (run-ids-project dirs {}))
+  ([dirs component-aliases]
+   (->> (core/run-all (mapv #(str ids-project "/" %) dirs)
+                      [(a11y/make-group {:component-aliases component-aliases})])
+        (mapcat #(-> % :group-results first :missing-accessible-name)))))
+
+(defn- ids-project-fn-names [file findings]
+  (set (fn-names-in (str ids-project "/" file) findings)))
+
+(deftest missing-accessible-name-unreferenced-id-fixture-test
+  (let [findings (run-ids-project ["app"] widget-aliases)]
+    (is (= ["bad-dialog-orphan-id"
+            "bad-select-orphan-id"
+            "bad-textarea-orphan-id"
+            "bad-textarea-orphan-shorthand"]
+           (sort (fn-names-in ids-file findings)))
+        "only id no other string writes is reported, once")
+    (is (= (sort-by :row (filter #(= ids-file (:file %)) findings))
+           (filter #(= ids-file (:file %)) findings))
+        "findings keep source order")
+    (is (= #{"No other literal in the run contains the id \"orphan-select\", so no label points at it. Point a [:label {:for \"orphan-select\"}] at it, or pass :aria-label."
+             "No other literal in the run contains the id \"orphan-notes\", so no label points at it. Point a [:label {:for \"orphan-notes\"}] at it, or pass :aria-label."
+             "No other literal in the run contains the id \"orphan-shorthand\", so no label points at it. Point a [:label {:for \"orphan-shorthand\"}] at it, or pass :aria-label."}
+           (->> findings
+                (filter #(= ids-file (:file %)))
+                (keep :hint)
+                set))
+        "each finding names its id")))
+
+(deftest missing-accessible-name-unreferenced-id-across-directories-test
+  (is (= #{"bad-orphan-id"}
+         (ids-project-fn-names "app/idsapp/form.cljs" (run-ids-project ["app" "shared"])))
+      "label in another directory of run points at id")
+  (is (= #{"bad-orphan-id" "ok-labelled-from-shared-dir"}
+         (ids-project-fn-names "app/idsapp/form.cljs" (run-ids-project ["app"])))
+      "label outside run is not seen")
+  (is (empty? (ids-project-fn-names "cljc/idsapp/form.cljs" (run-ids-project ["cljc"])))
+      "label inside reader conditional points at id")
+  (is (empty? (ids-project-fn-names "cljc/idsapp/form.cljs" (run-ids-project ["cljc"])))
+      "file opening on reader conditional is read again on second run"))
+
+(deftest missing-accessible-name-unreferenced-id-computed-reference-test
+  (is (= #{"bad-id-no-literal-contains"}
+         (ids-project-fn-names "computed/idsapp/field.cljs" (run-ids-project ["computed"])))
+      "computed for may be built from any literal id contains")
+  (is (= #{"bad-id-no-literal-contains"}
+         (ids-project-fn-names "computed-js/idsapp/field.cljs" (run-ids-project ["computed-js"])))
+      "string key names computed reference")
+  (is (= #{"bad-id-no-literal-contains"}
+         (ids-project-fn-names "computed-prop/idsapp/field.cljs" (run-ids-project ["computed-prop"])))
+      "dom property names computed reference")
+  (is (= #{"bad-id-no-literal-contains"}
+         (ids-project-fn-names "computed-interop/idsapp/field.cljs" (run-ids-project ["computed-interop"])))
+      "interop property names computed reference")
+  (is (= #{"bad-id-no-literal-contains"}
+         (ids-project-fn-names "computed-prop/idsapp/field.cljs" (run-ids-project ["computed-prop"])))
+      "same file analyzed twice in a row is read again"))
+
 (deftest label-not-associated-widget-fixture-test
   (is (= #{"bad-dialog-in-label"
            "bad-label-around-literal-switch"}
