@@ -77,6 +77,30 @@
       (finally
         (fs/delete-tree! dir)))))
 
+(deftest baseline-write-refusal-test
+  (let [kept {:rule :unused-subs
+              :key :app/kept}
+        added {:rule :unused-subs
+               :key :app/added}
+        path (fs/tmp-file-path "baseline-" ".edn")]
+    (is (nil? (core/baseline-write-refusal path #{kept} false))
+        "first write goes through")
+    (baseline/write-baseline path #{kept})
+    (is (nil? (core/baseline-write-refusal path #{kept} false))
+        "unchanged findings go through")
+    (is (nil? (core/baseline-write-refusal path #{} false))
+        "fixed findings go through")
+    (is (= {:added #{added}}
+           (core/baseline-write-refusal path #{kept added} false))
+        "added finding is refused")
+    (is (nil? (core/baseline-write-refusal path #{kept added} true))
+        "allow-new writes added finding")
+    (spit path "[1 2 3]")
+    (is (some? (:error (core/baseline-write-refusal path #{kept} false)))
+        "unreadable baseline is refused")
+    (is (nil? (core/baseline-write-refusal path #{kept} true))
+        "allow-new overwrites unreadable baseline")))
+
 (deftest baseline-compare-integration-test
   (let [enabled-groups [re-frame/group spade/group]
         run-results [(core/run fixture-dir enabled-groups)]

@@ -28,14 +28,56 @@ Exits `0` if every found issue is in the baseline. Exits `1` only on **new** iss
 
 ## Why baselines survive refactors and reformats
 
-Every issue is identified by what it is, never by its line: a re-frame issue by its fully-qualified keyword; a style,
-typography or docstring issue by its namespace and var; a test name by the var it names; and a Hiccup, test-code or
-layout issue by its file and its source text with whitespace collapsed. Moving code, renaming a file that holds a
+Every issue but two is identified by what it is, never by its line: a re-frame issue by its fully-qualified keyword; a
+style, typography or docstring issue by its namespace and var; a test name by the var it names; and a Hiccup, test-code
+or layout issue by its file and its source text with whitespace collapsed. Moving code, renaming a file that holds a
 registration, or running `cljfmt` leaves the baseline as it is, while an offending form with different source text still
-counts as new.
+counts as new. The two exceptions are a deprecated effect and a dynamic dispatch or subscribe site, identified by their
+file and line: a line added above one makes it count as new.
 
 A baseline written by an older release can carry an older format version. The tool then stops with an error asking you
-to run `--baseline-write` once.
+to run `--baseline-write --allow-new` once.
+
+## Rewriting the baseline
+
+Once a baseline exists, `--baseline-write` only shrinks it. A write that would add a finding the baseline lacks is
+refused: the file is left as it was, the findings are listed, and the run exits `1`.
+
+```bash
+clojure -M:run --baseline-write src/cljs/myapp   # a finding was fixed: written, the baseline loses its entry
+clojure -M:run --baseline-write src/cljs/myapp   # a finding was added: refused, nothing written
+```
+
+```
+=== Missing accessible name (1) ===
+  [NEW]   src/cljs/myapp/settings.cljs:12  [:textarea {:on-change on-change}]
+
+Refusing to write src/cljs/myapp/.cljs-patrol/baseline.edn: the [NEW] findings above are not in it. Fix them, or pass --allow-new to add them.
+```
+
+Pass `--allow-new` when the additions are meant, as after upgrading cljs-patrol, changing `.cljs-patrol/config.edn`, or
+moving a deprecated effect or dynamic site to another line:
+
+```bash
+clojure -M:run --baseline-write --allow-new src/cljs/myapp
+```
+
+<details>
+<summary>Why a write is refused</summary>
+
+`--baseline` blocks a new finding; rewriting the baseline is how a finding stops counting as new. Without the guard,
+fixing a red CI run and accepting the bug that turned it red are the same command. With it, accepting is a separate flag
+that shows up in the command and in review.
+
+The first write, with no baseline file yet, needs no flag. A baseline that cannot be compared, an older format version
+or a file that does not parse, stops the write with the read error unless `--allow-new` is passed. `--allow-new` without
+`--baseline-write` is an error.
+
+A write records only the groups it runs. Run it with the same `--only` or `--disable` as the `--baseline` check: a
+narrower write drops the other groups' entries as if fixed, and a later full write then needs `--allow-new` to put them
+back.
+
+</details>
 
 ## Output with baseline
 

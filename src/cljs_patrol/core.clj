@@ -81,6 +81,7 @@
    [nil "--files FILES" "Limit results to these files (comma-separated)"
     :parse-fn #(str/split % #",")]
    [nil "--baseline-write" "Write current issues to baseline file and exit 0"]
+   [nil "--allow-new" "Let --baseline-write add issues the existing baseline does not have"]
    [nil "--baseline" "Compare against baseline; exit 1 only on new issues"]
    [nil "--strict-baseline" "Also fail if baseline issues are no longer present"]
    [nil "--quiet-baseline" "Only print new issues, suppress baseline issues"]
@@ -174,9 +175,35 @@
 (defn- run-results->results [run-results]
   (mapcat :group-results run-results))
 
+(defn baseline-write-refusal
+  "Decide whether --baseline-write must leave the baseline at `path` as it is.
+  Returns nil to write `found`, else {:error message} for a baseline that cannot be compared
+  or {:added identities} for the findings it lacks. `allow-new` writes regardless."
+  [path found allow-new]
+  (when-not allow-new
+    (let [{:keys [added error]
+           :as check} (baseline/find-added-identities path found)]
+      (when (or error (seq added))
+        check))))
+
+(defn- refuse-baseline-write! [run-results path added]
+  (doseq [{:keys [source-dir group-results]} run-results]
+    (doseq [result group-results]
+      (console/report-with-baseline result added {:quiet? true
+                                                  :source-dir source-dir})))
+  (println (str "\nRefusing to write " path ": the [NEW] findings above are not in it."
+                " Fix them, or pass --allow-new to add them."))
+  (System/exit 1))
+
 (defn- run-baseline-write! [run-results opts dirs rule->tier]
   (let [identities (baseline/collect-identities run-results)
         path (baseline/resolve-baseline-path (:baseline-path opts) dirs)]
+    (when-let [{:keys [added error]} (baseline-write-refusal path identities (:allow-new opts))]
+      (if error
+        (do
+          (println (str "Error: " error))
+          (System/exit 1))
+        (refuse-baseline-write! run-results path added)))
     (baseline/write-baseline path identities rule->tier)
     (println (str "Wrote baseline with " (count identities) " issues to " path))
     (System/exit 0)))
@@ -282,6 +309,9 @@
     (when (and (:baseline-write options) (:baseline options))
       (println "Error: --baseline-write and --baseline are mutually exclusive.")
       (System/exit 1))
+    (when (and (:allow-new options) (not (:baseline-write options)))
+      (println "Error: --allow-new only applies to --baseline-write.")
+      (System/exit 1))
     (when (and (:baseline-write options) (:files options))
       (println "Error: --baseline-write cannot be used with --files (would write a partial baseline).")
       (System/exit 1))
@@ -290,7 +320,7 @@
           base-opts (baseline/merge-config
                      config
                      (select-keys options [:only :disable :output :files
-                                           :baseline-write :baseline :strict-baseline
+                                           :baseline-write :allow-new :baseline :strict-baseline
                                            :quiet-baseline]))
           dirs arguments
           clj? (experimental-clj? options config)

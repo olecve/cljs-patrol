@@ -301,17 +301,19 @@
       (let [data (edn/read-string (slurp path))]
         (cond
           (not (map? data))
-          {:error (str "Malformed baseline file: " path " (expected a map)")}
+          {:error (str "Malformed baseline file: " path " (expected a map)"
+                       "\nRe-run --baseline-write --allow-new to regenerate.")}
 
           (not= baseline-version (:version data))
           {:error (str "Baseline version mismatch in " path ": found version "
                        (:version data) ", expected " baseline-version "."
-                       "\nRe-run --baseline-write to regenerate.")}
+                       "\nRe-run --baseline-write --allow-new to regenerate.")}
 
           :else
           {:ok (set (:issues data))}))
       (catch Exception e
-        {:error (str "Failed to parse baseline file: " path "\n" (.getMessage e))}))))
+        {:error (str "Failed to parse baseline file: " path "\n" (.getMessage e)
+                     "\nRe-run --baseline-write --allow-new to regenerate.")}))))
 
 (defn diff-baseline
   "Compare found issues against a baseline.
@@ -322,6 +324,18 @@
   {:new (into #{} (remove baseline) found)
    :present (into #{} (filter baseline) found)
    :fixed (into #{} (remove found) baseline)})
+
+(defn find-added-identities
+  "Compare the identities a write would record against the baseline already at `path`.
+  Returns {:added identities} for those not in it, empty when no baseline exists yet,
+  or {:error message} when the existing file cannot be read and so cannot be compared."
+  [path found]
+  (if-not (fs/file-exists? path)
+    {:added #{}}
+    (let [{:keys [ok error]} (read-baseline path)]
+      (if error
+        {:error error}
+        {:added (:new (diff-baseline ok found))}))))
 
 (defn collect-identities
   "Collect all issue identities from run-results across all groups.
