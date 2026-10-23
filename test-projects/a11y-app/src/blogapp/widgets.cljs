@@ -146,3 +146,68 @@
 (defn ok-dialog-role-aria-hidden []
   [:div {:aria-hidden true
          :role "dialog"}])
+
+(defn bad-separator-unnamed []
+  [ui/resize-handle {:class "resize"}])
+
+(defn ok-separator-aria-label []
+  [ui/resize-handle {:aria-label "Resize sidebar"}])
+
+(defn ok-separator-dynamic-label [label]
+  [ui/resize-handle {:aria-label label}])
+
+(defn bad-native-separator-unnamed []
+  [:div {:role "separator"
+         :tab-index 0
+         :aria-valuenow 50}])
+
+(defn bad-focusable-hr-unnamed []
+  [:hr {:tabIndex 0}])
+
+(defn ok-static-separator []
+  [:div {:role "separator"}])
+
+(defn ok-static-hr []
+  [:hr])
+
+(defn ok-native-separator-labelledby []
+  [:div {:role "separator"
+         :tab-index 0
+         :aria-labelledby "sidebar-heading"}])
+
+(defn ok-hidden-separator []
+  [:div {:role "separator"
+         :aria-hidden true}])
+
+(defn missed-focusable-hr-with-presentation-role []
+  [:hr {:role "presentation"
+        :tab-index -1}])
+
+(defn bad-label-around-separator []
+  [:label "Resize" [ui/resize-handle {:aria-label "Resize sidebar"}]])
+
+(defn ok-literal-separator-tag []
+  [:separator {:class "rule"}])
+
+(defn ok-dynamic-separator [props]
+  [:div (merge {:role "separator"
+                :tab-index 0}
+               props)])
+
+(defn ok-hidden-focusable-separator []
+  [:div {:role "separator"
+         :tab-index 0
+         :aria-hidden true}])
+
+(defn ok-separator-with-dynamic-hidden [hidden?]
+  [:div {:role "separator"
+         :tab-index 0
+         :aria-hidden hidden?}])
+
+(defn ok-separator-wrapper-with-children []
+  [ui/resize-handle {} "Resize sidebar"])
+
+(comment
+  (defn ok-separator-in-comment []
+    [:div {:role "separator"
+           :tab-index 0}]))

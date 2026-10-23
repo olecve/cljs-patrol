@@ -982,6 +982,44 @@
         (and shorthand (not id-written?)) shorthand
         (and (not shorthand) (string? literal) (re-matches #"\S+" literal)) literal))))
 
+(def ^:private separator-roles
+  "The `:role` spellings of a separator."
+  #{"separator" :separator})
+
+(defn- inside-comment-form?
+  "True when a `(comment …)` encloses loc: code kept for the REPL, which no page renders."
+  [loc]
+  (boolean (some #(and (= :list (z/tag %)) (= "comment" (some-> % z/down parser/sym-name)))
+                 (take-while some? (rest (iterate z/up loc))))))
+
+(defn- focusable-separator
+  "Return {:unnamed? …} for a separator a user can focus, or nil.
+
+  WAI-ARIA gives `separator` two modes: a static rule, which is structure, and a focusable
+  splitter, which is a widget. Only the splitter is asked for a name, so only one counts: a
+  wrapper aliased to `:separator`, which renders the splitter since a static rule is
+  written as an `<hr>` rather than wrapped, or an element whose `:role` is separator, or an
+  `[:hr]`, that carries a tabindex. One hidden with `:aria-hidden`, or whose `:aria-hidden`
+  cannot be read, may be out of the tree, and one in a `(comment …)` is never rendered.
+  A wrapper given children may make them its name, as a switch wrapper may."
+  [{:keys [kind attrs]
+    :as info} tag loc]
+  (let [aliased? (and (= :separator tag) (nil? (some-> loc z/down parser/raw hiccup/parse-tag)))
+        native? (and (= :map kind)
+                     (some? attrs)
+                     (or (contains? separator-roles (literal-sexpr (get attrs :role)))
+                         (and (= :hr tag) (not (attr-written? attrs :role))))
+                     (or (attr-written? attrs :tab-index) (attr-written? attrs :tabIndex)))]
+    (when (and (or aliased? native?)
+               (contains? #{::absent false "false"} (literal-sexpr (get attrs :aria-hidden)))
+               (not (inside-comment-form? loc)))
+      {:unnamed? (and (props-name-nothing? info loc)
+                      (not (and aliased? (seq (body-locs loc)))))})))
+
+(defn- unnamed-separator-hint [separator-count]
+  (str "One of " separator-count " focusable separators in the run, and WAI-ARIA asks each to be named. "
+       "Add :aria-labelledby with the id of the resized pane's heading, or :aria-label."))
+
 (defn- unreferenced-id-hint [id]
   (format (str "No other literal in the run contains the id %s, so no label points at it. "
                "Point a [:label {:for %s}] at it, or pass :aria-label.")
@@ -1286,6 +1324,7 @@
               repeated-name (repeated-accessible-name info tag loc ns-info component-aliases)
               nested-control (nested-interactive-loc info loc tag ns-info component-aliases)
               unreferenced-id (unreferenced-id-candidate info tag loc)
+              separator (focusable-separator info tag loc)
               hidden-self? (aria-hidden-focusable? info tag)
               hidden-descendant (when-not hidden-self?
                                   (hidden-focusable-descendant info loc ns-info component-aliases))
@@ -1310,6 +1349,12 @@
 
                        (missing-accessible-name? info tag loc)
                        (conj (assoc base :type :missing-accessible-name))
+
+                       separator
+                       (conj (assoc base
+                                    :type ::focusable-separator
+                                    :kw :separator
+                                    :unnamed? (:unnamed? separator)))
 
                        unreferenced-id
                        (conj (assoc base
@@ -1358,12 +1403,20 @@
                               (map #(-> %
                                         (assoc :type :missing-accessible-name
                                                :hint (unreferenced-id-hint (:id %)))
-                                        (dissoc :id))))]
+                                        (dissoc :id))))
+        separators-in-run (count (filter #(= ::focusable-separator (:type %)) (or usages-in-run usages)))
+        unnamed-separators (when (< 1 separators-in-run)
+                             (->> (::focusable-separator by-type)
+                                  (filter :unnamed?)
+                                  (map #(-> %
+                                            (assoc :type :missing-accessible-name
+                                                   :hint (unnamed-separator-hint separators-in-run))
+                                            (dissoc :unnamed?)))))]
     {:img-alt-missing (vec (:img-alt-missing by-type))
      :invalid-tabindex (vec (:invalid-tabindex by-type))
      :on-click-on-non-interactive (vec (:on-click-on-non-interactive by-type))
      :empty-interactive-element (vec (:empty-interactive-element by-type))
-     :missing-accessible-name (->> (concat (:missing-accessible-name by-type) unreferenced-ids)
+     :missing-accessible-name (->> (concat (:missing-accessible-name by-type) unreferenced-ids unnamed-separators)
                                    (sort-by (juxt :file :row :col))
                                    vec)
      :label-not-associated (vec (:label-not-associated by-type))

@@ -1287,6 +1287,7 @@
 
 (def ^:private widget-aliases
   {'blogapp.ui/range-slider :slider
+   'blogapp.ui/resize-handle :separator
    'blogapp.ui/search-field :searchbox
    'blogapp.ui/select :combobox
    'blogapp.ui/stepper :spinbutton
@@ -1312,7 +1313,10 @@
            "bad-textarea-string-child"
            "bad-textarea-keyword-child"
            "bad-textarea-vector-child"
-           "bad-dialog-with-id"}
+           "bad-dialog-with-id"
+           "bad-separator-unnamed"
+           "bad-native-separator-unnamed"
+           "bad-focusable-hr-unnamed"}
          (fn-names (widget-findings :missing-accessible-name widget-aliases)))
       "every widget alias, and only an unnamed one, is reported")
   (is (= #{"bad-textarea-id-nil"
@@ -1321,10 +1325,12 @@
            "bad-textarea-string-child"
            "bad-textarea-keyword-child"
            "bad-textarea-vector-child"
-           "bad-dialog-with-id"}
+           "bad-dialog-with-id"
+           "bad-native-separator-unnamed"
+           "bad-focusable-hr-unnamed"}
          (fn-names (widget-findings :missing-accessible-name {})))
       "unmapped wrappers stay inert")
-  (is (= #{:combobox :searchbox :slider :spinbutton :switch :textarea :dialog}
+  (is (= #{:combobox :searchbox :separator :slider :spinbutton :switch :textarea :dialog}
          (->> (widget-findings :missing-accessible-name widget-aliases)
               (filter #(= widgets-file (:file %)))
               (map :kw)
@@ -1395,7 +1401,8 @@
 
 (deftest label-not-associated-widget-fixture-test
   (is (= #{"bad-dialog-in-label"
-           "bad-label-around-literal-switch"}
+           "bad-label-around-literal-switch"
+           "bad-label-around-separator"}
          (fn-names (widget-findings :label-not-associated widget-aliases)))
       "label around aliased widget labels it"))
 
@@ -1437,3 +1444,29 @@
         "glob key maps every var to its map value")
     (is (not (contains? findings "ok-toggle-label"))
         "single keyword reads as one label prop")))
+
+(defn- separator-findings [& dirs]
+  (->> (core/run-all (mapv #(str "test-projects/a11y-separator/" %) dirs) [(a11y/make-group {})])
+       (mapcat #(-> % :group-results first :missing-accessible-name))))
+
+(defn- separator-fn-names [file findings]
+  (set (fn-names-in (str "test-projects/a11y-separator/" file) findings)))
+
+(deftest missing-accessible-name-separator-count-test
+  (is (empty? (separator-findings "one-a"))
+      "one focusable separator in run needs no name")
+  (is (= #{"bad-first-separator" "bad-second-separator"}
+         (separator-fn-names "pair/sepapp/split.cljs" (separator-findings "pair")))
+      "two focusable separators each need name")
+  (is (= #{"bad-unnamed-separator"}
+         (separator-fn-names "one-a/sepapp/layout.cljs" (separator-findings "one-a" "one-b")))
+      "separators in other directories of run count"))
+
+(deftest missing-accessible-name-separator-hint-test
+  (is (= #{(str "One of 8 focusable separators in the run, and WAI-ARIA asks each to be named. "
+                "Add :aria-labelledby with the id of the resized pane's heading, or :aria-label.")}
+         (->> (widget-findings :missing-accessible-name widget-aliases)
+              (filter #(= :separator (:kw %)))
+              (map :hint)
+              set))
+      "hint counts focusable separators in run"))
