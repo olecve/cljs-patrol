@@ -22,6 +22,8 @@
 
 (defn range-slider [attrs] attrs)
 
+(defn resize-handle [attrs] attrs)
+
 (defn toggle [attrs] attrs)
 
 (defn icon-button [attrs & children] attrs)
