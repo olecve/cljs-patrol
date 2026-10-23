@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.41] - 2026-10-23
+
+* Require a name of each focusable separator when a run holds more than one by @olecve in https://github.com/olecve/cljs-patrol/pull/106
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.40...v0.0.41
+
 ## [v0.0.40] - 2026-10-21
 
 * Add a react-testing-library-cljs group that flags a presence check on a get-by lookup by @olecve in https://github.com/olecve/cljs-patrol/pull/104
