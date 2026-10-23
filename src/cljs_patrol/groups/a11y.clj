@@ -19,15 +19,13 @@
   107)
 
 (def ^:private interop-index
-  "The file last rewritten for interop, held one file at a time by its root node.
-  `:unwrapped-locs` maps each written vector node to its loc in the rewritten file and
-  `:written-nodes` maps each rewritten vector node back, both by identity."
+  "The last file rewritten for interop: its root, and identity maps between its vectors."
   (atom {:written-root nil
          :unwrapped-locs nil
          :written-nodes nil}))
 
 (defn- written-string
-  "Return loc's source as written, `:>` and all, for a loc read from the rewritten file."
+  "Return loc's source as written, `:>` included."
   [loc]
   (if-let [written (some-> ^java.util.IdentityHashMap (:written-nodes @interop-index) (.get (z/node loc)))]
     (n/string written)
@@ -1329,19 +1327,14 @@
 (defn- code-children [node]
   (remove n/whitespace-or-comment? (n/children node)))
 
-(defn- aliased-interop-node?
-  "True for a `[:> Comp …]` node whose component an alias maps."
-  [node ns-info component-aliases]
+(defn- aliased-interop-node? [node ns-info component-aliases]
   (and (= :vector (n/tag node))
        (let [[head component] (code-children node)]
          (and (= ":>" (some-> head n/string))
               (some? (some-> component n/string (resolve-component-tag ns-info component-aliases)))))))
 
 (defn- unwrap-interop
-  "Rewrite every `[:> Comp …]` an alias maps as `[Comp …]`, keeping every position.
-  The `:>` gives way to whitespace of its own width, so the rules read the call the way
-  they read a wrapper written as one, and rows and columns stay where they were written.
-  A node holding none of them is returned as it was."
+  "Rewrite each aliased `[:> Comp …]` as `[Comp …]`, `:>` turned to whitespace so positions hold."
   [node ns-info component-aliases]
   (if-not (n/inner? node)
     node
@@ -1354,9 +1347,7 @@
         node))))
 
 (defn- index-unwrapped-vectors
-  "Pair every vector of the written file with its place in the rewritten one, both ways.
-  The two trees have the same shape, a `:>` having given way to whitespace, so one walk
-  through both in step finds each pair, and every later lookup is one hash probe."
+  "Map each written vector node to its rewritten loc, and each rewritten vector node back."
   [written-root unwrapped-root]
   (let [unwrapped-locs (java.util.IdentityHashMap.)
         written-nodes (java.util.IdentityHashMap.)]
@@ -1371,8 +1362,7 @@
      :written-nodes written-nodes}))
 
 (defn- unwrapped-loc
-  "Return loc's place in the file read with every aliased `[:> Comp …]` as a call.
-  A file holding none is read as written."
+  "Return loc's place in the file with every aliased `[:> Comp …]` read as a call."
   [written-loc ns-info component-aliases]
   (let [root-node (z/node (file-root written-loc))
         cached @interop-index]
@@ -1611,9 +1601,7 @@
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (defn- alias-key
-  "Read a `:component-aliases` key as the symbol a call's head resolves to.
-  A string key spells what a symbol cannot, an npm package with a scope or a dot, and
-  splits at its last slash: \"@scope/package/Comp\" names Comp in \"@scope/package\"."
+  "Read an alias key as a symbol; a string splits at its last slash, as \"@scope/pkg/Comp\"."
   [k]
   (if-not (string? k)
     k
@@ -1643,7 +1631,7 @@
                                                   {:label-props label-props})))))))
 
 (defn- normalize-aliases
-  "Read the `:component-aliases` config, refusing two keys that name one component."
+  "Read the alias config, refusing two keys for one component."
   [component-aliases]
   (reduce (fn [aliases [k v]]
             (let [key-symbol (alias-key k)]
