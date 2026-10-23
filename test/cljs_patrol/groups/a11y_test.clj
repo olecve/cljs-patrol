@@ -211,3 +211,17 @@
       "collection of strings is rejected")
   (is (some? (a11y/make-group {:component-aliases {'my.ui/switch {:tag :switch}}}))
       "absent label props are none"))
+
+(deftest make-group-alias-key-test
+  (is (thrown? clojure.lang.ExceptionInfo
+               (a11y/make-group {:component-aliases {'my.ui/button :button
+                                                     "my.ui/button" :input}}))
+      "same component under two keys is refused")
+  (is (thrown? clojure.lang.ExceptionInfo
+               (a11y/make-group {:component-aliases {"button" :button}}))
+      "string key without package is refused")
+  (is (thrown? clojure.lang.ExceptionInfo
+               (a11y/make-group {:component-aliases {"@scope/pkg/" :button}}))
+      "string key without component is refused")
+  (is (some? (a11y/make-group {:component-aliases {"@scope/pkg/Comp" :button}}))
+      "scoped package key is accepted"))

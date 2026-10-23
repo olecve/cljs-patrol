@@ -18,6 +18,21 @@
   ;; `   :form "…"}]}` (last-issue tail case) never exceeds 120 columns.
   107)
 
+(def ^:private interop-index
+  "The file last rewritten for interop, held one file at a time by its root node.
+  `:unwrapped-locs` maps each written vector node to its loc in the rewritten file and
+  `:written-nodes` maps each rewritten vector node back, both by identity."
+  (atom {:written-root nil
+         :unwrapped-locs nil
+         :written-nodes nil}))
+
+(defn- written-string
+  "Return loc's source as written, `:>` and all, for a loc read from the rewritten file."
+  [loc]
+  (if-let [written (some-> ^java.util.IdentityHashMap (:written-nodes @interop-index) (.get (z/node loc)))]
+    (n/string written)
+    (z/string loc)))
+
 (defn- source-snippet
   "Return a display-friendly snippet of loc's source form.
 
@@ -26,7 +41,7 @@
   finding's baseline line stays under 120 columns even after EDN escapes
   `\"` → `\\\"` and similar."
   [loc]
-  (let [raw (try (z/string loc) (catch Exception _ ""))
+  (let [raw (try (written-string loc) (catch Exception _ ""))
         collapsed (str/replace raw #"\s+" " ")]
     (if (<= (count (pr-str collapsed)) snippet-edn-max)
       collapsed
@@ -1311,8 +1326,71 @@
 (defn- repeated-name-hint [name-value]
   (format "Every item announces %s. Fold the item into the name." (pr-str name-value)))
 
-(defn- handle-vector* [loc ns-info file component-aliases]
-  (let [first-child (z/down loc)]
+(defn- code-children [node]
+  (remove n/whitespace-or-comment? (n/children node)))
+
+(defn- aliased-interop-node?
+  "True for a `[:> Comp …]` node whose component an alias maps."
+  [node ns-info component-aliases]
+  (and (= :vector (n/tag node))
+       (let [[head component] (code-children node)]
+         (and (= ":>" (some-> head n/string))
+              (some? (some-> component n/string (resolve-component-tag ns-info component-aliases)))))))
+
+(defn- unwrap-interop
+  "Rewrite every `[:> Comp …]` an alias maps as `[Comp …]`, keeping every position.
+  The `:>` gives way to whitespace of its own width, so the rules read the call the way
+  they read a wrapper written as one, and rows and columns stay where they were written.
+  A node holding none of them is returned as it was."
+  [node ns-info component-aliases]
+  (if-not (n/inner? node)
+    node
+    (let [children (n/children node)
+          rewritten (mapv #(unwrap-interop % ns-info component-aliases) children)
+          node (if (every? true? (map identical? children rewritten)) node (n/replace-children node rewritten))]
+      (if (aliased-interop-node? node ns-info component-aliases)
+        (n/replace-children node (let [[before [_ & after]] (split-with #(not= ":>" (n/string %)) (n/children node))]
+                                   (concat before [(n/whitespace-node "  ")] after)))
+        node))))
+
+(defn- index-unwrapped-vectors
+  "Pair every vector of the written file with its place in the rewritten one, both ways.
+  The two trees have the same shape, a `:>` having given way to whitespace, so one walk
+  through both in step finds each pair, and every later lookup is one hash probe."
+  [written-root unwrapped-root]
+  (let [unwrapped-locs (java.util.IdentityHashMap.)
+        written-nodes (java.util.IdentityHashMap.)]
+    (loop [written (z/of-node* written-root)
+           unwrapped (z/of-node* unwrapped-root {:track-position? true})]
+      (when-not (z/end? written)
+        (when (= :vector (z/tag written))
+          (.put unwrapped-locs (z/node written) unwrapped)
+          (.put written-nodes (z/node unwrapped) (z/node written)))
+        (recur (z/next* written) (z/next* unwrapped))))
+    {:unwrapped-locs unwrapped-locs
+     :written-nodes written-nodes}))
+
+(defn- unwrapped-loc
+  "Return loc's place in the file read with every aliased `[:> Comp …]` as a call.
+  A file holding none is read as written."
+  [written-loc ns-info component-aliases]
+  (let [root-node (z/node (file-root written-loc))
+        cached @interop-index]
+    (when-not (identical? root-node (:written-root cached))
+      (let [unwrapped (if (seq component-aliases)
+                        (unwrap-interop root-node ns-info component-aliases)
+                        root-node)]
+        (reset! interop-index (merge {:written-root root-node}
+                                     (if (identical? unwrapped root-node)
+                                       {:unwrapped-locs nil
+                                        :written-nodes nil}
+                                       (index-unwrapped-vectors root-node unwrapped))))))
+    (or (some-> ^java.util.IdentityHashMap (:unwrapped-locs @interop-index) (.get (z/node written-loc)))
+        written-loc)))
+
+(defn- handle-vector* [written-loc ns-info file component-aliases]
+  (let [loc (unwrapped-loc written-loc ns-info component-aliases)
+        first-child (z/down loc)]
     (when (and first-child
                (= :token (z/tag first-child))
                (not (hiccup/inside-unrendered-form? loc))
@@ -1330,7 +1408,7 @@
                                   (hidden-focusable-descendant info loc ns-info component-aliases))
               [row col] (try (z/position loc) (catch Exception _ [0 1]))
               base {:kw tag
-                    :form (source-snippet loc)
+                    :form (source-snippet written-loc)
                     :file file
                     :row row
                     :col col}
@@ -1532,6 +1610,20 @@
      :label-not-associated :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
+(defn- alias-key
+  "Read a `:component-aliases` key as the symbol a call's head resolves to.
+  A string key spells what a symbol cannot, an npm package with a scope or a dot, and
+  splits at its last slash: \"@scope/package/Comp\" names Comp in \"@scope/package\"."
+  [k]
+  (if-not (string? k)
+    k
+    (let [slash (str/last-index-of k "/")]
+      (if (and slash (pos? slash) (< slash (dec (count k))))
+        (symbol (subs k 0 slash) (subs k (inc slash)))
+        (throw (ex-info (str ":a11y :component-aliases string key must name a package and a component, "
+                             "as \"@scope/package/Comp\", got " (pr-str k))
+                        {:key k}))))))
+
 (defn- normalize-alias
   "Read an alias value as `{:tag … :label-props #{…}}`, from a bare tag or a map.
   `:label-props` may be one keyword or a collection of them; any other shape throws,
@@ -1550,15 +1642,29 @@
                                                        (pr-str label-props))
                                                   {:label-props label-props})))))))
 
+(defn- normalize-aliases
+  "Read the `:component-aliases` config, refusing two keys that name one component."
+  [component-aliases]
+  (reduce (fn [aliases [k v]]
+            (let [key-symbol (alias-key k)]
+              (when (contains? aliases key-symbol)
+                (throw (ex-info (str ":a11y :component-aliases maps " key-symbol " twice")
+                                {:key key-symbol})))
+              (assoc aliases key-symbol (normalize-alias v))))
+          {}
+          component-aliases))
+
 (defn make-group
   "Return an a11y RuleGroup configured with the given map (see `A11yGroup`).
   Supported keys:
     :component-aliases {full-qualified-symbol native-tag-keyword} — treat
-      calls to the named symbol as the given native tag for a11y checks. The
-      value may instead be {:tag native-tag-keyword :label-props #{prop …}},
-      naming the props the wrapper wires to an accessible name of its own."
+      calls to the named symbol as the given native tag for a11y checks, written
+      as a call or through `[:> Comp …]` interop. A key may be a string,
+      \"@scope/package/Comp\", for a name no symbol can spell. The value may
+      instead be {:tag native-tag-keyword :label-props #{prop …}}, naming the
+      props the wrapper wires to an accessible name of its own."
   ([] (make-group nil))
   ([{:keys [component-aliases]}]
-   (->A11yGroup (update-vals (or component-aliases {}) normalize-alias))))
+   (->A11yGroup (normalize-aliases component-aliases))))
 
 (def group (make-group))
