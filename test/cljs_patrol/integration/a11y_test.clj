@@ -1470,3 +1470,43 @@
               (map :hint)
               set))
       "hint counts focusable separators in run"))
+
+(def ^:private interop-file (str fixture-dir "/interop.cljs"))
+
+(def ^:private interop-aliases
+  {'react-resizable-panels/PanelResizeHandle :separator
+   "@acme/ui-kit/Button" :button
+   "@acme/ui-kit/Input" :input
+   "@acme/ui-kit/Switch" :switch
+   "@acme/ui-kit/TextArea" :textarea})
+
+(deftest missing-accessible-name-interop-fixture-test
+  (let [findings (widget-findings :missing-accessible-name interop-aliases)]
+    (is (= #{"bad-interop-handle-unnamed"
+             "bad-interop-aliased-ns-handle-unnamed"
+             "bad-interop-switch-unnamed"}
+           (set (fn-names-in interop-file findings)))
+        "interop component mapped by alias is checked like wrapper call")
+    (is (contains? (set (map :form findings)) "[:> PanelResizeHandle {:class \"handle\"}]")
+        "finding shows form as written")
+    (is (empty? (fn-names-in interop-file (widget-findings :missing-accessible-name {})))
+        "unmapped interop component stays inert")))
+
+(deftest label-not-associated-interop-fixture-test
+  (is (empty? (fn-names-in interop-file (widget-findings :label-not-associated interop-aliases)))
+      "label around interop textarea labels it"))
+
+(deftest interop-parent-and-child-read-as-calls-test
+  (is (empty? (fn-names-in interop-file (widget-findings :repeated-accessible-name interop-aliases)))
+      "interop parent named per item names its image")
+  (let [nested (filter #(= interop-file (:file %)) (widget-findings :nested-interactive-element interop-aliases))]
+    (is (= #{"bad-interop-button-holding-button" "bad-button-holding-interop-button"}
+           (set (fn-names-in interop-file nested)))
+        "hidden interop input is no interactive content")
+    (is (= [45 "[:> Button {:aria-label \"Outer\"} [:div [:button \"Inner\"]]]"]
+           ((juxt :row :form) (first (filter #(= 45 (:row %)) nested))))
+        "finding keeps row and form as written")
+    (is (contains? (set (map :inner-form nested)) "[:> Button {:aria-label \"More\"}]")
+        "nested interop element shows as written")
+    (is (re-find #"line 48" (->> nested (filter #(= 45 (:row %))) first :hint))
+        "inner element keeps its own line")))
