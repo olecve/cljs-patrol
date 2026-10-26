@@ -7,10 +7,8 @@
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
-   [cljs-patrol.reporters.console :as console]
    [cljs-patrol.reporters.edn :as edn-reporter]
    [clojure.edn :as edn]
-   [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
 
 (def ^:private fixture-dir "test-projects/baseline-app/src/baseline_app")
@@ -101,23 +99,16 @@
 
 (deftest baseline-console-output-test
   (let [{:keys [run-results]} (run-analysis)
-        out (with-out-str
-              (doseq [{:keys [group-results]} run-results]
-                (doseq [result group-results]
-                  (console/report-with-baseline result #{}))))]
-    (is (str/includes? out "[BASE]")
-        "baseline issues tagged")
-    (is (not (str/includes? out "[NEW]"))
-        "no new issues when none match")))
+        severities (->> (core/console-findings enabled-groups run-results (core/baseline-severity #{} nil false))
+                        (map :severity)
+                        set)]
+    (is (= #{"baseline"} severities)
+        "every finding labeled baseline when none is new")))
 
 (deftest baseline-console-quiet-test
-  (let [{:keys [run-results]} (run-analysis)
-        out (with-out-str
-              (doseq [{:keys [group-results]} run-results]
-                (doseq [result group-results]
-                  (console/report-with-baseline result #{} {:quiet? true}))))]
-    (is (= "" out)
-        "quiet mode suppresses all baseline issues")))
+  (let [{:keys [run-results]} (run-analysis)]
+    (is (empty? (core/console-findings enabled-groups run-results (core/baseline-severity #{} nil true)))
+        "quiet mode leaves out every baselined finding")))
 
 (deftest baseline-edn-output-test
   (let [{:keys [identities]} (run-analysis)

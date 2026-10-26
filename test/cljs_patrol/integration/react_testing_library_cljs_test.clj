@@ -29,33 +29,32 @@
              "bad-lookup-also-bound-as-value"}
            (fn-names-of findings))
         "only presence check on throwing lookup is reported")
-    (is (= #{"Assert presence with s/query-by-role, which returns nil on a miss, or call s/get-by-role outside the is."
-             "Assert presence with query-by-text, which returns nil on a miss, or call get-by-text outside the is."}
+    (is (= #{"s/get-by-role throws on a miss, so this check never fails. Use s/query-by-role."
+             "get-by-text throws on a miss, so this check never fails. Use query-by-text."}
            (->> findings
                 (filter #(contains? #{"bad-some-get-by-role" "bad-referred-get-by-text"} (:test %)))
                 (map :hint)
                 set))
         "hint names query-by twin under same alias")
-    (is (= [(str "Assert presence with (seq (s/query-all-by-role …)), which is empty on a miss, "
-                 "or call s/get-all-by-role outside the is.")]
+    (is (= ["s/get-all-by-role throws on a miss, so this check never fails. Use (seq (s/query-all-by-role …))."]
            (->> findings (filter #(= "bad-seq-get-all-by-role" (:test %))) (map :hint)))
         "query-all-by returns empty vector, so hint wraps it in seq")))
 
 (deftest lookup-helper-name-fixture-test
   (let [findings (:lookup-helper-name (result))]
-    (is (= {"master-prompt" "Rename it get-master-prompt, after the get-by-role lookup it returns."
-            "query-save-button" "Rename it get-save-button, after the get-by-role lookup it returns."
-            "get-toast" "Rename it query-toast, after the query-by-text lookup it returns."
-            "loaded-panel" "Rename it find-loaded-panel, after the find-by-role lookup it returns."
-            "rows" "Rename it get-rows, after the get-all-by-role lookup it returns."
-            "referred-hint" "Rename it query-referred-hint, after the query-by-text lookup it returns."
-            "radio-in-group" "Rename it get-radio-in-group, after the get-by-role lookup it returns."
-            "documented-button" "Rename it get-documented-button, after the get-by-role lookup it returns."
-            "get-spinner" "Rename it find-spinner, after the find-by-role lookup it returns."
-            "query-menu" "Rename it find-menu, after the find-by-role lookup it returns."
-            "hinted-params" "Rename it get-hinted-params, after the get-by-role lookup it returns."
-            "with-discard" "Rename it get-with-discard, after the get-by-role lookup it returns."
-            "with-attr-map" "Rename it get-with-attr-map, after the get-by-role lookup it returns."
-            "in-comment" "Rename it get-in-comment, after the get-by-role lookup it returns."}
+    (is (= {"master-prompt" "Rename to get-master-prompt, after the get-by-role lookup it returns."
+            "query-save-button" "Rename to get-save-button, after the get-by-role lookup it returns."
+            "get-toast" "Rename to query-toast, after the query-by-text lookup it returns."
+            "loaded-panel" "Rename to find-loaded-panel, after the find-by-role lookup it returns."
+            "rows" "Rename to get-rows, after the get-all-by-role lookup it returns."
+            "referred-hint" "Rename to query-referred-hint, after the query-by-text lookup it returns."
+            "radio-in-group" "Rename to get-radio-in-group, after the get-by-role lookup it returns."
+            "documented-button" "Rename to get-documented-button, after the get-by-role lookup it returns."
+            "get-spinner" "Rename to find-spinner, after the find-by-role lookup it returns."
+            "query-menu" "Rename to find-menu, after the find-by-role lookup it returns."
+            "hinted-params" "Rename to get-hinted-params, after the get-by-role lookup it returns."
+            "with-discard" "Rename to get-with-discard, after the get-by-role lookup it returns."
+            "with-attr-map" "Rename to get-with-attr-map, after the get-by-role lookup it returns."
+            "in-comment" "Rename to get-in-comment, after the get-by-role lookup it returns."}
            (into {} (map (juxt (comp str :kw) :hint)) findings))
         "only helper returning lookup under wrong prefix is reported, with its rename")))

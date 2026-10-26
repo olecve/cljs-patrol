@@ -250,3 +250,43 @@
         "filtering reduces issue count")
     (is (every? #(contains? all-ids %) filtered-ids)
         "filtered ids are a subset of all ids")))
+
+(deftest standalone-severity-test
+  (let [label-without-fail-on (core/standalone-severity nil)
+        label-with-fail-on (core/standalone-severity #{:phantom-subs})
+        item {:kw :app/sub
+              :file "a.cljs"
+              :row 1}]
+    (is (= "error" (label-without-fail-on re-frame/group nil :duplicate-subs [item] item))
+        "rule that fails its group labeled error")
+    (is (= "warning" (label-without-fail-on re-frame/group nil :phantom-subs [item] item))
+        "rule that only reports labeled warning")
+    (is (= "info" (label-without-fail-on re-frame/group nil :dynamic-sites [item] item))
+        "info-only rule labeled info")
+    (is (= "error" (label-with-fail-on re-frame/group nil :phantom-subs [item] item))
+        "--fail-on rule labeled error")
+    (is (= "warning" (label-with-fail-on re-frame/group nil :duplicate-subs [item] item))
+        "--fail-on replaces group's own check")
+    (is (= "info" (label-with-fail-on re-frame/group nil :dynamic-sites [item] item))
+        "info-only rule outside --fail-on stays info")))
+
+(deftest baseline-severity-test
+  (let [new-item {:kw :app/new
+                  :file "a.cljs"
+                  :row 1}
+        old-item {:kw :app/old
+                  :file "a.cljs"
+                  :row 2}
+        new-issues #{(baseline/issue->identity :unused-subs new-item)}
+        label (fn [fail-on-rules quiet? item]
+                ((core/baseline-severity new-issues fail-on-rules quiet?) re-frame/group nil :unused-subs [item] item))]
+    (is (= "error" (label nil false new-item))
+        "new finding labeled error")
+    (is (= "warning" (label #{:duplicate-subs} false new-item))
+        "new finding outside --fail-on labeled warning")
+    (is (= "error" (label #{:unused-subs} false new-item))
+        "new finding in --fail-on labeled error")
+    (is (= "baseline" (label nil false old-item))
+        "baselined finding labeled baseline")
+    (is (nil? (label nil true old-item))
+        "quiet run leaves baselined finding out")))

@@ -85,7 +85,22 @@ The `docstrings`, `tests`, `layout` and `idioms` groups are about Clojure rather
 
 ## Output
 
-Console output is the default. Two other formats are available.
+Console output is the default, laid out like ESLint's: findings grouped by file, one line each with the line, severity,
+message and rule, then the totals and a docs link per rule that fired.
+
+```
+test/app/views_test.cljs
+  14  error  s/get-by-text throws on a miss, so this check never fails. Use s/query-by-text.   get-by-presence-check
+  31  error  save-button: Rename to get-save-button, after the get-by-role lookup it returns.  lookup-helper-name
+
+✖ 2 problems (2 errors, 0 warnings)
+
+Rule docs:
+  get-by-presence-check  https://github.com/olecve/cljs-patrol/blob/v0.0.43/docs/rules/react-testing-library-cljs.md#get-by-presence-check
+  lookup-helper-name     https://github.com/olecve/cljs-patrol/blob/v0.0.43/docs/rules/react-testing-library-cljs.md#lookup-helper-name
+```
+
+Two other formats are available.
 
 ### HTML report
 

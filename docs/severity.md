@@ -52,22 +52,23 @@ Tier names, individual rule keys, and the meta value `all` can be mixed. Unknown
 
 ## Output with --fail-on
 
-Console output adds a `[BLOCKING]` marker to section headers for rules in the failing set, and a summary line shows the
-breakdown:
+Console output labels each finding `error` when its rule is in the failing set and `warning` otherwise, and the totals
+count both:
 
 ```
-=== Duplicate subs (1) [BLOCKING] ===
-  :app.subs/users   src/app/subs.cljs:5
-
-=== Unused subs (3) ===
-  :app.subs/old     src/app/subs.cljs:12
+src/app/subs.cljs
+   5  error    :app.subs/users  duplicate-subs
+  12  warning  :app.subs/old    unused-subs
   ...
 
-1 blocking, 3 warnings.
+✖ 4 problems (1 error, 3 warnings)
 ```
 
-EDN output adds `:blocking-count`, `:warning-count`, and (for baseline mode) `:tier` on each issue. HTML output shows
-the same blocking badge and a tier-summary panel at the top.
+In a plain run without `--fail-on`, a finding is an `error` when it fails its group's own check. An info-only rule,
+`dynamic-sites`, is labeled `info`.
+
+EDN output adds `:blocking-count`, `:warning-count`, and (for baseline mode) `:tier` on each issue. HTML output shows a
+blocking badge and a tier-summary panel at the top.
 
 ## Listing rules
 
@@ -93,7 +94,7 @@ What this means for CI:
 
 - Old issues already in the baseline: never block, regardless of tier.
 - New issues in failing tiers (here, `bugs`): block CI immediately.
-- New issues in non-failing tiers (deprecations, cleanup): printed with `[NEW]` but don't block.
+- New issues in non-failing tiers (deprecations, cleanup): printed as `warning` but don't block.
 
 `--strict-baseline` still applies on top: fixed baseline issues always block when set, regardless of tier (forces
 baseline regeneration).

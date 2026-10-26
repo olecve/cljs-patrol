@@ -88,8 +88,8 @@ Every finding carries the target order for its own block, so neither a reader no
 table wants:
 
 ```
-styles.cljs:16  :app.ui/banner-style {:color "#333" :display :block :padding "4px" :background "#eee"}
-      → Move :display before :color. Order for this block: :display :padding :color :background
+styles.cljs
+  16  warning  Move :display before :color. Order for this block: :display :padding :color :background  css-property-order-outside-in
 ```
 
 The console and HTML reports print that line; the EDN report carries the full sequence as `:expected-order`, which stays

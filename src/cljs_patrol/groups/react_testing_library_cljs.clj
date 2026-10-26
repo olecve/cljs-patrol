@@ -107,11 +107,11 @@
              :test (parser/enclosing-definition-name loc)
              :file file
              :row (parser/position-row loc)
-             :hint (str "Assert presence with "
+             :hint (str head " throws on a miss, so this check never fails. Use "
                         (if (str/starts-with? fn-name "get-all-")
-                          (str "(seq (" query " …)), which is empty on a miss")
-                          (str query ", which returns nil on a miss"))
-                        ", or call " head " outside the is.")}))))))
+                          (str "(seq (" query " …))")
+                          query)
+                        ".")}))))))
 
 (def ^:private lookup-kinds
   "Prefixes naming what a lookup does on a miss.
@@ -155,7 +155,7 @@
              :type :lookup-helper-name
              :file file
              :row (parser/position-row name-loc)
-             :hint (str "Rename it " kind "-" (strip-lookup-prefix helper-name)
+             :hint (str "Rename to " kind "-" (strip-lookup-prefix helper-name)
                         ", after the " fn-name " lookup it returns.")}))))))
 
 (defn- handle-list [loc ns-info file]

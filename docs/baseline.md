@@ -49,10 +49,12 @@ clojure -M:run --baseline-write src/cljs/myapp   # a finding was added: refused,
 ```
 
 ```
-=== Missing accessible name (1) ===
-  [NEW]   src/cljs/myapp/settings.cljs:12  [:textarea {:on-change on-change}]
+src/cljs/myapp/settings.cljs
+  12  error  [:textarea {:on-change on-change}]  missing-accessible-name
 
-Refusing to write src/cljs/myapp/.cljs-patrol/baseline.edn: the [NEW] findings above are not in it. Fix them, or pass --allow-new to add them.
+✖ 1 problem (1 error, 0 warnings)
+
+Refusing to write src/cljs/myapp/.cljs-patrol/baseline.edn: the findings above are not in it. Fix them, or pass --allow-new to add them.
 ```
 
 Pass `--allow-new` when the additions are meant, as after upgrading cljs-patrol, changing `.cljs-patrol/config.edn`, or
@@ -81,10 +83,15 @@ back.
 
 ## Output with baseline
 
-Console output tags each issue as `[NEW]` or `[BASE]`. A summary shows counts:
+Console output labels a new issue `error`, or `warning` when it is outside `--fail-on`, and a baselined one `baseline`.
+`--quiet-baseline` leaves the baselined ones out. The totals count new issues, then the baseline:
 
 ```
-Found 12 issues: 2 new, 8 in baseline, 3 fixed.
+src/app/subs.cljs
+   5  error     :app.subs/users  duplicate-subs
+  12  baseline  :app.subs/old    unused-subs
+
+✖ 1 problem (1 error, 0 warnings) · 8 in baseline, 3 fixed
 3 baseline issues no longer present - consider running --baseline-write to refresh.
 ```
 
