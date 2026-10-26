@@ -89,7 +89,7 @@ table wants:
 
 ```
 styles.cljs
-  16  warning  Move :display before :color. Order for this block: :display :padding :color :background  css-property-order-outside-in
+  16  warning  :app.ui/banner-style {:color "#333" :display :block :paddin…: Move :display before :color. Order for this block: :display :padding :color :background  css-property-order-outside-in
 ```
 
 The console and HTML reports print that line; the EDN report carries the full sequence as `:expected-order`, which stays

@@ -65,7 +65,8 @@ src/app/subs.cljs
 ```
 
 In a plain run without `--fail-on`, a finding is an `error` when it fails its group's own check. An info-only rule,
-`dynamic-sites`, is labeled `info`.
+`dynamic-sites`, is labeled `info`. With `--baseline`, every new finding fails the run, so a new dynamic site is an
+`error` there.
 
 EDN output adds `:blocking-count`, `:warning-count`, and (for baseline mode) `:tier` on each issue. HTML output shows a
 blocking badge and a tier-summary panel at the top.

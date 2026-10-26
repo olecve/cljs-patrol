@@ -54,6 +54,9 @@ src/cljs/myapp/settings.cljs
 
 ✖ 1 problem (1 error, 0 warnings)
 
+Rule docs:
+  missing-accessible-name  https://github.com/olecve/cljs-patrol/blob/main/docs/rules/a11y.md#missing-accessible-name
+
 Refusing to write src/cljs/myapp/.cljs-patrol/baseline.edn: the findings above are not in it. Fix them, or pass --allow-new to add them.
 ```
 
@@ -92,7 +95,7 @@ src/app/subs.cljs
   12  baseline  :app.subs/old    unused-subs
 
 ✖ 1 problem (1 error, 0 warnings) · 8 in baseline, 3 fixed
-3 baseline issues no longer present - consider running --baseline-write to refresh.
+3 baseline issues no longer present. Run --baseline-write to refresh the baseline.
 ```
 
 All output formats work with `--baseline`:

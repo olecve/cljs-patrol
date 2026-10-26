@@ -99,16 +99,27 @@
 
 (deftest baseline-console-output-test
   (let [{:keys [run-results]} (run-analysis)
-        severities (->> (core/console-findings enabled-groups run-results (core/baseline-severity #{} nil false))
-                        (map :severity)
-                        set)]
-    (is (= #{"baseline"} severities)
-        "every finding labeled baseline when none is new")))
+        {:keys [findings present]} (core/baseline-console-rows enabled-groups run-results #{} nil false)]
+    (is (= #{"baseline"} (set (map :severity findings)))
+        "every finding labeled baseline when none is new")
+    (is (= (count findings) present)
+        "baseline count counts rows, as listed")))
+
+(deftest baseline-console-count-test
+  (let [{:keys [run-results identities]} (run-analysis)
+        {:keys [findings present]} (core/baseline-console-rows enabled-groups run-results #{(first identities)} nil false)]
+    (is (= (count (filter #(= "baseline" (:severity %)) findings)) present)
+        "baseline count leaves out new rows")
+    (is (some #(= "error" (:severity %)) findings)
+        "new row labeled error")))
 
 (deftest baseline-console-quiet-test
-  (let [{:keys [run-results]} (run-analysis)]
-    (is (empty? (core/console-findings enabled-groups run-results (core/baseline-severity #{} nil true)))
-        "quiet mode leaves out every baselined finding")))
+  (let [{:keys [run-results]} (run-analysis)
+        {:keys [findings present]} (core/baseline-console-rows enabled-groups run-results #{} nil true)]
+    (is (empty? findings)
+        "quiet mode leaves out every baselined finding")
+    (is (pos? present)
+        "quiet mode still counts baselined rows")))
 
 (deftest baseline-edn-output-test
   (let [{:keys [identities]} (run-analysis)

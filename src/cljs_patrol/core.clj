@@ -201,17 +201,21 @@
         check))))
 
 (defn console-findings
-  "Shape every finding of run-results as a console row.
-  `(severity-of rule-group source-dir rule-key items item)` labels it, and a nil label leaves it out."
+  "Shape every finding of run-results as a console row, labeled by `severity-of`.
+  It receives {:group :source-dir :rule :items :item}, items being all of that rule's findings."
   [enabled-groups run-results severity-of]
   (for [{:keys [source-dir group-results]} run-results
         [rule-group result] (map vector enabled-groups group-results)
         [rule-key items] result
         :when (sequential? items)
-        item items
-        :let [severity (severity-of rule-group source-dir rule-key items item)]
-        :when severity]
-    (console/finding rule-key severity item)))
+        item items]
+    (console/finding rule-key
+                     (severity-of {:group rule-group
+                                   :item item
+                                   :items items
+                                   :rule rule-key
+                                   :source-dir source-dir})
+                     item)))
 
 (defn- docs-by-rule [enabled-groups]
   (into {} (mapcat group/docs-urls) enabled-groups))
@@ -219,25 +223,34 @@
 (defn standalone-severity
   "Label a finding as the exit code treats it: error when it fails the run, info for a rule that never does."
   [fail-on-rules]
-  (fn [rule-group _ rule-key items _]
+  (fn [{:keys [group rule items]}]
     (cond
-      (contains? fail-on-rules rule-key) "error"
-      (nil? (get (group/rule->tier rule-group) rule-key)) "info"
+      (contains? fail-on-rules rule) "error"
+      (nil? (get (group/rule->tier group) rule)) "info"
       (seq fail-on-rules) "warning"
-      (group/failed? rule-group {rule-key items}) "error"
+      (group/failed? group {rule items}) "error"
       :else "warning")))
 
 (defn baseline-severity
-  "Label a new finding as baseline-failed? treats it, a baselined one as baseline, or leave it out when quiet."
-  [new-issues fail-on-rules quiet?]
-  (fn [_ source-dir rule-key _ item]
+  "Label a new finding as baseline-failed? treats it, and any other as baseline."
+  [new-issues fail-on-rules]
+  (fn [{:keys [source-dir rule item]}]
     (cond
-      (not (contains? new-issues (baseline/issue->identity rule-key item source-dir))) (when-not quiet? "baseline")
-      (or (empty? fail-on-rules) (contains? fail-on-rules rule-key)) "error"
+      (not (contains? new-issues (baseline/issue->identity rule item source-dir))) "baseline"
+      (or (empty? fail-on-rules) (contains? fail-on-rules rule)) "error"
       :else "warning")))
 
+(defn baseline-console-rows
+  "Return {:findings rows to print :present rows in the baseline}; quiet leaves the baselined rows out of :findings."
+  [enabled-groups run-results new-issues fail-on-rules quiet?]
+  (let [findings (console-findings enabled-groups run-results (baseline-severity new-issues fail-on-rules))
+        baselined? #(= "baseline" (:severity %))]
+    {:findings (cond->> findings
+                 quiet? (remove baselined?))
+     :present (count (filter baselined? findings))}))
+
 (defn- refuse-baseline-write! [enabled-groups run-results path added]
-  (console/print-report (console-findings enabled-groups run-results (baseline-severity added nil true))
+  (console/print-report (:findings (baseline-console-rows enabled-groups run-results added nil true))
                         {:docs (docs-by-rule enabled-groups)})
   (println (str "\nRefusing to write " path ": the findings above are not in it."
                 " Fix them, or pass --allow-new to add them."))
@@ -253,7 +266,7 @@
           (System/exit 1))
         (refuse-baseline-write! enabled-groups run-results path added)))
     (baseline/write-baseline path identities rule->tier)
-    (println (str "Wrote baseline with " (count identities) " issues to " path))
+    (println (str "Wrote baseline with " (count identities) " entries to " path))
     (System/exit 0)))
 
 (defn- run-baseline-compare! [enabled-groups run-results opts dirs rule->tier]
@@ -286,12 +299,13 @@
                  new-issues (count fixed)
                  fail-on-rules blocking-count warning-count)
                 (println "Report written to report.html"))
-        (console/print-report
-         (console-findings enabled-groups run-results
-                           (baseline-severity new-issues fail-on-rules (:quiet-baseline opts)))
-         {:baseline {:fixed (count fixed)
-                     :present (count present)}
-          :docs (docs-by-rule enabled-groups)}))
+        (let [{:keys [findings present]} (baseline-console-rows enabled-groups run-results new-issues fail-on-rules
+                                                                (:quiet-baseline opts))]
+          (console/print-report findings
+                                {:baseline {:fixed (count fixed)
+                                            :present present
+                                            :strict? (boolean (:strict-baseline opts))}
+                                 :docs (docs-by-rule enabled-groups)})))
       (System/exit exit-code))))
 
 (defn- run-standalone! [enabled-groups run-results opts dirs]

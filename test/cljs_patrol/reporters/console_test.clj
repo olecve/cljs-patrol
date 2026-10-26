@@ -20,14 +20,15 @@
       "name without hint shows name")
   (is (= "(rf/dispatch [::my-event])" (:message (console/finding :dynamic-sites "info" form-item)))
       "form without hint shows form")
-  (is (= "Use a keyword." (:message (console/finding :dynamic-sites "info" (assoc form-item :hint "Use a keyword."))))
-      "form's hint replaces form, since its line shows it")
+  (is (= "(rf/dispatch [::my-event]): Use a keyword."
+         (:message (console/finding :dynamic-sites "info" (assoc form-item :hint "Use a keyword."))))
+      "form leads its hint, so rows sharing a hint stay apart")
   (is (= ":my-ns/my-sub: Remove it." (:message (console/finding :unused-subs "error" (assoc kw-item :hint "Remove it."))))
-      "name's hint keeps name, since its line may not show it")
+      "name leads its hint")
   (is (= "(is (some? (get-by-text \"x\")))"
          (:message (console/finding :dynamic-sites "info" (assoc form-item :form "(is (some?\n    (get-by-text \"x\")))"))))
       "form collapses onto one line")
-  (is (= 80 (count (:message (console/finding :dynamic-sites "info" (assoc form-item :form (apply str (repeat 200 "x")))))))
+  (is (= 60 (count (:message (console/finding :dynamic-sites "info" (assoc form-item :form (apply str (repeat 200 "x")))))))
       "long form truncated"))
 
 (deftest print-report-groups-by-file-test
@@ -84,10 +85,32 @@
             (report-lines [] {:baseline {:present 3
                                          :fixed 0}}))
       "clean baseline run says so")
-  (is (some #(str/starts-with? % "2 baseline issues no longer present")
+  (is (some #{"2 baseline issues no longer present. Run --baseline-write to refresh the baseline."}
             (report-lines [] {:baseline {:present 0
                                          :fixed 2}}))
-      "fixed issues prompt baseline refresh"))
+      "fixed issues prompt baseline refresh")
+  (is (some #{"\u2716 No new problems \u00b7 0 in baseline, 1 fixed"}
+            (report-lines [] {:baseline {:present 0
+                                         :fixed 1
+                                         :strict? true}}))
+      "strict run failing on fixed issue does not say all is well")
+  (is (some #{(str "1 baseline issue no longer present. "
+                   "--strict-baseline fails the run until --baseline-write refreshes the baseline.")}
+            (report-lines [] {:baseline {:present 0
+                                         :fixed 1
+                                         :strict? true}}))
+      "strict run says why it fails")
+  (is (some #{"\u2714 No new problems \u00b7 2 in baseline, 0 fixed"}
+            (report-lines [] {:baseline {:present 2
+                                         :fixed 0
+                                         :strict? true}}))
+      "strict run with nothing fixed passes"))
+
+(deftest print-report-survives-empty-columns-test
+  (is (some #{"\u2716 1 problem (1 error, 0 warnings)"}
+            (report-lines [(console/finding :unused-subs "error" {:kw ""
+                                                                  :file "a.cljs"})]))
+      "row without line or message still prints"))
 
 (deftest print-report-docs-test
   (let [lines (report-lines [(console/finding :unused-subs "error" kw-item)

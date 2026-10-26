@@ -4,7 +4,7 @@
   (:require
    [clojure.string :as str]))
 
-(def ^:private subject-width 80)
+(def ^:private subject-width 60)
 
 (defn- subject [{:keys [kw form]}]
   (let [text (if form
@@ -14,19 +14,13 @@
       (str (subs text 0 (dec subject-width)) "\u2026")
       text)))
 
-(defn- message
-  "Name a finding by its hint when it has one. A form's line already shows the form, a name's line does not."
-  [{:keys [form hint]
-    :as item}]
-  (cond
-    (and hint form) hint
-    hint (str (subject item) ": " hint)
-    :else (subject item)))
-
-(defn finding [rule-key severity item]
+(defn finding
+  "Shape one rule's finding as a console row."
+  [rule-key severity {:keys [hint]
+                      :as item}]
   {:col (:col item)
    :file (str (:file item))
-   :message (message item)
+   :message (if hint (str (subject item) ": " hint) (subject item))
    :row (:row item)
    :rule rule-key
    :severity severity})
@@ -35,7 +29,7 @@
   (if col (str row ":" col) (str row)))
 
 (defn- widest [f rows]
-  (apply max (map (comp count f) rows)))
+  (apply max 1 (map (comp count f) rows)))
 
 (defn- pad-right [text width]
   (format (str "%-" width "s") text))
@@ -56,19 +50,28 @@
 (defn- counted [n word]
   (str n " " word (when (not= 1 n) "s")))
 
-(defn- totals-line [findings baseline]
+(defn- totals-line [findings {:keys [present fixed strict?]
+                              :as baseline}]
   (let [by-severity (frequencies (map :severity findings))
         problems (- (count findings) (get by-severity "baseline" 0))
         baseline-part (when baseline
-                        (str " \u00b7 " (:present baseline) " in baseline, " (:fixed baseline) " fixed"))]
-    (if (zero? problems)
-      (str "\u2714 No " (when baseline "new ") "problems" baseline-part)
-      (str "\u2716 " (counted problems "problem")
-           " (" (counted (get by-severity "error" 0) "error")
-           ", " (counted (get by-severity "warning" 0) "warning")
-           (when-let [info (get by-severity "info")]
-             (str ", " info " info"))
-           ")" baseline-part))))
+                        (str " \u00b7 " present " in baseline, " fixed " fixed"))]
+    (cond
+      (pos? problems) (str "\u2716 " (counted problems "problem")
+                           " (" (counted (get by-severity "error" 0) "error")
+                           ", " (counted (get by-severity "warning" 0) "warning")
+                           (when-let [info (get by-severity "info")]
+                             (str ", " info " info"))
+                           ")" baseline-part)
+      (and strict? (pos? fixed)) (str "\u2716 No new problems" baseline-part)
+      :else (str "\u2714 No " (when baseline "new ") "problems" baseline-part))))
+
+(defn- fixed-line [{:keys [fixed strict?]}]
+  (when (pos? (or fixed 0))
+    (str (counted fixed "baseline issue") " no longer present. "
+         (if strict?
+           "--strict-baseline fails the run until --baseline-write refreshes the baseline."
+           "Run --baseline-write to refresh the baseline."))))
 
 (defn- docs-lines [findings docs]
   (let [fired (->> findings (map :rule) distinct (filter #(get docs %)) (sort-by name))]
@@ -81,16 +84,14 @@
   "Print `findings` grouped by file, then the totals and a docs link per rule that fired.
   Options:
     :docs - rule-key -> docs URL
-    :baseline - {:present n :fixed n}, for a run compared against a baseline"
+    :baseline - {:present n :fixed n :strict? bool}, for a run compared against a baseline"
   [findings {:keys [docs baseline]}]
   (doseq [[file file-findings] (sort-by key (group-by :file findings))]
     (println)
     (run! println (file-lines file file-findings)))
   (println)
   (println (totals-line findings baseline))
-  (when (pos? (:fixed baseline 0))
-    (println (str (:fixed baseline) " baseline issues no longer present - consider running --baseline-write"
-                  " to refresh.")))
+  (some-> (fixed-line baseline) println)
   (when-let [lines (docs-lines findings docs)]
     (println)
     (run! println lines)))
