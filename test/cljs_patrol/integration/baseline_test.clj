@@ -7,10 +7,8 @@
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
-   [cljs-patrol.reporters.console :as console]
    [cljs-patrol.reporters.edn :as edn-reporter]
    [clojure.edn :as edn]
-   [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
 
 (def ^:private fixture-dir "test-projects/baseline-app/src/baseline_app")
@@ -101,23 +99,27 @@
 
 (deftest baseline-console-output-test
   (let [{:keys [run-results]} (run-analysis)
-        out (with-out-str
-              (doseq [{:keys [group-results]} run-results]
-                (doseq [result group-results]
-                  (console/report-with-baseline result #{}))))]
-    (is (str/includes? out "[BASE]")
-        "baseline issues tagged")
-    (is (not (str/includes? out "[NEW]"))
-        "no new issues when none match")))
+        {:keys [findings present]} (core/baseline-console-rows enabled-groups run-results #{} nil false)]
+    (is (= #{"baseline"} (set (map :severity findings)))
+        "every finding labeled baseline when none is new")
+    (is (= (count findings) present)
+        "baseline count counts rows, as listed")))
+
+(deftest baseline-console-count-test
+  (let [{:keys [run-results identities]} (run-analysis)
+        {:keys [findings present]} (core/baseline-console-rows enabled-groups run-results #{(first identities)} nil false)]
+    (is (= (count (filter #(= "baseline" (:severity %)) findings)) present)
+        "baseline count leaves out new rows")
+    (is (some #(= "error" (:severity %)) findings)
+        "new row labeled error")))
 
 (deftest baseline-console-quiet-test
   (let [{:keys [run-results]} (run-analysis)
-        out (with-out-str
-              (doseq [{:keys [group-results]} run-results]
-                (doseq [result group-results]
-                  (console/report-with-baseline result #{} {:quiet? true}))))]
-    (is (= "" out)
-        "quiet mode suppresses all baseline issues")))
+        {:keys [findings present]} (core/baseline-console-rows enabled-groups run-results #{} nil true)]
+    (is (empty? findings)
+        "quiet mode leaves out every baselined finding")
+    (is (pos? present)
+        "quiet mode still counts baselined rows")))
 
 (deftest baseline-edn-output-test
   (let [{:keys [identities]} (run-analysis)

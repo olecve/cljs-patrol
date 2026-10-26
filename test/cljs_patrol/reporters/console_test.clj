@@ -2,15 +2,7 @@
   (:require
    [cljs-patrol.reporters.console :as console]
    [clojure.string :as str]
-   [clojure.test :refer [deftest is testing]]))
-
-(def ^:private key->title #'console/key->title)
-
-(deftest key->title-test
-  (is (= "Unused subs" (key->title :unused-subs)))
-  (is (= "Phantom events" (key->title :phantom-events)))
-  (is (= "Dynamic sites" (key->title :dynamic-sites)))
-  (is (= "Duplicate subs" (key->title :duplicate-subs))))
+   [clojure.test :refer [deftest is]]))
 
 (def ^:private kw-item {:kw :my-ns/my-sub
                         :file "src/subs.cljs"
@@ -19,200 +11,113 @@
                           :file "src/views.cljs"
                           :row 12})
 
-(def ^:private kw-item-with-hint (assoc kw-item :hint "Drop :aria-live, or set it to \"assertive\"."))
-(def ^:private form-item-with-hint (assoc form-item :hint "Drop :aria-live, or set it to \"assertive\"."))
+(defn- report-lines
+  ([findings] (report-lines findings {}))
+  ([findings options] (str/split-lines (with-out-str (console/print-report findings options)))))
 
-(deftest report-renders-hints-test
-  (testing "prints a finding's hint under the finding, on both section shapes"
-    (let [kw-out (with-out-str (console/report {:unused-subs [kw-item-with-hint]}))
-          form-out (with-out-str (console/report {:dynamic-sites [form-item-with-hint]}))]
-      (is (str/includes? kw-out "Drop :aria-live, or set it to \"assertive\".")
-          "kw-keyed sections render hints too, not only form-keyed ones")
-      (is (str/includes? form-out "Drop :aria-live, or set it to \"assertive\".")
-          "form-keyed sections render hints")))
+(deftest finding-message-test
+  (is (= ":my-ns/my-sub" (:message (console/finding :unused-subs "error" kw-item)))
+      "name without hint shows name")
+  (is (= "(rf/dispatch [::my-event])" (:message (console/finding :dynamic-sites "info" form-item)))
+      "form without hint shows form")
+  (is (= "(rf/dispatch [::my-event]): Use a keyword."
+         (:message (console/finding :dynamic-sites "info" (assoc form-item :hint "Use a keyword."))))
+      "form leads its hint, so rows sharing a hint stay apart")
+  (is (= ":my-ns/my-sub: Remove it." (:message (console/finding :unused-subs "error" (assoc kw-item :hint "Remove it."))))
+      "name leads its hint")
+  (is (= "(is (some? (get-by-text \"x\")))"
+         (:message (console/finding :dynamic-sites "info" (assoc form-item :form "(is (some?\n    (get-by-text \"x\")))"))))
+      "form collapses onto one line")
+  (is (= 60 (count (:message (console/finding :dynamic-sites "info" (assoc form-item :form (apply str (repeat 200 "x")))))))
+      "long form truncated"))
 
-  (testing "prints nothing extra for a finding with no hint"
-    (let [out (with-out-str (console/report {:unused-subs [kw-item]}))]
-      (is (not (str/includes? out "\u2192"))
-          "no arrow line when the rule attached no hint")))
+(deftest print-report-groups-by-file-test
+  (let [lines (report-lines [(console/finding :dynamic-sites "info" form-item)
+                             (console/finding :unused-subs "error" (assoc kw-item :row 40))
+                             (console/finding :unused-subs "error" kw-item)])]
+    (is (= ["src/subs.cljs"
+            "   5  error  :my-ns/my-sub  unused-subs"
+            "  40  error  :my-ns/my-sub  unused-subs"]
+           (->> lines (drop-while #(not= "src/subs.cljs" %)) (take 3)))
+        "file header, then rows by line with aligned columns and rule id last")
+    (is (= ["src/subs.cljs" "src/views.cljs"] (filter #{"src/subs.cljs" "src/views.cljs"} lines))
+        "files in path order")))
 
-  (testing "prints hints in the baseline report as well"
-    (let [out (with-out-str
-                (console/report-with-baseline {:unused-subs [kw-item-with-hint]} #{}))]
-      (is (str/includes? out "Drop :aria-live, or set it to \"assertive\".")
-          "a baselined finding still says what to do about it"))))
+(deftest print-report-aligns-severity-test
+  (is (= ["  1  error    :a  unused-subs"
+          "  2  warning  :b  phantom-subs"]
+         (->> (report-lines [(console/finding :unused-subs "error" {:kw :a
+                                                                    :file "a.cljs"
+                                                                    :row 1})
+                             (console/finding :phantom-subs "warning" {:kw :b
+                                                                       :file "a.cljs"
+                                                                       :row 2})])
+              (drop-while #(not= "a.cljs" %))
+              rest
+              (take 2)))
+      "message column starts at same place whatever severity"))
 
-(def ^:private long-suggestion
-  (str "Every :img must set :alt. Use :alt \"\" for images that are purely decorative, "
-       "otherwise supply text that conveys the image's meaning to assistive technologies."))
+(deftest print-report-shows-column-test
+  (is (some #{"  3:7  warning  (inc x)  plus-minus-one"}
+            (report-lines [(console/finding :plus-minus-one "warning" {:form "(inc x)"
+                                                                       :file "a.cljs"
+                                                                       :row 3
+                                                                       :col 7})]))
+      "line:col when rule knows column"))
 
-(deftest report-renders-suggestions-test
-  (testing "prints the rule's suggestion under a non-empty section"
-    (let [out (with-out-str
-                (console/report {:unused-subs [kw-item]} nil {:unused-subs {:text "Remove it."}}))]
-      (is (str/includes? out "Remove it.")
-          "the explanation reaches default console output")))
+(deftest print-report-totals-test
+  (is (some #{"\u2716 2 problems (1 error, 1 warning)"}
+            (report-lines [(console/finding :unused-subs "error" kw-item)
+                           (console/finding :unused-subs "warning" kw-item)]))
+      "counts problems by severity")
+  (is (some #{"\u2716 1 problem (0 errors, 0 warnings, 1 info)"}
+            (report-lines [(console/finding :dynamic-sites "info" form-item)]))
+      "info counted only when present")
+  (is (some #{"\u2714 No problems"} (report-lines []))
+      "clean run says so")
+  (is (some #{"\u2716 1 problem (1 error, 0 warnings) \u00b7 1 in baseline, 0 fixed"}
+            (report-lines [(console/finding :unused-subs "error" kw-item)
+                           (console/finding :unused-subs "baseline" kw-item)]
+                          {:baseline {:present 1
+                                      :fixed 0}}))
+      "baselined findings shown but not counted as problems")
+  (is (some #{"\u2714 No new problems \u00b7 3 in baseline, 0 fixed"}
+            (report-lines [] {:baseline {:present 3
+                                         :fixed 0}}))
+      "clean baseline run says so")
+  (is (some #{"2 baseline issues no longer present. Run --baseline-write to refresh the baseline."}
+            (report-lines [] {:baseline {:present 0
+                                         :fixed 2}}))
+      "fixed issues prompt baseline refresh")
+  (is (some #{"\u2716 No new problems \u00b7 0 in baseline, 1 fixed"}
+            (report-lines [] {:baseline {:present 0
+                                         :fixed 1
+                                         :strict? true}}))
+      "strict run failing on fixed issue does not say all is well")
+  (is (some #{(str "1 baseline issue no longer present. "
+                   "--strict-baseline fails the run until --baseline-write refreshes the baseline.")}
+            (report-lines [] {:baseline {:present 0
+                                         :fixed 1
+                                         :strict? true}}))
+      "strict run says why it fails")
+  (is (some #{"\u2714 No new problems \u00b7 2 in baseline, 0 fixed"}
+            (report-lines [] {:baseline {:present 2
+                                         :fixed 0
+                                         :strict? true}}))
+      "strict run with nothing fixed passes"))
 
-  (testing "prints nothing for a section with no findings"
-    (let [out (with-out-str
-                (console/report {:unused-subs []} nil {:unused-subs {:text "Remove it."}}))]
-      (is (not (str/includes? out "Remove it."))
-          "an empty section has nothing to explain")))
+(deftest print-report-survives-empty-columns-test
+  (is (some #{"\u2716 1 problem (1 error, 0 warnings)"}
+            (report-lines [(console/finding :unused-subs "error" {:kw ""
+                                                                  :file "a.cljs"})]))
+      "row without line or message still prints"))
 
-  (testing "wraps a long suggestion instead of emitting one long line"
-    (let [out (with-out-str
-                (console/report {:img-alt-missing [kw-item]} nil {:img-alt-missing {:text long-suggestion}}))
-          body (remove str/blank? (str/split-lines out))]
-      (is (every? #(<= (count %) 100) body)
-          "no line runs past a readable width")
-      (is (str/includes? out "purely decorative")
-          "the whole suggestion is still present")))
-
-  (testing "prints the suggestion in the baseline report too"
-    (let [out (with-out-str
-                (console/report-with-baseline {:unused-subs [kw-item]} #{}
-                                              {:guides {:unused-subs {:text "Remove it."}}}))]
-      (is (str/includes? out "Remove it.")
-          "a baselined section explains itself as well"))))
-
-(deftest report-puts-docs-link-on-own-line-test
-  (let [out (with-out-str
-              (console/report {:img-alt-missing [kw-item]} nil
-                              {:img-alt-missing {:text long-suggestion
-                                                 :docs "https://example.com/rules.md#img"}}))]
-    (is (some #(= "  Docs: https://example.com/rules.md#img" %) (str/split-lines out))
-        "link line stands alone, unwrapped")
-    (is (not-any? #(str/ends-with? % "Docs:") (str/split-lines out))
-        "no line ends on dangling label")))
-
-(deftest report-kw-sections-test
-  (testing "prints kw-based sections using keyword format"
-    (let [out (with-out-str
-                (console/report {:unused-subs [kw-item]
-                                 :phantom-events []}))]
-      (is (str/includes? out "Unused subs"))
-      (is (str/includes? out ":my-ns/my-sub"))
-      (is (str/includes? out "src/subs.cljs"))
-      (is (str/includes? out "Phantom events"))
-      (is (str/includes? out "(none)"))))
-
-  (testing "empty sections print (none)"
-    (let [out (with-out-str
-                (console/report {:unused-subs []}))]
-      (is (str/includes? out "(none)"))))
-
-  (testing "non-sequential values are skipped"
-    (let [out (with-out-str
-                (console/report {:unused-subs [kw-item]
-                                 :some-scalar 42}))]
-      (is (not (str/includes? out "42"))))))
-
-(deftest report-form-sections-test
-  (testing "prints form-based sections using form format"
-    (let [out (with-out-str
-                (console/report {:dynamic-sites [form-item]}))]
-      (is (str/includes? out "Dynamic sites"))
-      (is (str/includes? out "src/views.cljs"))
-      (is (str/includes? out "(rf/dispatch [::my-event])")))))
-
-(deftest report-with-baseline-test
-  (let [new-item {:kw :app/new-sub
-                  :type :sub
-                  :file "src/new.cljs"
-                  :row 1}
-        old-item {:kw :app/old-sub
-                  :type :sub
-                  :file "src/old.cljs"
-                  :row 2}
-        new-ids #{{:rule :unused-subs
-                   :key :app/new-sub}}
-        result {:unused-subs [new-item old-item]}
-        out (with-out-str (console/report-with-baseline result new-ids))]
-    (is (str/includes? out "[NEW]")
-        "tags new issues")
-    (is (str/includes? out "[BASE]")
-        "tags baseline issues")
-    (is (str/includes? out ":app/new-sub"))
-    (is (str/includes? out ":app/old-sub"))))
-
-(deftest report-with-baseline-when-dynamic-test
-  (let [new-dynamic {:form "(rf/dispatch [x])"
-                     :file "a.cljs"
-                     :row 1}
-        old-dynamic {:form "(rf/subscribe [y])"
-                     :file "b.cljs"
-                     :row 2}
-        new-ids #{{:rule :dynamic-sites
-                   :form "(rf/dispatch [x])"
-                   :file "a.cljs"
-                   :line 1}}
-        result {:dynamic-sites [new-dynamic old-dynamic]}
-        out (with-out-str (console/report-with-baseline result new-ids))]
-    (is (str/includes? out "[NEW]")
-        "tags new dynamic site")
-    (is (str/includes? out "[BASE]")
-        "tags baseline dynamic site")))
-
-(deftest report-with-baseline-when-quiet-test
-  (let [new-item {:kw :app/new-sub
-                  :type :sub
-                  :file "src/new.cljs"
-                  :row 1}
-        old-item {:kw :app/old-sub
-                  :type :sub
-                  :file "src/old.cljs"
-                  :row 2}
-        new-ids #{{:rule :unused-subs
-                   :key :app/new-sub}}
-        result {:unused-subs [new-item old-item]}
-        out (with-out-str (console/report-with-baseline result new-ids {:quiet? true}))]
-    (is (str/includes? out ":app/new-sub")
-        "shows new issues")
-    (is (not (str/includes? out ":app/old-sub"))
-        "suppresses baseline issues")))
-
-(deftest report-with-baseline-when-quiet-all-baseline-test
-  (let [old-item {:kw :app/old-sub
-                  :type :sub
-                  :file "src/old.cljs"
-                  :row 2}
-        result {:unused-subs [old-item]}
-        out (with-out-str (console/report-with-baseline result #{} {:quiet? true}))]
-    (is (= "" out)
-        "no output when all issues are baseline and quiet")))
-
-(deftest report-marks-blocking-sections-test
-  (let [bug-item {:kw :app/dup
-                  :file "subs.cljs"
-                  :row 1}
-        cleanup-item {:kw :app/unused
-                      :file "subs.cljs"
-                      :row 2}
-        result {:duplicate-subs [bug-item]
-                :unused-subs [cleanup-item]}
-        fail-on-rules #{:duplicate-subs}
-        out (with-out-str (console/report result fail-on-rules))]
-    (is (str/includes? out "Duplicate subs (1) [BLOCKING]")
-        "blocking rule's section is marked")
-    (is (re-find #"Unused subs \(1\) ===" out)
-        "non-blocking rule's section is unmarked")))
-
-(deftest report-without-fail-on-omits-blocking-marker-test
-  (let [item {:kw :app/dup
-              :file "subs.cljs"
-              :row 1}
-        result {:duplicate-subs [item]}
-        out (with-out-str (console/report result))]
-    (is (not (str/includes? out "[BLOCKING]"))
-        "no [BLOCKING] marker when fail-on-rules is unset")))
-
-(deftest report-with-baseline-marks-blocking-test
-  (let [item {:kw :app/dup
-              :file "subs.cljs"
-              :row 1}
-        result {:duplicate-subs [item]}
-        out (with-out-str
-              (console/report-with-baseline result #{}
-                                            {:fail-on-rules #{:duplicate-subs}}))]
-    (is (str/includes? out "[BLOCKING]")
-        "blocking marker applied in baseline mode too")))
+(deftest print-report-docs-test
+  (let [lines (report-lines [(console/finding :unused-subs "error" kw-item)
+                             (console/finding :dynamic-sites "info" form-item)]
+                            {:docs {:unused-subs "https://example.com/re-frame.md#unused-subs"
+                                    :phantom-events "https://example.com/re-frame.md#phantom-events"}})]
+    (is (= ["Rule docs:"
+            "  unused-subs  https://example.com/re-frame.md#unused-subs"]
+           (drop-while #(not= "Rule docs:" %) lines))
+        "one link per rule that fired, none for rules without docs or findings")))

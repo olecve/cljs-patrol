@@ -250,3 +250,60 @@
         "filtering reduces issue count")
     (is (every? #(contains? all-ids %) filtered-ids)
         "filtered ids are a subset of all ids")))
+
+(deftest standalone-severity-test
+  (let [label (fn [fail-on-rules rule]
+                ((core/standalone-severity fail-on-rules) {:group re-frame/group
+                                                           :items [{:kw :app/sub}]
+                                                           :rule rule}))]
+    (is (= "error" (label nil :duplicate-subs))
+        "rule that fails its group labeled error")
+    (is (= "warning" (label nil :phantom-subs))
+        "rule that only reports labeled warning")
+    (is (= "info" (label nil :dynamic-sites))
+        "info-only rule labeled info")
+    (is (= "error" (label #{:phantom-subs} :phantom-subs))
+        "--fail-on rule labeled error")
+    (is (= "warning" (label #{:phantom-subs} :duplicate-subs))
+        "--fail-on replaces group's own check")
+    (is (= "info" (label #{:phantom-subs} :dynamic-sites))
+        "info-only rule outside --fail-on stays info")))
+
+(deftest failed-splits-per-rule-test
+  (doseq [g default-groups
+          rule (keys (group/rule->tier g))]
+    (let [items [{:kw :app/x
+                  :file "a.cljs"
+                  :row 1}]
+          others (into {} (map (fn [other] [other []])) (keys (group/rule->tier g)))]
+      (is (= (boolean (group/failed? g {rule items}))
+             (boolean (group/failed? g (assoc others rule items))))
+          (str (group/group-id g) " " rule " fails alone as it does among the other rules"))))
+  (doseq [g default-groups
+          :let [rules (keys (group/rule->tier g))
+                items [{:kw :app/x
+                        :file "a.cljs"
+                        :row 1}]]]
+    (is (= (boolean (group/failed? g (into {} (map (fn [rule] [rule items])) rules)))
+           (boolean (some #(group/failed? g {% items}) rules)))
+        (str (group/group-id g) " fails exactly when one of its rules fails alone"))))
+
+(deftest baseline-severity-test
+  (let [new-item {:kw :app/new
+                  :file "a.cljs"
+                  :row 1}
+        old-item {:kw :app/old
+                  :file "a.cljs"
+                  :row 2}
+        new-issues #{(baseline/issue->identity :unused-subs new-item)}
+        label (fn [fail-on-rules item]
+                ((core/baseline-severity new-issues fail-on-rules) {:item item
+                                                                    :rule :unused-subs}))]
+    (is (= "error" (label nil new-item))
+        "new finding labeled error")
+    (is (= "warning" (label #{:duplicate-subs} new-item))
+        "new finding outside --fail-on labeled warning")
+    (is (= "error" (label #{:unused-subs} new-item))
+        "new finding in --fail-on labeled error")
+    (is (= "baseline" (label nil old-item))
+        "baselined finding labeled baseline")))
