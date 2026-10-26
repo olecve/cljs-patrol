@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.43] - 2026-10-26
+
+* Lay out console output like ESLint's stylish format by @olecve in https://github.com/olecve/cljs-patrol/pull/108
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.42...v0.0.43
+
 ## [v0.0.42] - 2026-10-23
 
 * Read React interop calls an a11y alias maps the way wrapper calls are read by @olecve in https://github.com/olecve/cljs-patrol/pull/107
