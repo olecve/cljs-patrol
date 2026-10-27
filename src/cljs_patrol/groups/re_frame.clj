@@ -194,14 +194,14 @@
       (and (#{"ns" "in-ns"} operator) (top-level? loc))
       {:decls []
        :dynamics []
-       :usages [{:type :ns-form
+       :usages [{:type ::ns-form
                  :file file}]}
 
       (= "defn" operator)
       (when-let [fn-name (find-public-defn-name loc)]
         {:decls []
          :dynamics []
-         :usages [{:type :public-defn
+         :usages [{:type ::public-defn
                    :fn fn-name
                    :file file}]})
 
@@ -256,7 +256,7 @@
 
                 fx-fn
                 (update :usages conj {:kw resolved
-                                      :type :reg-fx-fn
+                                      :type ::reg-fx-fn
                                       :fn fx-fn
                                       :file file
                                       :row (parser/position-row kw-loc)}))))))
@@ -442,11 +442,11 @@
         event-fx-empty (filter #(= :event-fx-empty (:type %)) usages)
         event-db-empty (filter #(= :event-db-empty (:type %)) usages)
         event-db-returning-effects (filter #(= :event-db-returning-effects (:type %)) usages)
-        multi-ns-files (->> usages (filter #(= :ns-form (:type %))) (map :file) frequencies
+        multi-ns-files (->> usages (filter #(= ::ns-form (:type %))) (map :file) frequencies
                             (keep (fn [[file n]] (when (< 1 n) file))) set)
-        public-defns (->> usages (filter #(= :public-defn (:type %))) (map (juxt :file :fn)) set)
+        public-defns (->> usages (filter #(= ::public-defn (:type %))) (map (juxt :file :fn)) set)
         reg-fx-public-fn (->> usages
-                              (filter #(= :reg-fx-fn (:type %)))
+                              (filter #(= ::reg-fx-fn (:type %)))
                               (remove #(contains? multi-ns-files (:file %)))
                               (filter #(contains? public-defns ((juxt :file :fn) %)))
                               (map #(assoc % :hint (str (:fn %) " is public. Inline it into reg-fx and dispatch an event "

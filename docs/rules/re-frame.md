@@ -278,7 +278,11 @@ fx.
   (js/console.error (:status response)))
 (rf/reg-fx ::show-error show-error!) ; private
 
-(rf/reg-fx ::show-error str/trim) ; a fn of another namespace
+(ns example.core
+  (:require
+   [example.dom :as dom]
+   [re-frame.core :as rf]))
+(rf/reg-fx ::scroll dom/scroll-into-view!) ; a fn of another namespace
 
 (defn register! [show-error!]
   (rf/reg-fx ::show-error show-error!)) ; not top-level, the symbol may be a local
@@ -293,10 +297,10 @@ body into `reg-fx`, and where a plain fn needs the side effect, dispatch an even
 
 Only a top-level `reg-fx` whose handler is a bare symbol counts, so `#(…)`, `(partial f …)` and a wrapping `fn` are not
 checked. The symbol must name a top-level `defn` of the same file. A `defn-`, a `defn` with metadata such as `^:private`
-or an attr-map such as `{:private true}`, a `def`, a form behind a reader conditional, a file with more than one `ns`
-form, and a fn from another namespace are left alone: a fn of another namespace often has callers of its own, and
-turning them into dispatches is a design choice the rule cannot make. The rule targets app code; a library may expose
-its fx handler on purpose.
+or an attr-map such as `{:private true}`, a `def`, a form behind a reader conditional, a file with more than one `ns` or
+`in-ns` form, and a fn from another namespace are left alone: a fn of another namespace often has callers of its own,
+and turning them into dispatches is a design choice the rule cannot make. The rule targets app code; a library may
+expose its fx handler on purpose.
 
 </details>
 
