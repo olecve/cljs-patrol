@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.44] - 2026-10-27
+
+* Flag a reg-fx registering a public fn of its own file by @olecve in https://github.com/olecve/cljs-patrol/pull/109
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.43...v0.0.44
+
 ## [v0.0.43] - 2026-10-26
 
 * Lay out console output like ESLint's stylish format by @olecve in https://github.com/olecve/cljs-patrol/pull/108
