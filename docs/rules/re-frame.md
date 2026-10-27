@@ -247,6 +247,63 @@ parameters, so in ClojureScript a one-argument fn silently drops them. Use `:->`
 
 </details>
 
+### `reg-fx` with a public fn
+
+`reg-fx-public-fn` · cleanup — A `reg-fx` registering a public fn of its own file, so code can call the fn and skip the
+fx.
+
+```clojure
+;; flagged
+(defn show-error! [response]
+  (js/console.error (:status response)))
+(rf/reg-fx ::show-error show-error!)
+(defn on-failure [response] (show-error! response))
+
+;; fix
+(rf/reg-fx
+ ::show-error
+ (fn [response]
+   (js/console.error (:status response))))
+(rf/reg-event-fx
+ ::failed
+ (fn [_ [_ response]]
+   {::show-error response}))
+(defn on-failure [response] (rf/dispatch [::failed response]))
+```
+
+**Left alone:**
+
+```clojure
+(defn- show-error! [response]
+  (js/console.error (:status response)))
+(rf/reg-fx ::show-error show-error!) ; private
+
+(ns example.core
+  (:require
+   [example.dom :as dom]
+   [re-frame.core :as rf]))
+(rf/reg-fx ::scroll dom/scroll-into-view!) ; a fn of another namespace
+
+(defn register! [show-error!]
+  (rf/reg-fx ::show-error show-error!)) ; not top-level, the symbol may be a local
+```
+
+<details>
+<summary>Details</summary>
+
+A reg-fx body is reached by writing its key into an effects map or an `:fx` vector. When it is also a public fn, code
+can call it directly, a second path into the side effect that skips the fx and anything that intercepts it. Inline the
+body into `reg-fx`, and where a plain fn needs the side effect, dispatch an event that returns the fx.
+
+Only a top-level `reg-fx` whose handler is a bare symbol counts, so `#(…)`, `(partial f …)` and a wrapping `fn` are not
+checked. The symbol must name a top-level `defn` of the same file. A `defn-`, a `defn` with metadata such as `^:private`
+or an attr-map such as `{:private true}`, a `def`, a form behind a reader conditional, a file with more than one `ns` or
+`in-ns` form, and a fn from another namespace are left alone: a fn of another namespace often has callers of its own,
+and turning them into dispatches is a design choice the rule cannot make. The rule targets app code; a library may
+expose its fx handler on purpose.
+
+</details>
+
 ### Deprecated effects
 
 `deprecated-effects` · deprecations — A deprecated `:dispatch-n` effect.

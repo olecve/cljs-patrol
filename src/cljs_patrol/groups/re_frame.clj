@@ -3,6 +3,7 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
+   [clojure.string :as str]
    [rewrite-clj.zip :as z]))
 
 (def ^:private decl-fn->type
@@ -161,14 +162,49 @@
     (when-let [body-last (fn-body-last fn-loc)]
       (boolean (some db-keyed-map? (collect-tail-locs body-last))))))
 
+(defn- top-level? [loc]
+  (= :forms (some-> loc z/up z/tag)))
+
+(defn- find-reg-fx-handler-name
+  "Name the unqualified symbol a top-level `(reg-fx ::key f)` registers as its handler, or nil."
+  [reg-fx-loc]
+  (when-let [handler-loc (some-> reg-fx-loc z/down z/right z/right)]
+    (when (and (top-level? reg-fx-loc)
+               (not (str/includes? (parser/raw handler-loc) "/")))
+      (parser/sym-name handler-loc))))
+
+(defn- find-public-defn-name
+  "Name the var a top-level `(defn f ...)` defines, or nil when metadata or an attr-map may make it private."
+  [list-loc]
+  (when-let [name-loc (some-> list-loc z/down z/right)]
+    (let [[after-name after-docstring] (parser/right-siblings name-loc)
+          attr-map-loc (if (string? (try (z/sexpr after-name) (catch Exception _ nil))) after-docstring after-name)]
+      (when (and (top-level? list-loc)
+                 (not= :map (some-> attr-map-loc z/tag)))
+        (parser/sym-name name-loc)))))
+
 (defn- handle-list
   "Detect re-frame declarations and usages from list nodes.
-  Handles: reg-sub, reg-event-*, reg-fx, reg-cofx, subscribe, dispatch, dispatch-sync."
+  Handles: reg-sub, reg-event-*, reg-fx, reg-cofx, subscribe, dispatch, dispatch-sync, and top-level ns and defn."
   [loc {:keys [ns-name aliases]} file]
   (let [op-token (z/down loc)
         operator (parser/sym-name op-token)
         row (parser/position-row loc)]
     (cond
+      (and (#{"ns" "in-ns"} operator) (top-level? loc))
+      {:decls []
+       :dynamics []
+       :usages [{:type ::ns-form
+                 :file file}]}
+
+      (= "defn" operator)
+      (when-let [fn-name (find-public-defn-name loc)]
+        {:decls []
+         :dynamics []
+         :usages [{:type ::public-defn
+                   :fn fn-name
+                   :file file}]})
+
       (contains? decl-fn->type operator)
       (let [kw-loc (z/right (z/down loc))
             decl-type (get decl-fn->type operator)]
@@ -182,6 +218,8 @@
                                     (reg-event-db-empty-return? loc))
                   event-db-effects? (when (= "reg-event-db" operator)
                                       (reg-event-db-returning-effects? loc))
+                  fx-fn (when (= "reg-fx" operator)
+                          (find-reg-fx-handler-name loc))
                   base {:decls [{:kw resolved
                                  :type decl-type
                                  :file file
@@ -213,6 +251,13 @@
                 event-db-effects?
                 (update :usages conj {:kw resolved
                                       :type :event-db-returning-effects
+                                      :file file
+                                      :row (parser/position-row kw-loc)})
+
+                fx-fn
+                (update :usages conj {:kw resolved
+                                      :type ::reg-fx-fn
+                                      :fn fx-fn
                                       :file file
                                       :row (parser/position-row kw-loc)}))))))
 
@@ -396,7 +441,16 @@
         event-fx-db-only (filter #(= :event-fx-db-only (:type %)) usages)
         event-fx-empty (filter #(= :event-fx-empty (:type %)) usages)
         event-db-empty (filter #(= :event-db-empty (:type %)) usages)
-        event-db-returning-effects (filter #(= :event-db-returning-effects (:type %)) usages)]
+        event-db-returning-effects (filter #(= :event-db-returning-effects (:type %)) usages)
+        multi-ns-files (->> usages (filter #(= ::ns-form (:type %))) (map :file) frequencies
+                            (keep (fn [[file n]] (when (< 1 n) file))) set)
+        public-defns (->> usages (filter #(= ::public-defn (:type %))) (map (juxt :file :fn)) set)
+        reg-fx-public-fn (->> usages
+                              (filter #(= ::reg-fx-fn (:type %)))
+                              (remove #(contains? multi-ns-files (:file %)))
+                              (filter #(contains? public-defns ((juxt :file :fn) %)))
+                              (map #(assoc % :hint (str (:fn %) " is public. Inline it into reg-fx and dispatch an event "
+                                                        "that returns the fx."))))]
     {:duplicate-subs (find-duplicates sub-decls)
      :duplicate-events (find-duplicates event-decls)
      :unused-subs (parser/distinct-by :kw unused-subs)
@@ -409,13 +463,14 @@
      :reg-event-fx-db-only (parser/distinct-by :kw event-fx-db-only)
      :reg-event-fx-empty (parser/distinct-by :kw event-fx-empty)
      :reg-event-db-empty (parser/distinct-by :kw event-db-empty)
-     :reg-event-db-returning-effects (parser/distinct-by :kw event-db-returning-effects)}))
+     :reg-event-db-returning-effects (parser/distinct-by :kw event-db-returning-effects)
+     :reg-fx-public-fn (parser/distinct-by :kw reg-fx-public-fn)}))
 
 (defn- summary-lines*
   [{:keys [deprecated-effects duplicate-events duplicate-subs dynamic-sites
            phantom-events phantom-subs unused-events unused-subs
            reg-sub-=>-1-arity reg-event-fx-db-only reg-event-fx-empty
-           reg-event-db-empty reg-event-db-returning-effects]}]
+           reg-event-db-empty reg-event-db-returning-effects reg-fx-public-fn]}]
   [["Duplicate subscriptions:" (count duplicate-subs)]
    ["Duplicate events:" (count duplicate-events)]
    ["Unused subscriptions:" (count unused-subs)]
@@ -428,6 +483,7 @@
    ["reg-event-fx empty effects:" (count reg-event-fx-empty)]
    ["reg-event-db clobbers db:" (count reg-event-db-empty)]
    ["reg-event-db returns effects map:" (count reg-event-db-returning-effects)]
+   ["reg-fx registers a public fn:" (count reg-fx-public-fn)]
    ["Dynamic sites:" (count dynamic-sites)]])
 
 (defn- failed?* [{:keys [deprecated-effects duplicate-events duplicate-subs unused-events unused-subs
@@ -480,7 +536,10 @@
           "(assoc db :panel nil), or a named initial value for a deliberate reset.")
      :reg-event-db-returning-effects
      (str "This reg-event-db returns an effects map like {:db ... :dispatch ...}, which becomes the whole app-db "
-          "while the effects are dropped. Use reg-event-fx.")})
+          "while the effects are dropped. Use reg-event-fx.")
+     :reg-fx-public-fn
+     (str "This reg-fx registers a public fn, so code can call it directly and skip the fx. Inline the fn into "
+          "reg-fx, and dispatch an event that returns the fx where a plain fn needs the side effect.")})
   (docs-anchors [_]
     {:deprecated-effects "deprecated-effects"
      :duplicate-events "duplicate-events"
@@ -492,6 +551,7 @@
      :reg-event-db-returning-effects "reg-event-db-returning-effects"
      :reg-event-fx-db-only "reg-event-fx-db-only"
      :reg-event-fx-empty "reg-event-fx-empty"
+     :reg-fx-public-fn "reg-fx-with-a-public-fn"
      :reg-sub-=>-1-arity "reg-sub--with-a-1-arity-fn"
      :unused-events "unused-events"
      :unused-subs "unused-subscriptions"})
@@ -504,6 +564,7 @@
      :deprecated-effects :deprecations
      :reg-sub-=>-1-arity :cleanup
      :reg-event-fx-db-only :cleanup
+     :reg-fx-public-fn :cleanup
      :unused-subs :cleanup
      :unused-events :cleanup
      :phantom-subs :cleanup
