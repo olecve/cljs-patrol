@@ -243,6 +243,7 @@
                 :reg-event-fx-empty [empty-fx]
                 :reg-event-db-empty [empty-db]
                 :reg-event-db-returning-effects [db-returning-effects]
+                :reg-fx-public-fn [db-returning-effects db-returning-effects db-returning-effects]
                 :dynamic-sites []}
         lines (group/summary-lines re-frame/group result)]
     (is (= [["Duplicate subscriptions:" 2]
@@ -257,5 +258,6 @@
             ["reg-event-fx empty effects:" 1]
             ["reg-event-db clobbers db:" 1]
             ["reg-event-db returns effects map:" 1]
+            ["reg-fx registers a public fn:" 3]
             ["Dynamic sites:" 0]]
            lines))))

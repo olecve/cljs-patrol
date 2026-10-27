@@ -125,7 +125,7 @@
          (severity/tier->rules rule->tier :deprecations)))
   (is (= #{:unused-subs :unused-events :unused-styles
            :phantom-subs :phantom-events
-           :reg-sub-=>-1-arity :reg-event-fx-db-only
+           :reg-sub-=>-1-arity :reg-event-fx-db-only :reg-fx-public-fn
            :redundant-into-hiccup
            :docstring-summary :docstring-indentation
            :docstring-leading-trailing-whitespace
@@ -225,7 +225,7 @@
              (->> tiered :deprecations (map :rule) set)))
       (is (= #{:unused-subs :unused-events :unused-styles
                :phantom-subs :phantom-events
-               :reg-sub-=>-1-arity :reg-event-fx-db-only
+               :reg-sub-=>-1-arity :reg-event-fx-db-only :reg-fx-public-fn
                :redundant-into-hiccup
                :docstring-summary :docstring-indentation
                :docstring-leading-trailing-whitespace
