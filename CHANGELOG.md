@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.45] - 2026-10-28
+
+* Flag an assertion comparing a string literal with the constant defined as that string by @olecve in https://github.com/olecve/cljs-patrol/pull/110
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.44...v0.0.45
+
 ## [v0.0.44] - 2026-10-27
 
 * Flag a reg-fx registering a public fn of its own file by @olecve in https://github.com/olecve/cljs-patrol/pull/109
