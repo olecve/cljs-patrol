@@ -1,10 +1,11 @@
 (ns cljs-patrol.groups.tests
-  "Rule group: naming conventions on test vars."
+  "Rule group: conventions of test code."
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
+   [rewrite-clj.node :as n]
    [rewrite-clj.zip :as z]))
 
 (def ^:private deftest-heads
@@ -310,35 +311,128 @@
            :hint (str "Drop the leading \"" article "-\": "
                       (subs test-name (inc (count article))))})))))
 
+(def ^:private no-ns-name
+  "The namespace `parser` gives a file without an `ns` form, which every such file shares."
+  "unknown")
+
+(defn- string-constant-usage
+  "Record the var and value of a top-level `(def name \"…\")`, docstring or not, or nil."
+  [loc {:keys [ns-name]}]
+  (when (and (= "def" (some-> loc z/down parser/sym-name))
+             (= :forms (some-> loc z/up z/tag))
+             (not= no-ns-name ns-name))
+    (let [children (parser/child-locs loc)
+          value (last children)
+          var-name (some-> (parser/declared-name-loc loc) parser/sym-name)]
+      (when (and var-name (literal-string-loc? value))
+        {:type ::string-constant
+         :var (keyword ns-name var-name)
+         :value (z/sexpr value)}))))
+
+(defn- find-literal-and-symbol
+  "Split an `(is (= \"…\" sym))`, in either order, into its literal and symbol locs, or nil."
+  [is-loc]
+  (when (= "is" (some-> is-loc z/down parser/sym-name))
+    (let [comparison (some-> is-loc z/down z/right)]
+      (when (and (= :list (some-> comparison z/tag))
+                 (= "=" (some-> comparison z/down parser/sym-name)))
+        (let [[_ left right :as children] (parser/child-locs comparison)]
+          (when (= 3 (count children))
+            (cond
+              (and (literal-string-loc? left) (parser/sym-name right)) [left right]
+              (and (literal-string-loc? right) (parser/sym-name left)) [right left])))))))
+
+(defn- strip-to-name
+  "Drop a token's leading colons and namespace, so `:label`, `::label` and `msgs/label` all read `label`."
+  [token-text]
+  (-> token-text (str/replace #"^:+" "") (str/replace #"^[^/]+/(?=.)" "")))
+
+(defn- count-name-in-top-level-form [loc token-name]
+  (->> (tree-seq n/inner? n/children (z/node (parser/top-level-loc loc)))
+       (filter #(and (= :token (n/tag %)) (= token-name (strip-to-name (n/string %)))))
+       count))
+
+(defn- resolve-constant-ref
+  "Resolve the var a symbol names, or nil when anything in its top-level form could rebind it.
+
+  A binding, a `with-redefs` or a `binding` writes the name a second time, as a symbol or a
+  keyword, qualified or not, so the symbol counts only when its name appears once."
+  [sym-loc {:keys [ns-name aliases refers]}]
+  (let [sym-raw (parser/raw sym-loc)
+        slash (str/index-of sym-raw "/")
+        var-name (if slash (subs sym-raw (inc slash)) sym-raw)]
+    (when (= 1 (count-name-in-top-level-form sym-loc var-name))
+      (if slash
+        (let [prefix (subs sym-raw 0 slash)]
+          (keyword (get aliases prefix prefix) var-name))
+        (keyword (get refers sym-raw ns-name) sym-raw)))))
+
+(defn- literal-constant-usage
+  "Record a test-code assertion comparing a literal with a constant, outside `comment` and `quote`, or nil."
+  [paths loc ns-info file]
+  (when-let [[literal-loc sym-loc] (find-literal-and-symbol loc)]
+    (when-let [var-kw (and (test-file? paths ns-info file)
+                           (nil? (enclosing-list-head loc #{"comment"}))
+                           (not (inside-written-out-quote? loc))
+                           (resolve-constant-ref sym-loc ns-info))]
+      {:type ::literal-constant-assertion
+       :var var-kw
+       :literal (z/sexpr literal-loc)
+       :kw (symbol "is")
+       :form (parser/normalize-form (parser/raw loc))
+       :file file
+       :row (parser/position-row loc)
+       :hint (str (name var-kw) " is defined as this same string, so the assertion repeats its definition. "
+                  "Assert on what the code does with it.")})))
+
+(defn- find-list-finding [paths loc ns-info file]
+  (or (leading-article-finding loc file)
+      (when-let [message (inline-assertion-message loc)] (assertion-finding loc message file))
+      (when-let [conditional (conditional-in-assertion loc)]
+        (conditional-finding conditional :computes (parser/sym-name (z/down conditional)) file))
+      (when-let [kind (conditional-around-assertion loc)]
+        (conditional-finding loc kind (parser/sym-name (z/down loc)) file))
+      (var-deref-in-test paths loc ns-info file)))
+
 (defn- handle-list [paths loc ns-info file]
   (when-not (hiccup/inside-unrendered-form? loc)
-    (when-let [finding (or (leading-article-finding loc file)
-                           (when-let [message (inline-assertion-message loc)] (assertion-finding loc message file))
-                           (when-let [conditional (conditional-in-assertion loc)]
-                             (conditional-finding conditional :computes
-                                                  (parser/sym-name (z/down conditional)) file))
-                           (when-let [kind (conditional-around-assertion loc)]
-                             (conditional-finding loc kind
-                                                  (parser/sym-name (z/down loc)) file))
-                           (var-deref-in-test paths loc ns-info file))]
-      {:decls [finding]
-       :usages []
-       :dynamics []})))
+    (let [finding (find-list-finding paths loc ns-info file)
+          usage (or (string-constant-usage loc ns-info)
+                    (literal-constant-usage paths loc ns-info file))]
+      (when (or finding usage)
+        {:decls (if finding [finding] [])
+         :usages (if usage [usage] [])
+         :dynamics []}))))
 
-(defn- analyze* [{:keys [declarations]}]
-  {:deftest-leading-article (vec (filter #(= :deftest-leading-article (:type %)) declarations))
+(defn- find-literal-constant-assertions
+  "Keep the assertions of `usages` whose literal is the one string their constant is defined as in `usages-in-run`."
+  [usages usages-in-run]
+  (let [var->values (->> usages-in-run
+                         (filter #(= ::string-constant (:type %)))
+                         (reduce (fn [acc {:keys [var value]}] (update acc var (fnil conj #{}) value)) {}))]
+    (->> usages
+         (filter #(= ::literal-constant-assertion (:type %)))
+         (filter #(= #{(:literal %)} (var->values (:var %))))
+         (map #(dissoc % :type :var :literal))
+         vec)))
+
+(defn- analyze* [{:keys [declarations usages usages-in-run]}]
+  {:literal-constant-assertion (find-literal-constant-assertions usages (or usages-in-run usages))
+   :deftest-leading-article (vec (filter #(= :deftest-leading-article (:type %)) declarations))
    :assertion-message-inline (vec (filter #(= :assertion-message-inline (:type %)) declarations))
    :conditional-assertion (vec (filter #(= :conditional-assertion (:type %)) declarations))
    :var-deref-in-test (vec (filter #(= :var-deref-in-test (:type %)) declarations))
    :js-hint-in-test (vec (filter #(= :js-hint-in-test (:type %)) declarations))})
 
 (defn- summary-lines* [{:keys [deftest-leading-article assertion-message-inline
-                               conditional-assertion var-deref-in-test js-hint-in-test]}]
+                               conditional-assertion var-deref-in-test js-hint-in-test
+                               literal-constant-assertion]}]
   [["Deftest leading article:" (count deftest-leading-article)]
    ["Assertion message inline:" (count assertion-message-inline)]
    ["Conditional assertion:" (count conditional-assertion)]
    ["Var deref in test:" (count var-deref-in-test)]
-   ["Js hint in test:" (count js-hint-in-test)]])
+   ["Js hint in test:" (count js-hint-in-test)]
+   ["Literal constant assertion:" (count literal-constant-assertion)]])
 
 (defn- failed?* [_]
   ;; Nothing here blocks at runtime, and the guard shape has defensible uses — a `when`
@@ -374,6 +468,9 @@
      :js-hint-in-test
      (str "A ^js type hint in a test namespace does nothing, because a test build never runs "
           ":advanced optimizations. Remove it.")
+     :literal-constant-assertion
+     (str "An assertion compares a string literal with the constant defined as that same string, so it repeats the "
+          "definition. Assert on what the code does with the constant instead.")
      :var-deref-in-test
      (str "A test reads a var through its var quote, such as @#'ns/x or (deref (var ns/x)). "
           "Call it through the public function that uses it, or move it where it can be public.")})
@@ -382,13 +479,15 @@
      :conditional-assertion "conditional-assertion"
      :deftest-leading-article "deftest-leading-article"
      :js-hint-in-test "js-hint-in-test"
+     :literal-constant-assertion "literal-constant-assertion"
      :var-deref-in-test "var-deref-in-test"})
   (rule->tier [_]
     {:deftest-leading-article :cleanup
      :assertion-message-inline :cleanup
      :conditional-assertion :cleanup
      :var-deref-in-test :cleanup
-     :js-hint-in-test :cleanup})
+     :js-hint-in-test :cleanup
+     :literal-constant-assertion :cleanup})
   (file-extensions [_] extensions))
 
 (defn make-group

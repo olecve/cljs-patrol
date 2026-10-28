@@ -59,13 +59,18 @@
       (recur (some-> loc z/down z/rightmost))
       loc)))
 
+(defn top-level-loc
+  "Return the top-level form holding loc, or loc itself when it is one."
+  [loc]
+  (last (take-while #(and % (not= :forms (z/tag %))) (iterate z/up loc))))
+
 (defn top-level-name
   "Return what the top-level form holding loc defines, or nil.
 
   The var a `def`-like form names, or the keyword a registration such as
   `(reg-event-fx ::saved …)` is keyed by."
   [loc]
-  (let [top (last (take-while #(and % (not= :forms (z/tag %))) (iterate z/up loc)))
+  (let [top (top-level-loc loc)
         head (some-> top z/down sym-name)]
     (when (and head (= :list (z/tag top)))
       (if (str/starts-with? head "def")
