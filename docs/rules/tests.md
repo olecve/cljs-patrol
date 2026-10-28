@@ -176,6 +176,67 @@ warnings can say which.
 
 </details>
 
+### Literal constant assertion
+
+`literal-constant-assertion` · cleanup — An assertion comparing a string literal with the constant defined as that same
+string.
+
+```clojure
+;; flagged
+(def file-failed-message "We couldn't read this file")
+(deftest file-failed-copy
+  (is (= "We couldn't read this file" file-failed-message)))
+
+;; fix
+(def file-failed-message "We couldn't read this file")
+(defn toast-for [{:keys [files]}] {:message (when (seq files) file-failed-message)})
+(deftest upload-failure-fires-file-reading-toast
+  (is (= file-failed-message (:message (toast-for {:files [:report]})))
+      "file-reading heading when submit had files"))
+```
+
+**Left alone:**
+
+```clojure
+(defn describe [title] (str "Search case " (or title "Untitled")))
+(deftest describe-falls-back-to-untitled
+  (is (= "Search case Untitled" (describe nil)))) ; a fn's output
+
+(def completed-message (str "Smart Search " "completed"))
+(deftest completed-copy
+  (is (= "Smart Search completed" completed-message))) ; a computed constant
+
+(def label "View Results")
+(deftest label-copy
+  (let [label "View Results"]
+    (is (= "View Results" label)))) ; a local may shadow the constant
+```
+
+<details>
+<summary>Details</summary>
+
+An `(is (= "…" constant))` in test code, in either order and with or without a message, where the constant is a
+top-level `(def name "…")` of that same string anywhere in the run, source or test directory. It fails on every edit to
+the copy and on nothing else, and the fix is always to update both files, so it records the definition rather than
+testing anything. Compare against the constant where the test is about which message the code picks, and assert the
+literal where it is about what the user reads, such as `(s/get-by-text "Save")` in a render test. A message does not
+exempt the assertion: a deliberate pin on a storage key or an event name repeats its definition all the same, and the
+place to record the agreed value is the review that changes it.
+
+A qualified symbol is read through the namespace's aliases, or as a namespace name when no alias matches; an unqualified
+one through `:refer`, or as the file's own namespace. The symbol counts only when its name appears nowhere else in its
+top-level form, as a symbol or a keyword, qualified or not, since a binding, a `with-redefs` or a `binding` that could
+change its value writes the name a second time.
+
+Left alone:
+
+- a constant built by an expression, or a `goog-define` (a build can override its value)
+- a `def` behind a reader conditional, a var defined as two different strings, and files without an `ns` form
+- a comparison of more than two values, and an `=` not directly inside `is`
+- anything in a `comment` block or a quoted or discarded form, and assertions outside [test code](#test-paths)
+
+</details>
+
 ## Test paths
 
 The `tests` group only reads test code: its rules are anchored so that pointing the tool at a source tree reports
