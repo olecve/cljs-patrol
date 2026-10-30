@@ -1040,7 +1040,8 @@
 
 (deftest true-clause-form-leaves-out-a-long-expression-or-step
   (is (= ["(cond-> ... true ...)"]
-         (true-clauses ["(cond-> (get-in db [:search-panel :results :items]) true (assoc-in [:search-panel :loading?] true))"]))))
+         (true-clauses [(str "(cond-> (get-in db [:search-panel :results :items])"
+                             " true (assoc-in [:search-panel :loading?] true))")]))))
 
 (deftest true-clause-form-survives-wrapping-expression-or-step
   (is (= ["(cond-> (get db :x) true (assoc :a 1))"
