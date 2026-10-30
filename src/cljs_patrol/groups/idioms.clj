@@ -858,8 +858,8 @@
   "Record a `cond->` or `cond->>` holding a clause whose test is `true`, or nil.
 
   A `#?@` splice may move the clauses, so a form holding a reader conditional among them
-  is left alone. A step of a thread takes its expression from the thread, so it writes
-  whole pairs and the step of its last test reads as missing: no clause is read there."
+  is left alone. A step of a thread writes whole pairs, so its clause count is odd and it
+  is left alone."
   [loc ns-info file]
   (let [form-name (some-> loc z/down parser/sym-name)
         thread-name (get plain-threads form-name)]
@@ -1164,7 +1164,7 @@
              :hint (str "Write " (if fn-literal? "#(" "(") call ")")}
       test (assoc :test test))))
 
-(defn- unconditional-step? [{:keys [form-name thread-name head thread-head]} definitions]
+(defn- true-test? [{:keys [form-name thread-name head thread-head]} definitions]
   (and (core-named? head definitions form-name)
        (core-named? thread-head definitions thread-name)))
 
@@ -1181,9 +1181,12 @@
        ")"))
 
 (defn- true-test-hint [{:keys [thread-name steps]}]
-  (if (= 1 (count steps))
-    (str "Thread " (shown (first steps) text-max) " with " thread-name ": its test is true, so it always runs")
-    (str "Thread the " (count steps) " steps tested true with " thread-name ": they always run")))
+  (let [[step & more] steps
+        text (shown step text-max)]
+    (cond
+      (seq more) (str "Thread the " (count steps) " steps tested true with " thread-name ": they always run")
+      (= "..." text) (str "Thread the step tested true with " thread-name ": it always runs")
+      :else (str "Thread " text " with " thread-name ": its test is true, so it always runs"))))
 
 (defn- true-test-finding [{:keys [form-name position file test]
                            :as candidate}]
@@ -1229,7 +1232,7 @@
           (mapv negated-equality-finding))
      :unconditional-cond-threading
      (->> declarations
-          (filter #(and (= ::true-test (:type %)) (unconditional-step? % definitions)))
+          (filter #(and (= ::true-test (:type %)) (true-test? % definitions)))
           (mapv true-test-finding))}))
 
 (defn- suggestion [min-calls]

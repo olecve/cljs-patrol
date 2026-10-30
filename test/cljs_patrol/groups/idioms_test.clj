@@ -1012,9 +1012,9 @@
             :hint "Thread (map inc) with ->>: its test is true, so it always runs"}
            finding))))
 
-(deftest true-test-hint-counts-steps-and-shortens-a-long-one
+(deftest true-test-hint-counts-steps-or-leaves-out-a-long-one
   (is (= ["Thread the 2 steps tested true with ->: they always run"
-          "Thread ... with ->: its test is true, so it always runs"]
+          "Thread the step tested true with ->: it always runs"]
          (->> ["(cond-> db true (assoc :a 1) flag (dissoc :b) true (assoc :c 2))"
                "(cond-> db true (assoc-in db [:some :very :long :path :here] {:value 1}))"]
               parse
