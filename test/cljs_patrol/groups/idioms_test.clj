@@ -343,6 +343,10 @@
                      "(cond (= mode :search) [smart-filters-toolbar] :else nil)"]))
       "a value too long to show is left out, and the clauses between are counted"))
 
+(deftest else-nil-form-leaves-out-a-first-value-one-line-would-misquote
+  (is (= ["(cond (pos? n) ... :else nil)"]
+         (else-nils ["(cond (pos? n) (str \"up\" ; why\n n) :else nil)"]))))
+
 (deftest else-nil-form-survives-wrapping-first-value
   (is (= ["(cond (pos? n) (str \"up \" n) :else nil)"
           "(cond (pos? n) (str \"up \" n) :else nil)"]
@@ -1052,9 +1056,18 @@
 
 (deftest true-clause-form-survives-wrapping-expression-or-step
   (is (= ["(cond-> (get db :x) true (assoc :a 1))"
-          "(cond-> (get db :x) true (assoc :a 1))"]
+          "(cond-> (get db :x) true (assoc :a 1))"
+          "(cond-> db true (assoc :a 1))"]
          (true-clauses ["(cond-> (get db :x) true (assoc :a 1))"
-                        "(cond-> (get db\n             :x)\n  true (assoc\n         :a 1))"]))))
+                        "(cond-> (get db\n             :x)\n  true (assoc\n         :a 1))"
+                        (str "(cond-> db\n  true (assoc"
+                             "\n                                            :a 1))")]))
+      "the length is measured on one line, however deep the indent")
+  (is (= ["(cond-> ... true ...)"
+          "(cond-> db true ...)"]
+         (true-clauses ["(cond-> (get db ; why\n :x) true (str \"a\nb\"))"
+                        "(cond-> db true (assoc :a ; why\n 1))"]))
+      "a comment or a string spanning lines, in the expression or the step"))
 
 (deftest test-that-is-no-literal-true-is-left-alone
   (is (empty? (true-clauses ["(cond-> db (always-true? ctx) (assoc :a 1) reset? (dissoc :cache))"
