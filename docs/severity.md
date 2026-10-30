@@ -35,7 +35,7 @@ screen-reader user cannot reach, name or tell apart, and a Spade selector that m
 - `css-property-order-outside-in`, `deftest-leading-article`, `assertion-message-inline`, `conditional-assertion`,
   `var-deref-in-test`, `js-hint-in-test`, `literal-constant-assertion`, `get-by-presence-check`, `lookup-helper-name`
 - `form-after-split-map`, `split-map-after-sibling`, `nested-call-chain`, `cond-else-nil`, `negated-test`, `into-empty`,
-  `plus-minus-one`, `negated-equality`
+  `plus-minus-one`, `negated-equality`, `unconditional-cond-threading`
 
 `dynamic-sites` is info-only — it never affects the exit code.
 
