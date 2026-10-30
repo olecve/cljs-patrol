@@ -23,6 +23,7 @@
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [rewrite-clj.node :as n]
+   [rewrite-clj.parser :as p]
    [rewrite-clj.zip :as z]))
 
 (def ^:private core-fns
@@ -987,12 +988,38 @@
 
 (def ^:private text-max 40)
 
+(defn- misquoted-on-one-line?
+  "True when collapsing text to one line would change a part of it no whitespace sits in.
+
+  A comment runs to the end of its line, a string or regex keeps its spaces and line
+  breaks, and the space after a `\\(` character is no space after a bracket, so collapsing
+  any of them would show something the source does not say."
+  [text]
+  (->> (p/parse-string-all text)
+       (tree-seq n/inner? n/children)
+       (some #(and (not (n/inner? %))
+                   (not (n/whitespace? %))
+                   (or (not= (n/string %) (parser/normalize-form (n/string %)))
+                       (re-find #"[(\[{]$" (n/string %)))))
+       boolean))
+
 (defn- shown
   "Return text as a rewrite shows it: whole, or, given a limit, `...` once longer or spanning lines."
   [text limit]
   (if (and limit (or (> (count text) limit) (str/includes? text "\n")))
     "..."
     text))
+
+(defn- shown-on-one-line
+  "Return text as an identity shows it: collapsed to one line, then whole or `...` once longer than `text-max`.
+
+  A value a formatter wraps across lines then keeps the identity it had on one. Text one
+  line would misquote shows as `...`."
+  [text]
+  (let [line (parser/normalize-form text)]
+    (if (or (misquoted-on-one-line? text) (> (count line) text-max))
+      "..."
+      line)))
 
 (defn- operator [run]
   (if (some #(= :last (:direction %)) run) "->>" "->"))
@@ -1061,7 +1088,7 @@
   between, and a first value too long to show."
   [{:keys [head-text fn-literal? first-clause clauses-between else-text]}]
   (let [[first-test first-value] first-clause]
-    (str (if fn-literal? "#(" "(") head-text " " first-test " " (shown first-value text-max)
+    (str (if fn-literal? "#(" "(") head-text " " first-test " " (shown-on-one-line first-value)
          (when (pos? clauses-between) (str " ..." clauses-between " more..."))
          " " else-text " nil)")))
 
@@ -1082,7 +1109,7 @@
 
   This is the finding's identity in a baseline, so a branch too long to show is left out."
   [{:keys [head-text fn-literal? test-text body]}]
-  (let [shown-body (map #(shown % text-max) (take 2 body))
+  (let [shown-body (map shown-on-one-line (take 2 body))
         more (- (count body) 2)]
     (str (if fn-literal? "#(" "(") head-text " " test-text
          (apply str (map #(str " " %) shown-body))
@@ -1180,9 +1207,9 @@
   This is the finding's identity in a baseline, so it counts the other clauses rather than
   show them, and leaves out an expression or step too long to show."
   [{:keys [head-text fn-literal? expression-text steps before after]}]
-  (str (if fn-literal? "#(" "(") head-text " " (shown expression-text text-max)
+  (str (if fn-literal? "#(" "(") head-text " " (shown-on-one-line expression-text)
        (when (pos? before) (str " ..." before " before..."))
-       " true " (shown (first steps) text-max)
+       " true " (shown-on-one-line (first steps))
        (when (pos? after) (str " ..." after " more..."))
        ")"))
 
