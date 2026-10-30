@@ -1012,14 +1012,19 @@
             :hint "Thread (map inc) with ->>: its test is true, so it always runs"}
            finding))))
 
-(deftest true-clause-hint-counts-steps-or-leaves-out-a-long-one
+(deftest true-clause-hint-keeps-steps-in-order
   (is (= ["Thread the 2 steps tested true with ->: they always run"
-          "Thread the step tested true with ->: it always runs"]
-         (->> ["(cond-> db true (assoc :a 1) flag (dissoc :b) true (assoc :c 2))"
-               "(cond-> db true (assoc-in db [:some :very :long :path :here] {:value 1}))"]
+          "Thread the step tested true with ->: its test is true, so it always runs"
+          "Thread the cond-> into (assoc :cache {}) with ->: its test is true, so it always runs after the clauses above it"
+          "Thread the cond->> into the 2 steps tested true with ->>, keeping their order: they always run"]
+         (->> ["(cond-> db true (assoc :a 1) true (assoc :c 2) flag (dissoc :b))"
+               "(cond-> db true (assoc-in db [:some :very :long :path :here] {:value 1}))"
+               "(cond-> db reset? (dissoc :cache) true (assoc :cache {}))"
+               "(cond->> xs true (map inc) flag (filter pos?) true (take 2))"]
               parse
               :unconditional-cond-threading
-              (mapv :hint)))))
+              (mapv :hint)))
+      "a step after a conditional one stays after it"))
 
 (deftest true-clause-form-leaves-out-a-long-expression-or-step
   (is (= ["(cond-> ... true ...)"]
@@ -1047,6 +1052,12 @@
                              "(cond-> db true (assoc :a 1) flag)"
                              "(cond->)"]))
       "a clause without its step does not compile, so it is no thread to read"))
+
+(deftest conditional-thread-holding-other-reader-macro-is-flagged
+  (is (= ["(cond-> #js {} true (doto (aset \"a\" 1)))"
+          "(cond-> #inst \"2020\" true str)"]
+         (true-clauses ["(cond-> #js {} true (doto (aset \"a\" 1)))"
+                        "(cond-> #inst \"2020\" true str)"]))))
 
 (deftest conditional-thread-holding-reader-conditional-is-left-alone
   (is (empty? (true-clauses ["(cond-> db #?@(:cljs [flag (assoc :a 1)]) true (assoc :b 2))"

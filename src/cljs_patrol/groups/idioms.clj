@@ -849,6 +849,10 @@
            :file file
            :test (parser/top-level-name loc)})))))
 
+(defn- written-reader-conditional? [node]
+  (and (= :reader-macro (n/tag node))
+       (str/starts-with? (n/string node) "#?")))
+
 (def ^:private plain-threads
   "Conditional threads, with the thread that runs the same steps whatever the tests."
   {"cond->" "->"
@@ -857,8 +861,8 @@
 (defn- true-clause-candidate
   "Record a `cond->` or `cond->>` holding a clause whose test is `true`, or nil.
 
-  A `#?@` splice may move the clauses, so a form holding a reader conditional among them
-  is left alone. A step of a thread writes whole pairs, so its clause count is odd and it
+  A `#?@` splice may move the clauses, so a form holding a `#?` or `#?@` among them is
+  left alone. A step of a thread writes whole pairs, so its clause count is odd and it
   is left alone."
   [loc ns-info file]
   (let [form-name (some-> loc z/down parser/sym-name)
@@ -870,7 +874,7 @@
             steps (->> true-pairs (filter (comp written-true? first)) (mapv (comp n/string second)))]
         (when (and (even? (count clauses))
                    (seq steps)
-                   (not-any? #(= :reader-macro (n/tag %)) (cons expression clauses))
+                   (not-any? written-reader-conditional? (cons expression clauses))
                    (core-name-unshadowed? loc ns-info thread-name))
           {:type ::true-clause
            :form-name form-name
@@ -881,6 +885,7 @@
            :fn-literal? (= :fn (z/tag loc))
            :expression-text (n/string expression)
            :steps steps
+           :leading? (every? (comp written-true? first) (take (count steps) pairs))
            :before (count before-true)
            :after (dec (count true-pairs))
            :position (try (z/position loc) (catch Exception _ [0 1]))
@@ -1181,13 +1186,23 @@
        (when (pos? after) (str " ..." after " more..."))
        ")"))
 
-(defn- true-clause-hint [{:keys [thread-name steps]}]
+(defn- true-clause-hint
+  "Spell out where the steps tested true go: into the expression when they lead, around the thread otherwise.
+
+  A step after a conditional one runs after it, so moving it into the expression would
+  change the order."
+  [{:keys [form-name thread-name steps leading?]}]
   (let [[step & more] steps
-        text (shown step text-max)]
+        text (shown step text-max)
+        named (if (= "..." text) "the step tested true" text)]
     (cond
-      (seq more) (str "Thread the " (count steps) " steps tested true with " thread-name ": they always run")
-      (= "..." text) (str "Thread the step tested true with " thread-name ": it always runs")
-      :else (str "Thread " text " with " thread-name ": its test is true, so it always runs"))))
+      (and (seq more) leading?) (str "Thread the " (count steps) " steps tested true with " thread-name
+                                     ": they always run")
+      (seq more) (str "Thread the " form-name " into the " (count steps) " steps tested true with " thread-name
+                      ", keeping their order: they always run")
+      leading? (str "Thread " named " with " thread-name ": its test is true, so it always runs")
+      :else (str "Thread the " form-name " into " named " with " thread-name
+                 ": its test is true, so it always runs after the clauses above it"))))
 
 (defn- true-clause-finding [{:keys [form-name position file test]
                              :as candidate}]
