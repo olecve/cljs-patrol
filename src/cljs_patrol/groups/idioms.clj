@@ -991,14 +991,16 @@
 (defn- misquoted-on-one-line?
   "True when collapsing text to one line would change a part of it no whitespace sits in.
 
-  A comment runs to the end of its line, and a string or regex keeps its spaces and line
-  breaks, so collapsing any of them would show something the source does not say."
+  A comment runs to the end of its line, a string or regex keeps its spaces and line
+  breaks, and the space after a `\\(` character is no space after a bracket, so collapsing
+  any of them would show something the source does not say."
   [text]
   (->> (p/parse-string-all text)
        (tree-seq n/inner? n/children)
        (some #(and (not (n/inner? %))
                    (not (n/whitespace? %))
-                   (not= (n/string %) (parser/normalize-form (n/string %)))))
+                   (or (not= (n/string %) (parser/normalize-form (n/string %)))
+                       (re-find #"[(\[{]$" (n/string %)))))
        boolean))
 
 (defn- shown

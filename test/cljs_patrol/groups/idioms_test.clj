@@ -530,7 +530,10 @@
          (negated-tests [(str "(if (not ready?) (str \"a\" \"" (apply str (repeat 35 " ")) "\" b) :go)")
                          "(if (not ready?) (str \"( a\") :go)"
                          "(if (not ready?) (re-find #\"a  b\" s) :go)"]))
-      "a string or regex whose spaces one line would change"))
+      "a string or regex whose spaces one line would change")
+  (is (= ["(if (not ready?) ... :go)"]
+         (negated-tests ["(if (not ready?) (str \\( n) :go)"]))
+      "a bracket character, whose space one line would drop"))
 
 (deftest negated-test-form-survives-wrapping-a-branch
   (is (= ["(if (not ready?) (let [a 1] (inc a)) :go)"
