@@ -1,4 +1,4 @@
-(ns app.true-test-defined)
+(ns app.true-clause-defined)
 
 (defmacro cond->> [x & _]
   x)

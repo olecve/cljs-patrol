@@ -1,6 +1,6 @@
-(ns app.true-test-plain)
+(ns app.true-clause-plain)
 
-(defn true-test-plain [db reset?]
+(defn true-clause-plain [db reset?]
   (cond-> db
     true (assoc :loading? true)
     reset? (dissoc :cache)))

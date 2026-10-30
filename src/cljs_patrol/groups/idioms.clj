@@ -854,7 +854,7 @@
   {"cond->" "->"
    "cond->>" "->>"})
 
-(defn- true-test-candidate
+(defn- true-clause-candidate
   "Record a `cond->` or `cond->>` holding a clause whose test is `true`, or nil.
 
   A `#?@` splice may move the clauses, so a form holding a reader conditional among them
@@ -865,13 +865,14 @@
         thread-name (get plain-threads form-name)]
     (when-let [head (when thread-name (core-call-head loc ns-info form-name))]
       (let [[expression & clauses] (rest (code-forms (z/node loc)))
-            tests (take-nth 2 clauses)
-            before (count (take-while (complement written-true?) tests))]
+            pairs (partition 2 clauses)
+            [before-true true-pairs] (split-with (comp (complement written-true?) first) pairs)
+            steps (->> true-pairs (filter (comp written-true? first)) (mapv (comp n/string second)))]
         (when (and (even? (count clauses))
-                   (some written-true? tests)
+                   (seq steps)
                    (not-any? #(= :reader-macro (n/tag %)) (cons expression clauses))
                    (core-name-unshadowed? loc ns-info thread-name))
-          {:type ::true-test
+          {:type ::true-clause
            :form-name form-name
            :thread-name thread-name
            :head head
@@ -879,9 +880,9 @@
            :head-text (z/string (z/down loc))
            :fn-literal? (= :fn (z/tag loc))
            :expression-text (n/string expression)
-           :steps (->> clauses (partition 2) (filter #(written-true? (first %))) (mapv #(n/string (second %))))
-           :before before
-           :after (- (count tests) before 1)
+           :steps steps
+           :before (count before-true)
+           :after (dec (count true-pairs))
            :position (try (z/position loc) (catch Exception _ [0 1]))
            :file file
            :test (parser/top-level-name loc)})))))
@@ -893,7 +894,7 @@
                               (negated-test-candidate loc ns-info file)
                               (into-empty-candidate loc ns-info file)
                               (plus-minus-one-candidate loc ns-info file)
-                              (true-test-candidate loc ns-info file)
+                              (true-clause-candidate loc ns-info file)
                               (negated-equality-candidate loc ns-info file)])]
     (when (seq found)
       {:decls (vec found)
@@ -1164,15 +1165,15 @@
              :hint (str "Write " (if fn-literal? "#(" "(") call ")")}
       test (assoc :test test))))
 
-(defn- true-test? [{:keys [form-name thread-name head thread-head]} definitions]
+(defn- true-clause? [{:keys [form-name thread-name head thread-head]} definitions]
   (and (core-named? head definitions form-name)
        (core-named? thread-head definitions thread-name)))
 
-(defn- true-test-form
+(defn- true-clause-form
   "Spell out a conditional thread by its expression and its first `true` clause, counting the others.
 
-  This is the finding's identity in a baseline, so it leaves out what churns: the other
-  clauses, and an expression or step too long to show."
+  This is the finding's identity in a baseline, so it counts the other clauses rather than
+  show them, and leaves out an expression or step too long to show."
   [{:keys [head-text fn-literal? expression-text steps before after]}]
   (str (if fn-literal? "#(" "(") head-text " " (shown expression-text text-max)
        (when (pos? before) (str " ..." before " before..."))
@@ -1180,7 +1181,7 @@
        (when (pos? after) (str " ..." after " more..."))
        ")"))
 
-(defn- true-test-hint [{:keys [thread-name steps]}]
+(defn- true-clause-hint [{:keys [thread-name steps]}]
   (let [[step & more] steps
         text (shown step text-max)]
     (cond
@@ -1188,16 +1189,16 @@
       (= "..." text) (str "Thread the step tested true with " thread-name ": it always runs")
       :else (str "Thread " text " with " thread-name ": its test is true, so it always runs"))))
 
-(defn- true-test-finding [{:keys [form-name position file test]
-                           :as candidate}]
+(defn- true-clause-finding [{:keys [form-name position file test]
+                             :as candidate}]
   (let [[row col] position]
     (cond-> {:kw (symbol form-name)
              :type :unconditional-cond-threading
-             :form (parser/normalize-form (true-test-form candidate))
+             :form (parser/normalize-form (true-clause-form candidate))
              :file file
              :row row
              :col col
-             :hint (true-test-hint candidate)}
+             :hint (true-clause-hint candidate)}
       test (assoc :test test))))
 
 (defn- analyze* [min-calls {:keys [declarations]}]
@@ -1232,8 +1233,8 @@
           (mapv negated-equality-finding))
      :unconditional-cond-threading
      (->> declarations
-          (filter #(and (= ::true-test (:type %)) (true-test? % definitions)))
-          (mapv true-test-finding))}))
+          (filter #(and (= ::true-clause (:type %)) (true-clause? % definitions)))
+          (mapv true-clause-finding))}))
 
 (defn- suggestion [min-calls]
   (str min-calls " or more calls nested one inside another, each passing its result to the "

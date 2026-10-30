@@ -34,5 +34,5 @@
       "a not= the namespace defines in another file, loads or interns is no fix to ask for"))
 
 (deftest unconditional-cond-threading-fixture-test
-  (is (= ["true-test-plain"] (map :test (found :unconditional-cond-threading)))
+  (is (= ["true-clause-plain"] (map :test (found :unconditional-cond-threading)))
       "a cond-> the ns form excludes, or a cond->> or -> the namespace defines in another file, is no thread to ask for"))
