@@ -577,6 +577,9 @@
   (and (= :token (n/tag node))
        (nil? (n/sexpr node))))
 
+(defn- written-true? [node]
+  (= "true" (n/string node)))
+
 (defn- case-test?
   "True when loc is a test of the `case` it sits in."
   [loc]
@@ -846,6 +849,43 @@
            :file file
            :test (parser/top-level-name loc)})))))
 
+(def ^:private plain-threads
+  "Conditional threads, with the thread that runs the same steps whatever the tests."
+  {"cond->" "->"
+   "cond->>" "->>"})
+
+(defn- true-test-candidate
+  "Record a `cond->` or `cond->>` holding a clause whose test is `true`, or nil.
+
+  A `#?@` splice may move the clauses, so a form holding a reader conditional among them
+  is left alone. A step of a thread takes its expression from the thread, so it writes
+  whole pairs and the step of its last test reads as missing: no clause is read there."
+  [loc ns-info file]
+  (let [form-name (some-> loc z/down parser/sym-name)
+        thread-name (get plain-threads form-name)]
+    (when-let [head (when thread-name (core-call-head loc ns-info form-name))]
+      (let [[expression & clauses] (rest (code-forms (z/node loc)))
+            tests (take-nth 2 clauses)
+            before (count (take-while (complement written-true?) tests))]
+        (when (and (even? (count clauses))
+                   (some written-true? tests)
+                   (not-any? #(= :reader-macro (n/tag %)) (cons expression clauses))
+                   (core-name-unshadowed? loc ns-info thread-name))
+          {:type ::true-test
+           :form-name form-name
+           :thread-name thread-name
+           :head head
+           :thread-head (describe-name thread-name ns-info)
+           :head-text (z/string (z/down loc))
+           :fn-literal? (= :fn (z/tag loc))
+           :expression-text (n/string expression)
+           :steps (->> clauses (partition 2) (filter #(written-true? (first %))) (mapv #(n/string (second %))))
+           :before before
+           :after (- (count tests) before 1)
+           :position (try (z/position loc) (catch Exception _ [0 1]))
+           :file file
+           :test (parser/top-level-name loc)})))))
+
 (defn- handle [min-calls loc ns-info file]
   (let [found (keep identity [(when (= :list (z/tag loc)) (definition loc ns-info file))
                               (chain-candidate min-calls loc ns-info file)
@@ -853,6 +893,7 @@
                               (negated-test-candidate loc ns-info file)
                               (into-empty-candidate loc ns-info file)
                               (plus-minus-one-candidate loc ns-info file)
+                              (true-test-candidate loc ns-info file)
                               (negated-equality-candidate loc ns-info file)])]
     (when (seq found)
       {:decls (vec found)
@@ -1123,6 +1164,39 @@
              :hint (str "Write " (if fn-literal? "#(" "(") call ")")}
       test (assoc :test test))))
 
+(defn- unconditional-step? [{:keys [form-name thread-name head thread-head]} definitions]
+  (and (core-named? head definitions form-name)
+       (core-named? thread-head definitions thread-name)))
+
+(defn- true-test-form
+  "Spell out a conditional thread by its expression and its first `true` clause, counting the others.
+
+  This is the finding's identity in a baseline, so it leaves out what churns: the other
+  clauses, and an expression or step too long to show."
+  [{:keys [head-text fn-literal? expression-text steps before after]}]
+  (str (if fn-literal? "#(" "(") head-text " " (shown expression-text text-max)
+       (when (pos? before) (str " ..." before " before..."))
+       " true " (shown (first steps) text-max)
+       (when (pos? after) (str " ..." after " more..."))
+       ")"))
+
+(defn- true-test-hint [{:keys [thread-name steps]}]
+  (if (= 1 (count steps))
+    (str "Thread " (shown (first steps) text-max) " with " thread-name ": its test is true, so it always runs")
+    (str "Thread the " (count steps) " steps tested true with " thread-name ": they always run")))
+
+(defn- true-test-finding [{:keys [form-name position file test]
+                           :as candidate}]
+  (let [[row col] position]
+    (cond-> {:kw (symbol form-name)
+             :type :unconditional-cond-threading
+             :form (parser/normalize-form (true-test-form candidate))
+             :file file
+             :row row
+             :col col
+             :hint (true-test-hint candidate)}
+      test (assoc :test test))))
+
 (defn- analyze* [min-calls {:keys [declarations]}]
   (let [definitions (function-definitions declarations)]
     {:nested-call-chain
@@ -1152,7 +1226,11 @@
      :negated-equality
      (->> declarations
           (filter #(and (= ::negated-equality (:type %)) (negated-equality? % definitions)))
-          (mapv negated-equality-finding))}))
+          (mapv negated-equality-finding))
+     :unconditional-cond-threading
+     (->> declarations
+          (filter #(and (= ::true-test (:type %)) (unconditional-step? % definitions)))
+          (mapv true-test-finding))}))
 
 (defn- suggestion [min-calls]
   (str min-calls " or more calls nested one inside another, each passing its result to the "
@@ -1178,39 +1256,48 @@
 (def ^:private negated-equality-suggestion
   "(not (= a b)) negates an equality. Write (not= a b), which says it in one name.")
 
+(def ^:private unconditional-cond-threading-suggestion
+  (str "A cond-> or cond->> clause tests true, so its step always runs. Thread it with -> or ->> "
+       "and keep cond-> for the steps a test decides."))
+
 (defrecord IdiomsGroup [min-calls extensions]
   group/RuleGroup
   (group-id [_] :idioms)
   (group-name [_] "Idioms")
   (parse-handlers [_] {:handle-list (fn [loc ns-info file] (handle min-calls loc ns-info file))})
   (analyze [_ data] (analyze* min-calls data))
-  (summary-lines [_ {:keys [nested-call-chain cond-else-nil negated-test into-empty plus-minus-one negated-equality]}]
+  (summary-lines [_ {:keys [nested-call-chain cond-else-nil negated-test into-empty plus-minus-one negated-equality
+                            unconditional-cond-threading]}]
     [["Nested call chain:" (count nested-call-chain)]
      ["Cond else nil:" (count cond-else-nil)]
      ["Negated test:" (count negated-test)]
      ["Into empty:" (count into-empty)]
      ["Plus or minus one:" (count plus-minus-one)]
-     ["Negated equality:" (count negated-equality)]])
+     ["Negated equality:" (count negated-equality)]
+     ["Unconditional cond threading:" (count unconditional-cond-threading)]])
   (failed? [_ _] false)
   (suggestions [_] {:nested-call-chain (suggestion min-calls)
                     :cond-else-nil else-nil-suggestion
                     :negated-test negated-test-suggestion
                     :into-empty into-empty-suggestion
                     :plus-minus-one plus-minus-one-suggestion
-                    :negated-equality negated-equality-suggestion})
+                    :negated-equality negated-equality-suggestion
+                    :unconditional-cond-threading unconditional-cond-threading-suggestion})
   (docs-anchors [_]
     {:cond-else-nil "cond-else-nil"
      :into-empty "into-empty"
      :negated-equality "negated-equality"
      :negated-test "negated-test"
      :nested-call-chain "nested-call-chain"
-     :plus-minus-one "plus-or-minus-one"})
+     :plus-minus-one "plus-or-minus-one"
+     :unconditional-cond-threading "unconditional-cond-threading"})
   (rule->tier [_] {:nested-call-chain :cleanup
                    :cond-else-nil :cleanup
                    :negated-test :cleanup
                    :into-empty :cleanup
                    :plus-minus-one :cleanup
-                   :negated-equality :cleanup})
+                   :negated-equality :cleanup
+                   :unconditional-cond-threading :cleanup})
   (file-extensions [_] extensions))
 
 (defn make-group

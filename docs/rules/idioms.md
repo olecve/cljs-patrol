@@ -397,6 +397,76 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 
 </details>
 
+### Unconditional cond threading
+
+`unconditional-cond-threading` · cleanup — A `cond->` or `cond->>` clause whose test is `true`, so its step always runs.
+
+```clojure
+;; flagged
+(defn start-loading [db reset?]
+  (cond-> db
+    true (assoc :loading? true)
+    true (update :counter inc)
+    reset? (dissoc :cache)))
+
+(defn prepare [xs needs-filter?]
+  (cond->> xs
+    true (map inc)
+    needs-filter? (filter pos?)))
+
+;; fix
+(defn start-loading [db reset?]
+  (cond-> (-> db
+              (assoc :loading? true)
+              (update :counter inc))
+    reset? (dissoc :cache)))
+
+(defn prepare [xs needs-filter?]
+  (cond->> (map inc xs)
+    needs-filter? (filter pos?)))
+```
+
+**Left alone:**
+
+```clojure
+(defn start-loading [db ctx reset?]
+  (cond-> db
+    (always-true? ctx) (assoc :a 1)
+    reset? (dissoc :cache))) ; a test that is no literal true
+
+(defn start-loading [db] (-> db (assoc :a 1) (update :counter inc))) ; a plain thread
+
+(defn start-loading [db] (-> db (cond-> true (assoc :a 1)))) ; a threaded cond-> takes its expression from the thread
+```
+
+<details>
+<summary>Details</summary>
+
+Why: a `cond->` clause says that a test decides whether its step runs. A `true` test decides nothing, so every reader
+has to stop and check that the clause is unconditional. Threading those steps with `->` or `->>` leaves `cond->` with
+only the steps a test decides, the same reason [`cond-else-nil`](#cond-else-nil) drops a clause that decides nothing.
+
+Flagged: a `cond->` or `cond->>` with an expression and whole test and step pairs, one of whose tests is the literal
+`true`. Comments and `#_` forms between the clauses do not stop it. The finding is keyed by `cond->` or `cond->>`, one
+per form however many of its tests are `true`. The steps run in order, so a `true` step after a conditional one keeps
+its place: thread the `cond->` into it rather than moving it into the expression.
+
+Left alone, since the scan cannot vouch that the clause always runs or that the rewrite means the same:
+
+- a test that is anything else: `false`, `nil`, a keyword, a quoted `'true`, `true` under metadata, or any symbol or
+  call, however sure it looks to pass. A `false` or `nil` test is a mistake of another shape, not a step that always
+  runs
+- a `cond->` or `cond->>` missing a step for its last test, and one holding a reader conditional among its expression
+  and clauses, where a `#?@` splice may move a test into a step's place
+- a step of `->`, `->>`, `some->`, `some->>`, `doto`, `..` or another `cond->`, which takes its expression from the
+  thread, so it writes whole pairs and the clauses it writes cannot be told apart
+- a `cond->`, `cond->>`, `->` or `->>` that may not be core's: from another library, named in the ns form, bound as a
+  local, or defined by the namespace at the top level, and every case the [`cond-else-nil`](#cond-else-nil) rule leaves
+  alone for `cond`
+- anything quoted, discarded or inside `(comment …)`
+
+</details>
+
 ## Idioms options
 
 The `idioms` group reads one key from `.cljs-patrol/config.edn`:

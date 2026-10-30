@@ -132,7 +132,8 @@
            :css-property-order-outside-in
            :deftest-leading-article :assertion-message-inline :conditional-assertion :get-by-presence-check :lookup-helper-name
            :var-deref-in-test :js-hint-in-test :literal-constant-assertion
-           :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality}
+           :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality
+           :unconditional-cond-threading}
          (severity/tier->rules rule->tier :cleanup)))
   (is (= #{} (severity/tier->rules rule->tier :unknown))
       "unknown tier returns empty set"))
@@ -232,7 +233,8 @@
                :css-property-order-outside-in
                :deftest-leading-article :assertion-message-inline :conditional-assertion :get-by-presence-check :lookup-helper-name
                :var-deref-in-test :js-hint-in-test :literal-constant-assertion
-               :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality}
+               :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality
+               :unconditional-cond-threading}
              (->> tiered :cleanup (map :rule) set))))
 
     (testing "info-only contains rules without a tier"

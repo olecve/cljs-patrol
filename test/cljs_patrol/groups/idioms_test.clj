@@ -976,3 +976,106 @@
          (negated-tests ["(defn not= [a b] a)"
                          "(if (not (= a b)) 1 2)"]))
       "a not= the namespace defines leaves the fold to negated-test"))
+
+(defn- true-tests
+  ([lines] (true-tests ns-info lines))
+  ([file-ns-info lines]
+   (->> lines (parse idioms/group file-ns-info) :unconditional-cond-threading (mapv :form))))
+
+(deftest conditional-thread-with-true-test-is-flagged
+  (is (= ["(cond-> db true (assoc :loading? true) ...2 more...)"
+          "(cond->> xs true (map inc) ...1 more...)"
+          "(cond-> db ...1 before... true (update :counter inc))"
+          "(cond-> db true (assoc :a 1))"
+          "#(cond-> % true inc)"
+          "(clojure.core/cond-> db true (assoc :a 1))"
+          "(cljs.core/cond->> xs true (map inc))"
+          "(cond-> db true (assoc :a 1))"]
+         (true-tests ["(cond-> db\n  true (assoc :loading? true)\n  reset? (dissoc :cache)\n  true (update :counter inc))"
+                      "(cond->> xs\n  true (map inc)\n  needs-filter? (filter pos?))"
+                      "(cond-> db reset? (dissoc :cache) true (update :counter inc))"
+                      "(cond-> db true (assoc :a 1))"
+                      "#(cond-> % true inc)"
+                      "(clojure.core/cond-> db true (assoc :a 1))"
+                      "(cljs.core/cond->> xs true (map inc))"
+                      "(cond-> db ;; always\n  #_flag true (assoc :a 1))"]))))
+
+(deftest true-test-finding-names-the-thread-and-where-it-is
+  (let [[finding] (:unconditional-cond-threading (parse ["(defn load [db]" "  (cond->> db true (map inc)))"]))]
+    (is (= {:kw 'cond->>
+            :type :unconditional-cond-threading
+            :form "(cond->> db true (map inc))"
+            :file "views.cljs"
+            :row 2
+            :col 3
+            :test "load"
+            :hint "Thread (map inc) with ->>: its test is true, so it always runs"}
+           finding))))
+
+(deftest true-test-hint-counts-steps-and-shortens-a-long-one
+  (is (= ["Thread the 2 steps tested true with ->: they always run"
+          "Thread ... with ->: its test is true, so it always runs"]
+         (->> ["(cond-> db true (assoc :a 1) flag (dissoc :b) true (assoc :c 2))"
+               "(cond-> db true (assoc-in db [:some :very :long :path :here] {:value 1}))"]
+              parse
+              :unconditional-cond-threading
+              (mapv :hint)))))
+
+(deftest true-test-form-leaves-out-a-long-expression-or-step
+  (is (= ["(cond-> ... true ...)"]
+         (true-tests ["(cond-> (let [a 1]\n  a) true (let [b 2]\n  b))"]))))
+
+(deftest test-that-is-no-literal-true-is-left-alone
+  (is (empty? (true-tests ["(cond-> db (always-true? ctx) (assoc :a 1) reset? (dissoc :cache))"
+                           "(cond-> db false (assoc :a 1))"
+                           "(cond-> db nil (assoc :a 1))"
+                           "(cond-> db :always (assoc :a 1))"
+                           "(cond-> db 'true (assoc :a 1))"
+                           "(cond-> db ^:x true (assoc :a 1))"
+                           "(cond-> db truthy (assoc :a 1))"
+                           "(cond-> true flag not)"
+                           "(cond-> db flag true)"]))))
+
+(deftest plain-thread-is-left-alone
+  (is (empty? (true-tests ["(-> db (assoc :a 1) (update :counter inc))"
+                           "(->> xs (map inc) (filter true?))"
+                           "(some-> db true (assoc :a 1))"
+                           "(cond db true (assoc :a 1))"]))))
+
+(deftest conditional-thread-of-odd-shape-is-left-alone
+  (is (empty? (true-tests ["(cond-> db true)"
+                           "(cond-> db true (assoc :a 1) flag)"
+                           "(cond->)"]))
+      "a clause without its step does not compile, so it is no thread to read"))
+
+(deftest conditional-thread-holding-reader-conditional-is-left-alone
+  (is (empty? (true-tests ["(cond-> db #?@(:cljs [flag (assoc :a 1)]) true (assoc :b 2))"
+                           "(cond-> db #?(:cljs true :clj false) (assoc :a 1))"
+                           "(cond-> #?(:cljs db :clj m) true (assoc :a 1))"]))))
+
+(deftest threaded-conditional-thread-is-left-alone
+  (is (empty? (true-tests ["(-> db (cond-> true (assoc :a 1)))"
+                           "(->> xs (cond->> true (map inc)))"
+                           "(-> db (cond-> flag true))"
+                           "(-> db (cond-> true (assoc :a 1) flag (dissoc :b)))"]))
+      "a step takes its expression from the thread, so it writes whole pairs"))
+
+(deftest conditional-thread-that-is-not-core-is-left-alone
+  (is (empty? (true-tests ["(lib/cond-> db true (assoc :a 1))"
+                           "(fn [cond->] (cond-> db true (assoc :a 1)))"
+                           "(let [-> identity] (cond-> db true (assoc :a 1)))"
+                           "(defn cond->> [x] x)"
+                           "(cond->> xs true (map inc))"])))
+  (is (empty? (true-tests (assoc ns-info :shadowed-core #{"cond->"})
+                          ["(cond-> db true (assoc :a 1))"]))
+      "a cond-> the ns form may take from elsewhere")
+  (is (empty? (true-tests (assoc ns-info :shadowed-core #{"->>"})
+                          ["(cond->> xs true (map inc))"]))
+      "a ->> the fix would ask for that may not be core's"))
+
+(deftest unevaluated-conditional-thread-is-left-alone
+  (is (empty? (true-tests ["'(cond-> db true (assoc :a 1))"
+                           "(comment (cond-> db true (assoc :a 1)))"
+                           "#_(cond-> db true (assoc :a 1))"
+                           "(case x (cond-> db true (assoc :a 1)) :a :b)"
+                           "(. o (cond-> db true))"]))))
