@@ -989,15 +989,16 @@
 (def ^:private text-max 40)
 
 (defn- misquoted-on-one-line?
-  "True when collapsing text to one line would change what it reads as: a comment, or a string spanning lines.
+  "True when collapsing text to one line would change a part of it no whitespace sits in.
 
-  A comment runs to the end of its line, so it spans one too."
+  A comment runs to the end of its line, and a string or regex keeps its spaces and line
+  breaks, so collapsing any of them would show something the source does not say."
   [text]
   (->> (p/parse-string-all text)
        (tree-seq n/inner? n/children)
        (some #(and (not (n/inner? %))
                    (not (n/whitespace? %))
-                   (str/includes? (n/string %) "\n")))
+                   (not= (n/string %) (parser/normalize-form (n/string %)))))
        boolean))
 
 (defn- shown
@@ -1013,9 +1014,10 @@
   A value a formatter wraps across lines then keeps the identity it had on one. Text one
   line would misquote shows as `...`."
   [text]
-  (if (misquoted-on-one-line? text)
-    "..."
-    (shown (parser/normalize-form text) text-max)))
+  (let [line (parser/normalize-form text)]
+    (if (or (misquoted-on-one-line? text) (> (count line) text-max))
+      "..."
+      line)))
 
 (defn- operator [run]
   (if (some #(= :last (:direction %)) run) "->>" "->"))

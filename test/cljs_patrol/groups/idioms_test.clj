@@ -523,7 +523,14 @@
           "(if (not ready?) ... :go)"]
          (negated-tests ["(if (not ready?)\n  (let [a 1] ; why\n    (inc a))\n  :go)"
                          "(if (not ready?)\n  (str \"line one\nline two\")\n  :go)"]))
-      "a comment or a string spanning lines"))
+      "a comment or a string spanning lines")
+  (is (= ["(if (not ready?) ... :go)"
+          "(if (not ready?) ... :go)"
+          "(if (not ready?) ... :go)"]
+         (negated-tests [(str "(if (not ready?) (str \"a\" \"" (apply str (repeat 35 " ")) "\" b) :go)")
+                         "(if (not ready?) (str \"( a\") :go)"
+                         "(if (not ready?) (re-find #\"a  b\" s) :go)"]))
+      "a string or regex whose spaces one line would change"))
 
 (deftest negated-test-form-survives-wrapping-a-branch
   (is (= ["(if (not ready?) (let [a 1] (inc a)) :go)"
