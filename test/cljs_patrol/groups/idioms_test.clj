@@ -514,6 +514,13 @@
   (is (= ["(if (not ready?) ... :go)"]
          (negated-tests ["(if (not ready?)\n  (let [attempts (count retries)]\n    (inc attempts))\n  :go)"]))))
 
+(deftest negated-test-form-leaves-out-a-branch-one-line-would-misquote
+  (is (= ["(if (not ready?) ... :go)"
+          "(if (not ready?) ... :go)"]
+         (negated-tests ["(if (not ready?)\n  (let [a 1] ; why\n    (inc a))\n  :go)"
+                         "(if (not ready?)\n  (str \"line one\nline two\")\n  :go)"]))
+      "a comment or a string spanning lines"))
+
 (deftest negated-test-form-survives-wrapping-a-branch
   (is (= ["(if (not ready?) (let [a 1] (inc a)) :go)"
           "(if (not ready?) (let [a 1] (inc a)) :go)"]

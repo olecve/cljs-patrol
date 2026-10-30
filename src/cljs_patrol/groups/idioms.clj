@@ -23,6 +23,7 @@
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [rewrite-clj.node :as n]
+   [rewrite-clj.parser :as p]
    [rewrite-clj.zip :as z]))
 
 (def ^:private core-fns
@@ -987,6 +988,18 @@
 
 (def ^:private text-max 40)
 
+(defn- misquoted-on-one-line?
+  "True when collapsing text to one line would change what it reads as: a comment, or a string spanning lines.
+
+  A comment runs to the end of its line, so it spans one too."
+  [text]
+  (->> (p/parse-string-all text)
+       (tree-seq n/inner? n/children)
+       (some #(and (not (n/inner? %))
+                   (not (n/whitespace? %))
+                   (str/includes? (n/string %) "\n")))
+       boolean))
+
 (defn- shown
   "Return text as a rewrite shows it: whole, or, given a limit, `...` once longer or spanning lines."
   [text limit]
@@ -997,9 +1010,12 @@
 (defn- shown-on-one-line
   "Return text as an identity shows it: collapsed to one line, then whole or `...` once longer than `text-max`.
 
-  A value a formatter wraps across lines then keeps the identity it had on one."
+  A value a formatter wraps across lines then keeps the identity it had on one. Text one
+  line would misquote shows as `...`."
   [text]
-  (shown (parser/normalize-form text) text-max))
+  (if (misquoted-on-one-line? text)
+    "..."
+    (shown (parser/normalize-form text) text-max)))
 
 (defn- operator [run]
   (if (some #(= :last (:direction %)) run) "->>" "->"))
