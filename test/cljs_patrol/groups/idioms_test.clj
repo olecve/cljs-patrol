@@ -343,6 +343,12 @@
                      "(cond (= mode :search) [smart-filters-toolbar] :else nil)"]))
       "a value too long to show is left out, and the clauses between are counted"))
 
+(deftest else-nil-form-survives-wrapping-first-value
+  (is (= ["(cond (pos? n) (str \"up \" n) :else nil)"
+          "(cond (pos? n) (str \"up \" n) :else nil)"]
+         (else-nils ["(cond (pos? n) (str \"up \" n) :else nil)"
+                     "(cond (pos? n) (str \"up \"\n                   n)\n      :else nil)"]))))
+
 (deftest else-nil-finding-names-the-clause-and-where-it-is
   (let [[finding] (:cond-else-nil (parse ["(defn sign [n]" "  (cond (pos? n) :up :default nil))"]))]
     (is (= {:kw 'cond
@@ -506,7 +512,13 @@
 
 (deftest negated-test-form-leaves-out-a-long-branch
   (is (= ["(if (not ready?) ... :go)"]
-         (negated-tests ["(if (not ready?)\n  (let [a 1]\n    (inc a))\n  :go)"]))))
+         (negated-tests ["(if (not ready?)\n  (let [attempts (count retries)]\n    (inc attempts))\n  :go)"]))))
+
+(deftest negated-test-form-survives-wrapping-a-branch
+  (is (= ["(if (not ready?) (let [a 1] (inc a)) :go)"
+          "(if (not ready?) (let [a 1] (inc a)) :go)"]
+         (negated-tests ["(if (not ready?) (let [a 1] (inc a)) :go)"
+                         "(if (not ready?)\n  (let [a 1]\n    (inc a))\n  :go)"]))))
 
 (deftest test-that-is-no-single-not-is-left-alone
   (is (empty? (negated-tests ["(if (not= a b) :x :y)"
@@ -1028,7 +1040,13 @@
 
 (deftest true-clause-form-leaves-out-a-long-expression-or-step
   (is (= ["(cond-> ... true ...)"]
-         (true-clauses ["(cond-> (let [a 1]\n  a) true (let [b 2]\n  b))"]))))
+         (true-clauses ["(cond-> (get-in db [:search-panel :results :items]) true (assoc-in [:search-panel :loading?] true))"]))))
+
+(deftest true-clause-form-survives-wrapping-expression-or-step
+  (is (= ["(cond-> (get db :x) true (assoc :a 1))"
+          "(cond-> (get db :x) true (assoc :a 1))"]
+         (true-clauses ["(cond-> (get db :x) true (assoc :a 1))"
+                        "(cond-> (get db\n             :x)\n  true (assoc\n         :a 1))"]))))
 
 (deftest test-that-is-no-literal-true-is-left-alone
   (is (empty? (true-clauses ["(cond-> db (always-true? ctx) (assoc :a 1) reset? (dissoc :cache))"

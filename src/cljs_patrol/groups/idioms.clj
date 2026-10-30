@@ -994,6 +994,13 @@
     "..."
     text))
 
+(defn- shown-on-one-line
+  "Return text as an identity shows it: collapsed to one line, then whole or `...` once longer than `text-max`.
+
+  A value a formatter wraps across lines then keeps the identity it had on one."
+  [text]
+  (shown (parser/normalize-form text) text-max))
+
 (defn- operator [run]
   (if (some #(= :last (:direction %)) run) "->>" "->"))
 
@@ -1061,7 +1068,7 @@
   between, and a first value too long to show."
   [{:keys [head-text fn-literal? first-clause clauses-between else-text]}]
   (let [[first-test first-value] first-clause]
-    (str (if fn-literal? "#(" "(") head-text " " first-test " " (shown first-value text-max)
+    (str (if fn-literal? "#(" "(") head-text " " first-test " " (shown-on-one-line first-value)
          (when (pos? clauses-between) (str " ..." clauses-between " more..."))
          " " else-text " nil)")))
 
@@ -1082,7 +1089,7 @@
 
   This is the finding's identity in a baseline, so a branch too long to show is left out."
   [{:keys [head-text fn-literal? test-text body]}]
-  (let [shown-body (map #(shown % text-max) (take 2 body))
+  (let [shown-body (map shown-on-one-line (take 2 body))
         more (- (count body) 2)]
     (str (if fn-literal? "#(" "(") head-text " " test-text
          (apply str (map #(str " " %) shown-body))
@@ -1180,9 +1187,9 @@
   This is the finding's identity in a baseline, so it counts the other clauses rather than
   show them, and leaves out an expression or step too long to show."
   [{:keys [head-text fn-literal? expression-text steps before after]}]
-  (str (if fn-literal? "#(" "(") head-text " " (shown expression-text text-max)
+  (str (if fn-literal? "#(" "(") head-text " " (shown-on-one-line expression-text)
        (when (pos? before) (str " ..." before " before..."))
-       " true " (shown (first steps) text-max)
+       " true " (shown-on-one-line (first steps))
        (when (pos? after) (str " ..." after " more..."))
        ")"))
 
