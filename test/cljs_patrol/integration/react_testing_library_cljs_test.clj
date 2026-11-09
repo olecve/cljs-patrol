@@ -133,14 +133,32 @@
          (set (keys (configured-findings nil))))
       "a component no entry names decides where its test id goes, and hides only through literal props")
   (is (= #{"finds-call-argument" "finds-label-icon-only" "finds-label-text" "finds-ui-icon" "finds-ui-link"
-           "finds-ui-save" "finds-ui-send" "finds-ui-tab"}
+           "finds-ui-save" "finds-ui-send" "finds-ui-tab" "finds-ui-menu-popover"}
          (set (keys (configured-findings {:test-id-elements {'my.ui/* :div
                                                              'my.ui/button :button}}))))
       (str "an exact key wins over a glob, a call written as a list is no element, and without :unknown-with "
            "every call reads as the element")))
 
+(deftest test-id-elements-role-test
+  (is (= {"finds-ui-palette" "Query it by role \"dialog\" and its name."
+          "finds-ui-tab-list" "Query it by role \"tablist\" and its name."
+          "finds-ui-menu-popover" "Query it by role \"menu\" and its name."
+          "finds-ui-tab-text" "Query it by role \"tab\" and its name."
+          "finds-ui-native-open" "Query it by role \"dialog\" and its name."}
+         (select-keys (configured-findings {:test-id-elements {'my.ui/popover-content {:role "dialog"}
+                                                               'my.ui/tab-list {:role :tablist}
+                                                               'my.ui/tab {:role "tab"
+                                                                           :tag :button}
+                                                               'my.ui/native-dialog {:role "dialog"
+                                                                                     :tag :dialog}}})
+                      ["finds-ui-palette" "finds-ui-unnamed-popover" "finds-ui-tab-list" "finds-ui-menu-popover"
+                       "finds-ui-tab-text" "finds-ui-tab-presentation" "finds-ui-hidden-popover"
+                       "finds-ui-shared-popover" "finds-ui-native-closed" "finds-ui-native-open"]))
+      (str "a configured role wins over its tag and a written :role over both, a keyword role reads as its name, and "
+           "an unnamed, hidden, shared or closed element is left alone")))
+
 (deftest test-id-elements-config-errors-test
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"maps my.ui/button to no tag"
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"maps my.ui/button to no tag or role"
                         (react-testing-library-cljs/make-group {:test-id-elements {'my.ui/button {:unknown-with :href}}}))
       "an entry without a tag")
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #":unknown-with must be a keyword"
@@ -159,4 +177,11 @@
       "a symbol key with no namespace")
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map"
                         (react-testing-library-cljs/make-group {:test-id-elements [:button]}))
-      "a config that is no map"))
+      "a config that is no map")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":role must be a role a query finds"
+                        (react-testing-library-cljs/make-group {:test-id-elements {'my.ui/popover {:role "dialgo"}}}))
+      "a role no query finds")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":tag must be a keyword"
+                        (react-testing-library-cljs/make-group {:test-id-elements {'my.ui/popover {:role "dialog"
+                                                                                                   :tag "div"}}}))
+      "a tag that is no keyword beside a role"))

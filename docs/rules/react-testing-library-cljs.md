@@ -212,16 +212,20 @@ and its children as content, can say so in `.cljs-patrol/config.edn`:
                               {my.ui/button {:tag :button
                                              :unknown-with #{:href :icon-only}}
                                my.ui/text-field :input
+                               my.ui/popover-content {:role "dialog"}
                                my.ui.toggles/* :button}}}
 ```
 
-A call whose head resolves, through the caller's `:as` or `:refer`, to a key is then read as that tag:
+A call whose head resolves, through the caller's `:as` or `:refer`, to a key is then read as that element:
 `[ui/button {:aria-label "Send" :data-testid "send"}]` as `[:button {:aria-label "Send" :data-testid "send"}]`, with the
 same role, name, hiding and uniqueness checks. A `some.ns/*` key covers every var of that namespace, and an exact key
 wins over it.
 
-`:unknown-with` names the props the component reads to change the element it renders or what it shows. A call writing
-one of them is left alone: a button rendering an `<a>` once it has an `:href`, or only its icon once it is `:icon-only`.
-A written `:role` is read as the element's own. This is not `:a11y :component-aliases`, which says what a component
-renders, not where its test id lands. A key with no tag, or an `:unknown-with` that is not a keyword or a collection of
-them, stops the run with an error.
+`:role` names the role of the element, as a string or a keyword, such as the `dialog` a popover's content renders or a
+`tablist`, which no tag gives. A role-only entry needs no `:tag`, and a role has to be one a query finds an element by.
+The role a call writes wins, then the entry's `:role`, then the tag's own role. `:unknown-with` names the props the
+component reads to change the element it renders or what it shows. A call writing one of them is left alone: a button
+rendering an `<a>` once it has an `:href`, or only its icon once it is `:icon-only`. This is not
+`:a11y :component-aliases`, which says what a component renders, not where its test id lands. A key that is not a fully
+qualified symbol, an entry with neither a tag nor a role, a tag that is not a keyword, a role no query finds, or an
+`:unknown-with` that is not a keyword or a collection of them, stops the run with an error.

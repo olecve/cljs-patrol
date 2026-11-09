@@ -267,14 +267,15 @@
   "Return the role a Testing Library query finds the element by, or nil when the scan cannot say.
 
   A written `:role` decides it when it is a literal role a query can find; any other written
-  `:role`, an empty one included, leaves no role a query finds. Otherwise the tag does. An
-  attribute the role turns on, written as an expression, leaves it unknown, and a hidden input
-  has no role at all."
-  [tag attrs]
+  `:role`, an empty one included, leaves no role a query finds. Otherwise the role a
+  `:test-id-elements` entry gives the component does, and then the tag. An attribute the role
+  turns on, written as an expression, leaves it unknown, and a hidden input has no role at all."
+  [tag attrs configured-role]
   (let [role (a11y/literal-sexpr (get attrs :role))]
     (cond
       (and (= :input tag) (= "hidden" (literal-text (get attrs :type)))) nil
       (not (contains? #{::a11y/absent nil false} role)) (get queryable-roles (literal-text (get attrs :role)))
+      configured-role configured-role
       :else (case tag
               :button "button"
               :a (let [href (read-attr attrs :href)]
@@ -319,6 +320,7 @@
                   nil)]
       (when (and (or (hiccup/html-tag? html-tag) configured) (some? attrs))
         {:tag (if configured (:tag configured) html-tag)
+         :element-role (:role configured)
          :attrs attrs
          :role-unknown? (boolean (some #(not= :absent (read-attr attrs %)) (:unknown-with configured)))}))))
 
@@ -350,6 +352,11 @@
       (not= :absent (read-attr attrs :hidden))
       (styled-hidden? attrs)))
 
+(defn- closed-dialog?
+  "True when the element is a native `<dialog>` that is not open, which the browser does not render."
+  [tag attrs]
+  (and (= :dialog tag) (not (true? (read-attr attrs :open)))))
+
 (def ^:private content-hiding-tags
   "Tags whose content the browser does not render: a `dialog` until it is open, a `template` and a `datalist`."
   #{:dialog :template :datalist})
@@ -366,7 +373,7 @@
     (if-let [{:keys [tag attrs]} (element-attrs context loc)]
       (or (hidden-element? attrs)
           (and (contains? content-hiding-tags tag)
-               (not (and (= :dialog tag) (true? (read-attr attrs :open))))))
+               (or (not= :dialog tag) (closed-dialog? tag attrs))))
       true)
     (boolean (when (= :vector (some-> loc z/tag))
                (some-> (hiccup/attrs-info loc) :attrs hidden-element?)))))
@@ -426,8 +433,9 @@
 (defn- role-and-name
   "Return the role and literal name of the element vector `loc`, or nil when it has no role or name the scan can read."
   [context loc]
-  (when-let [{:keys [tag attrs role-unknown?]} (element-attrs context loc)]
-    (when-let [role (when-not role-unknown? (element-role tag attrs))]
+  (when-let [{:keys [tag attrs role-unknown?]
+              :as element} (element-attrs context loc)]
+    (when-let [role (when-not role-unknown? (element-role tag attrs (:element-role element)))]
       (when-let [element-name (literal-name context role tag attrs loc)]
         {:role role
          :name element-name}))))
@@ -513,13 +521,14 @@
                  :test-id-elements test-id-elements}]
     (when-let [{:keys [role]
                 :as element} (role-and-name context loc)]
-      (let [{:keys [attrs]} (element-attrs context loc)]
+      (let [{:keys [tag attrs]} (element-attrs context loc)]
         {:decls []
          :usages [(assoc element
                          :type ::role-element
                          :role role
                          :test-id (some-> (get attrs :data-testid) string-value normalize-test-id)
                          :hidden? (or (hidden-element? attrs)
+                                      (closed-dialog? tag attrs)
                                       (hidden-in-form? context loc)
                                       (hiccup/inside-unrendered-form? loc)
                                       (in-comment? loc))
@@ -638,11 +647,24 @@
                           {:value value}))))
 
 (defn- read-test-id-element
-  "Read a `:test-id-elements` value as `{:tag … :unknown-with #{…}}`, from a bare tag or a map."
+  "Read a `:test-id-elements` value as `{:tag … :role … :unknown-with #{…}}`, from a bare tag or a map.
+  An entry needs a tag, a role, or both; a role, a string or a keyword, has to be one a query finds an element by."
   [k value]
-  (let [entry (if (map? value) value {:tag value})]
-    (when-not (keyword? (:tag entry))
-      (throw (ex-info (str ":react-testing-library-cljs :test-id-elements maps " k " to no tag: " (pr-str value))
+  (let [entry (cond-> (if (map? value) value {:tag value})
+                (keyword? (:role value)) (update :role name))
+        {:keys [tag role]} entry]
+    (when-not (or (keyword? tag) (some? role))
+      (throw (ex-info (str ":react-testing-library-cljs :test-id-elements maps " k " to no tag or role: "
+                           (pr-str value))
+                      {:key k
+                       :value value})))
+    (when (and (some? tag) (not (keyword? tag)))
+      (throw (ex-info (str ":react-testing-library-cljs :test-id-elements :tag must be a keyword, got " (pr-str tag))
+                      {:key k
+                       :value value})))
+    (when (and (some? role) (not (contains? queryable-roles role)))
+      (throw (ex-info (str ":react-testing-library-cljs :test-id-elements :role must be a role a query finds, got "
+                           (pr-str role))
                       {:key k
                        :value value})))
     (assoc entry :unknown-with (read-unknown-with (:unknown-with entry)))))
@@ -668,8 +690,9 @@
   Supported keys:
     :test-id-elements {fully-qualified-symbol tag-keyword}: a component that puts its
       `:data-testid` on an element of that tag, built from its props as attrs and its children
-      as content. The value may instead be {:tag tag-keyword :unknown-with #{prop …}}, naming
-      the props that change which element it renders or what it shows, such as an `:href`."
+      as content. The value may instead be {:tag tag-keyword :role role-string :unknown-with #{prop …}},
+      with a tag, a role, or both, naming the role of an element no tag says, and the props that
+      change which element it renders or what it shows, such as an `:href`."
   ([] (make-group nil))
   ([{:keys [test-id-elements]}]
    (->ReactTestingLibraryCljsGroup (read-test-id-elements test-id-elements))))
