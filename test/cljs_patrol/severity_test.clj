@@ -131,6 +131,7 @@
            :docstring-leading-trailing-whitespace
            :css-property-order-outside-in
            :deftest-leading-article :assertion-message-inline :conditional-assertion :get-by-presence-check :lookup-helper-name
+           :test-id-query-on-role
            :var-deref-in-test :js-hint-in-test :literal-constant-assertion
            :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality
            :unconditional-cond-threading}
@@ -232,6 +233,7 @@
                :docstring-leading-trailing-whitespace
                :css-property-order-outside-in
                :deftest-leading-article :assertion-message-inline :conditional-assertion :get-by-presence-check :lookup-helper-name
+               :test-id-query-on-role
                :var-deref-in-test :js-hint-in-test :literal-constant-assertion
                :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality
                :unconditional-cond-threading}

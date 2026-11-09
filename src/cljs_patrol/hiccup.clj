@@ -335,7 +335,7 @@
       (when (some #(mentions-symbol? % symbol-name) (unknown-form-parameters list-loc child))
         ::shadowed))))
 
-(defn- lexically-bound-value
+(defn lexically-bound-value
   "Return the zloc an enclosing binding form binds symbol-name to.
 
   `::shadowed` when a form binds the name to something we cannot read, nil when no

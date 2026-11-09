@@ -31,7 +31,8 @@ directly.
 ```clojure
 (defclass row-style []
   {:display :flex})
-(defn row [on-select] [:div {:class (row-style) :on-click on-select}]) ; carries other props
+;; carries other props
+(defn row [on-select] [:div {:class (row-style) :on-click on-select}])
 ```
 
 ### Redundant `into` around Hiccup
@@ -51,9 +52,11 @@ directly.
 **Left alone:**
 
 ```clojure
-(defn nodes [xs] (into [:<>] (map render-node) xs)) ; no keys: into is what avoids the warning
+;; no keys: into is what avoids the warning
+(defn nodes [xs] (into [:<>] (map render-node) xs))
 
-(def schema (into [:enum] sections)) ; a Malli schema, not Hiccup
+;; a Malli schema, not Hiccup
+(def schema (into [:enum] sections))
 ```
 
 <details>
@@ -109,11 +112,14 @@ container, not to its children, and is not read as one.
 **Left alone:**
 
 ```clojure
-(defn status [busy-reason] [:<> {} busy-reason [spinner]]) ; busy-reason could be a map at runtime
+;; busy-reason could be a map at runtime
+(defn status [busy-reason] [:<> {} busy-reason [spinner]])
 
-(defn children [items] [:<> {} (render-children items)]) ; so could a call's result
+;; so could a call's result
+(defn children [items] [:<> {} (render-children items)])
 
-(defn row-group [id item] [:<> {:key id} [row item]]) ; a real prop
+;; a real prop
+(defn row-group [id item] [:<> {:key id} [row item]])
 ```
 
 <details>
@@ -160,11 +166,14 @@ Left alone, since the scan cannot vouch that the next child is no map:
 **Left alone:**
 
 ```clojure
-(defn status [busy-reason] [:<> busy-reason]) ; busy-reason could be a map Reagent reads as props
+;; busy-reason could be a map Reagent reads as props
+(defn status [busy-reason] [:<> busy-reason])
 
-(defn table [header rows] (into [:<> [header]] rows)) ; data into gives more children
+;; data into gives more children
+(defn table [header rows] (into [:<> [header]] rows))
 
-(defn cells [id] [:<> {:key id} [cell id]]) ; the fragment carries the key
+;; the fragment carries the key
+(defn cells [id] [:<> {:key id} [cell id]])
 ```
 
 <details>

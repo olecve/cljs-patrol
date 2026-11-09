@@ -37,7 +37,8 @@
   #{:assertion-message-inline :conditional-assertion :var-deref-in-test :js-hint-in-test
     :form-after-split-map :split-map-after-sibling :nested-call-chain
     :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality
-    :get-by-presence-check :literal-constant-assertion :unconditional-cond-threading})
+    :get-by-presence-check :literal-constant-assertion :unconditional-cond-threading
+    :test-id-query-on-role})
 
 (def ^:private keyword-keyed-rules
   "Rules where the issue is uniquely identified by its keyword."

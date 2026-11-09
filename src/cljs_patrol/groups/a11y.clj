@@ -113,7 +113,7 @@
   semantics (\"presentation\", \"none\")."
   #{nil "" "presentation" "none"})
 
-(defn- literal-sexpr
+(defn literal-sexpr
   "Return the sexpr of value-loc when it holds a literal token or string.
   Returns `::absent` when value-loc is nil, or `::non-literal` for anything
   else (lists, maps, symbols, meta forms, reader macros)."
@@ -176,7 +176,7 @@
   "Attribute keys that give a screen-reader-readable name to an element."
   #{:aria-label :aria-labelledby :title})
 
-(defn- meaningful-name-value?
+(defn meaningful-name-value?
   "True when a name attribute's value names something.
   A non-empty literal does, and so does a value that cannot be read."
   [value-loc]

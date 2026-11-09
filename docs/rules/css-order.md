@@ -34,9 +34,10 @@ order the chosen stylelint table defines.
 **Left alone:**
 
 ```clojure
+;; under four ranked properties
 (defclass dot-style []
   {:color :red
-   :display :block}) ; under four ranked properties
+   :display :block})
 ```
 
 <details>

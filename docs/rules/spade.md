@@ -133,8 +133,9 @@ and `"&[data-x]"` are correct.
 **Left alone:**
 
 ```clojure
+;; a descendant chain
 (defclass icon-style []
-  [:svg :path {:fill :none}]) ; a descendant chain
+  [:svg :path {:fill :none}])
 ```
 
 <details>

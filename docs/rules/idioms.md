@@ -33,11 +33,14 @@ Run this group alone with `--only idioms`. Its settings live under `:idioms` in 
 **Left alone:**
 
 ```clojure
-(defn sorted-ids [xs] (vec (sort xs))) ; only two calls
+;; only two calls
+(defn sorted-ids [xs] (vec (sort xs)))
 
-(defn member? [items id] (contains? (set (map :id items)) id)) ; a predicate on top reads worse threaded
+;; a predicate on top reads worse threaded
+(defn member? [items id] (contains? (set (map :id items)) id))
 
-(defn draft [db] (get-in db (editor-path :draft))) ; the nested call is the path, not the data
+;; the nested call is the path, not the data
+(defn draft [db] (get-in db (editor-path :draft)))
 ```
 
 <details>
@@ -112,11 +115,14 @@ above `(request-to "/qa")` rather than three, unless it is the collection of a `
 **Left alone:**
 
 ```clojure
-(defn badge [status] (cond (= :done status) "Done" :else "Pending")) ; a real default
+;; a real default
+(defn badge [status] (cond (= :done status) "Done" :else "Pending"))
 
-(defn badge [status] (condp = status :done "Done" nil)) ; condp throws without its default
+;; condp throws without its default
+(defn badge [status] (condp = status :done "Done" nil))
 
-(defn badge [status] (case status :done "Done" nil)) ; so does case
+;; so does case
+(defn badge [status] (case status :done "Done" nil))
 ```
 
 <details>
@@ -177,11 +183,14 @@ Left alone, since the scan cannot vouch that it is core's `cond` or that it is c
 **Left alone:**
 
 ```clojure
-(defn differs? [a b] (if (not= a b) :changed :same)) ; not= is no not
+;; not= is no not
+(defn differs? [a b] (if (not= a b) :changed :same))
 
-(defn step [v ready?] (-> v (when (not ready?)))) ; a threaded when takes its test from the thread
+;; a threaded when takes its test from the thread
+(defn step [v ready?] (-> v (when (not ready?))))
 
-(defn guarded [not ready?] (when (not ready?) :wait)) ; a local not
+;; a local not
+(defn guarded [not ready?] (when (not ready?) :wait))
 ```
 
 <details>
@@ -236,13 +245,17 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 **Left alone:**
 
 ```clojure
-(defn ids [rows] (into [] rows)) ; rows may be an array, which vec would alias
+;; rows may be an array, which vec would alias
+(defn ids [rows] (into [] rows))
 
-(defn ids [rows] (into #{} rows)) ; rows may be a sorted set, which set would keep sorted
+;; rows may be a sorted set, which set would keep sorted
+(defn ids [rows] (into #{} rows))
 
-(defn ids [rows] (into [] (map :id) rows)) ; a transducer
+;; a transducer
+(defn ids [rows] (into [] (map :id) rows))
 
-(defn ids [base rows] (into base (map :id rows))) ; no empty literal
+;; no empty literal
+(defn ids [base rows] (into base (map :id rows)))
 ```
 
 <details>
@@ -304,17 +317,23 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 **Left alone:**
 
 ```clojure
-(defn next-page [page] (+ 1 page)) ; a leading 1 goes before a string, where inc puts it after
+;; a leading 1 goes before a string, where inc puts it after
+(defn next-page [page] (+ 1 page))
 
-(defn half-step [x] (+ x 1.0)) ; a double, which inc would not add
+;; a double, which inc would not add
+(defn half-step [x] (+ x 1.0))
 
-(def last-day (+ 30 1)) ; arithmetic on numbers, spelled out
+;; arithmetic on numbers, spelled out
+(def last-day (+ 30 1))
 
-(defn total [a b] (+ a b 1)) ; more than one operand
+;; more than one operand
+(defn total [a b] (+ a b 1))
 
-(defn shift [page offset] (-> page (+ offset 1))) ; a threaded step takes its operand from the thread
+;; a threaded step takes its operand from the thread
+(defn shift [page offset] (-> page (+ offset 1)))
 
-(defn next-page [inc page] (+ page 1)) ; a local inc
+;; a local inc
+(defn next-page [inc page] (+ page 1))
 ```
 
 <details>
@@ -369,11 +388,14 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 **Left alone:**
 
 ```clojure
-(defn differs? [a b] (not (== a b))) ; == has no not= of its own
+;; == has no not= of its own
+(defn differs? [a b] (not (== a b)))
 
-(defn step [ok? a b] (-> ok? (not (= a b)))) ; a threaded not takes the thread's value as well
+;; a threaded not takes the thread's value as well
+(defn step [ok? a b] (-> ok? (not (= a b))))
 
-(defn changed? [= a b] (not (= a b))) ; a local =
+;; a local =
+(defn changed? [= a b] (not (= a b)))
 ```
 
 <details>
@@ -431,14 +453,17 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 **Left alone:**
 
 ```clojure
+;; a test that is no literal true
 (defn start-loading [db ctx reset?]
   (cond-> db
     (always-true? ctx) (assoc :a 1)
-    reset? (dissoc :cache))) ; a test that is no literal true
+    reset? (dissoc :cache)))
 
-(defn start-loading [db] (-> db (assoc :a 1) (update :counter inc))) ; a plain thread
+;; a plain thread
+(defn start-loading [db] (-> db (assoc :a 1) (update :counter inc)))
 
-(defn start-loading [db] (-> db (cond-> true (assoc :a 1)))) ; a threaded cond-> takes its expression from the thread
+;; a threaded cond-> takes its expression from the thread
+(defn start-loading [db] (-> db (cond-> true (assoc :a 1))))
 ```
 
 <details>
