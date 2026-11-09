@@ -83,7 +83,7 @@ container, not to its children, and is not read as one.
 
 ### Empty fragment props
 
-`empty-fragment-props` · cleanup — A fragment's `{}` that keeps nothing from being read as props.
+`empty-fragment-props` · cleanup — A fragment written with an empty `{}`.
 
 ```clojure
 ;; flagged
@@ -92,10 +92,10 @@ container, not to its children, and is not read as one.
    [edit-controls {:editing? false}]
    [accept-button]])
 
-(defn title-adornment [unsaved?]
+(defn status [busy-reason]
   [:<> {}
-   (when unsaved?
-     [:span "Unsaved"])])
+   busy-reason
+   [spinner]])
 
 ;; fix
 (defn phase-actions []
@@ -103,21 +103,15 @@ container, not to its children, and is not read as one.
    [edit-controls {:editing? false}]
    [accept-button]])
 
-(defn title-adornment [unsaved?]
+(defn status [busy-reason]
   [:<>
-   (when unsaved?
-     [:span "Unsaved"])])
+   busy-reason
+   [spinner]])
 ```
 
 **Left alone:**
 
 ```clojure
-;; busy-reason could be a map at runtime
-(defn status [busy-reason] [:<> {} busy-reason [spinner]])
-
-;; so could a call's result
-(defn children [items] [:<> {} (render-children items)])
-
 ;; a real prop
 (defn row-group [id item] [:<> {:key id} [row item]])
 ```
@@ -126,19 +120,13 @@ container, not to its children, and is not read as one.
 <summary>Details</summary>
 
 Why: a fragment takes no props but `:key`, and a keyed fragment writes `{:key k}`. An empty `{}` reads as though
-something is configured when nothing is. Reagent reads a fragment's second element as its props when it is a map or
-`nil`, the same as for an HTML tag. So the `{}` matters only when the child after it could be a map, which Reagent would
-otherwise take as the props and not render.
+something is configured when nothing is. All it changes is which child Reagent reads as props: Reagent reads a
+fragment's second element as its props when it is a map or `nil`. A map child cannot render anyway, so in practice the
+`{}` only keeps a `nil` first child from being read as props, which keeps the children after it in place. Code should
+not depend on that, so every empty `{}` is flagged, whatever follows it. A `#_` form is skipped wherever it sits.
 
-Flagged: a `[:<> {} …]` whose `{}` is empty and whose next child is missing or can yield no map: a vector, which covers
-a component written as `[edit-controls …]`, or a literal string, number, keyword or `nil`. A `when`, `if`, `cond`,
-`case`, `let` and the like count by every value they can yield. One that yields `nil`, written or because no branch
-matched, is safe: with the `{}` gone, Reagent reads the `nil` as the props, which renders the same nothing. A `#_` form
-is skipped wherever it sits.
+Left alone:
 
-Left alone, since the scan cannot vouch that the next child is no map:
-
-- a symbol, a call, a `for` or a `map`, or a branch yielding one, and a child under metadata or a reader conditional
 - a `{}` holding anything, `:key` or otherwise, and a `{}` under metadata
 - a fragment that is quoted, discarded, or sits in a style declaration or the ns form
 

@@ -93,49 +93,31 @@
   [lines]
   (fragment-findings :redundant-fragment (map #(str "(defn view [] " % ")") lines)))
 
-(deftest fragment-whose-next-child-is-no-map-is-flagged
+(deftest fragment-with-empty-props-is-flagged-whatever-follows
   (is (= ["[:<> {} [edit-controls {:editing? false}] [accept-button]]"
           "[:<> {} (when unsaved? [:span \"Unsaved\"])]"
+          "[:<> {} (when cancel? [cancel-button]) [accept-button]]"
           "[:<> {}]"
           "[:<> {} \"Saved\"]"
-          "[:<> {} 3]"
-          "[:<> {} :saved]"
-          "[:<> {} nil]"
-          "[:<> {} \"line one line two\"]"
-          "[:<> {} (if ready? [:span \"Ready\"] \"Waiting\")]"
-          "[:<> {} (cond saved? [:span] :else nil)]"
-          "[:<> {} (case mode :edit [editor] [viewer])]"
-          "[:<> {} (let [n 1] [row n])]"
+          "[:<> {} nil [row]]"
+          "[:<> {} busy-reason [spinner]]"
+          "[:<> {} (render-children items)]"
+          "[:<> {} (for [x xs] ^{:key x} [row x])]"
+          "[:<> {} {:a 1}]"
           "[:<> {} #_old [row]]"
           "[:<> #_x {} [row]]"]
          (empty-fragment-props ["[:<> {}\n [edit-controls {:editing? false}]\n [accept-button]]"
                                 "[:<> {}\n (when unsaved?\n   [:span \"Unsaved\"])]"
+                                "[:<> {}\n (when cancel?\n   [cancel-button])\n [accept-button]]"
                                 "[:<> {}]"
                                 "[:<> {} \"Saved\"]"
-                                "[:<> {} 3]"
-                                "[:<> {} :saved]"
-                                "[:<> {} nil]"
-                                "[:<> {} \"line one\nline two\"]"
-                                "[:<> {} (if ready? [:span \"Ready\"] \"Waiting\")]"
-                                "[:<> {} (cond saved? [:span] :else nil)]"
-                                "[:<> {} (case mode :edit [editor] [viewer])]"
-                                "[:<> {} (let [n 1] [row n])]"
+                                "[:<> {} nil [row]]"
+                                "[:<> {} busy-reason [spinner]]"
+                                "[:<> {} (render-children items)]"
+                                "[:<> {} (for [x xs] ^{:key x} [row x])]"
+                                "[:<> {} {:a 1}]"
                                 "[:<> {} #_old [row]]"
                                 "[:<> #_x {} [row]]"]))))
-
-(deftest fragment-whose-next-child-may-be-a-map-is-left-alone
-  (is (empty? (empty-fragment-props ["[:<> {} busy-reason [spinner]]"
-                                     "[:<> {} (render-children items)]"
-                                     "[:<> {} (for [x xs] ^{:key x} [row x])]"
-                                     "[:<> {} (when ready? props)]"
-                                     "[:<> {} (if ready? [:span] (build-props))]"
-                                     "[:<> {} {:a 1}]"
-                                     "[:<> {} ^{:key 1} [row]]"
-                                     "[:<> {} #?(:cljs [row])]"
-                                     "[:<> {} @state]"
-                                     "[:<> {} (cond saved? [row] #_#_draft? [draft] :else props)]"
-                                     "[:<> {} (case mode #_#_:legacy [old] :edit {:class \"x\"} [viewer])]"
-                                     "[:<> {} (case mode #_:legacy :edit {:class \"x\"} [viewer])]"]))))
 
 (deftest fragment-with-real-or-no-props-is-left-alone
   (is (empty? (empty-fragment-props ["[:<> {:key id} [row item]]"
