@@ -205,3 +205,78 @@ Left alone, since the scan cannot vouch that the element can take the fragment's
 - a fragment that is quoted, discarded, or sits in a style declaration or the ns form
 
 </details>
+
+### Inline component
+
+`inline-component` · cleanup — A `let` binding whose Hiccup holds two or more elements with event handlers.
+
+```clojure
+;; flagged
+(defn settings-form [{:keys [on-cancel on-save]}]
+  (let [actions [:div {:class (action-row)}
+                 [button {:on-click on-save}
+                  "Save"]
+                 [button {:on-click on-cancel}
+                  "Cancel"]]]
+    [:form
+     [fields]
+     actions]))
+
+;; fix
+(defn- form-actions [{:keys [on-cancel on-save]}]
+  [:div {:class (action-row)}
+   [button {:on-click on-save}
+    "Save"]
+   [button {:on-click on-cancel}
+    "Cancel"]])
+
+(defn settings-form [props]
+  [:form
+   [fields]
+   [form-actions props]])
+```
+
+**Left alone:**
+
+```clojure
+;; one element with a handler, bound so both branches can show it
+(defn run-button [{:keys [busy? on-run]}]
+  (let [launcher [button {:disabled busy?
+                          :on-click on-run}
+                  "Run"]]
+    (if busy?
+      [tooltip {:content "Wait for the current run"}
+       launcher]
+      launcher)))
+
+;; one element in a `for` body is one element, however many items the `for` gives
+(defn card-list [{:keys [items on-open]}]
+  (let [cards [:ul
+               (for [item items]
+                 ^{:key (:id item)}
+                 [card {:item item
+                        :on-open on-open}])]]
+    [:section cards]))
+```
+
+<details>
+<summary>Details</summary>
+
+Why: a small element bound in a `let` is often the clearest form, such as one button bound once so two branches can show
+it with or without a wrapper. A block of several controls, each with its own handler, is a component written inside
+another one. It has no name, props or docstring of its own, cannot be rendered or tested alone, and makes the outer
+`let` long. So the rule never flags Hiccup in a `let` as such, only a binding holding several interactive elements.
+
+Flagged: a binding of a `let` or Reagent's `with-let` whose value is Hiccup, a tag, a fragment or a component, also
+under a `when`, an `if`, a `cond`, a `case`, a `let`, or a `for` or `map`, holding two or more elements whose attrs have
+an unqualified key starting with `:on-` set to no literal, the value itself included. Each element counts once, however
+many handlers it has. The hint names the binding and the count.
+
+Only the Hiccup tree is counted, through `^{:key …}` metadata: an element and its children, and what a `when`, an `if`,
+a `let`, or a `for` or `map` body yields. A loop body counts once however many items it gives, and an `if`, `cond` or
+`case` as its busiest branch, since only one renders. An attrs map, a handler's body and any other call are not read, so
+an event vector a handler dispatches, `[::open {:on-confirm f}]`, is no element. Left alone as well: a data vector such
+as a re-frame path, a binding that destructures, a value that is any other call, and a `let` that is quoted, discarded,
+or sits in a style declaration.
+
+</details>

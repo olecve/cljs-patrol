@@ -141,6 +141,11 @@
              (->> reagent-result :redundant-fragment (map :form)))
           "a fragment handed to a call as data, or one around several children, is left alone"))
 
+    (testing "detects a let binding holding a component written inline"
+      (is (= ["actions holds 2 elements with event handlers. Make it a component of its own."]
+             (->> reagent-result :inline-component (map :hint)))
+          "a binding holding one element with a handler is left alone"))
+
     (testing "detects duplicate subscription registration"
       (is (= 2 (count (:duplicate-subs re-frame-result))))
       (is (= #{:webapp.subs/used-sub} (->> re-frame-result :duplicate-subs (map :kw) set))))
@@ -185,4 +190,5 @@
       (is (every? #(= :deprecations (:tier %)) (:defclass-as-sole-attr reagent-result)))
       (is (every? #(= :cleanup (:tier %)) (:redundant-into-hiccup reagent-result)))
       (is (every? #(= :cleanup (:tier %)) (:empty-fragment-props reagent-result)))
-      (is (every? #(= :cleanup (:tier %)) (:redundant-fragment reagent-result))))))
+      (is (every? #(= :cleanup (:tier %)) (:redundant-fragment reagent-result)))
+      (is (every? #(= :cleanup (:tier %)) (:inline-component reagent-result))))))
