@@ -2,6 +2,7 @@
   "Rule group: how test code uses and names react-testing-library-cljs queries."
   (:require
    [cljs-patrol.group :as group]
+   [cljs-patrol.groups.a11y :as a11y]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
@@ -158,27 +159,420 @@
              :hint (str "Rename to " kind "-" (strip-lookup-prefix helper-name)
                         ", after the " fn-name " lookup it returns.")}))))))
 
-(defn- handle-list [loc ns-info file]
-  (when-not (hiccup/inside-unrendered-form? loc)
-    (when-let [finding (or (get-by-presence-finding loc ns-info file)
-                           (lookup-helper-finding loc ns-info file))]
-      {:decls [finding]
-       :usages []
+(defn- test-id-arguments
+  "Return the locs of the arguments a `*-by-test-id` lookup at `loc` is given from its test id on, or nil.
+  A `within` lookup takes its container first, a `screen` one takes the id first."
+  [loc ns-info]
+  (when-let [[_ fn-name] (library-lookup loc ns-info)]
+    (when (str/ends-with? fn-name "-by-test-id")
+      (let [[full-ns] (resolve-head (parser/raw (z/down loc)) ns-info)
+            arguments (remove #(= :uneval (z/tag %)) (parser/right-siblings (z/down loc)))]
+        (seq (drop (if (= "react-testing-library-cljs.within" full-ns) 1 0) arguments))))))
+
+(defn- string-value
+  "Return the string `loc` holds when it is a string literal, or nil."
+  [loc]
+  (when (some-> loc parser/raw (str/starts-with? "\""))
+    (z/sexpr loc)))
+
+(defn- normalize-test-id
+  "Trim a test id and collapse its whitespace, as Testing Library's default normalizer does before matching."
+  [id]
+  (-> id str/trim (str/replace #"\s+" " ")))
+
+(def ^:private input-type->role
+  "Roles of an `<input>` by its type, for the types that have one.
+  A `list` attribute turns a text-like input into a combobox, read separately."
+  {"text" "textbox"
+   "email" "textbox"
+   "tel" "textbox"
+   "url" "textbox"
+   "search" "searchbox"
+   "checkbox" "checkbox"
+   "radio" "radio"
+   "number" "spinbutton"
+   "range" "slider"
+   "button" "button"
+   "submit" "button"
+   "reset" "button"
+   "image" "button"})
+
+(def ^:private value-named-input-types
+  "Input types whose `value` is their name. An image input is named by its `alt` instead."
+  #{"button" "submit" "reset"})
+
+(def ^:private queryable-roles
+  "Roles a written `:role` may claim for the element to be found by it.
+  `presentation`, `none` and `generic` take the element out of what a role query finds."
+  #{"alert" "alertdialog" "button" "checkbox" "combobox" "dialog" "gridcell" "heading" "img" "link" "listbox"
+    "menu" "menubar" "menuitem" "menuitemcheckbox" "menuitemradio" "meter" "navigation" "option" "progressbar"
+    "radio" "region" "row" "searchbox" "slider" "spinbutton" "status" "switch" "tab" "tablist" "tabpanel"
+    "textbox" "tooltip" "tree" "treeitem"})
+
+(def ^:private content-named-roles
+  "Roles whose accessible name may come from the text inside the element."
+  #{"button" "link" "tab" "option" "menuitem" "menuitemcheckbox" "menuitemradio" "checkbox" "radio"
+    "switch" "treeitem" "heading" "tooltip" "row" "gridcell"})
+
+(defn- literal-text
+  "Return the text a literal string or keyword value renders as, or nil for anything else."
+  [value]
+  (let [v (a11y/literal-sexpr value)]
+    (cond
+      (keyword? v) (name v)
+      (string? v) v)))
+
+(defn- read-attr
+  "Read how attrs set `k`: `:absent`, `:unknown` when it is written as an expression or a name, or its literal value.
+  Reagent leaves out an attribute whose value is nil or false, and an empty string sets nothing a
+  role depends on."
+  [attrs k]
+  (let [v (a11y/literal-sexpr (get attrs k))]
+    (cond
+      (or (= ::a11y/absent v) (nil? v) (false? v) (= "" v)) :absent
+      (or (= ::a11y/non-literal v) (symbol? v)) :unknown
+      :else v)))
+
+(defn- select-role
+  "Return a `select`'s role, or nil when the scan cannot say.
+
+  Testing Library reads any `size` or `multiple` the DOM keeps as a listbox. React drops a
+  `size` below 1 and a `multiple` JavaScript reads as false, such as `0`."
+  [attrs]
+  (let [multiple (read-attr attrs :multiple)
+        size (read-attr attrs :size)
+        multiple? (cond
+                    (or (= :absent multiple) (= 0 multiple)) false
+                    (true? multiple) true)
+        sized? (cond
+                 (= :absent size) false
+                 (number? size) (>= size 1))]
+    (when (and (some? multiple?) (some? sized?))
+      (if (or multiple? sized?) "listbox" "combobox"))))
+
+(defn- input-role
+  "Return an `input`'s role by its type, written out or left to its text default, and its `list`.
+  An empty `list` leaves a text input with no role Testing Library knows, and one written as an
+  expression leaves it unknown."
+  [attrs]
+  (let [input-type (read-attr attrs :type)
+        role (get input-type->role (if (= :absent input-type) "text" (literal-text (get attrs :type))))
+        list-attr (a11y/literal-sexpr (get attrs :list))]
+    (cond
+      (not (contains? #{"textbox" "searchbox"} role)) role
+      (contains? #{::a11y/absent nil false} list-attr) role
+      (string? list-attr) (when (seq list-attr) "combobox"))))
+
+(defn- element-role
+  "Return the role a Testing Library query finds the element by, or nil when the scan cannot say.
+
+  A written `:role` decides it when it is a literal role a query can find; any other written
+  `:role`, an empty one included, leaves no role a query finds. Otherwise the tag does. An
+  attribute the role turns on, written as an expression, leaves it unknown, and a hidden input
+  has no role at all."
+  [tag attrs]
+  (let [role (a11y/literal-sexpr (get attrs :role))]
+    (cond
+      (and (= :input tag) (= "hidden" (literal-text (get attrs :type)))) nil
+      (not (contains? #{::a11y/absent nil false} role)) (get queryable-roles (literal-text (get attrs :role)))
+      :else (case tag
+              :button "button"
+              :a (let [href (read-attr attrs :href)]
+                   (when (string? href) "link"))
+              :textarea "textbox"
+              :select (select-role attrs)
+              :input (input-role attrs)
+              nil))))
+
+(defn- element-attrs
+  "Return the tag and literal attrs of the element vector `loc`, or nil when either is not written out.
+
+  An element with no attrs map has no attributes, so its attrs read as empty. A map only partly
+  readable, such as a `merge` with an expression, is not written out, and neither is a name in the
+  attrs slot, which Reagent reads as attrs when it holds a map."
+  [loc]
+  (when (= :vector (some-> loc z/tag))
+    (let [tag (some-> loc z/down parser/raw hiccup/parse-tag)
+          second-child (some-> loc z/down z/right)
+          {:keys [kind attrs]} (hiccup/attrs-info loc)
+          attrs (case kind
+                  :absent {}
+                  :non-map (when (or (= :vector (z/tag second-child)) (some? (string-value second-child))) {})
+                  :map attrs
+                  nil)]
+      (when (and (hiccup/html-tag? tag) (some? attrs))
+        [tag attrs]))))
+
+(defn- css-keyword [value]
+  (when (or (string? value) (keyword? value))
+    (-> value name str/trim str/lower-case)))
+
+(defn- styled-hidden?
+  "True when a `:style` may hide the element: `display: none`, `visibility: hidden`, or a style the scan cannot read.
+  A browser reads the keyword whatever its case and surrounding space."
+  [attrs]
+  (let [style (get attrs :style)]
+    (cond
+      (nil? style) false
+      (not= :map (z/tag style)) true
+      :else (let [style-attrs (hiccup/literal-map style)]
+              (or (nil? style-attrs)
+                  (let [display (read-attr style-attrs :display)
+                        visibility (read-attr style-attrs :visibility)]
+                    (or (= :unknown display)
+                        (= "none" (css-keyword display))
+                        (= :unknown visibility)
+                        (contains? #{"hidden" "collapse"} (css-keyword visibility)))))))))
+
+(defn- hidden-element?
+  "True when attrs may hide the element from a role query, through `:hidden`, `:aria-hidden` or `:style`."
+  [attrs]
+  (or (contains? #{:unknown true "true" :true} (read-attr attrs :aria-hidden))
+      (not= :absent (read-attr attrs :hidden))
+      (styled-hidden? attrs)))
+
+(def ^:private content-hiding-tags
+  "Tags whose content the browser does not render: a `dialog` until it is open, a `template` and a `datalist`."
+  #{:dialog :template :datalist})
+
+(defn- may-hide?
+  "True when the HTML element vector at `loc` may hide what it holds, its attrs unreadable included."
+  [loc]
+  (let [tag (some-> loc z/down parser/raw hiccup/parse-tag)]
+    (and (hiccup/html-tag? tag)
+         (if-let [[_ attrs] (element-attrs loc)]
+           (or (hidden-element? attrs)
+               (and (contains? content-hiding-tags tag)
+                    (not (and (= :dialog tag) (true? (read-attr attrs :open))))))
+           true))))
+
+(defn- hidden-in-form?
+  "True when an HTML element written around `loc` in the same form may hide it."
+  [loc]
+  (boolean (some may-hide? (take-while some? (rest (iterate z/up loc))))))
+
+(defn- element-children
+  "Return the locs of the children an element vector renders, its tag and attrs left out."
+  [loc]
+  (->> (or (hiccup/attrs-slot loc) (z/down loc))
+       z/right
+       (iterate z/right)
+       (take-while some?)
+       (remove #(= :uneval (z/tag %)))))
+
+(defn- rendered-text
+  "Return the text the element at `loc` renders, when every child is a literal string or an HTML element showing one.
+  A component, a call, a conditional or a name may render anything, so any of them makes it nil."
+  [loc]
+  (let [parts (map (fn [child]
+                     (if (= :vector (z/tag child))
+                       (when-let [[_ attrs] (element-attrs child)]
+                         (if (hidden-element? attrs) "" (rendered-text child)))
+                       (string-value child)))
+                   (element-children loc))]
+    (when (every? some? parts)
+      (normalize-test-id (str/join " " parts)))))
+
+(defn- literal-name
+  "Return the accessible name the element has as a literal the scan can read, or nil.
+
+  A non-blank `:aria-label` names any element, a `value` names a button, submit or reset input,
+  and the text it renders names one whose role takes its name from content. An
+  `:aria-labelledby` may point at nothing, and Testing Library ignores a `:title` for some roles,
+  so neither counts."
+  [role tag attrs loc]
+  (let [non-blank #(when (and (string? %) (not (str/blank? %))) (normalize-test-id %))]
+    (or (non-blank (read-attr attrs :aria-label))
+        (when (and (= :input tag) (contains? value-named-input-types (literal-text (get attrs :type))))
+          (non-blank (read-attr attrs :value)))
+        (when (contains? content-named-roles role)
+          (non-blank (rendered-text loc))))))
+
+(defn- in-comment?
+  "True when a `(comment …)` form encloses `loc`, which only a REPL evaluates."
+  [loc]
+  (boolean (some #(and (= :list (z/tag %)) (= "comment" (some-> % z/down parser/sym-name)))
+                 (take-while some? (rest (iterate z/up loc))))))
+
+(defn- role-and-name
+  "Return the role and literal name of the element vector `loc`, or nil when it has no role or name the scan can read."
+  [loc]
+  (when-let [[tag attrs] (element-attrs loc)]
+    (when-let [role (element-role tag attrs)]
+      (when-let [element-name (literal-name role tag attrs loc)]
+        {:role role
+         :name element-name}))))
+
+(defn- string-fragments
+  "Return the literal strings written anywhere in the form at `loc`."
+  [loc]
+  (->> (cons loc (parser/descendant-locs loc))
+       (keep string-value)
+       vec))
+
+(defn- built-test-id
+  "Record what a `:data-testid` given as a call, or a name a binding sets to one, may build.
+
+  A `str` builds an id starting with its first argument and ending with its last, when those
+  are literals, and holding every literal between. Any other call may build an id holding any
+  literal written in it, and one with none may build any id."
+  [value-loc file]
+  (let [arguments (when (= "str" (some-> value-loc z/down parser/sym-name))
+                    (remove #(= :uneval (z/tag %)) (parser/right-siblings (z/down value-loc))))]
+    (if (seq arguments)
+      {:type ::built-test-id
+       :prefix (or (string-value (first arguments)) "")
+       :suffix (if (next arguments) (or (string-value (last arguments)) "") "")
+       :middle (->> arguments butlast rest (keep string-value) vec)
+       :file file}
+      {:type ::built-test-id
+       :fragments (string-fragments value-loc)
+       :file file})))
+
+(defn- may-build?
+  "True when a built test id recorded by [[built-test-id]] may be `id`."
+  [{:keys [prefix suffix middle fragments]} id]
+  (if prefix
+    (and (str/starts-with? id prefix) (str/ends-with? id suffix) (every? #(str/includes? id %) middle))
+    (or (empty? fragments) (boolean (some #(str/includes? id %) fragments)))))
+
+(defn- mention [id file]
+  {:type ::test-id-mention
+   :id (normalize-test-id id)
+   :file file})
+
+(defn- handle-token
+  "Record a string literal as a mention of a test id it may be, and other test ids that reach the DOM.
+  A lookup's own test id is no mention. A keyword or quoted name a `:data-testid` is set to is
+  one, and a name bound to a call records what the call may build; a name bound to a string
+  needs nothing more, since the string is a mention where it is written."
+  [loc ns-info file]
+  (let [value (string-value loc)
+        parent (z/up loc)
+        test-id-value? #(= ":data-testid" (some-> % z/left parser/raw))]
+    (cond
+      value
+      (when-not (and (= :list (some-> parent z/tag))
+                     (identical? (z/node loc) (some-> (test-id-arguments parent ns-info) first z/node)))
+        {:decls []
+         :usages [(mention value file)]
+         :dynamics []})
+
+      (and (= :quote (some-> parent z/tag)) (test-id-value? parent))
+      {:decls []
+       :usages [(mention (parser/raw loc) file)]
+       :dynamics []}
+
+      (test-id-value? loc)
+      (let [v (a11y/literal-sexpr loc)]
+        (cond
+          (keyword? v) {:decls []
+                        :usages [(mention (name v) file)]
+                        :dynamics []}
+          (symbol? v) (let [bound (hiccup/lexically-bound-value loc (parser/raw loc))]
+                        (when (= :list (some-> bound z/tag))
+                          {:decls []
+                           :usages [(built-test-id bound file)]
+                           :dynamics []})))))))
+
+(defn- handle-vector
+  "Record an element written out with a role and a literal name: its literal test id, and whether anything may hide it.
+  A role query finds it by that role and name unless it is hidden, discarded, or only in a
+  `(comment …)` a REPL evaluates."
+  [loc _ns-info file]
+  (when-let [{:keys [role]
+              :as element} (role-and-name loc)]
+    (let [[_ attrs] (element-attrs loc)]
+      {:decls []
+       :usages [(assoc element
+                       :type ::role-element
+                       :role role
+                       :test-id (some-> (get attrs :data-testid) string-value normalize-test-id)
+                       :hidden? (or (hidden-element? attrs)
+                                    (hidden-in-form? loc)
+                                    (hiccup/inside-unrendered-form? loc)
+                                    (in-comment? loc))
+                       :file file)]
        :dynamics []})))
 
-(defn- analyze* [{:keys [declarations]}]
-  {:get-by-presence-check (vec (filter #(= :get-by-presence-check (:type %)) declarations))
-   :lookup-helper-name (vec (filter #(= :lookup-helper-name (:type %)) declarations))})
+(defn- test-id-lookup
+  "Record a `*-by-test-id` lookup given only a literal test id, or nil.
+  An options map after the id may match by substring or normalize differently, so it is left alone."
+  [loc ns-info file]
+  (let [[id-loc & more] (test-id-arguments loc ns-info)]
+    (when-let [id (some-> id-loc string-value)]
+      (when-not (or (seq more) (rebound? loc (parser/raw (z/down loc))))
+        {:type ::test-id-lookup
+         :id (normalize-test-id id)
+         :kw (symbol (second (library-lookup loc ns-info)))
+         :form (parser/normalize-form (parser/raw loc))
+         :test (parser/enclosing-definition-name loc)
+         :file file
+         :row (parser/position-row loc)}))))
 
-(defn- summary-lines* [{:keys [get-by-presence-check lookup-helper-name]}]
+(defn- find-test-id-queries-on-role
+  "Keep the lookups of `usages` whose test id only elements a role query finds alone carry.
+
+  Every mention of the id in `usages-in-run` has to be the test id of a visible element with
+  one role and literal name, so a component prop, a constant, a hidden element or one with no
+  role or name leaves the lookup alone; so does a built id that may be it. The role and name
+  have to belong to no element without that test id, or the role query would find that one too."
+  [usages usages-in-run]
+  (let [by-type (group-by :type usages-in-run)
+        id->mention-count (frequencies (map :id (by-type ::test-id-mention)))
+        role-elements (by-type ::role-element)
+        id->elements (group-by :test-id (remove :hidden? role-elements))
+        role+name->test-ids (->> role-elements
+                                 (group-by (juxt :role :name))
+                                 (into {} (map (fn [[k elements]] [k (set (map :test-id elements))]))))
+        built (by-type ::built-test-id)
+        may-be-built? (fn [id] (some #(may-build? % id) built))]
+    (->> usages
+         (filter #(= ::test-id-lookup (:type %)))
+         (keep (fn [{:keys [id]
+                     :as lookup}]
+                 (let [elements (get id->elements id)
+                       role+names (set (map (juxt :role :name) elements))
+                       [role] (first role+names)]
+                   (when (and (= (count elements) (get id->mention-count id))
+                              (= 1 (count role+names))
+                              (= #{id} (get role+name->test-ids (first role+names)))
+                              (not (may-be-built? id)))
+                     (-> lookup
+                         (dissoc :type :id)
+                         (assoc :type :test-id-query-on-role
+                                :hint (str "Query it by role \"" role "\" and its name.")))))))
+         vec)))
+
+(defn- handle-list [loc ns-info file]
+  (when-not (hiccup/inside-unrendered-form? loc)
+    (let [finding (or (get-by-presence-finding loc ns-info file)
+                      (lookup-helper-finding loc ns-info file))
+          usages (keep identity [(test-id-lookup loc ns-info file)
+                                 (when (= ":data-testid" (some-> (z/left loc) parser/raw))
+                                   (built-test-id loc file))])]
+      (when (or finding (seq usages))
+        {:decls (if finding [finding] [])
+         :usages (vec usages)
+         :dynamics []}))))
+
+(defn- analyze* [{:keys [declarations usages usages-in-run]}]
+  {:get-by-presence-check (vec (filter #(= :get-by-presence-check (:type %)) declarations))
+   :lookup-helper-name (vec (filter #(= :lookup-helper-name (:type %)) declarations))
+   :test-id-query-on-role (find-test-id-queries-on-role usages (or usages-in-run usages))})
+
+(defn- summary-lines* [{:keys [get-by-presence-check lookup-helper-name test-id-query-on-role]}]
   [["Get-by presence check:" (count get-by-presence-check)]
-   ["Lookup helper name:" (count lookup-helper-name)]])
+   ["Lookup helper name:" (count lookup-helper-name)]
+   ["Test id query on role:" (count test-id-query-on-role)]])
 
 (defrecord ReactTestingLibraryCljsGroup []
   group/RuleGroup
   (group-id [_] :react-testing-library-cljs)
   (group-name [_] "react-testing-library-cljs")
-  (parse-handlers [_] {:handle-list handle-list})
+  (parse-handlers [_] {:handle-list handle-list
+                       :handle-token handle-token
+                       :handle-vector handle-vector})
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ _] false)
@@ -189,13 +583,18 @@
           "get-by-* outside the is.")
      :lookup-helper-name
      (str "A helper that only returns a lookup is not named for it. Start its name with what the lookup does on a "
-          "miss: get- for get-by-* (throws), query- for query-by-* (nil), find- for find-by-* (rejects).")})
+          "miss: get- for get-by-* (throws), query- for query-by-* (nil), find- for find-by-* (rejects).")
+     :test-id-query-on-role
+     (str "A lookup finds an element by its test id, but that element has a role and a name, so the test can find it "
+          "the way a screen reader user does. Query it by role and name, which also checks the name stays.")})
   (docs-anchors [_]
     {:get-by-presence-check "get-by-presence-check"
-     :lookup-helper-name "lookup-helper-name"})
+     :lookup-helper-name "lookup-helper-name"
+     :test-id-query-on-role "test-id-query-on-role"})
   (rule->tier [_]
     {:get-by-presence-check :cleanup
-     :lookup-helper-name :cleanup})
+     :lookup-helper-name :cleanup
+     :test-id-query-on-role :cleanup})
   (file-extensions [_] group/cljs-extensions))
 
 (def group (->ReactTestingLibraryCljsGroup))

@@ -101,3 +101,82 @@ handing it to another function; a helper with several arities; a `defmethod`, or
 and a lookup whose name a parameter, a `let`, a `letfn`, a `with-redefs` or a `binding` binds anew.
 
 </details>
+
+### Test id query on role
+
+`test-id-query-on-role` · cleanup — A lookup by test id of an element a role query could find by its role and name.
+
+```clojure
+;; flagged
+(defn send-button [] [:button {:aria-label "Send" :data-testid "send-button"} [icon]])
+(deftest send-test (.click (s/get-by-test-id "send-button")))
+
+;; fix
+(defn send-button [] [:button {:aria-label "Send" :data-testid "send-button"} [icon]])
+(deftest send-test (.click (s/get-by-role "button" {:name "Send"})))
+```
+
+**Left alone:**
+
+```clojure
+(defn content [] [:div {:class "scroll-area" :data-testid "content-scroll"} "Body"])
+(deftest content-test (.scrollTo (s/get-by-test-id "content-scroll") 0 0)) ; a div has no role
+
+(deftest card-test (.click (s/get-by-test-id (str "card-" 1)))) ; the id is built at run time
+
+(defn banner [] [design-icon {:data-testid "banner-icon"}])
+(deftest banner-test (.click (s/get-by-test-id "banner-icon"))) ; a component decides where the id goes
+```
+
+<details>
+<summary>Details</summary>
+
+Why: a query by role and name checks what a screen reader user gets. A test id skips that check, so a button can lose
+its name and the test stays green. Many elements have no role at all, such as layout boxes, scroll containers and icons,
+and for those a test id is the only way in, so the rule never asks for a test id to go. It reports only a test id the
+scan can prove a role query finds.
+
+Flagged: a `get-by-*`, `query-by-*` or `find-by-*` test id lookup, `-all-` forms included, given a literal string and
+nothing after it, when every other mention of that string in the files the run reads, source and tests alike, is the
+`:data-testid` of an HTML element written out with a literal attrs map that has:
+
+- a role a query finds it by: a written `:role` such as `"dialog"` or `"tab"`, or else a `:button`, an `:a` with an
+  `:href` string, a `:textarea`, a `:select` (`combobox`, or `listbox` with `:multiple true` or a `:size` of 1 or more),
+  or an `:input` whose `:type` is written out or left to its text default and has a role (`textbox`, `searchbox`,
+  `combobox` with a `:list`, `checkbox`, `radio`, `spinbutton`, `slider`, or `button` for the button types)
+- a literal name: a non-blank `:aria-label` string, a `:value` string on a button, submit or reset input, or, for a role
+  named by its content such as a button or a link, the text it renders when every child is a literal string or an HTML
+  element rendering one
+- a role and name no other element written out in the run has without that test id, so a role query finds one element
+- nothing that may hide it: `:hidden`, `:aria-hidden`, or a `:style` with `display: none` or `visibility: hidden` in any
+  case or spacing, on the element or on an HTML element around it in the same form, nor a closed `:dialog`, a
+  `:template` or a `:datalist` around it
+
+A test id is compared after trimming and collapsing whitespace, as Testing Library's default normalizer does. The hint
+names the role.
+
+Left alone, since a role query could then miss what the test id finds, or find something else:
+
+- a test id built at run time, one no element in the run sets as a literal, and a lookup with options after the id, such
+  as `{:exact false}`
+- any other mention of the string: a component's props (its own `:data-testid` may land on any element inside it,
+  `:component-aliases` included), a map built with `merge` or `assoc`, a constant, a second element with no role or
+  another role, a keyword or quoted test id, and one inside `#_` or `(comment …)`
+- a test id a call or a `let`-bound name may build: one a `(str …)` may build from its literal start, end and middle
+  parts, and, for any other call, one holding a literal string written in it, or any id when it holds none
+- an element with no role, `presentation`, `none` or an empty `:role`, an `:a` whose `:href` is no string, an `:input`
+  of a type with no role, such as `file`, `password` or `hidden`, or with an empty `:list`, and any attribute the role
+  turns on written as an expression
+- an element with no literal name: an icon-only button, text beside a component or a call, an `:aria-label` written as
+  an expression, an `:aria-labelledby` (the id it points at may not exist), a `:title` (Testing Library ignores it for
+  some roles), and an input named by a `<label>` elsewhere
+- a role and name another element in the run shares without that test id, such as two "Save" buttons
+- an element that may be hidden: `:hidden`, `:aria-hidden` or a `:style` written as an expression count, and so does an
+  HTML element around it whose attrs the scan cannot read, a name in its attrs slot included
+
+The scan cannot see an element hidden by a component around it, such as a closed popover, or by a stylesheet, nor an
+element whose name is set at run time sharing the role and name; a role query is affected by those too. It reads only
+ClojureScript files, so a test id set in a `.clj` macro is not a mention, and a `:data-testid` passed in as a parameter
+is read only where the caller writes it.
+
+</details>

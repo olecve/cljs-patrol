@@ -58,3 +58,49 @@
             "in-comment" "Rename to get-in-comment, after the get-by-role lookup it returns."}
            (into {} (map (juxt (comp str :kw) :hint)) findings))
         "only helper returning lookup under wrong prefix is reported, with its rename")))
+
+(deftest test-id-query-on-role-fixture-test
+  (let [findings (:test-id-query-on-role (result))]
+    (is (= #{"finds-send-button" "finds-save-button" "finds-save-button-within" "finds-home-link" "finds-edit-area"
+             "finds-agree-box" "finds-query-input" "finds-find-input" "finds-pick-input" "finds-go-input"
+             "finds-country-select" "finds-tags-select" "finds-sized-select" "finds-settings-dialog"
+             "finds-all-picked-buttons" "finds-send-button-past-discarded-id" "finds-listed-box" "finds-size-one"
+             "finds-plain-in-span" "finds-inner-space" "finds-hidden-false" "finds-list-nil" "finds-in-component"
+             "finds-built-key-free" "finds-other-one" "finds-kw-elsewhere"
+             "finds-in-open-dialog" "finds-size-zero" "finds-multiple-zero" "finds-mid-a-end" "finds-hidden-nil"
+             "finds-with-break" "finds-uneval-child"}
+           (fn-names-of findings))
+        "a test id on a written-out element with a role and a name, and no other mention of it")
+    (is (= {"finds-send-button" "Query it by role \"button\" and its name."
+            "finds-home-link" "Query it by role \"link\" and its name."
+            "finds-edit-area" "Query it by role \"textbox\" and its name."
+            "finds-agree-box" "Query it by role \"checkbox\" and its name."
+            "finds-query-input" "Query it by role \"textbox\" and its name."
+            "finds-find-input" "Query it by role \"searchbox\" and its name."
+            "finds-pick-input" "Query it by role \"combobox\" and its name."
+            "finds-go-input" "Query it by role \"button\" and its name."
+            "finds-country-select" "Query it by role \"combobox\" and its name."
+            "finds-tags-select" "Query it by role \"listbox\" and its name."
+            "finds-sized-select" "Query it by role \"listbox\" and its name."
+            "finds-settings-dialog" "Query it by role \"dialog\" and its name."
+            "finds-listed-box" "Query it by role \"checkbox\" and its name."
+            "finds-size-one" "Query it by role \"listbox\" and its name."
+            "finds-size-zero" "Query it by role \"combobox\" and its name."
+            "finds-multiple-zero" "Query it by role \"combobox\" and its name."}
+           (-> (into {} (map (juxt :test :hint)) findings)
+               (select-keys ["finds-send-button" "finds-home-link" "finds-edit-area" "finds-agree-box"
+                             "finds-query-input" "finds-find-input" "finds-pick-input" "finds-go-input"
+                             "finds-country-select" "finds-tags-select" "finds-sized-select"
+                             "finds-settings-dialog" "finds-listed-box" "finds-size-one" "finds-size-zero"
+                             "finds-multiple-zero"])))
+        "hint names the role a query finds the element by")
+    (is (every? #(= :cleanup (:tier %)) findings)
+        "carries the cleanup tier")))
+
+(deftest test-id-built-by-opaque-call-fixture-test
+  (is (empty? (:test-id-query-on-role
+               (-> (core/run "test-projects/react-testing-library-cljs-app/src/opaque"
+                             [react-testing-library-cljs/group])
+                   :group-results
+                   first)))
+      "a test id built by a call with no literal part may be any id"))
