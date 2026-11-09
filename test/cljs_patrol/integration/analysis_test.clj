@@ -135,6 +135,12 @@
              (->> reagent-result :empty-fragment-props (map :form)))
           "a symbol after the {} or a keyed fragment is left alone"))
 
+    (testing "detects a fragment around a single element"
+      (is (= ["[:<> [:ul {:class \"list\"} (for [x items] ^{:key x} [:li x])]]"
+              "[:<> [panel {:mode :search}]]"]
+             (->> reagent-result :redundant-fragment (map :form)))
+          "a fragment handed to a call as data, or one around several children, is left alone"))
+
     (testing "detects duplicate subscription registration"
       (is (= 2 (count (:duplicate-subs re-frame-result))))
       (is (= #{:webapp.subs/used-sub} (->> re-frame-result :duplicate-subs (map :kw) set))))
@@ -178,4 +184,5 @@
       (is (every? #(= :bugs (:tier %)) (:consecutive-self-selectors spade-result)))
       (is (every? #(= :deprecations (:tier %)) (:defclass-as-sole-attr reagent-result)))
       (is (every? #(= :cleanup (:tier %)) (:redundant-into-hiccup reagent-result)))
-      (is (every? #(= :cleanup (:tier %)) (:empty-fragment-props reagent-result))))))
+      (is (every? #(= :cleanup (:tier %)) (:empty-fragment-props reagent-result)))
+      (is (every? #(= :cleanup (:tier %)) (:redundant-fragment reagent-result))))))
