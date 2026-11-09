@@ -32,10 +32,12 @@ Run this group alone with `--only layout`. Its settings live under `:layout` in 
 **Left alone:**
 
 ```clojure
-(def points [{:x 0 :y 0} {:x 10 :y 0}]) ; maps on one line cannot split
+;; maps on one line cannot split
+(def points [{:x 0 :y 0} {:x 10 :y 0}])
 
+;; a short label child
 (defn edit-button [] [button {:size :s
-                              :variant :ghost} "Edit"]) ; a short label child
+                              :variant :ghost} "Edit"])
 ```
 
 <details>
@@ -79,8 +81,9 @@ whole sibling on the same line.
 **Left alone:**
 
 ```clojure
+;; a path vector before its value
 (defn save [db] (assoc-in db [:a :b] {:x 1
-                                      :y 2})) ; a path vector before its value
+                                      :y 2}))
 ```
 
 <details>

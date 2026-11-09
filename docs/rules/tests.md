@@ -27,8 +27,9 @@ Run this group alone with `--only tests`. Its settings live under `:tests` in `.
 **Left alone:**
 
 ```clojure
+;; an article inside the name is fine
 (deftest escape-closes-the-modal
-  (is (closed? (modal)))) ; an article inside the name is fine
+  (is (closed? (modal))))
 ```
 
 <details>
@@ -119,8 +120,9 @@ defensible uses: a `when` narrowing a `doseq` to the combination under test read
   (is (= 1 (@#'app.core/parse-count "1"))))
 
 ;; fix
+;; the public fn that calls parse-count
 (deftest parses
-  (is (= 1 (app.core/read-count "1")))) ; the public fn that calls parse-count
+  (is (= 1 (app.core/read-count "1"))))
 ```
 
 <details>
@@ -199,17 +201,20 @@ string.
 
 ```clojure
 (defn describe [title] (str "Search case " (or title "Untitled")))
+;; a fn's output
 (deftest describe-falls-back-to-untitled
-  (is (= "Search case Untitled" (describe nil)))) ; a fn's output
+  (is (= "Search case Untitled" (describe nil))))
 
 (def completed-message (str "Smart Search " "completed"))
+;; a computed constant
 (deftest completed-copy
-  (is (= "Smart Search completed" completed-message))) ; a computed constant
+  (is (= "Smart Search completed" completed-message)))
 
 (def label "View Results")
+;; a local may shadow the constant
 (deftest label-copy
   (let [label "View Results"]
-    (is (= "View Results" label)))) ; a local may shadow the constant
+    (is (= "View Results" label))))
 ```
 
 <details>

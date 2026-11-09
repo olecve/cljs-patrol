@@ -29,14 +29,17 @@ through the namespace's `:require`, so the group reports nothing in code that do
 **Left alone:**
 
 ```clojure
+;; asserts what it found
 (deftest save-button
-  (is (= "Save" (.-textContent (s/get-by-role "button"))))) ; asserts what it found
+  (is (= "Save" (.-textContent (s/get-by-role "button")))))
 
+;; asserts how many
 (deftest rows
-  (is (= 2 (count (s/get-all-by-role "row"))))) ; asserts how many
+  (is (= 2 (count (s/get-all-by-role "row")))))
 
+;; the lookup is the assertion
 (deftest save-button
-  (s/get-by-role "button" {:name "Save"})) ; the lookup is the assertion
+  (s/get-by-role "button" {:name "Save"}))
 ```
 
 <details>
@@ -77,11 +80,13 @@ miss.
 **Left alone:**
 
 ```clojure
+;; named for the lookup it returns
 (defn- query-save-button []
-  (s/query-by-role "button" {:name "Save"})) ; named for the lookup it returns
+  (s/query-by-role "button" {:name "Save"}))
 
+;; returns more than the lookup
 (defn- save-button-text []
-  (.-textContent (s/get-by-role "button" {:name "Save"}))) ; returns more than the lookup
+  (.-textContent (s/get-by-role "button" {:name "Save"})))
 ```
 
 <details>
@@ -125,16 +130,19 @@ and a lookup whose name a parameter, a `let`, a `letfn`, a `with-redefs` or a `b
 **Left alone:**
 
 ```clojure
+;; a div has no role
 (defn content []
   [:div {:class "scroll-area"
          :data-testid "content-scroll"}
    "Body"])
-(deftest content-test (.scrollTo (s/get-by-test-id "content-scroll") 0 0)) ; a div has no role
+(deftest content-test (.scrollTo (s/get-by-test-id "content-scroll") 0 0))
 
-(deftest card-test (.click (s/get-by-test-id (str "card-" 1)))) ; the id is built at run time
+;; the id is built at run time
+(deftest card-test (.click (s/get-by-test-id (str "card-" 1))))
 
+;; a component decides where the id goes
 (defn banner [] [design-icon {:data-testid "banner-icon"}])
-(deftest banner-test (.click (s/get-by-test-id "banner-icon"))) ; a component decides where the id goes
+(deftest banner-test (.click (s/get-by-test-id "banner-icon")))
 ```
 
 <details>

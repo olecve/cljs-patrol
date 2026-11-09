@@ -276,16 +276,19 @@ fx.
 ```clojure
 (defn- show-error! [response]
   (js/console.error (:status response)))
-(rf/reg-fx ::show-error show-error!) ; private
+;; private
+(rf/reg-fx ::show-error show-error!)
 
 (ns example.core
   (:require
    [example.dom :as dom]
    [re-frame.core :as rf]))
-(rf/reg-fx ::scroll dom/scroll-into-view!) ; a fn of another namespace
+;; a fn of another namespace
+(rf/reg-fx ::scroll dom/scroll-into-view!)
 
+;; not top-level, the symbol may be a local
 (defn register! [show-error!]
-  (rf/reg-fx ::show-error show-error!)) ; not top-level, the symbol may be a local
+  (rf/reg-fx ::show-error show-error!))
 ```
 
 <details>
@@ -332,5 +335,6 @@ expose its fx handler on purpose.
 **Left alone:**
 
 ```clojure
-(defn open! [] (rf/dispatch [::open-panel])) ; a literal keyword
+;; a literal keyword
+(defn open! [] (rf/dispatch [::open-panel]))
 ```
