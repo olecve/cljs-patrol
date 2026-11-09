@@ -108,18 +108,27 @@ and a lookup whose name a parameter, a `let`, a `letfn`, a `with-redefs` or a `b
 
 ```clojure
 ;; flagged
-(defn send-button [] [:button {:aria-label "Send" :data-testid "send-button"} [icon]])
+(defn send-button []
+  [:button {:aria-label "Send"
+            :data-testid "send-button"}
+   [icon]])
 (deftest send-test (.click (s/get-by-test-id "send-button")))
 
 ;; fix
-(defn send-button [] [:button {:aria-label "Send" :data-testid "send-button"} [icon]])
+(defn send-button []
+  [:button {:aria-label "Send"
+            :data-testid "send-button"}
+   [icon]])
 (deftest send-test (.click (s/get-by-role "button" {:name "Send"})))
 ```
 
 **Left alone:**
 
 ```clojure
-(defn content [] [:div {:class "scroll-area" :data-testid "content-scroll"} "Body"])
+(defn content []
+  [:div {:class "scroll-area"
+         :data-testid "content-scroll"}
+   "Body"])
 (deftest content-test (.scrollTo (s/get-by-test-id "content-scroll") 0 0)) ; a div has no role
 
 (deftest card-test (.click (s/get-by-test-id (str "card-" 1)))) ; the id is built at run time
