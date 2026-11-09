@@ -45,7 +45,7 @@
    (docstrings/make-group (get config :docstrings) clj?)
    (css-order/make-group (get config :css-order))
    (tests/make-group (get config :tests) clj?)
-   react-testing-library-cljs/group
+   (react-testing-library-cljs/make-group (get config :react-testing-library-cljs))
    (layout/make-group (get config :layout) clj?)
    (idioms/make-group (get config :idioms) clj?)])
 

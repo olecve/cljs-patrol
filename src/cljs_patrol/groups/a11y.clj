@@ -582,7 +582,9 @@
   (format ":role %s implies \"%s\", not \"%s\" — drop :aria-live, or set it to \"%s\"."
           (pr-str role) implied declared implied))
 
-(defn- resolve-full-symbol [head-str {:keys [aliases refers]}]
+(defn resolve-full-symbol
+  "Return the fully qualified symbol `head-str` names through the ns form's aliases or refers, or nil."
+  [head-str {:keys [aliases refers]}]
   (cond
     (str/includes? head-str "/")
     (let [slash (str/index-of head-str "/")
