@@ -74,9 +74,11 @@ It reports only what it can rewrite without a judgement call:
   how it reads: `(-> xs sort vec delay)` looks like four steps run in order while the `delay` defers the other three. So
   a local, a library var the scan cannot read and a name the namespace defines any other way all end the chain
 - **A chain is reported once.** Where its steps stop agreeing on the slot, it splits, and a one-argument step at the
-  turn joins the part below: `(get (first (sort (map f (filter g xs)))) :k)` is reported as
-  `(->> xs (filter g) (map f) sort first)`. Only the longest part long enough is reported, the innermost on a tie, so
-  two threads are never suggested for one form
+  turn joins the `->>` part, as one more step of the sequence pipeline, whether that part is below or above:
+  `(get (first (sort (map f (filter g xs)))) :k)` is reported as `(->> xs (filter g) (map f) sort first)`, and
+  `(mapv f (range (count (get-in db path))))` as `(->> (get-in db path) count range (mapv f))`. It joins the `->` part
+  instead when only that makes a part long enough. Only the longest part long enough is reported, the innermost on a
+  tie, so two threads are never suggested for one form
 
 Left alone as well: a predicate — a name ending in `?`, such as `contains?`, `every?`, `str/includes?` or `nil?` — or a
 `not`, `boolean`, `seq`, `not-empty` or `some` at the top of what would be threaded, which is not counted, since a test

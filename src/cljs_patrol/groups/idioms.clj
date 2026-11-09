@@ -30,7 +30,7 @@
   "Functions of `clojure.core` / `cljs.core` that a one-argument call reads as one step."
   #{"first" "second" "last" "rest" "next" "butlast" "ffirst" "fnext" "nfirst" "nnext"
     "count" "seq" "vec" "set" "keys" "vals" "sort" "distinct" "dedupe" "reverse" "flatten"
-    "frequencies" "shuffle" "peek" "pop" "key" "val" "meta" "doall"
+    "frequencies" "shuffle" "peek" "pop" "key" "val" "meta" "doall" "range"
     "name" "namespace" "keyword" "symbol" "str" "inc" "dec" "int" "long" "double" "abs"
     "not" "boolean" "some?" "nil?" "empty?" "not-empty" "true?" "false?"
     "zero?" "pos?" "neg?" "even?" "odd?" "deref" "realized?"
@@ -939,28 +939,54 @@
         :host (boolean (and method? (= :first direction)))
         false))))
 
-(defn- split-by-direction
-  "Split run where its steps stop agreeing on which slot they thread into.
+(defn- split-steps
+  "Split steps, innermost first, where they stop agreeing on which slot they thread into.
 
-  Read from the innermost step up, so a one-argument step between a `->>` part below and a
-  `->` part above joins the part below: `(contains? (set (map :id xs)) id)` keeps
-  `(->> xs (map :id) set)` whole."
-  [run]
-  (loop [steps (reverse run)
+  A one-argument step threads either way. Read from the innermost step up, it joins the part
+  below it, unless `toward-last?` and the part below threads into the first slot: then it
+  waits for the part above, and joins it if that part threads into the last slot."
+  [steps toward-last?]
+  (loop [steps steps
          current []
          direction nil
+         pending []
          done []]
     (if-let [{step-direction :direction
               :as step} (first steps)]
-      (if (or (= :either step-direction) (nil? direction) (= direction step-direction))
+      (cond
+        (and toward-last? (= :either step-direction) (= :first direction))
+        (recur (rest steps) current direction (conj pending step) done)
+
+        (or (= :either step-direction) (nil? direction) (= direction step-direction))
         (recur (rest steps)
-               (conj current step)
+               (into current (conj pending step))
                (if (= :either step-direction) direction step-direction)
+               []
                done)
-        (recur (rest steps) [step] step-direction (conj done current)))
-      (->> (conj done current)
-           (map (comp vec reverse))
-           reverse))))
+
+        (= :last step-direction)
+        (recur (rest steps) (conj pending step) :last [] (conj done current))
+
+        :else
+        (recur (rest steps) [step] step-direction [] (conj done current)))
+      (conj done (into current pending)))))
+
+(defn- split-by-direction
+  "Split run where its steps stop agreeing on which slot they thread into, each way a one-argument step can go.
+
+  A one-argument step between a `->>` part and a `->` part reads best as one more step of the
+  sequence pipeline, so the parts where it joins the `->>` part come first, marked
+  `:preferred`: `(mapv f (range (count (get-in db path))))` keeps
+  `(->> (get-in db path) count range (mapv f))` whole. The parts where it joins the part
+  below follow, for [[longest-run]] to fall back on when they make a longer run:
+  `(contains? (set (map :id xs)) id)` keeps `(->> xs (map :id) set)` whole either way."
+  [run]
+  (let [parts (fn [toward-last?]
+                (->> (split-steps (reverse run) toward-last?)
+                     (map (comp vec reverse))
+                     reverse))]
+    (concat (map #(with-meta % {:preferred true}) (parts true))
+            (parts false))))
 
 (defn- runs
   "Split levels into the maximal runs whose every level is a step, threading one way."
@@ -1066,12 +1092,16 @@
   "Return the longest run of a chain that is long enough to report, or nil.
 
   Threading two runs of one chain would nest one thread inside the other, so a chain is
-  reported once, as its longest run; the innermost wins a tie."
+  reported once, as its longest run. A `:preferred` run wins a tie, and among the rest the
+  innermost does."
   [min-calls runs]
   (->> runs
-       (map (comp keep-literal-call drop-wrappers))
-       (filter #(>= (count %) min-calls))
-       (reduce (fn [best run] (if (>= (count run) (count best)) run best)) nil)))
+       (map (fn [run]
+              (let [kept (-> run drop-wrappers keep-literal-call)]
+                [(count kept) (if (:preferred (meta run)) 1 0) kept])))
+       (filter #(>= (first %) min-calls))
+       (reduce (fn [best ranked] (if (>= (compare (pop ranked) (pop best)) 0) ranked best)) [0 0 nil])
+       peek))
 
 (defn- core-named?
   "True when head, settled against the project's definitions, is core's core-name."
