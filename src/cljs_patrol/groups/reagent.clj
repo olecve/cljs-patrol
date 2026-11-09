@@ -216,6 +216,75 @@
      :row row
      :col col}))
 
+(def ^:private body-heads
+  "Forms whose last form is the value a function returns."
+  #{"defn" "defn-" "defc" "defmethod" "fn" "fn*"})
+
+(defn- last-code-loc? [loc parent]
+  (identical? (z/node loc) (some-> (last (code-locs parent)) z/node)))
+
+(defn- result-of?
+  "True when every value `loc` can yield is one `parent` yields, so `loc` stands in a result position of it.
+
+  The values are compared rather than `loc` itself, since a `cond` the last form of a `let`
+  holds yields its branches, not the `cond`."
+  [loc parent]
+  (let [parent-results (map z/node (hiccup/result-locs parent))]
+    (every? (fn [result] (some #(identical? (z/node result) %) parent-results))
+            (hiccup/result-locs loc))))
+
+(defn- rendered-position?
+  "True when `loc` stands where its value is rendered or returned, not handed to a call as data.
+
+  The last form of a function body is returned. A child of an element, a value in its
+  props map, the last form of a `for` body, and a value a `let`, `if` or `cond` yields
+  render when what holds them does, asked again one level up. An argument of any other
+  call, `(into [:<> [header]] rows)` among them, is data the call may still change, and a
+  `with-meta` or reader metadata around `loc` gives it a key the element would need."
+  [loc]
+  (let [parent (z/up loc)
+        head-name (some-> parent z/down parser/sym-name)]
+    (case (some-> parent z/tag)
+      :vector (and (hiccup-head-loc? (z/down parent))
+                   (not (data-vector? parent))
+                   (rendered-position? parent))
+      :map (and (->> (code-locs parent)
+                     (take-while #(not (identical? (z/node loc) (z/node %))))
+                     count
+                     odd?)
+                (rendered-position? parent))
+      :list (cond
+              (contains? body-heads head-name) (last-code-loc? loc parent)
+              (= "for" head-name) (and (last-code-loc? loc parent) (rendered-position? parent))
+              :else (and (result-of? loc parent) (rendered-position? parent)))
+      false)))
+
+(defn- redundant-fragment?
+  "True when `loc` is a fragment around a single Hiccup element, which can stand in its place.
+
+  Only an element written out counts: a symbol or a call may yield a map, which Reagent
+  would read as the fragment's props, or something that is no element at all. A fragment
+  with props carries a key the element would have to take over."
+  [loc]
+  (let [[head & children] (code-locs loc)
+        [child] children]
+    (boolean
+     (and (= ":<>" (some-> head parser/raw))
+          (= 1 (count children))
+          (= :vector (z/tag child))
+          (hiccup-head-loc? (z/down child))
+          (not (data-vector? child))
+          (rendered-position? loc)))))
+
+(defn- redundant-fragment-finding [loc file]
+  (let [[row col] (try (z/position loc) (catch Exception _ [0 1]))]
+    {:kw :<>
+     :type :redundant-fragment
+     :form (source-snippet loc)
+     :file file
+     :row row
+     :col col}))
+
 (def ^:private spade-handle-list
   (get (group/parse-handlers spade/group) :handle-list))
 
@@ -231,15 +300,17 @@
      :dynamics []}))
 
 (defn- handle-fragment
-  "Emit an :empty-fragment-props finding when `loc` is a fragment whose `{}` does nothing."
+  "Emit an :empty-fragment-props or :redundant-fragment finding when `loc` is a fragment that does nothing."
   [loc _ns-info file]
   (when (and (not (hiccup/inside-unrendered-form? loc))
              (not (hiccup/inside-style-decl? loc))
-             (not (hiccup/inside-ns-form? loc))
-             (empty-fragment-props? loc))
-    {:decls [(empty-fragment-props-finding loc file)]
-     :usages []
-     :dynamics []}))
+             (not (hiccup/inside-ns-form? loc)))
+    (when-let [finding (cond
+                         (empty-fragment-props? loc) (empty-fragment-props-finding loc file)
+                         (redundant-fragment? loc) (redundant-fragment-finding loc file))]
+      {:decls [finding]
+       :usages []
+       :dynamics []})))
 
 (defn- analyze* [{:keys [declarations usages]}]
   (let [style-decls (filter #(= :defclass (:type %)) declarations)
@@ -251,15 +322,21 @@
                                     :when (every? #(= :class-only-map (:context %)) uses)]
                                 decl)
         redundant-into (filter #(= :redundant-into-hiccup (:type %)) declarations)
-        empty-fragment-props (filter #(= :empty-fragment-props (:type %)) declarations)]
+        empty-fragment-props (filter #(= :empty-fragment-props (:type %)) declarations)
+        redundant-fragment (filter #(= :redundant-fragment (:type %)) declarations)]
     {:defclass-as-sole-attr (vec defclass-as-sole-attr)
      :redundant-into-hiccup (vec redundant-into)
-     :empty-fragment-props (vec empty-fragment-props)}))
+     :empty-fragment-props (vec empty-fragment-props)
+     :redundant-fragment (vec redundant-fragment)}))
 
-(defn- summary-lines* [{:keys [defclass-as-sole-attr redundant-into-hiccup empty-fragment-props]}]
+(defn- summary-lines* [{:keys [defclass-as-sole-attr
+                               redundant-into-hiccup
+                               empty-fragment-props
+                               redundant-fragment]}]
   [["defclass as sole attr:" (count defclass-as-sole-attr)]
    ["Redundant into-hiccup:" (count redundant-into-hiccup)]
-   ["Empty fragment props:" (count empty-fragment-props)]])
+   ["Empty fragment props:" (count empty-fragment-props)]
+   ["Redundant fragment:" (count redundant-fragment)]])
 
 (defn- failed?* [_] false)
 
@@ -281,15 +358,19 @@
           "inside the Hiccup vector: [:<> (for [x xs] ^{:key x} [item x])].")
      :empty-fragment-props
      (str "A fragment takes no props but :key, and no child after this {} can be a map that would be read as props in "
-          "its place. Drop the {}.")})
+          "its place. Drop the {}.")
+     :redundant-fragment
+     "A fragment around a single element renders the same as the element. Drop the [:<> ...] around it."})
   (docs-anchors [_]
     {:defclass-as-sole-attr "defclass-as-sole-attr"
      :redundant-into-hiccup "redundant-into-around-hiccup"
-     :empty-fragment-props "empty-fragment-props"})
+     :empty-fragment-props "empty-fragment-props"
+     :redundant-fragment "redundant-fragment"})
   (rule->tier [_]
     {:defclass-as-sole-attr :deprecations
      :redundant-into-hiccup :cleanup
-     :empty-fragment-props :cleanup})
+     :empty-fragment-props :cleanup
+     :redundant-fragment :cleanup})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->ReagentGroup))

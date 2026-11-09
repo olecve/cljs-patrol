@@ -30,7 +30,8 @@ screen-reader user cannot reach, name or tell apart, and a Spade selector that m
 **`cleanup`** — dead code, style noise, and suspicious references with no runtime impact.
 
 - `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events`
-- `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `reg-fx-public-fn`, `redundant-into-hiccup`, `empty-fragment-props`
+- `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `reg-fx-public-fn`, `redundant-into-hiccup`, `empty-fragment-props`,
+  `redundant-fragment`
 - `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace`
 - `css-property-order-outside-in`, `deftest-leading-article`, `assertion-message-inline`, `conditional-assertion`,
   `var-deref-in-test`, `js-hint-in-test`, `literal-constant-assertion`, `get-by-presence-check`, `lookup-helper-name`

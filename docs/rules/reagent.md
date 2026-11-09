@@ -137,3 +137,62 @@ Left alone, since the scan cannot vouch that the next child is no map:
 - a fragment that is quoted, discarded, or sits in a style declaration or the ns form
 
 </details>
+
+### Redundant fragment
+
+`redundant-fragment` · cleanup — A fragment around a single element, which the element can stand in for.
+
+```clojure
+;; flagged
+(defn company-preferences [company]
+  [:<>
+   [:section.company-preferences
+    [settings-form-title "Links to external systems"]
+    [links-form company]]])
+
+;; fix
+(defn company-preferences [company]
+  [:section.company-preferences
+   [settings-form-title "Links to external systems"]
+   [links-form company]])
+```
+
+**Left alone:**
+
+```clojure
+(defn status [busy-reason] [:<> busy-reason]) ; busy-reason could be a map Reagent reads as props
+
+(defn table [header rows] (into [:<> [header]] rows)) ; data into gives more children
+
+(defn cells [id] [:<> {:key id} [cell id]]) ; the fragment carries the key
+```
+
+<details>
+<summary>Details</summary>
+
+Why: a fragment groups several children where only one element may stand. Around a single element it groups nothing, and
+the element can stand in its place. ESLint's `react/jsx-no-useless-fragment` reports the same shape in JSX.
+
+Flagged: a `[:<> …]` whose only child is a Hiccup element written out, an HTML tag or a component, under no props map,
+standing where its value renders. That is the last form of a function or `defmethod` body, or, when what holds it
+renders too, a child of an element, a value in its props map, the last form of a `for` body, or a value a `let`, `when`,
+`if`, `cond` or `case` yields. A `#_` form is skipped wherever it sits.
+
+The rule asks for one shape everywhere, even where the fragment changed something. If one branch yields `[:<> [panel]]`
+and another a bare `[panel]`, the fragment makes React remount `panel` when the branch changes. Without it, `panel`
+keeps its state. Where a remount is wanted, give each branch its own `^{:key …}`, which says so. The same goes for a
+fragment inside a JS component that clones its child, such as a Radix `:as-child` trigger: the element itself is what it
+expects.
+
+Left alone, since the scan cannot vouch that the element can take the fragment's place:
+
+- a child that is a symbol, a call, a `for` or a `when`, which may yield a map Reagent reads as the fragment's props, or
+  no element at all; more than one child; and a child under metadata or a reader conditional
+- a fragment with props, or handed a key by reader metadata or `with-meta`
+- a fragment handed to a call, such as `into`, `conj` or `=`, which may change it or compare it as data, also through a
+  `when`, an `if` or an element that holds it; a fragment bound in a `let`; and one that is not the last form of a
+  function body
+- a vector that is data rather than Hiccup, such as `[:<> [:path :to :key]]`
+- a fragment that is quoted, discarded, or sits in a style declaration or the ns form
+
+</details>

@@ -126,7 +126,7 @@
   (is (= #{:unused-subs :unused-events :unused-styles
            :phantom-subs :phantom-events
            :reg-sub-=>-1-arity :reg-event-fx-db-only :reg-fx-public-fn
-           :redundant-into-hiccup :empty-fragment-props
+           :redundant-into-hiccup :empty-fragment-props :redundant-fragment
            :docstring-summary :docstring-indentation
            :docstring-leading-trailing-whitespace
            :css-property-order-outside-in
@@ -227,7 +227,7 @@
       (is (= #{:unused-subs :unused-events :unused-styles
                :phantom-subs :phantom-events
                :reg-sub-=>-1-arity :reg-event-fx-db-only :reg-fx-public-fn
-               :redundant-into-hiccup :empty-fragment-props
+               :redundant-into-hiccup :empty-fragment-props :redundant-fragment
                :docstring-summary :docstring-indentation
                :docstring-leading-trailing-whitespace
                :css-property-order-outside-in

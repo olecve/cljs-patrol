@@ -287,6 +287,18 @@
                                       :row 12
                                       :col 3}))
         "empty-fragment-props keyed by tag + file + form")
+    (is (= {:rule :redundant-fragment
+            :tag :<>
+            :file "src/views.cljs"
+            :form "[:<> [row]]"}
+           (baseline/issue->identity :redundant-fragment
+                                     {:type :redundant-fragment
+                                      :kw :<>
+                                      :form "[:<> [row]]"
+                                      :file "src/views.cljs"
+                                      :row 12
+                                      :col 3}))
+        "redundant-fragment keyed by tag + file + form")
     (let [wrapper "[:button {:on-click f :class \"post-card post-card--open\"} [:div {:cla..."
           identity-of (fn [inner-form row]
                         (baseline/issue->identity :nested-interactive-element

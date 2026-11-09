@@ -61,15 +61,16 @@
   (let [lines (group/summary-lines reagent/group
                                    {:defclass-as-sole-attr [defclass-sole]
                                     :redundant-into-hiccup []
-                                    :empty-fragment-props []})]
-    (is (= 3 (count lines)))
+                                    :empty-fragment-props []
+                                    :redundant-fragment []})]
+    (is (= 4 (count lines)))
     (is (= 1 (second (first lines))))
     (is (= 0 (second (second lines))))
-    (is (= ["Empty fragment props:" 0] (last lines)))))
+    (is (= [["Empty fragment props:" 0] ["Redundant fragment:" 0]] (take-last 2 lines)))))
 
-(defn- empty-fragment-props
-  "Walk `lines` the way the parser walks a file, and return the forms the rule reports."
-  [lines]
+(defn- fragment-findings
+  "Walk `lines` the way the parser walks a file, and return the forms `rule` reports."
+  [rule lines]
   (let [{:keys [handle-vector]} (group/parse-handlers reagent/group)
         declarations (loop [loc (z/of-string (str/join "\n" lines) {:track-position? true})
                             found []]
@@ -81,8 +82,15 @@
                                   found))))]
     (->> (group/analyze reagent/group {:declarations declarations
                                        :usages []})
-         :empty-fragment-props
+         rule
          (mapv :form))))
+
+(defn- empty-fragment-props [lines] (fragment-findings :empty-fragment-props lines))
+
+(defn- redundant-fragments
+  "Return the forms the rule reports for `lines`, each written as the body of a function."
+  [lines]
+  (fragment-findings :redundant-fragment (map #(str "(defn view [] " % ")") lines)))
 
 (deftest fragment-whose-next-child-is-no-map-is-flagged
   (is (= ["[:<> {} [edit-controls {:editing? false}] [accept-button]]"
@@ -152,3 +160,93 @@
             :row 2
             :col 3}
            (first (:decls (handle-vector loc {} "views.cljs")))))))
+
+(deftest fragment-around-single-element-is-flagged
+  (is (= ["[:<> [:section.company-preferences [:h2 \"Links\"]]]"
+          "[:<> [patent-documents-panel {:aria-label label}]]"
+          "[:<> [ui/panel]]"
+          "[:<> [row] #_[old-row]]"
+          "[:<> [:<> [row] [cell]]]"]
+         (redundant-fragments ["[:<>\n [:section.company-preferences\n  [:h2 \"Links\"]]]"
+                               "[:<> [patent-documents-panel {:aria-label label}]]"
+                               "[:<> [ui/panel]]"
+                               "[:<> [row] #_[old-row]]"
+                               "[:<> [:<> [row] [cell]]]"]))))
+
+(deftest fragment-that-is-not-redundant-is-left-alone
+  (is (empty? (redundant-fragments ["[:<> [row] [cell]]"
+                                    "[:<> (for [x xs] ^{:key x} [row x])]"
+                                    "[:<> (when ready? [row])]"
+                                    "[:<> children]"
+                                    "[:<> \"Saved\"]"
+                                    "[:<>]"
+                                    "[:<> ^{:key 1} [row]]"
+                                    "[:<> [:path :to :key]]"
+                                    "[:<> [1 2]]"
+                                    "[:<> #?(:cljs [row])]"
+                                    "[:div [row]]"]))
+      "a child that may be a map or no element, more than one child, or data"))
+
+(deftest fragment-carrying-a-key-is-left-alone
+  (is (empty? (redundant-fragments ["[:<> {:key id} [row]]"
+                                    "(for [x xs] ^{:key x} [:<> [row x]])"
+                                    "(map #(with-meta [:<> [row %]] {:key %}) xs)"
+                                    "(with-meta [:<> [row]] {:key 1})"]))))
+
+(deftest fragment-where-its-value-renders-is-flagged
+  (is (= ["[:<> [panel {:mode :search}]]"
+          "[:<> [row]]"
+          "[:<> [row]]"
+          "[:<> [row x]]"
+          "[:<> [row %]]"
+          "[:<> [row]]"
+          "[:<> [row]]"
+          "[:<> [:span title]]"
+          "[:<> [row]]"
+          "[:<> [row]]"
+          "[:<> [row]]"
+          "[:<> [row]]"]
+         (redundant-fragments ["(cond searching? [:<> [panel {:mode :search}]] :else [panel {:mode :empty}])"
+                               "(defn view [] [:<> [row]])"
+                               "(defn view [] (let [n 1] [:<> [row]] #_old))"
+                               "(for [x xs] [:<> [row x]])"
+                               "(map (fn [%] [:<> [row %]]) xs)"
+                               "(defmethod view :a [_] [:<> [row]])"
+                               "(when ready? [:<> [row]])"
+                               "[card {:title [:<> [:span title]]}]"
+                               "[:div [header] [:<> [row]]]"
+                               "(fn [] [:<> [row]] #_old)"
+                               "(let [n 1] (cond a [:<> [row]] :else [cell]))"
+                               "(r/with-let [n 1] (if a [:<> [row]] [cell]))"]))
+      "a branch that yields the child bare remounts it today, which an explicit key should say"))
+
+(deftest fragment-handed-to-a-call-is-left-alone
+  (is (empty? (redundant-fragments ["(into [:<> [header]] (for [x xs] ^{:key x} [row x]))"
+                                    "(conj [:<> [header]] [footer])"
+                                    "(-> [:<> [header]] (conj [footer]))"
+                                    "(is (= [:<> [:div \"x\"]] (view)))"
+                                    "(defn view [] [:<> [row]] (log))"
+                                    "(defn view ([] [:<> [row]]))"
+                                    "#{[:<> [row]]}"
+                                    "(into (when c [:<> [a]]) rows)"
+                                    "(into [:div] (if x [:<> [a]] [[b]]))"
+                                    "(with-meta (when c [:<> [a]]) {:key k})"
+                                    "(r/as-element (if c [:<> [a]] [b]))"
+                                    "(let [content [:<> [panel]]] [:div content])"
+                                    "(for [x xs :let [y [:<> [a]]]] y)"
+                                    "(rf/dispatch [:open-modal [:<> [modal-body]]])"
+                                    "[[:<> [a]] [:<> [b]]]"
+                                    "(is (= [:div [:<> [:span \"x\"]]] (view)))"
+                                    "{[:<> [x]] 1}"
+                                    "(foo {:content [:<> [x]]})"
+                                    "(into [:div] (for [x xs] [:<> [row x]]))"
+                                    "[:path :to [:<> [row]]]"
+                                    "(if (let [x [:<> [row]]] x) [a] [b])"
+                                    "(when [:<> [row]] [a])"]))
+      "data the call may change, or no value the form returns"))
+
+(deftest unrendered-redundant-fragment-is-left-alone
+  (is (empty? (redundant-fragments ["'[:<> [row]]"
+                                    "#_[:<> [row]]"
+                                    "(defclass panel [] [:<> [:div]])"
+                                    "(ns app.views (:require [:<> [row]]))"]))))

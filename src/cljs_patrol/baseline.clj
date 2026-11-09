@@ -78,7 +78,8 @@
     :nested-interactive-element
     :label-not-associated
     :redundant-into-hiccup
-    :empty-fragment-props})
+    :empty-fragment-props
+    :redundant-fragment})
 
 (def ^:private selector-keyed-rules
   "Spade rules identified by the declaration plus the one selector at fault.
