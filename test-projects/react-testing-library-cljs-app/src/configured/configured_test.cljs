@@ -45,6 +45,42 @@
    [:button {:data-testid "label-text"}
     [ui/label "Label text"]]])
 
+(defn role-entries [children]
+  [:div
+   [ui/popover-content {:aria-label "Palette"
+                        :data-testid "ui-palette"}
+    children]
+   [ui/popover-content {:data-testid "ui-unnamed-popover"}
+    children]
+   [ui/tab-list {:aria-label "Search type"
+                 :data-testid "ui-tab-list"}
+    children]
+   [ui/popover-content {:aria-label "Menu"
+                        :data-testid "ui-menu-popover"
+                        :role "menu"}
+    children]
+   [ui/tab {:data-testid "ui-tab-text"}
+    "Overview"]
+   [ui/tab {:data-testid "ui-tab-presentation"
+            :role "presentation"}
+    "Hidden role"]
+   [ui/popover-content {:aria-label "Closed"
+                        :data-testid "ui-hidden-popover"
+                        :hidden true}
+    children]
+   [ui/popover-content {:aria-label "Shared"
+                        :data-testid "ui-shared-popover"}
+    children]
+   [:div {:aria-label "Shared"
+          :role "dialog"}]
+   [ui/native-dialog {:aria-label "Native closed"
+                      :data-testid "ui-native-closed"}
+    children]
+   [ui/native-dialog {:aria-label "Native open"
+                      :data-testid "ui-native-open"
+                      :open true}
+    children]])
+
 (defn shadowed [button]
   [button {:data-testid "shadowed-save"}
    "Shadowed"])
@@ -78,3 +114,23 @@
 (deftest finds-label-text (.click (s/get-by-test-id "label-text")))
 
 (deftest finds-shadowed-save (.click (s/get-by-test-id "shadowed-save")))
+
+(deftest finds-ui-palette (.click (s/get-by-test-id "ui-palette")))
+
+(deftest finds-ui-unnamed-popover (.click (s/get-by-test-id "ui-unnamed-popover")))
+
+(deftest finds-ui-tab-list (.click (s/get-by-test-id "ui-tab-list")))
+
+(deftest finds-ui-menu-popover (.click (s/get-by-test-id "ui-menu-popover")))
+
+(deftest finds-ui-tab-text (.click (s/get-by-test-id "ui-tab-text")))
+
+(deftest finds-ui-tab-presentation (.click (s/get-by-test-id "ui-tab-presentation")))
+
+(deftest finds-ui-hidden-popover (.click (s/get-by-test-id "ui-hidden-popover")))
+
+(deftest finds-ui-shared-popover (.click (s/get-by-test-id "ui-shared-popover")))
+
+(deftest finds-ui-native-closed (.click (s/get-by-test-id "ui-native-closed")))
+
+(deftest finds-ui-native-open (.click (s/get-by-test-id "ui-native-open")))
