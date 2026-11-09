@@ -323,7 +323,10 @@
 (defn- check-container [symbol-sibling? container-loc file]
   (let [cs (children container-loc)
         start (pair-start container-loc)]
-    (->> (range (dec (count cs)))
+    (->> cs
+         count
+         dec
+         range
          (keep (fn [i]
                  (let [a (nth cs i)
                        b (nth cs (inc i))]

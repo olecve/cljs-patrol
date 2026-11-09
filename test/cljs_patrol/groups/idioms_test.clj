@@ -161,7 +161,28 @@
       "the longer part wins wherever it sits")
   (is (= ["(->> xs (map h) (filter g) vec)"]
          (rewrites ["(select-keys (dissoc (assoc (vec (filter g (map h xs))) :a 1) :b) [:c])"]))
-      "on a tie the innermost part wins"))
+      "on a tie the innermost part wins")
+  (is (= ["(->> (get-in db [:plan :phases]) count range (mapv f))"
+          "(->> (get m :items) keys (reduce max 0) inc)"]
+         (rewrites ["(mapv f (range (count (get-in db [:plan :phases]))))"
+                    "(inc (reduce max 0 (keys (get m :items))))"]))
+      "one-argument steps at the turn join the ->> part above, leaving the -> part as its starting value")
+  (is (= ["(-> doc .-body (.querySelectorAll sel) array-seq)"]
+         (rewrites ["(mapv f (array-seq (.querySelectorAll (.-body doc) sel)))"]))
+      "they join the part below when only that makes a part long enough")
+  (is (= ["(-> m (get-in [:a]) first (dissoc :b))"
+          "(-> m (get :items) sort vec)"]
+         (rewrites ["(dissoc (first (get-in m [:a])) :b)"
+                    "(vec (sort (get m :items)))"]))
+      "with no ->> part above, they stay in the -> part, in place"))
+
+(deftest range-of-one-argument-is-a-step
+  (is (= ["(->> xs count range (mapv f))"
+          "(->> xs count range (reduce g init))"]
+         (rewrites ["(mapv f (range (count xs)))"
+                    "(reduce g init (range (count xs)))"])))
+  (is (empty? (rewrites ["(mapv f (range 1 (count xs)))"]))
+      "a range with a start has no data slot"))
 
 (deftest predicate-at-the-top-is-not-counted
   (is (empty? (rewrites ["(contains? (set (map :id xs)) id)"
