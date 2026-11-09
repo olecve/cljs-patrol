@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.48] - 2026-11-09
+
+* Flag every empty fragment props map by @olecve in https://github.com/olecve/cljs-patrol/pull/121
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.47...v0.0.48
+
 ## [v0.0.47] - 2026-11-09
 
 * Let a test id elements entry name the role of its element by @olecve in https://github.com/olecve/cljs-patrol/pull/119
