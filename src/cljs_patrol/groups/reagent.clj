@@ -173,6 +173,49 @@
      :row row
      :col col}))
 
+(defn- code-locs
+  "Return the locs of `loc`'s children in order, a `#_` form left out."
+  [loc]
+  (->> (z/down loc)
+       (iterate z/right)
+       (take-while some?)
+       (remove #(= :uneval (z/tag %)))))
+
+(defn- map-free-result?
+  "True when `loc`, a value a child can yield, is no map: a vector, or a literal string, number, keyword or nil."
+  [loc]
+  (case (z/tag loc)
+    (:vector :multi-line) true
+    :token (or (str/starts-with? (parser/raw loc) ":")
+               (let [value (z/sexpr loc)]
+                 (or (string? value) (number? value) (nil? value))))
+    false))
+
+(defn- empty-fragment-props?
+  "True when `loc` is `[:<> {} …]` and the `{}` keeps no child from being read as props.
+
+  Reagent reads a fragment's second element as its props when it is a map or nil, so the
+  `{}` is load-bearing when the child after it can be a map. It is dropped only when that
+  child is missing or every value it can yield is no map. A nil it yields becomes the
+  props instead, which renders the same nothing."
+  [loc]
+  (let [[head props child] (code-locs loc)]
+    (boolean
+     (and (= ":<>" (some-> head parser/raw))
+          (= :map (some-> props z/tag))
+          (empty? (code-locs props))
+          (or (nil? child)
+              (every? map-free-result? (hiccup/result-locs child)))))))
+
+(defn- empty-fragment-props-finding [loc file]
+  (let [[row col] (try (z/position loc) (catch Exception _ [0 1]))]
+    {:kw :<>
+     :type :empty-fragment-props
+     :form (source-snippet loc)
+     :file file
+     :row row
+     :col col}))
+
 (def ^:private spade-handle-list
   (get (group/parse-handlers spade/group) :handle-list))
 
@@ -187,6 +230,17 @@
      :usages []
      :dynamics []}))
 
+(defn- handle-fragment
+  "Emit an :empty-fragment-props finding when `loc` is a fragment whose `{}` does nothing."
+  [loc _ns-info file]
+  (when (and (not (hiccup/inside-unrendered-form? loc))
+             (not (hiccup/inside-style-decl? loc))
+             (not (hiccup/inside-ns-form? loc))
+             (empty-fragment-props? loc))
+    {:decls [(empty-fragment-props-finding loc file)]
+     :usages []
+     :dynamics []}))
+
 (defn- analyze* [{:keys [declarations usages]}]
   (let [style-decls (filter #(= :defclass (:type %)) declarations)
         style-calls (filter #(= :style-call (:type %)) usages)
@@ -196,13 +250,16 @@
                                     :when (seq uses)
                                     :when (every? #(= :class-only-map (:context %)) uses)]
                                 decl)
-        redundant-into (filter #(= :redundant-into-hiccup (:type %)) declarations)]
+        redundant-into (filter #(= :redundant-into-hiccup (:type %)) declarations)
+        empty-fragment-props (filter #(= :empty-fragment-props (:type %)) declarations)]
     {:defclass-as-sole-attr (vec defclass-as-sole-attr)
-     :redundant-into-hiccup (vec redundant-into)}))
+     :redundant-into-hiccup (vec redundant-into)
+     :empty-fragment-props (vec empty-fragment-props)}))
 
-(defn- summary-lines* [{:keys [defclass-as-sole-attr redundant-into-hiccup]}]
+(defn- summary-lines* [{:keys [defclass-as-sole-attr redundant-into-hiccup empty-fragment-props]}]
   [["defclass as sole attr:" (count defclass-as-sole-attr)]
-   ["Redundant into-hiccup:" (count redundant-into-hiccup)]])
+   ["Redundant into-hiccup:" (count redundant-into-hiccup)]
+   ["Empty fragment props:" (count empty-fragment-props)]])
 
 (defn- failed?* [_] false)
 
@@ -210,7 +267,8 @@
   group/RuleGroup
   (group-id [_] :reagent)
   (group-name [_] "Reagent")
-  (parse-handlers [_] {:handle-list [spade-handle-list handle-into]})
+  (parse-handlers [_] {:handle-list [spade-handle-list handle-into]
+                       :handle-vector handle-fragment})
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ result] (failed?* result))
@@ -220,13 +278,18 @@
           "map, without the :class wrapper.")
      :redundant-into-hiccup
      (str "The mapped body already gives every element a :key, so the into does nothing useful. Put the sequence "
-          "inside the Hiccup vector: [:<> (for [x xs] ^{:key x} [item x])].")})
+          "inside the Hiccup vector: [:<> (for [x xs] ^{:key x} [item x])].")
+     :empty-fragment-props
+     (str "A fragment takes no props but :key, and no child after this {} can be a map that would be read as props in "
+          "its place. Drop the {}.")})
   (docs-anchors [_]
     {:defclass-as-sole-attr "defclass-as-sole-attr"
-     :redundant-into-hiccup "redundant-into-around-hiccup"})
+     :redundant-into-hiccup "redundant-into-around-hiccup"
+     :empty-fragment-props "empty-fragment-props"})
   (rule->tier [_]
     {:defclass-as-sole-attr :deprecations
-     :redundant-into-hiccup :cleanup})
+     :redundant-into-hiccup :cleanup
+     :empty-fragment-props :cleanup})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->ReagentGroup))

@@ -275,6 +275,18 @@
                                       :row 12
                                       :col 3}))
         "redundant-into-hiccup keyed by tag + file + form")
+    (is (= {:rule :empty-fragment-props
+            :tag :<>
+            :file "src/views.cljs"
+            :form "[:<> {} [row]]"}
+           (baseline/issue->identity :empty-fragment-props
+                                     {:type :empty-fragment-props
+                                      :kw :<>
+                                      :form "[:<> {} [row]]"
+                                      :file "src/views.cljs"
+                                      :row 12
+                                      :col 3}))
+        "empty-fragment-props keyed by tag + file + form")
     (let [wrapper "[:button {:on-click f :class \"post-card post-card--open\"} [:div {:cla..."
           identity-of (fn [inner-form row]
                         (baseline/issue->identity :nested-interactive-element

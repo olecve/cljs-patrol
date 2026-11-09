@@ -2,7 +2,9 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.reagent :as reagent]
-   [clojure.test :refer [deftest is testing]]))
+   [clojure.string :as str]
+   [clojure.test :refer [deftest is testing]]
+   [rewrite-clj.zip :as z]))
 
 (def ^:private defclass-sole {:kw :webapp.styles/sole-style
                               :type :defclass
@@ -58,7 +60,95 @@
 (deftest summary-lines-test
   (let [lines (group/summary-lines reagent/group
                                    {:defclass-as-sole-attr [defclass-sole]
-                                    :redundant-into-hiccup []})]
-    (is (= 2 (count lines)))
+                                    :redundant-into-hiccup []
+                                    :empty-fragment-props []})]
+    (is (= 3 (count lines)))
     (is (= 1 (second (first lines))))
-    (is (= 0 (second (second lines))))))
+    (is (= 0 (second (second lines))))
+    (is (= ["Empty fragment props:" 0] (last lines)))))
+
+(defn- empty-fragment-props
+  "Walk `lines` the way the parser walks a file, and return the forms the rule reports."
+  [lines]
+  (let [{:keys [handle-vector]} (group/parse-handlers reagent/group)
+        declarations (loop [loc (z/of-string (str/join "\n" lines) {:track-position? true})
+                            found []]
+                       (if (z/end? loc)
+                         found
+                         (recur (z/next loc)
+                                (if (= :vector (z/tag loc))
+                                  (into found (:decls (handle-vector loc {} "views.cljs")))
+                                  found))))]
+    (->> (group/analyze reagent/group {:declarations declarations
+                                       :usages []})
+         :empty-fragment-props
+         (mapv :form))))
+
+(deftest fragment-whose-next-child-is-no-map-is-flagged
+  (is (= ["[:<> {} [edit-controls {:editing? false}] [accept-button]]"
+          "[:<> {} (when unsaved? [:span \"Unsaved\"])]"
+          "[:<> {}]"
+          "[:<> {} \"Saved\"]"
+          "[:<> {} 3]"
+          "[:<> {} :saved]"
+          "[:<> {} nil]"
+          "[:<> {} \"line one line two\"]"
+          "[:<> {} (if ready? [:span \"Ready\"] \"Waiting\")]"
+          "[:<> {} (cond saved? [:span] :else nil)]"
+          "[:<> {} (case mode :edit [editor] [viewer])]"
+          "[:<> {} (let [n 1] [row n])]"
+          "[:<> {} #_old [row]]"
+          "[:<> #_x {} [row]]"]
+         (empty-fragment-props ["[:<> {}\n [edit-controls {:editing? false}]\n [accept-button]]"
+                                "[:<> {}\n (when unsaved?\n   [:span \"Unsaved\"])]"
+                                "[:<> {}]"
+                                "[:<> {} \"Saved\"]"
+                                "[:<> {} 3]"
+                                "[:<> {} :saved]"
+                                "[:<> {} nil]"
+                                "[:<> {} \"line one\nline two\"]"
+                                "[:<> {} (if ready? [:span \"Ready\"] \"Waiting\")]"
+                                "[:<> {} (cond saved? [:span] :else nil)]"
+                                "[:<> {} (case mode :edit [editor] [viewer])]"
+                                "[:<> {} (let [n 1] [row n])]"
+                                "[:<> {} #_old [row]]"
+                                "[:<> #_x {} [row]]"]))))
+
+(deftest fragment-whose-next-child-may-be-a-map-is-left-alone
+  (is (empty? (empty-fragment-props ["[:<> {} busy-reason [spinner]]"
+                                     "[:<> {} (render-children items)]"
+                                     "[:<> {} (for [x xs] ^{:key x} [row x])]"
+                                     "[:<> {} (when ready? props)]"
+                                     "[:<> {} (if ready? [:span] (build-props))]"
+                                     "[:<> {} {:a 1}]"
+                                     "[:<> {} ^{:key 1} [row]]"
+                                     "[:<> {} #?(:cljs [row])]"
+                                     "[:<> {} @state]"
+                                     "[:<> {} (cond saved? [row] #_#_draft? [draft] :else props)]"
+                                     "[:<> {} (case mode #_#_:legacy [old] :edit {:class \"x\"} [viewer])]"
+                                     "[:<> {} (case mode #_:legacy :edit {:class \"x\"} [viewer])]"]))))
+
+(deftest fragment-with-real-or-no-props-is-left-alone
+  (is (empty? (empty-fragment-props ["[:<> {:key id} [row item]]"
+                                     "[:<> [row item]]"
+                                     "[:<> nil [row]]"
+                                     "[:<> ^:x {} [row]]"
+                                     "[:div {} [row]]"
+                                     "[:> Fragment {} [row]]"]))))
+
+(deftest unrendered-fragment-is-left-alone
+  (is (empty? (empty-fragment-props ["'[:<> {} [row]]"
+                                     "#_[:<> {} [row]]"
+                                     "(defclass panel [] [:<> {} [row]])"
+                                     "(ns app.views (:require [:<> {} [row]]))"]))))
+
+(deftest empty-fragment-props-finding-names-the-fragment-and-where-it-is
+  (let [{:keys [handle-vector]} (group/parse-handlers reagent/group)
+        loc (-> (z/of-string "(defn f []\n  [:<> {} [row]])" {:track-position? true}) z/down z/rightmost)]
+    (is (= {:kw :<>
+            :type :empty-fragment-props
+            :form "[:<> {} [row]]"
+            :file "views.cljs"
+            :row 2
+            :col 3}
+           (first (:decls (handle-vector loc {} "views.cljs")))))))

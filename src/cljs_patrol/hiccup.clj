@@ -626,10 +626,11 @@
   A form written in one of these positions is one the expression yields; one written
   anywhere else — an argument, a map value, the target of a `with-meta` — is not, and
   reading it as a result answers about the wrong form. A form this does not recognize
-  answers for itself, which is right for a call, a literal, or a symbol."
+  answers for itself, which is right for a call, a literal, or a symbol. A `#_` form is
+  no argument, so it shifts no `cond` or `case` clause."
   [loc]
   (let [head-name (when (= :list (z/tag loc)) (some-> loc z/down parser/sym-name))
-        args (when head-name (parser/right-siblings (z/down loc)))
+        args (when head-name (remove #(= :uneval (z/tag %)) (parser/right-siblings (z/down loc))))
         branches (cond
                    (contains? tail-result-heads head-name) (take-last 1 args)
                    (contains? branch-result-heads head-name) (take 2 (rest args))
