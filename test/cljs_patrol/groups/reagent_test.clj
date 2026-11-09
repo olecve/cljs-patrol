@@ -62,11 +62,12 @@
                                    {:defclass-as-sole-attr [defclass-sole]
                                     :redundant-into-hiccup []
                                     :empty-fragment-props []
-                                    :redundant-fragment []})]
-    (is (= 4 (count lines)))
+                                    :redundant-fragment []
+                                    :inline-component []})]
+    (is (= 5 (count lines)))
     (is (= 1 (second (first lines))))
     (is (= 0 (second (second lines))))
-    (is (= [["Empty fragment props:" 0] ["Redundant fragment:" 0]] (take-last 2 lines)))))
+    (is (= [["Empty fragment props:" 0] ["Redundant fragment:" 0] ["Inline component:" 0]] (take-last 3 lines)))))
 
 (defn- fragment-findings
   "Walk `lines` the way the parser walks a file, and return the forms `rule` reports."
@@ -250,3 +251,74 @@
                                     "#_[:<> [row]]"
                                     "(defclass panel [] [:<> [:div]])"
                                     "(ns app.views (:require [:<> [row]]))"]))))
+
+(defn- inline-components
+  "Walk `lines` the way the parser walks a file, and return the hints the inline-component rule gives."
+  [lines]
+  (let [handle-lists (:handle-list (group/parse-handlers reagent/group))
+        declarations (loop [loc (z/of-string (str/join "\n" lines) {:track-position? true})
+                            found []]
+                       (if (z/end? loc)
+                         found
+                         (recur (z/next loc)
+                                (if (#{:list :fn} (z/tag loc))
+                                  (into found (mapcat #(:decls (% loc {} "views.cljs")) handle-lists))
+                                  found))))]
+    (->> (group/analyze reagent/group {:declarations declarations
+                                       :usages []})
+         :inline-component
+         (mapv :hint))))
+
+(deftest let-binding-holding-several-handler-elements-is-flagged
+  (is (= ["actions holds 2 elements with event handlers. Make it a component of its own."
+          "content holds 3 elements with event handlers. Make it a component of its own."
+          "panel holds 2 elements with event handlers. Make it a component of its own."
+          "box holds 2 elements with event handlers. Make it a component of its own."
+          "controls holds 2 elements with event handlers. Make it a component of its own."
+          "row holds 2 elements with event handlers. Make it a component of its own."
+          "listed holds 2 elements with event handlers. Make it a component of its own."
+          "mapped holds 2 elements with event handlers. Make it a component of its own."
+          "kept holds 2 elements with event handlers. Make it a component of its own."
+          "maybe holds 2 elements with event handlers. Make it a component of its own."
+          "keyed holds 2 elements with event handlers. Make it a component of its own."
+          "keyed-row holds 2 elements with event handlers. Make it a component of its own."
+          "trailing holds 2 elements with event handlers. Make it a component of its own."]
+         (inline-components [(str "(let [actions [:div [button {:on-click save} \"Save\"]"
+                                  " [button {:on-click cancel} \"Cancel\"]]] actions)")
+                             "(let [content [:<> [a {:on-change f}] [b {:on-change g}] [c {:on-select h}]]] content)"
+                             (str "(let [panel [:div [:section [button {:on-click a} \"A\"]]"
+                                  " [:footer [:div [:input {:on-change b}]]]]] panel)")
+                             "(let [box [:div {:on-click a} [button {:on-click b} \"B\"]]] box)"
+                             "(r/with-let [controls [:div [b {:on-click a}] [b {:on-click c}]]] controls)"
+                             "(let [row [:div [b {:on-click a}] (when ok? [b {:on-click c}])]] row)"
+                             "(let [listed [:div [b {:on-click a}] (for [x xs] [b {:on-click c}])]] listed)"
+                             "(let [mapped [:div [b {:on-click a}] (map (fn [x] (prn x) [b {:on-click c}]) xs)]] mapped)"
+                             "(let [#_old kept [:div [b {:on-click f}] [b {:on-click g}]]] kept)"
+                             "(let [maybe (when ok? [:div [b {:on-click f}] [b {:on-click g}]])] maybe)"
+                             "(let [keyed [:ul [b {:on-click a}] (for [i is] ^{:key i} [b {:on-click f}])]] keyed)"
+                             "(let [keyed-row ^{:key k} [:div [b {:on-click f}] [b {:on-click g}]]] keyed-row)"
+                             "(let [trailing [:div [b {:on-click h}] (for [i is] [b {:on-click f}] #_[b])]] trailing)"]))))
+
+(deftest let-binding-without-several-handler-elements-is-left-alone
+  (is (empty? (inline-components ["(let [launcher [button {:on-click run} \"Run\"]] (if busy? [tooltip launcher] launcher))"
+                                  "(let [title [:h2 {:class (heading)} label]] title)"
+                                  "(let [cards [:ul (for [item items] [card {:on-open f}])]] cards)"
+                                  "(let [hover [:div {:on-mouse-enter a :on-mouse-leave b}]] hover)"
+                                  "(let [save [button {:on-click #(dispatch [::open {:on-confirm f}])} \"Save\"]] save)"
+                                  "(let [event [::open {:on-success f} [b {:on-click g}]]] event)"
+                                  "(let [{:keys [a]} [:div [b {:on-click f}] [b {:on-click g}]]] a)"
+                                  "(let [x (render [b {:on-click f}] [b {:on-click g}])] x)"
+                                  "(let [x [:div :data [b {:on-click f}] [b {:on-click g}]]] x)"
+                                  "(let [x [:div [toggle {:on-label \"On\"}] [toggle {:on-label \"Yes\"}]]] x)"
+                                  "(let [x [:div [b {:foo/on-thing f}] [b {:foo/on-other g}]]] x)"
+                                  "(let [x [:div [b {:render f}] [b {:handler g}]]] x)"
+                                  "(let [x [:div [b {:on-label \"Line\nOne\"}] [b {:on-label \"Line\nTwo\"}]]] x)"
+                                  "(let [x [:div (if a [b {:on-click f}] [b {:on-click g}])]] x)"
+                                  "(let [x [:div (helper [b {:on-click f}]) [b {:on-click g}]]] x)"
+                                  "(let [x [:div #_[b {:on-click f}] [b {:on-click g}]]] x)"
+                                  "(when-let [x [:div [b {:on-click f}] [b {:on-click g}]]] x)"
+                                  "(binding [x [:div [b {:on-click f}] [b {:on-click g}]]] x)"
+                                  "'(let [x [:div [b {:on-click f}] [b {:on-click g}]]] x)"
+                                  "#_(let [x [:div [b {:on-click f}] [b {:on-click g}]]] x)"
+                                  "(defclass panel [] (let [x [:div [b {:on-click f}] [b {:on-click g}]]] x))"]))
+      "one handler element, one per loop or branch, a handler body, data, a destructuring name, or no let"))

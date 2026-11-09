@@ -285,6 +285,105 @@
      :row row
      :col col}))
 
+(def ^:private inline-component-min 2)
+
+(def ^:private binding-heads
+  "Forms whose bindings may hold Hiccup a component renders: `let` and Reagent's `with-let`."
+  #{"let" "with-let"})
+
+(defn- literal-value?
+  "True when `loc` holds a literal value: a string, a number, a keyword, a boolean or nil, and no name."
+  [loc]
+  (case (z/tag loc)
+    :multi-line true
+    :token (not (symbol? (try (z/sexpr loc) (catch Exception _ :auto-resolved))))
+    false))
+
+(defn- handler-element?
+  "True when the Hiccup element at `loc` takes an event handler.
+  That is an unqualified attrs key starting with `:on-` whose value is no literal: `:on-label \"On\"`
+  is a label, and a handler is a function or a name for one."
+  [loc]
+  (boolean (some (fn [[k value]]
+                   (and (nil? (namespace k))
+                        (str/starts-with? (name k) "on-")
+                        (not (literal-value? value))))
+                 (:attrs (hiccup/attrs-info loc)))))
+
+(defn- hiccup-element?
+  "True when `loc` is a Hiccup element: a vector headed by a tag, a fragment or a component, and no data vector."
+  [loc]
+  (and (= :vector (some-> loc z/tag))
+       (hiccup-head-loc? (z/down loc))
+       (not (data-vector? loc))))
+
+(defn- element-children
+  "Return the locs after the head of an element vector, its attrs among them, which count no element."
+  [loc]
+  (->> (z/down loc) z/right (iterate z/right) (take-while some?)))
+
+(defn- count-handler-elements
+  "Count the elements of the Hiccup at `loc` that take an event handler, each once.
+
+  Only the Hiccup tree is read: an element and its children, and what a `when`, an `if`, a
+  `let` or a `for` or `map` body yields. An attrs map, a handler's body and any other call are
+  not, so the event vectors a handler dispatches are no elements. A loop body counts once
+  however many items it gives, and a form choosing between branches as its busiest branch,
+  since only one of them renders."
+  [loc]
+  (let [loc (hiccup/unwrap-meta loc)]
+    (cond
+      (hiccup-element? loc)
+      (+ (if (handler-element? loc) 1 0)
+         (->> loc element-children (map count-handler-elements) (reduce +)))
+
+      (= :list (z/tag loc))
+      (if-let [bodies (seq (remove #(= :uneval (z/tag %)) (mapping-body-locs loc)))]
+        (count-handler-elements (last bodies))
+        (let [results (hiccup/result-locs loc)]
+          (if (= [loc] results)
+            0
+            (apply max (map count-handler-elements results)))))
+
+      :else 0)))
+
+(defn- inline-component-findings
+  "Return a finding for each `let` binding whose Hiccup holds two or more elements with event handlers.
+  The value is read as [[count-handler-elements]] reads Hiccup, so a `when` or an `if` around it counts too."
+  [loc file]
+  (when (contains? binding-heads (some-> loc z/down parser/sym-name))
+    (let [bindings (some-> loc z/down z/right)]
+      (when bindings
+        (->> (z/down bindings)
+             (iterate z/right)
+             (take-while some?)
+             (remove #(= :uneval (z/tag %)))
+             (partition 2)
+             (keep (fn [[name-loc value-loc]]
+                     (let [binding-name (parser/sym-name name-loc)
+                           handler-count (when binding-name (count-handler-elements value-loc))]
+                       (when (and handler-count (>= handler-count inline-component-min))
+                         (let [[row col] (try (z/position value-loc) (catch Exception _ [0 1]))]
+                           {:kw (symbol binding-name)
+                            :type :inline-component
+                            :form (source-snippet value-loc)
+                            :file file
+                            :row row
+                            :col col
+                            :hint (str binding-name " holds " handler-count
+                                       " elements with event handlers. Make it a component of its own.")})))))
+             vec)))))
+
+(defn- handle-let
+  "Emit an :inline-component finding for each `let` binding holding an inline component."
+  [loc _ns-info file]
+  (when-not (or (hiccup/inside-unrendered-form? loc)
+                (hiccup/inside-style-decl? loc))
+    (when-let [findings (seq (inline-component-findings loc file))]
+      {:decls (vec findings)
+       :usages []
+       :dynamics []})))
+
 (def ^:private spade-handle-list
   (get (group/parse-handlers spade/group) :handle-list))
 
@@ -323,20 +422,24 @@
                                 decl)
         redundant-into (filter #(= :redundant-into-hiccup (:type %)) declarations)
         empty-fragment-props (filter #(= :empty-fragment-props (:type %)) declarations)
-        redundant-fragment (filter #(= :redundant-fragment (:type %)) declarations)]
+        redundant-fragment (filter #(= :redundant-fragment (:type %)) declarations)
+        inline-component (filter #(= :inline-component (:type %)) declarations)]
     {:defclass-as-sole-attr (vec defclass-as-sole-attr)
      :redundant-into-hiccup (vec redundant-into)
      :empty-fragment-props (vec empty-fragment-props)
-     :redundant-fragment (vec redundant-fragment)}))
+     :redundant-fragment (vec redundant-fragment)
+     :inline-component (vec inline-component)}))
 
 (defn- summary-lines* [{:keys [defclass-as-sole-attr
                                redundant-into-hiccup
                                empty-fragment-props
-                               redundant-fragment]}]
+                               redundant-fragment
+                               inline-component]}]
   [["defclass as sole attr:" (count defclass-as-sole-attr)]
    ["Redundant into-hiccup:" (count redundant-into-hiccup)]
    ["Empty fragment props:" (count empty-fragment-props)]
-   ["Redundant fragment:" (count redundant-fragment)]])
+   ["Redundant fragment:" (count redundant-fragment)]
+   ["Inline component:" (count inline-component)]])
 
 (defn- failed?* [_] false)
 
@@ -344,7 +447,7 @@
   group/RuleGroup
   (group-id [_] :reagent)
   (group-name [_] "Reagent")
-  (parse-handlers [_] {:handle-list [spade-handle-list handle-into]
+  (parse-handlers [_] {:handle-list [spade-handle-list handle-into handle-let]
                        :handle-vector handle-fragment})
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
@@ -360,17 +463,22 @@
      (str "A fragment takes no props but :key, and no child after this {} can be a map that would be read as props in "
           "its place. Drop the {}.")
      :redundant-fragment
-     "A fragment around a single element renders the same as the element. Drop the [:<> ...] around it."})
+     "A fragment around a single element renders the same as the element. Drop the [:<> ...] around it."
+     :inline-component
+     (str "A let binds Hiccup holding several elements with event handlers: a component written inline, with no "
+          "name, props or docstring of its own, which cannot be rendered or tested alone. Make it a component.")})
   (docs-anchors [_]
     {:defclass-as-sole-attr "defclass-as-sole-attr"
      :redundant-into-hiccup "redundant-into-around-hiccup"
      :empty-fragment-props "empty-fragment-props"
-     :redundant-fragment "redundant-fragment"})
+     :redundant-fragment "redundant-fragment"
+     :inline-component "inline-component"})
   (rule->tier [_]
     {:defclass-as-sole-attr :deprecations
      :redundant-into-hiccup :cleanup
      :empty-fragment-props :cleanup
-     :redundant-fragment :cleanup})
+     :redundant-fragment :cleanup
+     :inline-component :cleanup})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->ReagentGroup))

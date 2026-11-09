@@ -299,6 +299,18 @@
                                       :row 12
                                       :col 3}))
         "redundant-fragment keyed by tag + file + form")
+    (is (= {:rule :inline-component
+            :kind 'actions
+            :file "src/views.cljs"
+            :form "[:div [button {:on-click save} \"Save\"] [button {:on-click cancel} \"Cancel\"]]"}
+           (baseline/issue->identity :inline-component
+                                     {:type :inline-component
+                                      :kw 'actions
+                                      :form "[:div [button {:on-click save} \"Save\"] [button {:on-click cancel} \"Cancel\"]]"
+                                      :file "src/views.cljs"
+                                      :row 12
+                                      :col 3}))
+        "inline-component keyed by binding + file + form")
     (let [wrapper "[:button {:on-click f :class \"post-card post-card--open\"} [:div {:cla..."
           identity-of (fn [inner-form row]
                         (baseline/issue->identity :nested-interactive-element

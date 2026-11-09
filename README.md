@@ -46,7 +46,8 @@ Analysis is split into independent rule groups. By default all groups run.
   clobber app-db, deprecated effects
 - **[`spade`](docs/rules/spade.md)** — unused styles, and selectors that compile to CSS matching nothing
 - **[`reagent`](docs/rules/reagent.md)** — a `defclass` that should be a `defattrs`, a redundant `into` around keyed
-  Hiccup, a fragment's `{}` that keeps nothing from being read as props, and a fragment around a single element
+  Hiccup, a fragment's `{}` that keeps nothing from being read as props, a fragment around a single element, and a `let`
+  binding holding a component written inline
 - **[`typography`](docs/rules/typography.md)** — mixed Figma typography token groups in a single style
 - **[`a11y`](docs/rules/a11y.md)** — accessibility in Hiccup: missing alt text and accessible names, controls a keyboard
   cannot reach, nested controls, labels that label nothing
