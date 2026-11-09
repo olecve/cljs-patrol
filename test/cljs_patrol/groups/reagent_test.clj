@@ -137,6 +137,47 @@
                                      "[:<> {} (case mode #_#_:legacy [old] :edit {:class \"x\"} [viewer])]"
                                      "[:<> {} (case mode #_:legacy :edit {:class \"x\"} [viewer])]"]))))
 
+(deftest fragment-whose-next-child-is-never-nil-is-flagged-before-siblings
+  (is (= ["[:<> {} [row] [row]]"
+          "[:<> {} \"Saved\" [row]]"
+          "[:<> {} (if ready? [:span] \"Waiting\") [row]]"
+          "[:<> {} (if-not ready? [:span] [:p]) [row]]"
+          "[:<> {} (cond saved? [:span] :else [:p]) [row]]"
+          "[:<> {} (cond saved? [:span] true [:p]) [row]]"
+          "[:<> {} (case mode :edit [editor] [viewer]) [row]]"
+          "[:<> {} (let [n 1] [row n]) [row]]"
+          "[:<> {} (do [row]) [row]]"]
+         (empty-fragment-props ["[:<> {} [row] [row]]"
+                                "[:<> {} \"Saved\" [row]]"
+                                "[:<> {} (if ready? [:span] \"Waiting\") [row]]"
+                                "[:<> {} (if-not ready? [:span] [:p]) [row]]"
+                                "[:<> {} (cond saved? [:span] :else [:p]) [row]]"
+                                "[:<> {} (cond saved? [:span] true [:p]) [row]]"
+                                "[:<> {} (case mode :edit [editor] [viewer]) [row]]"
+                                "[:<> {} (let [n 1] [row n]) [row]]"
+                                "[:<> {} (do [row]) [row]]"]))))
+
+(deftest fragment-whose-next-child-may-be-nil-before-siblings-is-left-alone
+  (is (empty? (empty-fragment-props ["[:<> {} (when unsaved? [:span]) [row]]"
+                                     "[:<> {} (when-not saved? [:span]) [row]]"
+                                     "[:<> {} (when-let [x y] [:span x]) [row]]"
+                                     "[:<> {} (when-some [x y] [:span x]) [row]]"
+                                     "[:<> {} (when-first [x xs] [:span x]) [row]]"
+                                     "[:<> {} (if ready? [:span]) [row]]"
+                                     "[:<> {} (if ready? [:span] nil) [row]]"
+                                     "[:<> {} (if ready? nil [:span]) [row]]"
+                                     "[:<> {} (cond saved? [:span]) [row]]"
+                                     "[:<> {} (cond saved? [:span] draft? [:p]) [row]]"
+                                     "[:<> {} (cond saved? [:span] :else nil) [row]]"
+                                     "[:<> {} (cond saved? nil :else [:p]) [row]]"
+                                     "[:<> {} (cond saved?) [row]]"
+                                     "[:<> {} (case mode :edit [editor]) [row]]"
+                                     "[:<> {} (case mode :edit nil [viewer]) [row]]"
+                                     "[:<> {} (let [n 1] (when n [row n])) [row]]"
+                                     "[:<> {} (let [n 1]) [row]]"
+                                     "[:<> {} (do) [row]]"
+                                     "[:<> {} nil [row]]"]))))
+
 (deftest fragment-with-real-or-no-props-is-left-alone
   (is (empty? (empty-fragment-props ["[:<> {:key id} [row item]]"
                                      "[:<> [row item]]"

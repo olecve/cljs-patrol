@@ -197,15 +197,18 @@
   Reagent reads a fragment's second element as its props when it is a map or nil, so the
   `{}` is load-bearing when the child after it can be a map. It is dropped only when that
   child is missing or every value it can yield is no map. A nil it yields becomes the
-  props instead, which renders the same nothing."
+  props instead. That renders the same nothing when it is the last child, but when it is
+  not, the children after it move one place and remount."
   [loc]
-  (let [[head props child] (code-locs loc)]
+  (let [[head props child & siblings] (code-locs loc)]
     (boolean
      (and (= ":<>" (some-> head parser/raw))
           (= :map (some-> props z/tag))
           (empty? (code-locs props))
           (or (nil? child)
-              (every? map-free-result? (hiccup/result-locs child)))))))
+              (and (every? map-free-result? (hiccup/result-locs child))
+                   (or (empty? siblings)
+                       (not (hiccup/may-yield-nil? child)))))))))
 
 (defn- empty-fragment-props-finding [loc file]
   (let [[row col] (try (z/position loc) (catch Exception _ [0 1]))]

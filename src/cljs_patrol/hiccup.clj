@@ -642,6 +642,32 @@
       (mapcat result-locs branches)
       [loc])))
 
+(def ^:private implicit-nil-heads
+  "Tail-result forms that yield nil when their test fails."
+  #{"when" "when-not" "when-let" "when-some" "when-first"})
+
+(defn may-yield-nil?
+  "True when `loc` can yield nil.
+
+  That is a literal nil in a result position, or a form that yields nil without one, such as a
+  `when`, an `if` with no else, a `cond` with no final truthy test, or a `case` with no default."
+  [loc]
+  (let [head-name (when (= :list (z/tag loc)) (some-> loc z/down parser/sym-name))
+        args (when head-name (remove #(= :uneval (z/tag %)) (parser/right-siblings (z/down loc))))
+        truthy-test? #(and (= :token (z/tag %))
+                           (or (str/starts-with? (parser/raw %) ":") (= "true" (parser/raw %))))]
+    (cond
+      (contains? implicit-nil-heads head-name) true
+      (contains? tail-result-heads head-name) (let [body (if (= "do" head-name) args (rest args))]
+                                                (or (empty? body) (may-yield-nil? (last body))))
+      (contains? branch-result-heads head-name) (or (< (count args) 3)
+                                                    (boolean (some may-yield-nil? (take 2 (rest args)))))
+      (= "cond" head-name) (or (not (some-> (last (butlast args)) truthy-test?))
+                               (boolean (some may-yield-nil? (take-nth 2 (rest args)))))
+      (= "case" head-name) (or (even? (count (rest args)))
+                               (boolean (some may-yield-nil? (result-locs loc))))
+      :else (and (= :token (z/tag loc)) (= "nil" (parser/raw loc))))))
+
 (defn- yields-hiccup?
   "True when the expression can yield a Hiccup vector rather than a value.
   Only the positions whose value becomes the expression's own are read: a vector held as

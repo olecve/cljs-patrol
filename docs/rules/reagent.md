@@ -120,6 +120,13 @@ container, not to its children, and is not read as one.
 
 ;; a real prop
 (defn row-group [id item] [:<> {:key id} [row item]])
+
+;; without the {}, a nil from the when becomes the props, and accept-button moves and remounts
+(defn phase-actions [cancel?]
+  [:<> {}
+   (when cancel?
+     [cancel-button])
+   [accept-button]])
 ```
 
 <details>
@@ -133,12 +140,15 @@ otherwise take as the props and not render.
 Flagged: a `[:<> {} …]` whose `{}` is empty and whose next child is missing or can yield no map: a vector, which covers
 a component written as `[edit-controls …]`, or a literal string, number, keyword or `nil`. A `when`, `if`, `cond`,
 `case`, `let` and the like count by every value they can yield. One that yields `nil`, written or because no branch
-matched, is safe: with the `{}` gone, Reagent reads the `nil` as the props, which renders the same nothing. A `#_` form
-is skipped wherever it sits.
+matched, is safe only as the last child: with the `{}` gone, Reagent reads the `nil` as the props, which renders the same
+nothing. Before another child it is not, since the children after it then move one place each time the `nil` comes and
+goes, and React remounts them. A `#_` form is skipped wherever it sits.
 
 Left alone, since the scan cannot vouch that the next child is no map:
 
 - a symbol, a call, a `for` or a `map`, or a branch yielding one, and a child under metadata or a reader conditional
+- a next child that can yield `nil` and has children after it: a `when`, an `if` with no else, a `cond` with no final
+  truthy test, a `case` with no default, or a written `nil`
 - a `{}` holding anything, `:key` or otherwise, and a `{}` under metadata
 - a fragment that is quoted, discarded, or sits in a style declaration or the ns form
 
