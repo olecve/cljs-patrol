@@ -73,12 +73,12 @@ It reports only what it can rewrite without a judgement call:
   directory passed on the command line is analyzed on its own. Threading cannot change what a macro does, but it changes
   how it reads: `(-> xs sort vec delay)` looks like four steps run in order while the `delay` defers the other three. So
   a local, a library var the scan cannot read and a name the namespace defines any other way all end the chain
-- **A chain is reported once.** Where its steps stop agreeing on the slot, it splits, and a one-argument step at the
-  turn joins the `->>` part, as one more step of the sequence pipeline, whether that part is below or above:
+- **A chain is reported once.** A chain that switches between `->` and `->>` splits into parts. A one-argument step at
+  the switch, such as `count` or `sort`, goes with the `->>` part, whether that part is inside or outside:
   `(get (first (sort (map f (filter g xs)))) :k)` is reported as `(->> xs (filter g) (map f) sort first)`, and
-  `(mapv f (range (count (get-in db path))))` as `(->> (get-in db path) count range (mapv f))`. It joins the `->` part
-  instead when only that makes a part long enough. Only the longest part long enough is reported, the innermost on a
-  tie, so two threads are never suggested for one form
+  `(mapv f (range (count (get-in db path))))` as `(->> (get-in db path) count range (mapv f))`. It goes with the `->`
+  part only when no part is long enough otherwise. Only the longest part is reported, the innermost on a tie, so one
+  form never gets two threads
 
 Left alone as well: a predicate — a name ending in `?`, such as `contains?`, `every?`, `str/includes?` or `nil?` — or a
 `not`, `boolean`, `seq`, `not-empty` or `some` at the top of what would be threaded, which is not counted, since a test
