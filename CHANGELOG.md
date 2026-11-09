@@ -1,5 +1,18 @@
 # Changelog
 
+## [v0.0.46] - 2026-11-09
+
+* Flag a cond-> or cond->> clause whose test is true by @olecve in https://github.com/olecve/cljs-patrol/pull/111
+* Keep a finding's identity when a formatter wraps the value it shows by @olecve in https://github.com/olecve/cljs-patrol/pull/112
+* Flag a fragment's empty props map that no child needs by @olecve in https://github.com/olecve/cljs-patrol/pull/113
+* Flag a fragment around a single element where its value renders by @olecve in https://github.com/olecve/cljs-patrol/pull/114
+* Read a one-argument range as a step, and join steps at a turn to the ->> part by @olecve in https://github.com/olecve/cljs-patrol/pull/115
+* Flag a lookup by test id of an element a role query finds by its role and name by @olecve in https://github.com/olecve/cljs-patrol/pull/116
+* Let a component that sets its test id on one element be read as that element by @olecve in https://github.com/olecve/cljs-patrol/pull/117
+* Flag a let binding holding a component written inline by @olecve in https://github.com/olecve/cljs-patrol/pull/118
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.45...v0.0.46
+
 ## [v0.0.45] - 2026-10-28
 
 * Flag an assertion comparing a string literal with the constant defined as that string by @olecve in https://github.com/olecve/cljs-patrol/pull/110
