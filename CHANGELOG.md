@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.47] - 2026-11-09
+
+* Let a test id elements entry name the role of its element by @olecve in https://github.com/olecve/cljs-patrol/pull/119
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.46...v0.0.47
+
 ## [v0.0.46] - 2026-11-09
 
 * Flag a cond-> or cond->> clause whose test is true by @olecve in https://github.com/olecve/cljs-patrol/pull/111
