@@ -129,11 +129,12 @@
         (is (not (flagged? #"\[:tr \[:td"))
             "a key on an element nested inside the produced one keys nothing")))
 
-    (testing "detects an empty fragment props map no child needs"
+    (testing "detects an empty fragment props map"
       (is (= ["[:<> {} [:span \"Saved\"] [accept-button]]"
-              "[:<> {} (when unsaved? [:span \"Unsaved\"])]"]
+              "[:<> {} (when unsaved? [:span \"Unsaved\"])]"
+              "[:<> {} busy-reason [spinner]]"]
              (->> reagent-result :empty-fragment-props (map :form)))
-          "a symbol after the {} or a keyed fragment is left alone"))
+          "a keyed fragment is left alone"))
 
     (testing "detects a fragment around a single element"
       (is (= ["[:<> [:ul {:class \"list\"} (for [x items] ^{:key x} [:li x])]]"

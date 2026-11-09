@@ -181,31 +181,16 @@
        (take-while some?)
        (remove #(= :uneval (z/tag %)))))
 
-(defn- map-free-result?
-  "True when `loc`, a value a child can yield, is no map: a vector, or a literal string, number, keyword or nil."
-  [loc]
-  (case (z/tag loc)
-    (:vector :multi-line) true
-    :token (or (str/starts-with? (parser/raw loc) ":")
-               (let [value (z/sexpr loc)]
-                 (or (string? value) (number? value) (nil? value))))
-    false))
-
 (defn- empty-fragment-props?
-  "True when `loc` is `[:<> {} …]` and the `{}` keeps no child from being read as props.
+  "True when `loc` is `[:<> {} …]`.
 
-  Reagent reads a fragment's second element as its props when it is a map or nil, so the
-  `{}` is load-bearing when the child after it can be a map. It is dropped only when that
-  child is missing or every value it can yield is no map. A nil it yields becomes the
-  props instead, which renders the same nothing."
+  A fragment takes no props but `:key`, so an empty `{}` configures nothing. All it changes
+  is which child Reagent reads as props, and code should not depend on that."
   [loc]
-  (let [[head props child] (code-locs loc)]
-    (boolean
-     (and (= ":<>" (some-> head parser/raw))
-          (= :map (some-> props z/tag))
-          (empty? (code-locs props))
-          (or (nil? child)
-              (every? map-free-result? (hiccup/result-locs child)))))))
+  (let [[head props] (code-locs loc)]
+    (and (= ":<>" (some-> head parser/raw))
+         (= :map (some-> props z/tag))
+         (empty? (code-locs props)))))
 
 (defn- empty-fragment-props-finding [loc file]
   (let [[row col] (try (z/position loc) (catch Exception _ [0 1]))]
@@ -460,8 +445,7 @@
      (str "The mapped body already gives every element a :key, so the into does nothing useful. Put the sequence "
           "inside the Hiccup vector: [:<> (for [x xs] ^{:key x} [item x])].")
      :empty-fragment-props
-     (str "A fragment takes no props but :key, and no child after this {} can be a map that would be read as props in "
-          "its place. Drop the {}.")
+     "A fragment takes no props but :key, so an empty {} configures nothing. Drop the {}."
      :redundant-fragment
      "A fragment around a single element renders the same as the element. Drop the [:<> ...] around it."
      :inline-component
