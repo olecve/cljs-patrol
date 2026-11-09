@@ -104,3 +104,59 @@
                    :group-results
                    first)))
       "a test id built by a call with no literal part may be any id"))
+
+(defn- configured-findings [config]
+  (->> (core/run "test-projects/react-testing-library-cljs-app/src/configured"
+                 [(react-testing-library-cljs/make-group config)])
+       :group-results
+       first
+       :test-id-query-on-role
+       (into {} (map (juxt :test :hint)))))
+
+(deftest test-id-elements-config-test
+  (is (= {"finds-ui-send" "Query it by role \"button\" and its name."
+          "finds-call-argument" "Query it by role \"button\" and its name."
+          "finds-label-text" "Query it by role \"button\" and its name."
+          "finds-ui-save" "Query it by role \"button\" and its name."
+          "finds-ui-tab" "Query it by role \"tab\" and its name."
+          "finds-ui-email" "Query it by role \"textbox\" and its name."
+          "finds-ui-toggle" "Query it by role \"button\" and its name."}
+         (configured-findings {:test-id-elements {'my.ui/button {:tag :button
+                                                                 :unknown-with #{:href :icon-only}}
+                                                  'my.ui/text-field :input
+                                                  'my.ui/panel :div
+                                                  'my.ui/label {:tag :span
+                                                                :unknown-with :icon-only}
+                                                  'my.widgets/* :button}}))
+      "a configured component reads as its element, unless a prop it changes the element with is written")
+  (is (= #{"finds-call-argument" "finds-in-unreadable-panel"}
+         (set (keys (configured-findings nil))))
+      "a component no entry names decides where its test id goes, and hides only through literal props")
+  (is (= #{"finds-call-argument" "finds-label-icon-only" "finds-label-text" "finds-ui-icon" "finds-ui-link"
+           "finds-ui-save" "finds-ui-send" "finds-ui-tab"}
+         (set (keys (configured-findings {:test-id-elements {'my.ui/* :div
+                                                             'my.ui/button :button}}))))
+      (str "an exact key wins over a glob, a call written as a list is no element, and without :unknown-with "
+           "every call reads as the element")))
+
+(deftest test-id-elements-config-errors-test
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"maps my.ui/button to no tag"
+                        (react-testing-library-cljs/make-group {:test-id-elements {'my.ui/button {:unknown-with :href}}}))
+      "an entry without a tag")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":unknown-with must be a keyword"
+                        (react-testing-library-cljs/make-group {:test-id-elements {'my.ui/button {:tag :button
+                                                                                                  :unknown-with "href"}}}))
+      "an :unknown-with that is no keyword")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":unknown-with must be a keyword"
+                        (react-testing-library-cljs/make-group {:test-id-elements {'my.ui/button {:tag :button
+                                                                                                  :unknown-with ["href"]}}}))
+      "an :unknown-with collection holding no keyword")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"keys must be fully qualified symbols"
+                        (react-testing-library-cljs/make-group {:test-id-elements {"my.ui/button" :button}}))
+      "a string key")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"keys must be fully qualified symbols"
+                        (react-testing-library-cljs/make-group {:test-id-elements {'button :button}}))
+      "a symbol key with no namespace")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map"
+                        (react-testing-library-cljs/make-group {:test-id-elements [:button]}))
+      "a config that is no map"))

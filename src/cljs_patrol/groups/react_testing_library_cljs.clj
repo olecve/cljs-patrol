@@ -284,15 +284,32 @@
               :input (input-role attrs)
               nil))))
 
+(defn- configured-element
+  "Return the `:test-id-elements` entry of the component heading the vector `loc`, or nil.
+  A `some.ns/*` key covers every var of that namespace, and an exact key wins over it. A name a
+  local binds anew is not the component."
+  [{:keys [ns-info test-id-elements]} loc]
+  (when (= :vector (some-> loc z/tag))
+    (let [head (some-> loc z/down parser/raw)]
+      (when-let [full-sym (some-> head (a11y/resolve-full-symbol ns-info))]
+        (when-not (some? (hiccup/lexically-bound-value loc head))
+          (or (get test-id-elements full-sym)
+              (some->> (namespace full-sym) (#(symbol % "*")) (get test-id-elements))))))))
+
 (defn- element-attrs
-  "Return the tag and literal attrs of the element vector `loc`, or nil when either is not written out.
+  "Return the tag, literal attrs and `:role-unknown?` of the element vector `loc`, or nil when they are not written out.
+
+  The tag is an HTML tag, or the one `:test-id-elements` maps a component to, whose props are
+  then the element's attrs. A configured prop the component reads to change its element, such
+  as an `:href` turning a button into a link, leaves its role unknown.
 
   An element with no attrs map has no attributes, so its attrs read as empty. A map only partly
   readable, such as a `merge` with an expression, is not written out, and neither is a name in the
   attrs slot, which Reagent reads as attrs when it holds a map."
-  [loc]
+  [context loc]
   (when (= :vector (some-> loc z/tag))
-    (let [tag (some-> loc z/down parser/raw hiccup/parse-tag)
+    (let [html-tag (some-> loc z/down parser/raw hiccup/parse-tag)
+          configured (configured-element context loc)
           second-child (some-> loc z/down z/right)
           {:keys [kind attrs]} (hiccup/attrs-info loc)
           attrs (case kind
@@ -300,8 +317,10 @@
                   :non-map (when (or (= :vector (z/tag second-child)) (some? (string-value second-child))) {})
                   :map attrs
                   nil)]
-      (when (and (hiccup/html-tag? tag) (some? attrs))
-        [tag attrs]))))
+      (when (and (or (hiccup/html-tag? html-tag) configured) (some? attrs))
+        {:tag (if configured (:tag configured) html-tag)
+         :attrs attrs
+         :role-unknown? (boolean (some #(not= :absent (read-attr attrs %)) (:unknown-with configured)))}))))
 
 (defn- css-keyword [value]
   (when (or (string? value) (keyword? value))
@@ -336,20 +355,26 @@
   #{:dialog :template :datalist})
 
 (defn- may-hide?
-  "True when the HTML element vector at `loc` may hide what it holds, its attrs unreadable included."
-  [loc]
-  (let [tag (some-> loc z/down parser/raw hiccup/parse-tag)]
-    (and (hiccup/html-tag? tag)
-         (if-let [[_ attrs] (element-attrs loc)]
-           (or (hidden-element? attrs)
-               (and (contains? content-hiding-tags tag)
-                    (not (and (= :dialog tag) (true? (read-attr attrs :open))))))
-           true))))
+  "True when the vector at `loc` may hide what it holds.
+
+  An HTML or configured element does when its attrs may hide it or cannot be read. Any other
+  component does when its literal props hide it the way attrs would; what it does with props
+  the scan cannot read is its own."
+  [context loc]
+  (if (or (hiccup/html-tag? (some-> loc z/down parser/raw hiccup/parse-tag))
+          (some? (configured-element context loc)))
+    (if-let [{:keys [tag attrs]} (element-attrs context loc)]
+      (or (hidden-element? attrs)
+          (and (contains? content-hiding-tags tag)
+               (not (and (= :dialog tag) (true? (read-attr attrs :open))))))
+      true)
+    (boolean (when (= :vector (some-> loc z/tag))
+               (some-> (hiccup/attrs-info loc) :attrs hidden-element?)))))
 
 (defn- hidden-in-form?
-  "True when an HTML element written around `loc` in the same form may hide it."
-  [loc]
-  (boolean (some may-hide? (take-while some? (rest (iterate z/up loc))))))
+  "True when an element written around `loc` in the same form may hide it."
+  [context loc]
+  (boolean (some #(may-hide? context %) (take-while some? (rest (iterate z/up loc))))))
 
 (defn- element-children
   "Return the locs of the children an element vector renders, its tag and attrs left out."
@@ -361,13 +386,17 @@
        (remove #(= :uneval (z/tag %)))))
 
 (defn- rendered-text
-  "Return the text the element at `loc` renders, when every child is a literal string or an HTML element showing one.
-  A component, a call, a conditional or a name may render anything, so any of them makes it nil."
-  [loc]
+  "Return the text the element at `loc` renders, when every child is a literal string or an element showing one.
+  An element child is HTML or configured; a configured one with a prop that changes what it shows,
+  a component, a call, a conditional or a name may render anything, so any of them makes it nil."
+  [context loc]
   (let [parts (map (fn [child]
                      (if (= :vector (z/tag child))
-                       (when-let [[_ attrs] (element-attrs child)]
-                         (if (hidden-element? attrs) "" (rendered-text child)))
+                       (when-let [{:keys [attrs role-unknown?]} (element-attrs context child)]
+                         (cond
+                           role-unknown? nil
+                           (hidden-element? attrs) ""
+                           :else (rendered-text context child)))
                        (string-value child)))
                    (element-children loc))]
     (when (every? some? parts)
@@ -380,13 +409,13 @@
   and the text it renders names one whose role takes its name from content. An
   `:aria-labelledby` may point at nothing, and Testing Library ignores a `:title` for some roles,
   so neither counts."
-  [role tag attrs loc]
+  [context role tag attrs loc]
   (let [non-blank #(when (and (string? %) (not (str/blank? %))) (normalize-test-id %))]
     (or (non-blank (read-attr attrs :aria-label))
         (when (and (= :input tag) (contains? value-named-input-types (literal-text (get attrs :type))))
           (non-blank (read-attr attrs :value)))
         (when (contains? content-named-roles role)
-          (non-blank (rendered-text loc))))))
+          (non-blank (rendered-text context loc))))))
 
 (defn- in-comment?
   "True when a `(comment …)` form encloses `loc`, which only a REPL evaluates."
@@ -396,10 +425,10 @@
 
 (defn- role-and-name
   "Return the role and literal name of the element vector `loc`, or nil when it has no role or name the scan can read."
-  [loc]
-  (when-let [[tag attrs] (element-attrs loc)]
-    (when-let [role (element-role tag attrs)]
-      (when-let [element-name (literal-name role tag attrs loc)]
+  [context loc]
+  (when-let [{:keys [tag attrs role-unknown?]} (element-attrs context loc)]
+    (when-let [role (when-not role-unknown? (element-role tag attrs))]
+      (when-let [element-name (literal-name context role tag attrs loc)]
         {:role role
          :name element-name}))))
 
@@ -479,21 +508,23 @@
   "Record an element written out with a role and a literal name: its literal test id, and whether anything may hide it.
   A role query finds it by that role and name unless it is hidden, discarded, or only in a
   `(comment …)` a REPL evaluates."
-  [loc _ns-info file]
-  (when-let [{:keys [role]
-              :as element} (role-and-name loc)]
-    (let [[_ attrs] (element-attrs loc)]
-      {:decls []
-       :usages [(assoc element
-                       :type ::role-element
-                       :role role
-                       :test-id (some-> (get attrs :data-testid) string-value normalize-test-id)
-                       :hidden? (or (hidden-element? attrs)
-                                    (hidden-in-form? loc)
-                                    (hiccup/inside-unrendered-form? loc)
-                                    (in-comment? loc))
-                       :file file)]
-       :dynamics []})))
+  [test-id-elements loc ns-info file]
+  (let [context {:ns-info ns-info
+                 :test-id-elements test-id-elements}]
+    (when-let [{:keys [role]
+                :as element} (role-and-name context loc)]
+      (let [{:keys [attrs]} (element-attrs context loc)]
+        {:decls []
+         :usages [(assoc element
+                         :type ::role-element
+                         :role role
+                         :test-id (some-> (get attrs :data-testid) string-value normalize-test-id)
+                         :hidden? (or (hidden-element? attrs)
+                                      (hidden-in-form? context loc)
+                                      (hiccup/inside-unrendered-form? loc)
+                                      (in-comment? loc))
+                         :file file)]
+         :dynamics []}))))
 
 (defn- test-id-lookup
   "Record a `*-by-test-id` lookup given only a literal test id, or nil.
@@ -566,13 +597,13 @@
    ["Lookup helper name:" (count lookup-helper-name)]
    ["Test id query on role:" (count test-id-query-on-role)]])
 
-(defrecord ReactTestingLibraryCljsGroup []
+(defrecord ReactTestingLibraryCljsGroup [test-id-elements]
   group/RuleGroup
   (group-id [_] :react-testing-library-cljs)
   (group-name [_] "react-testing-library-cljs")
   (parse-handlers [_] {:handle-list handle-list
                        :handle-token handle-token
-                       :handle-vector handle-vector})
+                       :handle-vector (fn [loc ns-info file] (handle-vector test-id-elements loc ns-info file))})
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ _] false)
@@ -597,4 +628,50 @@
      :test-id-query-on-role :cleanup})
   (file-extensions [_] group/cljs-extensions))
 
-(def group (->ReactTestingLibraryCljsGroup))
+(defn- read-unknown-with [value]
+  (cond
+    (nil? value) #{}
+    (keyword? value) #{value}
+    (and (coll? value) (every? keyword? value)) (set value)
+    :else (throw (ex-info (str ":react-testing-library-cljs :test-id-elements :unknown-with must be a keyword or a "
+                               "collection of keywords, got " (pr-str value))
+                          {:value value}))))
+
+(defn- read-test-id-element
+  "Read a `:test-id-elements` value as `{:tag … :unknown-with #{…}}`, from a bare tag or a map."
+  [k value]
+  (let [entry (if (map? value) value {:tag value})]
+    (when-not (keyword? (:tag entry))
+      (throw (ex-info (str ":react-testing-library-cljs :test-id-elements maps " k " to no tag: " (pr-str value))
+                      {:key k
+                       :value value})))
+    (assoc entry :unknown-with (read-unknown-with (:unknown-with entry)))))
+
+(defn- read-test-id-elements
+  "Read the `:test-id-elements` config, refusing a key that is no fully qualified symbol, which no call resolves to."
+  [test-id-elements]
+  (when-not (or (nil? test-id-elements) (map? test-id-elements))
+    (throw (ex-info (str ":react-testing-library-cljs :test-id-elements must be a map, got "
+                         (pr-str test-id-elements))
+                    {:value test-id-elements})))
+  (into {}
+        (map (fn [[k v]]
+               (when-not (and (symbol? k) (namespace k))
+                 (throw (ex-info (str ":react-testing-library-cljs :test-id-elements keys must be fully qualified "
+                                      "symbols, got " (pr-str k))
+                                 {:key k})))
+               [k (read-test-id-element k v)]))
+        test-id-elements))
+
+(defn make-group
+  "Return a react-testing-library-cljs RuleGroup configured with the given map.
+  Supported keys:
+    :test-id-elements {fully-qualified-symbol tag-keyword}: a component that puts its
+      `:data-testid` on an element of that tag, built from its props as attrs and its children
+      as content. The value may instead be {:tag tag-keyword :unknown-with #{prop …}}, naming
+      the props that change which element it renders or what it shows, such as an `:href`."
+  ([] (make-group nil))
+  ([{:keys [test-id-elements]}]
+   (->ReactTestingLibraryCljsGroup (read-test-id-elements test-id-elements))))
+
+(def group (make-group))

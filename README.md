@@ -172,6 +172,7 @@ Every setting can live in `.cljs-patrol/config.edn`, where it persists for the p
             :quiet false}
  :css-order {:order :recess}
  :a11y {:component-aliases {my.ui/drawer :dialog}}
+ :react-testing-library-cljs {:test-id-elements {my.ui/button :button}}
  :tests {:paths ["test"]}
  :layout {:split-map-after-symbol true}
  :idioms {:min-calls 3}
@@ -181,6 +182,7 @@ Every setting can live in `.cljs-patrol/config.edn`, where it persists for the p
 A CLI flag overrides the matching setting. See [Severity tiers](docs/severity.md) for `:fail-on`,
 [Baseline](docs/baseline.md) for `:baseline`, [Property-order tables](docs/rules/css-order.md#property-order-tables) for
 `:css-order`, [A11y component aliases](docs/rules/a11y.md#a11y-component-aliases) for `:a11y`,
+[Test id elements](docs/rules/react-testing-library-cljs.md#test-id-elements) for `:react-testing-library-cljs`,
 [Test paths](docs/rules/tests.md#test-paths) for `:tests`, [Layout options](docs/rules/layout.md#layout-options) for
 `:layout`, [Idioms options](docs/rules/idioms.md#idioms-options) for `:idioms`, and
 [Reading .clj files](docs/rules.md#experimental-reading-clj-files) for `:experimental-clj`. A flag written
