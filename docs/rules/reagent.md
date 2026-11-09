@@ -77,3 +77,63 @@ A `:key` in the props of the container being spliced into — `(into [:div {:cla
 container, not to its children, and is not read as one.
 
 </details>
+
+### Empty fragment props
+
+`empty-fragment-props` · cleanup — A fragment's `{}` that keeps nothing from being read as props.
+
+```clojure
+;; flagged
+(defn phase-actions []
+  [:<> {}
+   [edit-controls {:editing? false}]
+   [accept-button]])
+
+(defn title-adornment [unsaved?]
+  [:<> {}
+   (when unsaved?
+     [:span "Unsaved"])])
+
+;; fix
+(defn phase-actions []
+  [:<>
+   [edit-controls {:editing? false}]
+   [accept-button]])
+
+(defn title-adornment [unsaved?]
+  [:<>
+   (when unsaved?
+     [:span "Unsaved"])])
+```
+
+**Left alone:**
+
+```clojure
+(defn status [busy-reason] [:<> {} busy-reason [spinner]]) ; busy-reason could be a map at runtime
+
+(defn children [items] [:<> {} (render-children items)]) ; so could a call's result
+
+(defn row-group [id item] [:<> {:key id} [row item]]) ; a real prop
+```
+
+<details>
+<summary>Details</summary>
+
+Why: a fragment takes no props but `:key`, and a keyed fragment writes `{:key k}`. An empty `{}` reads as though
+something is configured when nothing is. Reagent reads a fragment's second element as its props when it is a map or
+`nil`, the same as for an HTML tag. So the `{}` matters only when the child after it could be a map, which Reagent would
+otherwise take as the props and not render.
+
+Flagged: a `[:<> {} …]` whose `{}` is empty and whose next child is missing or can yield no map: a vector, which covers
+a component written as `[edit-controls …]`, or a literal string, number, keyword or `nil`. A `when`, `if`, `cond`,
+`case`, `let` and the like count by every value they can yield. One that yields `nil`, written or because no branch
+matched, is safe: with the `{}` gone, Reagent reads the `nil` as the props, which renders the same nothing. A `#_` form
+is skipped wherever it sits.
+
+Left alone, since the scan cannot vouch that the next child is no map:
+
+- a symbol, a call, a `for` or a `map`, or a branch yielding one, and a child under metadata or a reader conditional
+- a `{}` holding anything, `:key` or otherwise, and a `{}` under metadata
+- a fragment that is quoted, discarded, or sits in a style declaration or the ns form
+
+</details>

@@ -77,7 +77,8 @@
     :aria-hidden-focusable
     :nested-interactive-element
     :label-not-associated
-    :redundant-into-hiccup})
+    :redundant-into-hiccup
+    :empty-fragment-props})
 
 (def ^:private selector-keyed-rules
   "Spade rules identified by the declaration plus the one selector at fault.

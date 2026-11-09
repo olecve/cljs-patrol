@@ -129,6 +129,12 @@
         (is (not (flagged? #"\[:tr \[:td"))
             "a key on an element nested inside the produced one keys nothing")))
 
+    (testing "detects an empty fragment props map no child needs"
+      (is (= ["[:<> {} [:span \"Saved\"] [accept-button]]"
+              "[:<> {} (when unsaved? [:span \"Unsaved\"])]"]
+             (->> reagent-result :empty-fragment-props (map :form)))
+          "a symbol after the {} or a keyed fragment is left alone"))
+
     (testing "detects duplicate subscription registration"
       (is (= 2 (count (:duplicate-subs re-frame-result))))
       (is (= #{:webapp.subs/used-sub} (->> re-frame-result :duplicate-subs (map :kw) set))))
@@ -171,4 +177,5 @@
       (is (every? #(= :bugs (:tier %)) (:pseudo-in-main-map spade-result)))
       (is (every? #(= :bugs (:tier %)) (:consecutive-self-selectors spade-result)))
       (is (every? #(= :deprecations (:tier %)) (:defclass-as-sole-attr reagent-result)))
-      (is (every? #(= :cleanup (:tier %)) (:redundant-into-hiccup reagent-result))))))
+      (is (every? #(= :cleanup (:tier %)) (:redundant-into-hiccup reagent-result)))
+      (is (every? #(= :cleanup (:tier %)) (:empty-fragment-props reagent-result))))))
