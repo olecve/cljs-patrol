@@ -1537,7 +1537,10 @@
            "bad-label-styled-by-own-namespace"
            "bad-label-and-field-two-wrappers-deep"
            "bad-field-in-row-beside-label"
-           "bad-flat-form-label-per-field"}
+           "bad-flat-form-label-per-field"
+           "bad-field-before-plain-component"
+           "bad-field-with-hiccup-in-its-own-props"
+           "bad-field-before-unread-call"}
          (set (fn-names-in field-captions-file
                            (field-caption-findings #{'blogapp.styles/field-label 'blogapp.field-captions/caption}))))
       "flags exactly the bad- cases")

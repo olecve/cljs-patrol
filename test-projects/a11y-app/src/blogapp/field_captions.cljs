@@ -257,3 +257,61 @@
   [:div
    [:span [styles/field-label] "Title"]
    [:input {:aria-label "Post title"}]])
+
+(defn ok-label-names-field-and-unaliased-component []
+  [:div
+   [:span (styles/field-label) "Date range"]
+   [:input {:aria-label "Start date"}]
+   [ui/date-field {:aria-label "End date"}]])
+
+(defn ok-label-names-field-and-interop [Input]
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "From"}]
+   [:> Input {:aria-label "To"}]])
+
+(defn ok-label-names-field-and-component-with-symbol-props [props]
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "From"}]
+   [ui/text-field props]])
+
+(defn ok-label-names-field-and-component-with-built-props [props]
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "From"}]
+   [ui/text-field (merge props {:id "to"})]])
+
+(defn ok-label-names-fields-in-a-for [ranges]
+  [:div
+   [:span (styles/field-label) "Ranges"]
+   [:input {:aria-label "First"}]
+   (for [r ranges]
+     ^{:key r}
+     [:input {:aria-label r}])])
+
+(defn ok-label-names-field-yielded-by-when [more?]
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "From"}]
+   (when more?
+     [:input {:aria-label "To"}])])
+
+(defn bad-field-before-plain-component [tip]
+  [:div
+   [:span (styles/field-label) "Title"]
+   [:input {:aria-label "Post title"}]
+   [ui/tooltip {:icon "info"} tip]])
+
+(defn bad-field-with-hiccup-in-its-own-props [options]
+  [:div
+   [:span (styles/field-label) "Author"]
+   [ui/select {:aria-label "Post author"
+               :option (fn [option] [ui/option {:label option}])
+               :options options}]])
+
+(defn bad-field-before-unread-call [errors]
+  [:div
+   [:span (styles/field-label) "Title"]
+   [:input {:aria-label "Post title"}]
+   (render-errors errors)])

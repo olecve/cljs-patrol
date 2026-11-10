@@ -1329,14 +1329,53 @@
           (recur parent (inc depth) (conj found parent)))
         found))))
 
+(def ^:private field-naming-props
+  "Props a component that renders a field is named through."
+  #{:aria-label :aria-labelledby :label :placeholder})
+
+(defn- possible-field?
+  "True when the vector at `loc` is a field, or a component that may render one.
+
+  A component no alias maps cannot be seen into, so it counts when its props name it the
+  way a field is named, or when they cannot be read at all: a symbol or a call. Interop,
+  `[:> Comp …]`, counts always, its props sitting past the component."
+  [loc {:keys [ns-info component-aliases]}]
+  (let [head (z/down loc)]
+    (cond
+      (= ":>" (some-> head parser/raw)) true
+
+      :else
+      (if-let [tag (vector-tag loc ns-info component-aliases)]
+        (labelled-field? (:attrs (hiccup/attrs-info loc)) tag loc)
+        (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
+          (or (contains? #{:dynamic :dynamic-map} kind)
+              (some? (parser/sym-name (z/right head)))
+              (some #(contains? attrs %) field-naming-props)))))))
+
+(defn- rendered-children
+  "Return the forms `loc` renders.
+
+  That is an element's children, what a `let`, `when` or `if` yields, and a `for` body. A
+  call this cannot read, a props map and a `#_` form render nothing it can see."
+  [loc]
+  (case (z/tag loc)
+    :meta [(hiccup/unwrap-meta loc)]
+    :vector (parser/child-locs loc)
+    :list (if (= "for" (some-> loc z/down parser/sym-name))
+            (take-last 1 (parser/right-siblings (z/down loc)))
+            (let [results (hiccup/result-locs loc)]
+              (if (identical? (z/node loc) (some-> results first z/node)) [] results)))
+    []))
+
 (defn- holds-field?
-  "True when `loc` or anything it renders is a field, `except` that one left out."
-  [loc except {:keys [ns-info component-aliases]}]
-  (some? (first-matching-descendant
-          {:match? #(and (not (identical? (z/node %) (z/node except)))
-                         (when-let [tag (vector-tag % ns-info component-aliases)]
-                           (labelled-field? (:attrs (hiccup/attrs-info %)) tag %)))}
-          [loc])))
+  "True when `loc` or anything it renders may be a field, `except` that one left out."
+  [loc except context]
+  (boolean
+   (when loc
+     (or (and (= :vector (z/tag loc))
+              (not (identical? (z/node loc) (z/node except)))
+              (possible-field? loc context))
+         (some #(holds-field? % except context) (rendered-children loc))))))
 
 (defn- labels?
   "True when `loc` is a visible label, or opens with one."
