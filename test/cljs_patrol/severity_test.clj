@@ -2,6 +2,7 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
+   [cljs-patrol.groups.comments :as comments]
    [cljs-patrol.groups.css-order :as css-order]
    [cljs-patrol.groups.docstrings :as docstrings]
    [cljs-patrol.groups.idioms :as idioms]
@@ -18,7 +19,7 @@
 
 (def ^:private all-groups
   [re-frame/group spade/group reagent/group typography/group a11y/group docstrings/group
-   css-order/group tests/group react-testing-library-cljs/group layout/group idioms/group])
+   css-order/group tests/group react-testing-library-cljs/group layout/group idioms/group comments/group])
 
 (def ^:private rule->tier
   (severity/collect-rule->tier all-groups))
@@ -136,7 +137,8 @@
            :test-id-query-on-role
            :var-deref-in-test :js-hint-in-test :literal-constant-assertion
            :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality
-           :unconditional-cond-threading}
+           :unconditional-cond-threading
+           :commented-out-code}
          (severity/tier->rules rule->tier :cleanup)))
   (is (= #{} (severity/tier->rules rule->tier :unknown))
       "unknown tier returns empty set"))
@@ -241,7 +243,8 @@
                :test-id-query-on-role
                :var-deref-in-test :js-hint-in-test :literal-constant-assertion
                :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality
-               :unconditional-cond-threading}
+               :unconditional-cond-threading
+               :commented-out-code}
              (->> tiered :cleanup (map :rule) set))))
 
     (testing "info-only contains rules without a tier"

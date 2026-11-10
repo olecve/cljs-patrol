@@ -65,6 +65,7 @@ Analysis is split into independent rule groups. By default all groups run.
   `if` or `when` whose test is a `not`, an `into` from a collection into an empty vector or set, a `+` or `-` of a
   literal `1` that `inc` or `dec` names, a `not` of an `=` that `not=` names, and a `cond->` or `cond->>` clause whose
   test is `true`
+- **[`comments`](docs/rules/comments.md)** — code left in a `;` comment, switched off rather than deleted
 - **[`css-order`](docs/rules/css-order.md)** — Spade style properties out of the
   [order](docs/rules/css-order.md#property-order-tables) a stylelint config defines
 
@@ -81,7 +82,7 @@ Disable specific groups:
 clojure -M:run --disable spade src/cljs/myapp
 ```
 
-The `docstrings`, `tests`, `layout` and `idioms` groups are about Clojure rather than ClojureScript, and
+The `docstrings`, `tests`, `layout`, `idioms` and `comments` groups are about Clojure rather than ClojureScript, and
 `--experimental-clj` lets them read `.clj` files too — see
 [Reading .clj files](docs/rules.md#experimental-reading-clj-files).
 
