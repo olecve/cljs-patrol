@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.0.51] - 2026-11-10
+
+* Add a comments group flagging commented-out code by @olecve in https://github.com/olecve/cljs-patrol/pull/128
+* Flag a docstring that only repeats its var's name by @olecve in https://github.com/olecve/cljs-patrol/pull/129
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.50...v0.0.51
+
 ## [v0.0.50] - 2026-11-10
 
 * Resolve reagent rule heads through the ns form by @olecve in https://github.com/olecve/cljs-patrol/pull/125
