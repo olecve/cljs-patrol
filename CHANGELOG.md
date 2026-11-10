@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.0.50] - 2026-11-10
+
+* Resolve reagent rule heads through the ns form by @olecve in https://github.com/olecve/cljs-patrol/pull/125
+* Resolve result-form heads for rules that flag what they read by @olecve in https://github.com/olecve/cljs-patrol/pull/126
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.49...v0.0.50
+
 ## [v0.0.49] - 2026-11-10
 
 * Add aria-label-beside-visible-label a11y rule by @olecve in https://github.com/olecve/cljs-patrol/pull/123
