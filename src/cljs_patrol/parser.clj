@@ -341,7 +341,8 @@
                                    :else [v])))
                       (keep identity)
                       distinct))]
-    {:handle-list (gather :handle-list)
+    {:handle-file (gather :handle-file)
+     :handle-list (gather :handle-list)
      :handle-vector (gather :handle-vector)
      :handle-token (gather :handle-token)}))
 
@@ -378,7 +379,9 @@
           (let [ns-info (or (find-ns-info zloc) empty-ns-info)
                 handlers (collect-handlers applicable)]
             (loop [loc zloc
-                   result empty-result]
+                   result (reduce (fn [acc handler] (merge-result acc (handler zloc ns-info file-path)))
+                                  empty-result
+                                  (:handle-file handlers))]
               (if (z/end? loc)
                 {:declarations (:decls result)
                  :usages (:usages result)

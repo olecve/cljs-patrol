@@ -10,6 +10,7 @@
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
+   [cljs-patrol.groups.comments :as comments]
    [cljs-patrol.groups.css-order :as css-order]
    [cljs-patrol.groups.css-order.orders :as orders]
    [cljs-patrol.groups.docstrings :as docstrings]
@@ -34,7 +35,7 @@
   "Build every rule group from `config`.
 
   `clj?` is the experimental `.clj` mode: it reaches only `docstrings`, `tests`,
-  `layout` and `idioms`, whose rules are about Clojure the language rather than about ClojureScript, and
+  `layout`, `idioms` and `comments`, whose rules are about Clojure the language rather than about ClojureScript, and
   leaves every group that reads Hiccup, re-frame or Spade on `.cljs`/`.cljc` alone."
   [config clj?]
   [re-frame/group
@@ -47,7 +48,8 @@
    (tests/make-group (get config :tests) clj?)
    (react-testing-library-cljs/make-group (get config :react-testing-library-cljs))
    (layout/make-group (get config :layout) clj?)
-   (idioms/make-group (get config :idioms) clj?)])
+   (idioms/make-group (get config :idioms) clj?)
+   (comments/make-group (get config :comments) clj?)])
 
 (defn- experimental-clj?
   "Resolve the experimental `.clj` mode from CLI options and config.
@@ -93,7 +95,7 @@
     (str "Property-order table for the css-order group: "
          (str/join ", " (map name orders/names)) " (default " (name orders/default-order) ")")
     :parse-fn keyword]
-   [nil "--[no-]experimental-clj" "Experimental: also read .clj files (docstrings, tests, layout and idioms groups only)"]
+   [nil "--[no-]experimental-clj" "Experimental: also read .clj files (docstrings, tests, layout, idioms and comments groups only)"]
    [nil "--list-rules" "Print all rules grouped by tier and exit"]
    ["-h" "--help"]])
 
@@ -383,7 +385,7 @@
                           (str/join " and " (map (comp name group/group-id) reading))
                           "."))
             (println (str "WARN: --experimental-clj does nothing here. No enabled group reads .clj; "
-                          "the groups that can are docstrings, tests, layout and idioms.")))))
+                          "the groups that can are docstrings, tests, layout, idioms and comments.")))))
       (let [run-results (cond-> (run-all dirs enabled-groups)
                           (:files opts) (filter-run-results (:files opts)))]
         (cond
