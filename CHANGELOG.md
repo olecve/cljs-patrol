@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.0.52] - 2026-11-10
+
+* Flag a comment that restates the line after it by @olecve in https://github.com/olecve/cljs-patrol/pull/130
+* Flag a vec of a map or filter that mapv or filterv builds at once by @olecve in https://github.com/olecve/cljs-patrol/pull/131
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.51...v0.0.52
+
 ## [v0.0.51] - 2026-11-10
 
 * Add a comments group flagging commented-out code by @olecve in https://github.com/olecve/cljs-patrol/pull/128
