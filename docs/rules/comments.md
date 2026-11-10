@@ -57,19 +57,19 @@ on purpose for the REPL belongs in a `(comment …)` form, which this rule does 
 
 A comment on a line of its own counts, and consecutive ones at the same column make one block, read as a whole once each
 line's `;` markers and the space after them are removed. The block is code when it reads back as Clojure forms, and the
-reading is strict, so that prose is never taken for code:
+reading is strict, to keep prose out:
 
 - every form in the block is a list, a vector or a map, so prose with a word outside a parenthesis is not code
 - one of them is a call, a list headed by a symbol, so a data shape such as `[:div "x"]` is not either
-- it holds a token English never writes: a reader form (`@x`, `#(…)`, `'x`, `#{…}`), a symbol ending in `!` or `?`, an
-  operator such as `=` or `->`, an auto-resolved `::keyword`, a call to a head that is no English word (`defn`, `let`,
-  `fn`, `assoc`…), or a call through an alias the ns form requires, or `js/`. A nested form, a keyword or a qualified
-  symbol alone is as likely a note in parentheses: `(returns (nil) when empty)`, `(only :dev)`,
-  `(calls rf/dispatch twice)`
+- it holds a call whose head reads as code: an operator, `(= a b)`; a head that is no plain word, such as `defn`, `let`,
+  `fn` or `assoc`; a call through an alias the ns form requires, or `js/`; or a head ending in `!` or `?` with arguments
+  after it, `(swap! x f)`. Or it holds a `#(…)`, a `#"regex"` or a `::keyword`. A nested form, a deref, a quote, an
+  operator between two words or a word ending in `?` alone is as likely a note in parentheses:
+  `(returns (nil) when empty)`, `(cc @bob)`, `(draft -> review)`, `(should we cache this?)`
 - it holds no placeholder: `...`, `…`, a name ending in `...` such as `args...`, or a lone capital such as `N`
 - it holds no word of prose, such as `see`, `the`, `of`, `by`, `e.g.` or `cf.`, and no capitalized word, `(RFC 7231)`; a
   class name, `(catch Exception e …)`, reads as one too
-- it holds no `=>`, which marks a REPL example showing a result
+- it holds no `=>`, which marks a REPL example showing a result, and no `,,,`, a placeholder
 - the comment just before it, a blank line apart at most, does not end in `:`, as `;; Example:` does
 
 The finding points at the first form in the block, and its baseline identity is every form in it, so two blocks that

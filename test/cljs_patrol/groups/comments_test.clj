@@ -25,7 +25,7 @@
   (is (= [[3 "(rf/dispatch [::load id])"]
           [4 "(js/console.log \"debug\" x) [:span (tr :title)]"]
           [7 "(defn old-view [] [:div \"old\"])"]
-          [11 "(when open? [modal {:on-close close}])"]]
+          [11 "(when (open? x) [modal {:on-close close}])"]]
          (commented-out-code ["(defn view []"
                               "  ;; (rf/dispatch [::load id])"
                               "   ;(js/console.log \"debug\" x)"
@@ -35,35 +35,33 @@
                               ";;   [:div \"old\"])"
                               ""
                               "(def x"
-                              "  ;; (when open?"
+                              "  ;; (when (open? x)"
                               "  ;;   [modal {:on-close close}])"
                               "  1)"]))
-      "reads block of lines at one column holding code token"))
+      "reads block of lines at one column holding code call"))
 
-(deftest each-code-token-is-read
-  (is (= [[2 "(render @state)"]
-          [4 "(map #(render %) xs)"]
-          [6 "(render 'x)"]
-          [8 "(render #{1})"]
-          [10 "(swap! state f)"]
-          [12 "(when (nil? x) (render))"]
-          [14 "(-> x (render))"]
-          [16 "(render ::x)"]
-          [18 "(let [x 1] (render x))"]
-          [20 "(api/save x)"]
-          [22 "(js/alert x)"]]
-         (commented-out-code (separate [";; (render @state)"
-                                        ";; (map #(render %) xs)"
-                                        ";; (render 'x)"
-                                        ";; (render #{1})"
-                                        ";; (swap! state f)"
+(deftest each-code-signal-is-read
+  (is (= [[2 "(swap! state f)"]
+          [4 "(when (nil? x) (render))"]
+          [6 "(-> x (render))"]
+          [8 "(= 3 x)"]
+          [10 "(let [x 1] (render x))"]
+          [12 "(api/save x)"]
+          [14 "(js/alert x)"]
+          [16 "(map #(render %) xs)"]
+          [18 "(matches #\"x\" s)"]
+          [20 "(render ::x)"]]
+         (commented-out-code (separate [";; (swap! state f)"
                                         ";; (when (nil? x) (render))"
                                         ";; (-> x (render))"
-                                        ";; (render ::x)"
+                                        ";; (= 3 x)"
                                         ";; (let [x 1] (render x))"
                                         ";; (api/save x)"
-                                        ";; (js/alert x)"])))
-      "deref, fn literal, quote, set, bang, predicate, operator, auto-resolved keyword, code head, alias call"))
+                                        ";; (js/alert x)"
+                                        ";; (map #(render %) xs)"
+                                        ";; (matches #\"x\" s)"
+                                        ";; (render ::x)"])))
+      "bang or predicate head with arguments, operator head, code head, alias call, fn literal, regex, auto-resolved keyword"))
 
 (deftest finding-points-at-first-form-of-block
   (is (= [[3 "(prn (x))"]]
@@ -90,6 +88,17 @@
                                              ";; (default 300)"
                                              ";; (only :app/dev)"
                                              ";; (unknown/alias x)"
+                                             ";; (should we cache this?)"
+                                             ";; (works for now!)"
+                                             ";; (hack!)"
+                                             ";; (draft -> review -> done)"
+                                             ";; (n > 0)"
+                                             ";; (calls `save` twice)"
+                                             ";; (it's 'quoted' text)"
+                                             ";; (cc @bob)"
+                                             ";; (render @state)"
+                                             ";; (render #{x})"
+                                             ";; (api/first ,,,)"
                                              ";; (use let here (later))"
                                              ";; (try (again))"
                                              ";; [root]"

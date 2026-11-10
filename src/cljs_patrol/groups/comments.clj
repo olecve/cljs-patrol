@@ -3,10 +3,10 @@
 
   A `;` comment block whose text reads back as Clojure forms is code switched off. It goes
   stale while the code around it moves, and version control already keeps what it held.
-  The reading is strict so that prose is never taken for code: every form in the block
-  must be a list, a vector or a map, and the block must hold a call, a list headed by a
-  symbol, along with a token English never writes, such as `@x`, `swap!`, `->` or a
-  call through an alias the ns form requires. A word only prose writes, a shape holding a
+  The reading is strict, to keep prose out: every form in the block must be a list, a
+  vector or a map, and the block must hold a call whose head reads as code, such as
+  `(swap! x f)`, `(= a b)`, `(defn …)` or a call through an alias the ns form requires,
+  or a `#(…)`, a `#\"regex\"` or a `::keyword`. A word only prose writes, a shape holding a
   placeholder such as `[:dispatch [::kw args...]]`, and an example a comment ending in
   `:` introduces are left alone."
   (:require
@@ -69,44 +69,39 @@
     "dissoc" "doseq" "dotimes" "fn" "get-in" "if-let" "inc" "let" "letfn" "println" "prn" "recur" "str"
     "update-in" "when-let" "when-not"})
 
-(def ^:private reader-tags
-  "Reader forms English never writes: `@x`, `#(…)`, `'x`, `` `x ``, `#\"re\"`, `#{…}` and `#?(…)`."
-  #{:deref :fn :quote :reader-macro :regex :set :syntax-quote})
+(defn- alias-head?
+  "True when `text` names a var through an alias the ns form requires, or `js/`."
+  [text {:keys [aliases]}]
+  (let [[_ alias-part] (re-matches #"([^/:\"]+)/.+" text)]
+    (boolean (and alias-part (or (= "js" alias-part) (contains? aliases alias-part))))))
 
-(defn- alias-call-head?
-  "True when the token node heads a call through an alias the ns form requires, or `js/`."
-  [node parent {:keys [aliases]}]
-  (let [text (n/string node)
-        [_ alias-part] (re-matches #"([^/:\"]+)/.+" text)]
-    (boolean (and alias-part
-                  (= :list (n/tag parent))
-                  (identical? node (first (remove n/whitespace-or-comment? (n/children parent))))
-                  (or (= "js" alias-part) (contains? aliases alias-part))))))
+(defn- code-call?
+  "True when the node is a call whose head reads as code.
+
+  An operator, a head of [[code-heads]], or a call through a required alias. A head
+  ending in `!` or `?` counts only with arguments after it: alone in parentheses it is as
+  likely the end of a sentence, `(works for now!)`."
+  [node ns-info]
+  (and (= :list (n/tag node))
+       (let [[head & arguments] (remove n/whitespace-or-comment? (n/children node))
+             text (some-> head n/string)]
+         (and (= :token (some-> head n/tag))
+              (or (some? (re-matches #"[-+*/<>=]+|->>?|not=" text))
+                  (contains? code-heads text)
+                  (alias-head? text ns-info)
+                  (and (seq arguments) (some? (re-find #"[^!?][!?]$" text))))))))
 
 (defn- code-token?
-  "True when the node is one English never writes.
-
-  A reader form, a symbol ending in `!` or `?`, an operator, an auto-resolved `::keyword`,
-  a head of [[code-heads]] in call position, or a call through a required alias."
-  [node parent ns-info]
-  (or (contains? reader-tags (n/tag node))
-      (and (= :token (n/tag node))
-           (let [text (n/string node)
-                 head? (and (= :list (some-> parent n/tag))
-                            (identical? node (first (remove n/whitespace-or-comment? (n/children parent)))))]
-             (or (some? (re-find #"[^!?][!?]$" text))
-                 (some? (re-matches #"[-+*/<>=]+|->>?|not=" text))
-                 (str/starts-with? text "::")
-                 (and head? (contains? code-heads text))
-                 (alias-call-head? node parent ns-info))))))
+  "True when the node is a `#(…)`, a `#\"regex\"` or a `::keyword`, which prose never writes."
+  [node]
+  (or (contains? #{:fn :regex} (n/tag node))
+      (and (= :token (n/tag node)) (str/starts-with? (n/string node) "::"))))
 
 (defn- code-signal?
-  "True when a form holds a token English never writes, at any depth."
+  "True when a form holds a call whose head reads as code, or a token prose never writes, at any depth."
   [form ns-info]
-  (letfn [(walk [node parent]
-            (or (code-token? node parent ns-info)
-                (and (n/inner? node) (some #(walk % node) (n/children node)))))]
-    (boolean (walk form nil))))
+  (boolean (some #(or (code-call? % ns-info) (code-token? %))
+                 (tree-seq n/inner? n/children form))))
 
 (defn- descendants-of [forms]
   (mapcat #(tree-seq n/inner? n/children %) forms))
@@ -143,11 +138,12 @@
 (defn- code-forms
   "Return the forms `text` reads back as when it is code, or nil.
 
-  Each form is a list, a vector or a map; one is a call; one holds a token English never
-  writes; and none holds a placeholder or a word of prose. A `=>` marks a REPL example
-  showing a result, which documents code rather than switching it off."
+  Each form is a list, a vector or a map; one is a call; one holds a code signal; and none
+  holds a placeholder or a word of prose. A `=>` marks a REPL example showing a result,
+  which documents code rather than switching it off, and `,,,` a placeholder the reader
+  takes for whitespace."
   [text ns-info]
-  (when-not (str/includes? text "=>")
+  (when-not (or (str/includes? text "=>") (str/includes? text ",,,"))
     (let [forms (try (remove n/whitespace-or-comment? (n/children (p/parse-string-all text)))
                      (catch Exception _ nil))
           nodes (descendants-of forms)]
