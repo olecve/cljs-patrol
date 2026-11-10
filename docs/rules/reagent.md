@@ -194,8 +194,8 @@ Left alone, since the scan cannot vouch that the element can take the fragment's
   function body
 - a vector that is data rather than Hiccup, such as `[:<> [:path :to :key]]`
 - a fragment that is quoted, discarded, or sits in a style declaration or the ns form
-- a fragment under a function head or a `for` that resolves outside core and Rum's `defc`, such as `x/defn`, or a local
-  of that name
+- a fragment under a function head, a `for`, or a `when`, `if`, `let`, `cond` or `case` yielding it, that resolves
+  outside core, Reagent's `with-let` and Rum's `defc`, such as `x/defn` or `x/when`, or a local of that name
 
 </details>
 
@@ -270,8 +270,8 @@ a `let`, or a `for` or `map` body yields. A loop body counts once however many i
 `case` as its busiest branch, since only one renders. An attrs map, a handler's body and any other call are not read, so
 an event vector a handler dispatches, `[::open {:on-confirm f}]`, is no element. Left alone as well: a data vector such
 as a re-frame path, a binding that destructures, a value that is any other call, and a `let` that is quoted, discarded,
-or sits in a style declaration. `let`, `with-let`, `for` and `map` count only as core's and Reagent's, resolved through
-the ns form, so `x/let` or a local `let` is left alone.
+or sits in a style declaration. `let`, `with-let`, `for`, `map`, and the `when`, `if`, `cond` or `case` a value sits in
+count only as core's and Reagent's, resolved through the ns form, so `x/let`, `x/when` or a local `let` is left alone.
 
 </details>
 

@@ -398,3 +398,27 @@
   (testing "false when parent is another vector"
     (let [zloc (-> (z/of-string "[[:img]]") z/down)]
       (is (not (hiccup/inside-unrendered-form? zloc))))))
+
+(defn- result-strings
+  ([source] (mapv z/string (hiccup/result-locs (z/of-string source))))
+  ([ns-info source] (mapv z/string (hiccup/result-locs (z/of-string source) ns-info))))
+
+(deftest result-locs-reads-heads-by-name-without-ns-info
+  (is (= ["[:a]" "[:b]"] (result-strings "(if x [:a] [:b])"))
+      "reads core if")
+  (is (= ["[:a]"] (result-strings "(x/when c [:a])"))
+      "reads look-alike by its bare name")
+  (is (= ["[:a]" "[:b]"] (result-strings "(case k :x [:a] [:b])"))
+      "reads case default"))
+
+(deftest result-locs-resolves-heads-with-ns-info
+  (is (= ["[:a]" "[:b]"] (result-strings {} "(cond x [:a] :else [:b])"))
+      "reads core cond")
+  (is (= ["[:a]"] (result-strings {:aliases {"r" "reagent.core"}} "(r/with-let [a 1] [:a])"))
+      "reads reagent with-let through alias")
+  (is (= ["(x/when c [:a])"] (result-strings {} "(x/when c [:a])"))
+      "answers for look-alike itself")
+  (is (= ["(when c [:a])"] (result-strings {:shadowed-core #{"when"}} "(when c [:a])"))
+      "answers for head ns form shadows")
+  (is (= ["(x/do [:a])" "[:c]"] (result-strings {} "(if p (x/do [:a]) [:c])"))
+      "keeps unresolved branch whole"))
