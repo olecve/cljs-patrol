@@ -87,8 +87,10 @@ It reports only what it can rewrite without a judgement call:
   form never gets two threads
 - **A `vec` that [`vec-of-map-filter`](#vec-of-map-filter) flags is not a step.** The chain is measured below it and
   above it, never through it, so the thread never ends in a `vec` that rule would flag again:
-  `(vec (filter f (map g (h xs))))` is reported as `(->> xs h (map g) (filter f))` in place of the `filter` call, and
-  `vec-of-map-filter` asks for `(filterv f (map g (h xs)))`, which threads to `(->> xs h (map g) (filterv f))`
+  `(vec (filter f (map g (h xs))))` is reported as `(->> xs h (map g) (filter f))` in place of the `filter` call. Either
+  finding can be fixed first, and both lead to `(->> xs h (map g) (filterv f))`: the `vec` around the thread is flagged
+  in turn and asks for `filterv` as its last step, and `vec-of-map-filter` asks for `(filterv f (map g (h xs)))`, which
+  this rule threads
 
 Left alone as well: a predicate — a name ending in `?`, such as `contains?`, `every?`, `str/includes?` or `nil?` — or a
 `not`, `boolean`, `seq`, `not-empty` or `some` at the top of what would be threaded, which is not counted, since a test
@@ -514,12 +516,18 @@ Left alone, since the scan cannot vouch that the clause always runs or that the 
 (defn active [users]
   (->> users (remove :deleted?) (filter :active?) vec))
 
+(defn names [users]
+  (vec (->> users (remove :deleted?) (map :name))))
+
 ;; fix
 (defn ids [rows]
   (mapv :id rows))
 
 (defn active [users]
   (->> users (remove :deleted?) (filterv :active?)))
+
+(defn names [users]
+  (->> users (remove :deleted?) (mapv :name)))
 ```
 
 **Left alone:**
@@ -536,6 +544,9 @@ Left alone, since the scan cannot vouch that the clause always runs or that the 
 
 ;; a map the function binds
 (defn ids [map rows] (vec (map :id rows)))
+
+;; the map is the thread's starting value, not a step
+(defn ids [rows] (vec (->> (map :id rows))))
 ```
 
 <details>
@@ -551,6 +562,8 @@ Flagged:
   of a `filter` with a predicate and one collection
 - a `->>` thread whose last two steps are such a `map` or `filter` call, its collection the thread's, and a bare `vec`:
   `(->> xs (map f) vec)` asks for `(->> xs (mapv f))`
+- a `vec` of a `->>` thread whose last step is such a call: `(vec (->> xs (remove p) (map f)))` asks for
+  `(->> xs (remove p) (mapv f))`
 
 The finding is keyed by `vec`, and its hint spells out the `mapv` or `filterv` call. The `vec` it flags is no step of a
 [`nested-call-chain`](#nested-call-chain), so `(vec (filter f (map g xs)))` gets this finding alone, and an
@@ -561,7 +574,8 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 - a `remove`, `keep` or any other lazy function, which core has no eager twin for
 - a transducer, `(map f)` or `(filter p)`, and a `filter` of more than one collection
 - a comment or `#_` form in the `vec` or in the `map` or `filter` call, or anywhere in the thread, which the rewrite
-  would lose, and a reader conditional among the call's arguments, which may read as nothing on one platform
+  would lose, and a reader conditional among the call's arguments, or anywhere in a thread the `vec` wraps, which may
+  read as nothing on one platform
 - a `vec` that is a step of a thread, and a `->>` that is a step of another, which take an argument they do not show; a
   `map` or `filter` that is the thread's starting value, and a `vec` written as `(vec)` or followed by another step
 - a `vec`, `map`, `filter`, `mapv`, `filterv` or `->>` that may not be core's: from another library, named in the ns

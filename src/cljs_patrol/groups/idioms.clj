@@ -748,21 +748,37 @@
            :heads [[inner-head inner-name] [(describe-name fused-name ns-info) fused-name]]
            :arguments (map n/string arguments)})))))
 
-(defn- vec-of-eager-call
-  "Describe loc when it is a `vec` of a `map` or `filter` call, or nil.
+(defn- thread-ending-in-eager-call
+  "Describe loc when it is a `->>` whose last step calls core's `map` or `filter` with the thread's collection, or nil.
 
-  A comment or `#_` beside the `map` or `filter` would be lost by the rewrite, and a step
-  of a thread takes an argument it does not show."
+  A comment or `#_` in the thread would be lost by the rewrite, and a reader conditional
+  may leave the thread without its starting value on one platform."
+  [loc ns-info]
+  (when-let [thread-head (core-call-head loc ns-info "->>")]
+    (let [children (code-children (z/node loc))]
+      (when (and (>= (count children) 3)
+                 (not-any? written-reader-conditional? children))
+        (some-> (eager-call (child-loc loc (last children)) ns-info 1)
+                (update :heads conj [thread-head "->>"])
+                (assoc :wrapped-thread? true))))))
+
+(defn- vec-of-eager-call
+  "Describe loc when it is a `vec` of a `map` or `filter` call, or of a `->>` ending in one, or nil.
+
+  A comment or `#_` beside the `map`, `filter` or `->>` would be lost by the rewrite, and a
+  step of a thread takes an argument it does not show."
   [loc ns-info]
   (when-let [head (core-call-head loc ns-info "vec")]
     (let [[inner & more] (rest (code-children (z/node loc)))]
       (when (and (empty? more)
                  (not (threaded-step? loc)))
-        (some-> (eager-call (child-loc loc inner) ns-info 0)
-                (update :heads conj [head "vec"]))))))
+        (let [inner-loc (child-loc loc inner)]
+          (some-> (or (eager-call inner-loc ns-info 0)
+                      (thread-ending-in-eager-call inner-loc ns-info))
+                  (update :heads conj [head "vec"])))))))
 
 (defn- vec-of-map-filter-candidate
-  "Record a `vec` of a `map` or `filter` call, or nil."
+  "Record a `vec` of a `map` or `filter` call, or of a `->>` ending in one, or nil."
   [loc ns-info file]
   (when-let [call (vec-of-eager-call loc ns-info)]
     (assoc call
@@ -1108,11 +1124,12 @@
 
 (defn- vec-of-map-filter-hint
   "Spell out the call the finding asks for, and in a thread the steps it takes the place of."
-  [{:keys [fused-name fn-literal? arguments step-text]}]
+  [{:keys [fused-name fn-literal? arguments step-text wrapped-thread?]}]
   (let [call (str fused-name (apply str (map #(str " " (shown % text-max)) arguments)))]
-    (if step-text
-      (str "Write (" call ") in place of " (shown step-text text-max) " vec")
-      (str "Write " (if fn-literal? "#(" "(") call ")"))))
+    (cond
+      step-text (str "Write (" call ") in place of " (shown step-text text-max) " vec")
+      wrapped-thread? (str "Write " (if fn-literal? "#(" "(") "->> ... (" call "))")
+      :else (str "Write " (if fn-literal? "#(" "(") call ")"))))
 
 (defn- vec-of-map-filter-finding [{:keys [form-text position file test]
                                    :as candidate}]
