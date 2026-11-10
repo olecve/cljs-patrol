@@ -51,4 +51,19 @@
   (is (= 'when (resolve-in {} "(fn [when] (when x y))" [z/down z/right z/right]))
       "keeps head a parameter binds as written")
   (is (= 'cljs.core/when (resolve-in {} "(let [other f] (when x y))" [z/down z/right z/right]))
-      "reads head no local binds as core"))
+      "reads head no local binds as core")
+  (is (= 'cljs.core/let (resolve-in {} "(let [let 1] let)" []))
+      "reads head its own form binds as core"))
+
+(deftest macro-aliases-resolve-after-require-aliases
+  (is (= 'app.events/save (resolve-in {:aliases {"e" "app.events"}
+                                       :macro-aliases {"e" "app.macros"}}
+                                      "(e/save x)" []))
+      "prefers require alias over macro alias of same name")
+  (is (= 'reagent.core/with-let (resolve-in {:macro-refers {"with-let" "reagent.core"}
+                                             :shadowed-core #{"with-let"}}
+                                            "(with-let [a 1] a)" []))
+      "resolves macro refer")
+  (is (= 'reagent.core/with-let (resolve-in {:macro-aliases {"r" "reagent.core"}}
+                                            "(r/with-let [a 1] a)" []))
+      "resolves macro alias"))

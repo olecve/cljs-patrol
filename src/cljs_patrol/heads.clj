@@ -40,7 +40,9 @@
 
 (def ^:private fn-like-heads #{"fn" "fn*" "defn" "defn-" "defmacro" "defmethod"})
 
-(defn token-value [node]
+(defn token-value
+  "Return the value a token node holds, or nil for any other node."
+  [node]
   (when (= :token (n/tag node))
     (try (n/sexpr node) (catch Exception _ nil))))
 
@@ -207,10 +209,11 @@
 (defn resolve-head
   "Return the fully qualified symbol the form at `loc` opens with, core's read as `cljs.core`.
 
-  The head resolves through the ns form's aliases and refers. An unqualified name nothing
-  refers is core's unless the ns form or a binding around it may shadow it, so Schema's
-  `defn`, which writes a return schema before its parameters, is never read as core's. A
-  special form is core's always. Any other head is returned as written."
+  The head resolves through the ns form's aliases and refers, its macro ones after. An
+  unqualified name nothing refers is core's unless the ns form or a binding around the form
+  may shadow it, so Schema's `defn`, which writes a return schema before its parameters, is
+  never read as core's. A special form is core's always. Any other head is returned as
+  written."
   [loc ns-info]
   (let [head (some-> loc z/down)
         head-name (parser/sym-name head)
@@ -220,9 +223,11 @@
                    (or (when (and bare? (contains? special-forms head-name))
                          (symbol "cljs.core" head-name))
                        (parser/resolve-full-symbol head-str ns-info)
+                       (parser/resolve-full-symbol head-str {:aliases (:macro-aliases ns-info)
+                                                             :refers (:macro-refers ns-info)})
                        (when-not (or (not bare?)
                                      (core-name-shadowed? ns-info head-name)
-                                     (locally-bound? head head-name))
+                                     (locally-bound? loc head-name))
                          (symbol "cljs.core" head-name))
                        (symbol head-str)))]
     (if (= "clojure.core" (some-> resolved namespace))
