@@ -47,7 +47,7 @@
       (pred current) current
       :else (recur (z/next current)))))
 
-(def ^:private function-heads #{"fn" "fn*"})
+(def ^:private function-heads #{'cljs.core/fn 'cljs.core/fn*})
 
 (defn- function-body-locs
   "Return the body forms of an `(fn [params] …)` literal, or nil for anything else.
@@ -55,15 +55,15 @@
   A name may sit between `fn` and the parameters, so the parameter list is whatever
   vector comes first. A multi-arity `fn` states no vector of its own and reads as nil,
   which costs only a finding this rule was never going to be sure of."
-  [list-loc]
-  (when (contains? function-heads (some-> list-loc z/down parser/sym-name))
+  [list-loc ns-info]
+  (when (contains? function-heads (heads/resolve-head list-loc ns-info))
     (loop [child (some-> list-loc z/down z/right)]
       (cond
         (nil? child) nil
         (= :vector (z/tag child)) (parser/right-siblings child)
         :else (recur (z/right child))))))
 
-(def ^:private mapping-heads #{"map" "map-indexed" "keep" "keep-indexed"})
+(def ^:private mapping-heads #{'cljs.core/keep 'cljs.core/keep-indexed 'cljs.core/map 'cljs.core/map-indexed})
 
 (defn- mapping-body-locs
   "Return the body forms of a sequence expression, in order, or nil.
@@ -72,20 +72,19 @@
   the function they are handed. A function named rather than written out — a bare ref
   or a transducer arity — has no body here, and nil is the honest answer: what that
   function attaches cannot be read from this call site."
-  [loc]
+  [loc ns-info]
   (when (= :list (z/tag loc))
-    (let [head (z/down loc)
-          head-name (parser/sym-name head)
-          argument (z/right head)]
+    (let [head (heads/resolve-head loc ns-info)
+          argument (some-> loc z/down z/right)]
       (cond
-        (= "for" head-name)
+        (= 'cljs.core/for head)
         (when (= :vector (some-> argument z/tag))
           (parser/right-siblings argument))
 
-        (contains? mapping-heads head-name)
+        (contains? mapping-heads head)
         (case (some-> argument z/tag)
           :fn (when-let [body (z/down argument)] [body])
-          :list (function-body-locs argument)
+          :list (function-body-locs argument ns-info)
           nil)))))
 
 (defn- key-meta-map? [map-loc]
@@ -99,10 +98,10 @@
   the props map of an element written out here. The last is why this is asked only of
   the forms a mapping body produces — a `:key` in the props of the container being
   spliced into belongs to the container, not to its children."
-  [loc]
+  [loc ns-info]
   (case (z/tag loc)
     :meta (key-meta-map? (z/down loc))
-    :list (and (= "with-meta" (some-> loc z/down parser/sym-name))
+    :list (and (= 'cljs.core/with-meta (heads/resolve-head loc ns-info))
                (key-meta-map? (some-> loc z/down z/rightmost)))
     :vector (and (hiccup-head-loc? (z/down loc))
                  (key-meta-map? (some-> loc z/down z/right)))
@@ -134,10 +133,10 @@
   needs the `into` for the rest. And without any key the `into` is load-bearing — it
   splices the elements in as positional children, which React accepts, where a sequence
   sitting inside the vector would draw a missing-key warning."
-  [loc]
-  (boolean (when-let [bodies (seq (mapping-body-locs loc))]
+  [loc ns-info]
+  (boolean (when-let [bodies (seq (mapping-body-locs loc ns-info))]
              (let [results (hiccup/result-locs (last bodies))]
-               (and (some attaches-key? results)
+               (and (some #(attaches-key? % ns-info) results)
                     (not-any? unkeyed-element? results)
                     (not-any? #(first-in-subtree reactive-deref? %) bodies))))))
 
@@ -145,8 +144,8 @@
   "True when `loc` is `(into [HEAD …] MAPPING …)` and the `into` earns nothing.
   Both halves have to hold: a Hiccup-shaped head, and a mapping whose body keys the
   elements it produces."
-  [loc]
-  (when (= "into" (parser/sym-name (z/down loc)))
+  [loc ns-info]
+  (when (= 'cljs.core/into (heads/resolve-head loc ns-info))
     (let [vec-loc (some-> loc z/down z/right)
           more-loc (some-> vec-loc z/right)]
       (and vec-loc
@@ -154,7 +153,7 @@
            (= :vector (z/tag vec-loc))
            (hiccup-head-loc? (z/down vec-loc))
            (not (data-vector? vec-loc))
-           (keyed-mapping-form? more-loc)))))
+           (keyed-mapping-form? more-loc ns-info)))))
 
 (defn- head-identifier
   "Return the head token's raw text as a keyword (for keyword tags) or symbol."
@@ -204,7 +203,7 @@
 
 (def ^:private body-heads
   "Forms whose last form is the value a function returns."
-  #{"defn" "defn-" "defc" "defmethod" "fn" "fn*"})
+  #{'cljs.core/defmethod 'cljs.core/defn 'cljs.core/defn- 'cljs.core/fn 'cljs.core/fn* 'rum.core/defc})
 
 (defn- last-code-loc? [loc parent]
   (identical? (z/node loc) (some-> (last (code-locs parent)) z/node)))
@@ -227,22 +226,22 @@
   render when what holds them does, asked again one level up. An argument of any other
   call, `(into [:<> [header]] rows)` among them, is data the call may still change, and a
   `with-meta` or reader metadata around `loc` gives it a key the element would need."
-  [loc]
-  (let [parent (z/up loc)
-        head-name (some-> parent z/down parser/sym-name)]
+  [loc ns-info]
+  (let [parent (z/up loc)]
     (case (some-> parent z/tag)
       :vector (and (hiccup-head-loc? (z/down parent))
                    (not (data-vector? parent))
-                   (rendered-position? parent))
+                   (rendered-position? parent ns-info))
       :map (and (->> (code-locs parent)
                      (take-while #(not (identical? (z/node loc) (z/node %))))
                      count
                      odd?)
-                (rendered-position? parent))
-      :list (cond
-              (contains? body-heads head-name) (last-code-loc? loc parent)
-              (= "for" head-name) (and (last-code-loc? loc parent) (rendered-position? parent))
-              :else (and (result-of? loc parent) (rendered-position? parent)))
+                (rendered-position? parent ns-info))
+      :list (let [head (heads/resolve-head parent ns-info)]
+              (cond
+                (contains? body-heads head) (last-code-loc? loc parent)
+                (= 'cljs.core/for head) (and (last-code-loc? loc parent) (rendered-position? parent ns-info))
+                :else (and (result-of? loc parent) (rendered-position? parent ns-info))))
       false)))
 
 (defn- redundant-fragment?
@@ -251,7 +250,7 @@
   Only an element written out counts: a symbol or a call may yield a map, which Reagent
   would read as the fragment's props, or something that is no element at all. A fragment
   with props carries a key the element would have to take over."
-  [loc]
+  [loc ns-info]
   (let [[head & children] (code-locs loc)
         [child] children]
     (boolean
@@ -260,7 +259,7 @@
           (= :vector (z/tag child))
           (hiccup-head-loc? (z/down child))
           (not (data-vector? child))
-          (rendered-position? loc)))))
+          (rendered-position? loc ns-info)))))
 
 (defn- redundant-fragment-finding [loc file]
   (let [[row col] (try (z/position loc) (catch Exception _ [0 1]))]
@@ -275,7 +274,7 @@
 
 (def ^:private binding-heads
   "Forms whose bindings may hold Hiccup a component renders: `let` and Reagent's `with-let`."
-  #{"let" "with-let"})
+  #{'cljs.core/let 'reagent.core/with-let})
 
 (defn- literal-value?
   "True when `loc` holds a literal value: a string, a number, a keyword, a boolean or nil, and no name."
@@ -316,28 +315,28 @@
   not, so the event vectors a handler dispatches are no elements. A loop body counts once
   however many items it gives, and a form choosing between branches as its busiest branch,
   since only one of them renders."
-  [loc]
+  [loc ns-info]
   (let [loc (hiccup/unwrap-meta loc)]
     (cond
       (hiccup-element? loc)
       (+ (if (handler-element? loc) 1 0)
-         (->> loc element-children (map count-handler-elements) (reduce +)))
+         (->> loc element-children (map #(count-handler-elements % ns-info)) (reduce +)))
 
       (= :list (z/tag loc))
-      (if-let [bodies (seq (remove #(= :uneval (z/tag %)) (mapping-body-locs loc)))]
-        (count-handler-elements (last bodies))
+      (if-let [bodies (seq (remove #(= :uneval (z/tag %)) (mapping-body-locs loc ns-info)))]
+        (count-handler-elements (last bodies) ns-info)
         (let [results (hiccup/result-locs loc)]
           (if (= [loc] results)
             0
-            (apply max (map count-handler-elements results)))))
+            (apply max (map #(count-handler-elements % ns-info) results)))))
 
       :else 0)))
 
 (defn- inline-component-findings
   "Return a finding for each `let` binding whose Hiccup holds two or more elements with event handlers.
   The value is read as [[count-handler-elements]] reads Hiccup, so a `when` or an `if` around it counts too."
-  [loc file]
-  (when (contains? binding-heads (some-> loc z/down parser/sym-name))
+  [loc ns-info file]
+  (when (contains? binding-heads (heads/resolve-head loc ns-info))
     (let [bindings (some-> loc z/down z/right)]
       (when bindings
         (->> (z/down bindings)
@@ -347,7 +346,7 @@
              (partition 2)
              (keep (fn [[name-loc value-loc]]
                      (let [binding-name (parser/sym-name name-loc)
-                           handler-count (when binding-name (count-handler-elements value-loc))]
+                           handler-count (when binding-name (count-handler-elements value-loc ns-info))]
                        (when (and handler-count (>= handler-count inline-component-min))
                          (let [[row col] (try (z/position value-loc) (catch Exception _ [0 1]))]
                            {:kw (symbol binding-name)
@@ -437,10 +436,10 @@
 
 (defn- handle-let
   "Emit an :inline-component finding for each `let` binding holding an inline component."
-  [loc _ns-info file]
+  [loc ns-info file]
   (when-not (or (hiccup/inside-unrendered-form? loc)
                 (hiccup/inside-style-decl? loc))
-    (when-let [findings (seq (inline-component-findings loc file))]
+    (when-let [findings (seq (inline-component-findings loc ns-info file))]
       {:decls (vec findings)
        :usages []
        :dynamics []})))
@@ -467,24 +466,24 @@
 
 (defn- handle-into
   "Emit a :redundant-into-hiccup finding when `loc` matches the anti-pattern."
-  [loc _ns-info file]
+  [loc ns-info file]
   (when (and (not (hiccup/inside-unrendered-form? loc))
              (not (hiccup/inside-style-decl? loc))
              (not (hiccup/inside-ns-form? loc))
-             (redundant-into? loc))
+             (redundant-into? loc ns-info))
     {:decls [(redundant-into-finding loc file)]
      :usages []
      :dynamics []}))
 
 (defn- handle-fragment
   "Emit an :empty-fragment-props or :redundant-fragment finding when `loc` is a fragment that does nothing."
-  [loc _ns-info file]
+  [loc ns-info file]
   (when (and (not (hiccup/inside-unrendered-form? loc))
              (not (hiccup/inside-style-decl? loc))
              (not (hiccup/inside-ns-form? loc)))
     (when-let [finding (cond
                          (empty-fragment-props? loc) (empty-fragment-props-finding loc file)
-                         (redundant-fragment? loc) (redundant-fragment-finding loc file))]
+                         (redundant-fragment? loc ns-info) (redundant-fragment-finding loc file))]
       {:decls [finding]
        :usages []
        :dynamics []})))
