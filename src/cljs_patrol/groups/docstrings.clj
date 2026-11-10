@@ -1,7 +1,8 @@
 (ns cljs-patrol.groups.docstrings
   "Docstrings rule group: enforces bbatsov clojure-style-guide docstring conventions.
-  Checks docstring-summary, docstring-indentation, and docstring-leading-trailing-whitespace
-  on every def-form regardless of privacy (defn, defn-, def, defmacro, defmulti, defprotocol).
+  Checks docstring-summary, docstring-indentation, docstring-leading-trailing-whitespace and
+  docstring-repeats-name on every def-form regardless of privacy (defn, defn-, def, defmacro,
+  defmulti, defprotocol).
   For defprotocol, both the outer protocol docstring and each method signature's
   trailing docstring are checked."
   (:require
@@ -100,9 +101,53 @@
        (or (Character/isWhitespace (.charAt content 0))
            (Character/isWhitespace (.charAt content (dec (count content)))))))
 
-(defn- docstring-issues [content col]
+(def ^:private repeat-max-words
+  "The most words a docstring may hold and still be read as only repeating its name."
+  6)
+
+(def ^:private filler-words
+  "Words a docstring wraps a name in without saying more: articles, linking words, and verbs any function could claim."
+  #{"a" "an" "and" "are" "as" "at" "be" "build" "builds" "by" "check" "checks" "compute" "computes" "create"
+    "creates" "false" "fetch" "fetches" "for" "from" "get" "gets" "given" "handle" "handles" "if" "in" "is"
+    "it" "its" "make" "makes" "of" "on" "or" "return" "returns" "set" "sets" "that" "the" "this" "to" "true"
+    "when" "whether" "with"})
+
+(defn- stem
+  "Fold a plural onto its singular, so `users` matches the `user` of a name."
+  [word]
+  (cond
+    (str/ends-with? word "ies") (str (subs word 0 (- (count word) 3)) "y")
+    (re-find #"(s|x|z|ch|sh)es$" word) (subs word 0 (- (count word) 2))
+    (and (str/ends-with? word "s") (not (str/ends-with? word "ss"))) (subs word 0 (dec (count word)))
+    :else word))
+
+(defn- words
+  "Return the words of `text`, lower-cased, in any script, a possessive `'s` dropped."
+  [text]
+  (re-seq #"(?U)[\p{L}\p{N}]+" (str/replace (str/lower-case text) #"['’]s\b" "")))
+
+(defn- repeats-name?
+  "True when a one-line docstring says nothing its var's name does not.
+
+  It holds `repeat-max-words` words at most, and once filler words are dropped, every word
+  left, at least one, is a word of the name: `(defn get-user-data \"Gets user data.\")`. A
+  backtick or an operator, `<=`, carries what the words do not, so either leaves it alone."
+  [content var-name]
+  (let [all-words (words content)
+        content-words (remove filler-words all-words)
+        name-words (->> var-name words (map stem) set)]
+    (boolean (and (not (multi-line? content))
+                  (not (re-find #"[`<>=+*/]" content))
+                  (<= (count all-words) repeat-max-words)
+                  (seq content-words)
+                  (every? #(contains? name-words (stem %)) content-words)))))
+
+(defn- docstring-issues [content col var-name]
   (let [leading-trailing? (leading-trailing-violation? content)]
     (cond-> []
+      (repeats-name? content var-name)
+      (conj :docstring-repeats-name)
+
       (summary-violation? content)
       (conj :docstring-summary)
 
@@ -145,7 +190,7 @@
              :type t
              :file file
              :row row})
-          (docstring-issues content col))))
+          (docstring-issues content col (name kw)))))
 
 (defn- collect-doc-pairs [loc operator ns-name name-symbol]
   (let [primary-kw (keyword ns-name (name name-symbol))
@@ -174,13 +219,16 @@
      :docstring-indentation
      (vec (by-type :docstring-indentation))
      :docstring-leading-trailing-whitespace
-     (vec (by-type :docstring-leading-trailing-whitespace))}))
+     (vec (by-type :docstring-leading-trailing-whitespace))
+     :docstring-repeats-name
+     (vec (by-type :docstring-repeats-name))}))
 
 (defn- summary-lines* [{:keys [docstring-summary docstring-indentation
-                               docstring-leading-trailing-whitespace]}]
+                               docstring-leading-trailing-whitespace docstring-repeats-name]}]
   [["Docstring summary violations:" (count docstring-summary)]
    ["Docstring indentation violations:" (count docstring-indentation)]
-   ["Docstring leading/trailing whitespace:" (count docstring-leading-trailing-whitespace)]])
+   ["Docstring leading/trailing whitespace:" (count docstring-leading-trailing-whitespace)]
+   ["Docstring repeats name:" (count docstring-repeats-name)]])
 
 (defn- failed?*
   "Always return false; docstring rules are informational by design.
@@ -208,15 +256,20 @@
      (str "A docstring line is indented less than the opening quote. Indent the continuation "
           "lines at least to the column of the opening quote.")
      :docstring-leading-trailing-whitespace
-     "A docstring starts or ends with whitespace. Remove it."})
+     "A docstring starts or ends with whitespace. Remove it."
+     :docstring-repeats-name
+     (str "This docstring only repeats, or contradicts, the var's name. Say what the name cannot, such as "
+          "when or why to call it, or delete the docstring.")})
   (docs-anchors [_]
     {:docstring-indentation "docstring-indentation"
      :docstring-leading-trailing-whitespace "docstring-leadingtrailing-whitespace"
-     :docstring-summary "docstring-summary"})
+     :docstring-summary "docstring-summary"
+     :docstring-repeats-name "docstring-repeats-name"})
   (rule->tier [_]
     {:docstring-summary :cleanup
      :docstring-indentation :cleanup
-     :docstring-leading-trailing-whitespace :cleanup})
+     :docstring-leading-trailing-whitespace :cleanup
+     :docstring-repeats-name :cleanup})
   (file-extensions [_] extensions))
 
 (defn make-group

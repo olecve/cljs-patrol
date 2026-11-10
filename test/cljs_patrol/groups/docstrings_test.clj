@@ -3,6 +3,8 @@
    [cljs-patrol.core :as core]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.docstrings :as docstrings]
+   [cljs-patrol.temp-project :as temp-project]
+   [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private fixture-dir "test-projects/docstrings-app/src/myapp")
@@ -140,8 +142,50 @@
   (let [lines (group/summary-lines docstrings/group
                                    {:docstring-summary [{:kw :a/x}]
                                     :docstring-indentation [{:kw :a/y} {:kw :a/z}]
-                                    :docstring-leading-trailing-whitespace []})]
-    (is (= 3 (count lines)))
+                                    :docstring-leading-trailing-whitespace []
+                                    :docstring-repeats-name [{:kw :a/w}]})]
+    (is (= 4 (count lines)))
     (is (= 1 (second (nth lines 0))))
     (is (= 2 (second (nth lines 1))))
-    (is (= 0 (second (nth lines 2))))))
+    (is (= 0 (second (nth lines 2))))
+    (is (= 1 (second (nth lines 3))))))
+
+(defn- repeats-name
+  "Analyze `lines` as the only file of a project, and return the vars docstring-repeats-name flags."
+  [lines]
+  (->> (temp-project/run-group docstrings/group {"app/core.cljs" (str/join "\n" (cons "(ns app.core)" lines))})
+       :results
+       :docstring-repeats-name
+       (mapv :kw)))
+
+(deftest docstring-saying-only-its-name-is-flagged
+  (is (= [:app.core/get-user-data :app.core/user-name :app.core/valid? :app.core/save! :app.core/entries
+          :app.core/timeout-ms :app.core/update-project! :app.core/watch-boxes :app.core/entry-count
+          :app.core/user-id :app.core/-render]
+         (repeats-name ["(defn get-user-data \"Gets user data.\" [])"
+                        "(defn user-name \"Return the user's name.\" [])"
+                        "(defn valid? \"True when valid.\" [])"
+                        "(defn save! \"Saves.\" [])"
+                        "(defn entries \"Returns the entries.\" [])"
+                        "(def timeout-ms \"Timeout in ms.\" 500)"
+                        "(defn update-project! \"Updates and returns the project.\" [])"
+                        "(defn watch-boxes \"Watches boxes.\" [])"
+                        "(defn entry-count \"Counts entries.\" [])"
+                        "(defn user-id \"User ids.\" [])"
+                        "(defprotocol Renderable \"Things that draw.\" (-render [this] \"Render.\"))"]))
+      "every word left after filler is word of name, plurals folded"))
+
+(deftest docstring-adding-to-its-name-is-left-alone
+  (is (empty? (repeats-name ["(defn valid? \"True when the email has an at sign.\" [])"
+                             "(defn retry \"Retries once.\" [])"
+                             "(defn get-user \"Gets it.\" [])"
+                             "(defn get-user-data \"Gets the user data for the user and the data.\" [])"
+                             "(defn get-user-data"
+                             "  \"Gets user data."
+                             "  User data.\""
+                             "  [])"
+                             "(def user-name \"user\")"
+                             "(defn user-name \"User name に応じて.\" [])"
+                             "(defn user-id \"`user-id`.\" [])"
+                             "(defn min-max \"Min <= max.\" [])"]))
+      "word name lacks in any script, nothing left after filler, over six words, more lines, value string, code or operator"))

@@ -92,3 +92,52 @@ A docstring that starts or ends with whitespace. See the
 [Clojure Style Guide](https://github.com/bbatsov/clojure-style-guide#docstring-leading-trailing-whitespace).
 
 </details>
+
+### Docstring repeats name
+
+`docstring-repeats-name` · cleanup — A docstring that says nothing its var's name does not.
+
+```clojure
+;; flagged
+(defn get-user-data
+  "Gets user data."
+  [db id]
+  (get-in db [:users id]))
+
+;; fix
+(defn get-user-data
+  "Looks the user up in the cache only, so a user not loaded yet reads as nil."
+  [db id]
+  (get-in db [:users id]))
+```
+
+**Left alone:**
+
+```clojure
+;; a word the name lacks
+(defn valid?
+  "True when the email has an at sign."
+  [email]
+  (boolean (re-find #"@" email)))
+
+;; a second line
+(defn get-user-data
+  "Gets user data.
+  Cached per session."
+  [db id]
+  (get-in db [:users id]))
+```
+
+<details>
+<summary>Details</summary>
+
+A docstring is read as repeating the name when it is one line of six words at most, and every word left once filler is
+dropped is a word of the name. Filler is articles and linking words (`the`, `of`, `when`…) and verbs any function could
+claim (`gets`, `returns`, `creates`, `checks`…). The name splits on anything but letters and digits, a plural matches
+its singular, so `"Returns the entries."` repeats `entries`, and a possessive `'s` is dropped. A backtick or an operator
+such as `<=` carries what the words do not, so either leaves the docstring alone. A docstring contradicting the name
+with filler alone, `(defn enabled? "False when enabled.")`, is flagged too: it is wrong rather than informative. A
+docstring with nothing left once filler is dropped, such as `"Gets it."`, is left alone: it gives no evidence either
+way.
+
+</details>
