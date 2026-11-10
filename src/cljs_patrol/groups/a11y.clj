@@ -1293,21 +1293,21 @@
 
   Metadata wraps it, and a `let`, `when` or `if` yields it, so either sits where the
   element renders. Neither counts as a wrapper: no element of its own comes between."
-  [loc]
+  [loc ns-info]
   (let [parent (z/up loc)]
     (case (some-> parent z/tag)
       :meta parent
-      :list (when (some #(= (z/node loc) (z/node %)) (hiccup/result-locs parent)) parent)
+      :list (when (some #(= (z/node loc) (z/node %)) (hiccup/result-locs parent ns-info)) parent)
       nil)))
 
 (defn- enclosing-locs
   "Return `loc` and the native elements it opens from outside, as far as `label-wrapper-depth`.
   The forms that yield it count too, as [[yielding-parent]] says."
-  [loc]
+  [loc ns-info]
   (loop [current loc
          depth 0
          found [loc]]
-    (if-let [parent (yielding-parent current)]
+    (if-let [parent (yielding-parent current ns-info)]
       (recur parent depth (conj found parent))
       (if (and (< depth label-wrapper-depth) (first-body-child? current))
         (let [parent (z/up current)]
@@ -1416,7 +1416,7 @@
   A label shared by several fields names the group, so a field beside another field, in
   its wrapper or after it before the next label, is left alone. So is a label whose
   wrapper holds a field of its own, which it names instead."
-  [tag loc {:keys [label-styles]
+  [tag loc {:keys [label-styles ns-info]
             :as context}]
   (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
     (and (seq label-styles)
@@ -1432,7 +1432,7 @@
                          (not (holds-field? previous loc context))
                          (not (holds-field? field-side loc context))
                          (not (field-before-next-label? field-side loc context)))))
-                (enclosing-locs loc))))))
+                (enclosing-locs loc ns-info))))))
 
 (defn- nested-interactive-loc
   "Return the first interactive element inside a control's body, or nil.

@@ -132,13 +132,15 @@
   One keyed branch is not enough: a body keying only some of what it produces still
   needs the `into` for the rest. And without any key the `into` is load-bearing — it
   splices the elements in as positional children, which React accepts, where a sequence
-  sitting inside the vector would draw a missing-key warning."
+  sitting inside the vector would draw a missing-key warning.
+
+  The keys are read where the body's heads resolve, the unkeyed elements wherever a head
+  of that name might yield one, so a look-alike `x/when` neither keys nor hides one."
   [loc ns-info]
   (boolean (when-let [bodies (seq (mapping-body-locs loc ns-info))]
-             (let [results (hiccup/result-locs (last bodies))]
-               (and (some #(attaches-key? % ns-info) results)
-                    (not-any? unkeyed-element? results)
-                    (not-any? #(first-in-subtree reactive-deref? %) bodies))))))
+             (and (some #(attaches-key? % ns-info) (hiccup/result-locs (last bodies) ns-info))
+                  (not-any? unkeyed-element? (hiccup/result-locs (last bodies)))
+                  (not-any? #(first-in-subtree reactive-deref? %) bodies)))))
 
 (defn- redundant-into?
   "True when `loc` is `(into [HEAD …] MAPPING …)` and the `into` earns nothing.
@@ -213,10 +215,10 @@
 
   The values are compared rather than `loc` itself, since a `cond` the last form of a `let`
   holds yields its branches, not the `cond`."
-  [loc parent]
-  (let [parent-results (map z/node (hiccup/result-locs parent))]
+  [loc parent ns-info]
+  (let [parent-results (map z/node (hiccup/result-locs parent ns-info))]
     (every? (fn [result] (some #(identical? (z/node result) %) parent-results))
-            (hiccup/result-locs loc))))
+            (hiccup/result-locs loc ns-info))))
 
 (defn- rendered-position?
   "True when `loc` stands where its value is rendered or returned, not handed to a call as data.
@@ -241,7 +243,7 @@
               (cond
                 (contains? body-heads head) (last-code-loc? loc parent)
                 (= 'cljs.core/for head) (and (last-code-loc? loc parent) (rendered-position? parent ns-info))
-                :else (and (result-of? loc parent) (rendered-position? parent ns-info))))
+                :else (and (result-of? loc parent ns-info) (rendered-position? parent ns-info))))
       false)))
 
 (defn- redundant-fragment?
@@ -325,7 +327,7 @@
       (= :list (z/tag loc))
       (if-let [bodies (seq (remove #(= :uneval (z/tag %)) (mapping-body-locs loc ns-info)))]
         (count-handler-elements (last bodies) ns-info)
-        (let [results (hiccup/result-locs loc)]
+        (let [results (hiccup/result-locs loc ns-info)]
           (if (= [loc] results)
             0
             (apply max (map #(count-handler-elements % ns-info) results)))))

@@ -418,6 +418,12 @@
    [:input {:aria-label "Min"}]
    [ui/popover {:content (fn [] [:input {:aria-label "Max"}])}]])
 
+(defn ok-field-yielded-by-look-alike [ready?]
+  [:div
+   [:span (styles/field-label) "Title"]
+   (x/when ready?
+     [:input {:aria-label "Post title"}])])
+
 (defn ok-label-names-field-and-deref [max-input]
   [:div
    [:span (styles/field-label) "Range"]

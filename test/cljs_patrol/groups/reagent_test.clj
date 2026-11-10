@@ -244,6 +244,8 @@
 
 (deftest fragment-under-look-alike-heads-is-left-alone
   (is (empty? (fragment-findings :redundant-fragment ["(x/defn view [] [:<> [row]])"
+                                                      "(defn view [] (x/when c [:<> [row]]))"
+                                                      "(defn view [] (x/if c [:<> [row]] [cell]))"
                                                       "(defn view [] (x/for [x xs] [:<> [row x]]))"
                                                       "(let [defn f] (defn view [] [:<> [row]]))"]))
       "skips heads resolving outside core, reagent and rum"))
@@ -310,7 +312,8 @@
 (deftest let-like-look-alikes-are-left-alone
   (is (empty? (inline-components ["(x/let [a [:div [b {:on-click f}] [b {:on-click g}]]] a)"
                                   "(x/with-let [a [:div [b {:on-click f}] [b {:on-click g}]]] a)"
-                                  "(let [a [:div [b {:on-click f}] (x/for [i is] [b {:on-click g}])]] a)"]))
+                                  "(let [a [:div [b {:on-click f}] (x/for [i is] [b {:on-click g}])]] a)"
+                                  "(let [a (x/when c [:div [b {:on-click f}] [b {:on-click g}]])] a)"]))
       "skips bindings and loops of heads resolving outside core and reagent"))
 
 (deftest let-binding-without-several-handler-elements-is-left-alone
@@ -433,7 +436,11 @@
                                 "(into [:ul] (x/map (fn [i] ^{:key i} [:li i]) is))"
                                 "(into [:ul] (map (x/fn [i] ^{:key i} [:li i]) is))"
                                 "(into [:ul] (map (fn [i] (x/with-meta [:li i] {:key i})) is))"
-                                "(let [into f] (into [:ul] (for [i is] ^{:key i} [:li i])))"]))
+                                "(let [into f] (into [:ul] (for [i is] ^{:key i} [:li i])))"
+                                "(into [:ul] (for [i is] (x/when i ^{:key i} [:li i])))"
+                                "(into [:ul] (for [i is] (if c (x/when c [:li i]) ^{:key i} [:li i])))"
+                                "(into [:ul] (for [i is] (cond c (x/if c [:li i] [:li]) :else ^{:key i} [:li i])))"
+                                "(into [:ul] (for [i is] (let [when f] (if c (when c [:li i]) ^{:key i} [:li i]))))"]))
       "skips heads resolving outside core"))
 
 (deftest heads-referred-as-macros-are-read

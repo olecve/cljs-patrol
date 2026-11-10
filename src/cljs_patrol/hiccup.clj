@@ -6,6 +6,7 @@
   quoted vectors, etc.). Callers can then decide whether to silently skip
   or flag; this ns never makes that policy call."
   (:require
+   [cljs-patrol.heads :as heads]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [rewrite-clj.zip :as z]))
@@ -613,12 +614,34 @@
 
 (def ^:private tail-result-heads
   "Forms whose value is the value of the last form written inside them."
-  #{"do" "let" "let*" "letfn" "when" "when-not" "when-let" "when-some" "when-first"
-    "binding" "with-let" "with-redefs"})
+  #{'cljs.core/binding 'cljs.core/do 'cljs.core/let 'cljs.core/let* 'cljs.core/letfn 'cljs.core/when
+    'cljs.core/when-first 'cljs.core/when-let 'cljs.core/when-not 'cljs.core/when-some 'cljs.core/with-redefs
+    'reagent.core/with-let})
 
 (def ^:private branch-result-heads
   "Forms whose value is the value of one of two branches, written after a test or bindings."
-  #{"if" "if-not" "if-let" "if-some"})
+  #{'cljs.core/if 'cljs.core/if-let 'cljs.core/if-not 'cljs.core/if-some})
+
+(def ^:private result-head-by-name
+  "Every form [[result-locs]] reads, by its bare name."
+  (into {}
+        (map (juxt name identity))
+        (concat tail-result-heads branch-result-heads ['cljs.core/case 'cljs.core/cond])))
+
+(defn- result-locs*
+  [loc head-of]
+  (let [head (when (= :list (z/tag loc)) (head-of loc))
+        args (when head (remove #(= :uneval (z/tag %)) (parser/right-siblings (z/down loc))))
+        branches (cond
+                   (contains? tail-result-heads head) (take-last 1 args)
+                   (contains? branch-result-heads head) (take 2 (rest args))
+                   (= 'cljs.core/cond head) (take-nth 2 (rest args))
+                   (= 'cljs.core/case head) (let [clauses (rest args)]
+                                              (concat (take-nth 2 (rest clauses))
+                                                      (when (odd? (count clauses)) (take-last 1 clauses)))))]
+    (if (seq branches)
+      (mapcat #(result-locs* % head-of) branches)
+      [loc])))
 
 (defn result-locs
   "Return the locs whose value can become the value of `loc`.
@@ -627,20 +650,16 @@
   anywhere else — an argument, a map value, the target of a `with-meta` — is not, and
   reading it as a result answers about the wrong form. A form this does not recognize
   answers for itself, which is right for a call, a literal, or a symbol. A `#_` form is
-  no argument, so it shifts no `cond` or `case` clause."
-  [loc]
-  (let [head-name (when (= :list (z/tag loc)) (some-> loc z/down parser/sym-name))
-        args (when head-name (remove #(= :uneval (z/tag %)) (parser/right-siblings (z/down loc))))
-        branches (cond
-                   (contains? tail-result-heads head-name) (take-last 1 args)
-                   (contains? branch-result-heads head-name) (take 2 (rest args))
-                   (= "cond" head-name) (take-nth 2 (rest args))
-                   (= "case" head-name) (let [clauses (rest args)]
-                                          (concat (take-nth 2 (rest clauses))
-                                                  (when (odd? (count clauses)) (take-last 1 clauses)))))]
-    (if (seq branches)
-      (mapcat result-locs branches)
-      [loc])))
+  no argument, so it shifts no `cond` or `case` clause.
+
+  Given `ns-info`, a head counts only when it resolves to core's form or Reagent's
+  `with-let`, so a look-alike such as `x/when` answers for itself: the arity for a rule
+  that flags what it reads. Without it, a head counts by its bare name: the arity for a
+  guard, which gives up a finding when anything might yield what it looks for."
+  ([loc]
+   (result-locs* loc #(get result-head-by-name (some-> % z/down parser/sym-name))))
+  ([loc ns-info]
+   (result-locs* loc #(heads/resolve-head % ns-info))))
 
 (defn- yields-hiccup?
   "True when the expression can yield a Hiccup vector rather than a value.
