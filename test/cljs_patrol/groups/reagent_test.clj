@@ -1,9 +1,8 @@
 (ns cljs-patrol.groups.reagent-test
   (:require
-   [cljs-patrol.core :as core]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.reagent :as reagent]
-   [clojure.java.io :as io]
+   [cljs-patrol.temp-project :as temp-project]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
    [rewrite-clj.zip :as z]))
@@ -398,15 +397,7 @@
 (defn- file-discarded-hiccup
   "Analyze `source` as the only file of a project, and return the forms discarded-hiccup flags."
   [source]
-  (let [dir (.toFile (java.nio.file.Files/createTempDirectory "discarded-hiccup" (make-array java.nio.file.attribute.FileAttribute 0)))
-        file (io/file dir "core.cljs")]
-    (try
-      (spit file source)
-      (binding [*err* (java.io.StringWriter.)]
-        (->> (core/run (str dir) [reagent/group]) :group-results first :discarded-hiccup (mapv :form)))
-      (finally
-        (.delete file)
-        (.delete dir)))))
+  (->> (temp-project/run-group reagent/group {"core.cljs" source}) :results :discarded-hiccup (mapv :form)))
 
 (deftest heads-referred-as-macros-are-read
   (is (= ["[:p]"]

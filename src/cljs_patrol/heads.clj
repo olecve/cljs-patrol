@@ -206,14 +206,22 @@
   #{"." "case*" "catch" "def" "deftype*" "defrecord*" "do" "finally" "fn*" "if" "js*" "let*"
     "letfn*" "loop*" "new" "ns*" "quote" "recur" "set!" "throw" "try" "var"})
 
+(defn- interop-name?
+  "True when `head-name` calls a method, `.method`, or a constructor, `Class.`."
+  [head-name]
+  (and (not (contains? #{"." ".."} head-name))
+       (or (str/starts-with? head-name ".")
+           (str/ends-with? head-name "."))))
+
 (defn resolve-head
   "Return the fully qualified symbol the form at `loc` opens with, core's read as `cljs.core`.
 
   The head resolves through the ns form's aliases and refers, its macro ones after. An
   unqualified name nothing refers is core's unless the ns form or a binding around the form
   may shadow it, so Schema's `defn`, which writes a return schema before its parameters, is
-  never read as core's. A special form is core's always. Any other head is returned as
-  written."
+  never read as core's. A special form is core's always, and an interop head such as
+  `.method` or `Class.` never. Any other symbol is returned as written, and a head that is
+  no symbol gives nil."
   [loc ns-info]
   (let [head (some-> loc z/down)
         head-name (parser/sym-name head)
@@ -226,6 +234,7 @@
                        (parser/resolve-full-symbol head-str {:aliases (:macro-aliases ns-info)
                                                              :refers (:macro-refers ns-info)})
                        (when-not (or (not bare?)
+                                     (interop-name? head-name)
                                      (core-name-shadowed? ns-info head-name)
                                      (locally-bound? loc head-name))
                          (symbol "cljs.core" head-name))
