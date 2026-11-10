@@ -161,7 +161,7 @@
 (deftest docstring-saying-only-its-name-is-flagged
   (is (= [:app.core/get-user-data :app.core/user-name :app.core/valid? :app.core/save! :app.core/entries
           :app.core/timeout-ms :app.core/update-project! :app.core/watch-boxes :app.core/entry-count
-          :app.core/user-id]
+          :app.core/user-id :app.core/-render]
          (repeats-name ["(defn get-user-data \"Gets user data.\" [])"
                         "(defn user-name \"Return the user's name.\" [])"
                         "(defn valid? \"True when valid.\" [])"
@@ -171,7 +171,8 @@
                         "(defn update-project! \"Updates and returns the project.\" [])"
                         "(defn watch-boxes \"Watches boxes.\" [])"
                         "(defn entry-count \"Counts entries.\" [])"
-                        "(defn user-id \"User ids.\" [])"]))
+                        "(defn user-id \"User ids.\" [])"
+                        "(defprotocol Renderable \"Things that draw.\" (-render [this] \"Render.\"))"]))
       "every word left after filler is word of name, plurals folded"))
 
 (deftest docstring-adding-to-its-name-is-left-alone
@@ -183,5 +184,8 @@
                              "  \"Gets user data."
                              "  User data.\""
                              "  [])"
-                             "(def user-name \"user\")"]))
-      "word name lacks, nothing left after filler, more than six words, more lines, or value string"))
+                             "(def user-name \"user\")"
+                             "(defn user-name \"User name に応じて.\" [])"
+                             "(defn user-id \"`user-id`.\" [])"
+                             "(defn min-max \"Min <= max.\" [])"]))
+      "word name lacks in any script, nothing left after filler, over six words, more lines, value string, code or operator"))

@@ -133,8 +133,11 @@ A docstring that starts or ends with whitespace. See the
 
 A docstring is read as repeating the name when it is one line of six words at most, and every word left once filler is
 dropped is a word of the name. Filler is articles and linking words (`the`, `of`, `when`…) and verbs any function could
-claim (`gets`, `returns`, `creates`, `checks`…). The name splits on `-`, `>`, `?`, `!` and `*`, and a plural matches its
-singular, so `"Returns the entries."` repeats `entries`. A docstring with nothing left once filler is dropped, such as
-`"Gets it."`, is left alone: it gives no evidence either way.
+claim (`gets`, `returns`, `creates`, `checks`…). The name splits on anything but letters and digits, a plural matches
+its singular, so `"Returns the entries."` repeats `entries`, and a possessive `'s` is dropped. A backtick or an operator
+such as `<=` carries what the words do not, so either leaves the docstring alone. A docstring contradicting the name
+with filler alone, `(defn enabled? "False when enabled.")`, is flagged too: it is wrong rather than informative. A
+docstring with nothing left once filler is dropped, such as `"Gets it."`, is left alone: it gives no evidence either
+way.
 
 </details>

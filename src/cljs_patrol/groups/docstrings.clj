@@ -121,19 +121,23 @@
     (and (str/ends-with? word "s") (not (str/ends-with? word "ss"))) (subs word 0 (dec (count word)))
     :else word))
 
-(defn- words [text]
-  (re-seq #"[a-z0-9]+" (str/replace (str/lower-case text) #"'s\b" "")))
+(defn- words
+  "Return the words of `text`, lower-cased, in any script, a possessive `'s` dropped."
+  [text]
+  (re-seq #"(?U)[\p{L}\p{N}]+" (str/replace (str/lower-case text) #"['’]s\b" "")))
 
 (defn- repeats-name?
   "True when a one-line docstring says nothing its var's name does not.
 
   It holds `repeat-max-words` words at most, and once filler words are dropped, every word
-  left, at least one, is a word of the name: `(defn get-user-data \"Gets user data.\")`."
+  left, at least one, is a word of the name: `(defn get-user-data \"Gets user data.\")`. A
+  backtick or an operator, `<=`, carries what the words do not, so either leaves it alone."
   [content var-name]
   (let [all-words (words content)
         content-words (remove filler-words all-words)
         name-words (->> var-name words (map stem) set)]
     (boolean (and (not (multi-line? content))
+                  (not (re-find #"[`<>=+*/]" content))
                   (<= (count all-words) repeat-max-words)
                   (seq content-words)
                   (every? #(contains? name-words (stem %)) content-words)))))
@@ -254,8 +258,8 @@
      :docstring-leading-trailing-whitespace
      "A docstring starts or ends with whitespace. Remove it."
      :docstring-repeats-name
-     (str "This docstring only repeats the var's name. Say what the name cannot, such as when or why "
-          "to call it, or delete the docstring.")})
+     (str "This docstring only repeats, or contradicts, the var's name. Say what the name cannot, such as "
+          "when or why to call it, or delete the docstring.")})
   (docs-anchors [_]
     {:docstring-indentation "docstring-indentation"
      :docstring-leading-trailing-whitespace "docstring-leadingtrailing-whitespace"
