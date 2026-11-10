@@ -355,13 +355,17 @@
    [ui/number-input {:on-change on-change
                      :value value}]])
 
-(defn bad-field-before-non-fields [hint notes]
+(defn bad-field-before-non-fields [hint notes note-count]
   [:div
    [:span (styles/field-label) "Title"]
    [:input {:aria-label "Post title"}]
    [:input {:type "checkbox"}]
    "Shown on the front page"
    [:p (styles/hint) hint]
+   [:small (str "Up to " 80)]
+   [:p (styles/hint) (when hint (str hint))]
+   [:span @note-count]
+   [ui/tooltip {:content (str "Shown " hint)}]
    #_[:input {:aria-label "Subtitle"}]
    (for [note notes]
      ^{:key note}
@@ -372,6 +376,40 @@
    [:span (styles/field-label) "Range"]
    [:input {:aria-label "Min"}]
    [:div (styles/value) max-input]])
+
+(defn ok-label-names-field-and-fields-in-first-slot-for [ranges]
+  [:div
+   [:span (styles/field-label) "Ranges"]
+   [:input {:aria-label "First"}]
+   [:div
+    (for [r ranges]
+      ^{:key r}
+      [:input {:aria-label r}])]])
+
+(defn ok-label-names-field-and-field-in-text-branch [more?]
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "Min"}]
+   [:span (when more? [:input {:aria-label "Max"}])]])
+
+(defn ok-label-names-field-and-field-in-component-branch [more?]
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "Min"}]
+   [ui/card {:gap 2}
+    (if more? [:input {:aria-label "Max"}] "No maximum")]])
+
+(defn ok-label-names-field-and-field-in-component-props []
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "Min"}]
+   [ui/form-row {:control [:input {:aria-label "Max"}]}]])
+
+(defn ok-label-names-field-and-deref [max-input]
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "Min"}]
+   @max-input])
 
 (defn ok-label-names-field-and-field-in-component []
   [:div

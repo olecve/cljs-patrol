@@ -1357,21 +1357,27 @@
 
 (declare holds-field?)
 
+(defn- for-form? [loc]
+  (= "for" (some-> loc z/down parser/sym-name)))
+
 (defn- renders-field?
   "True when the form at `loc`, written where its value renders, may render a field.
 
   What a `let`, `when`, `if`, `cond` or `case` yields and a `for` body are read. A call,
-  a symbol or a reader conditional cannot be read, so it may render one."
-  [loc except context]
+  a symbol, a deref or a reader conditional cannot be read, so it may render one, unless
+  it is `plain?`: taken as text or data. A map is read for the vectors it holds."
+  [loc except context plain?]
   (case (z/tag loc)
     (:meta :vector) (holds-field? loc except context)
-    :list (let [results (if (= "for" (some-> loc z/down parser/sym-name))
+    :list (let [results (if (for-form? loc)
                           (take-last 1 (parser/right-siblings (z/down loc)))
                           (hiccup/result-locs loc))]
-            (or (identical? (z/node loc) (some-> results first z/node))
-                (some #(renders-field? % except context) results)))
-    :token (some? (parser/sym-name loc))
-    :reader-macro true
+            (if (identical? (z/node loc) (some-> results first z/node))
+              (not plain?)
+              (some #(renders-field? % except context plain?) results)))
+    :map (some #(renders-field? % except context true) (parser/child-locs loc))
+    :token (and (not plain?) (some? (parser/sym-name loc)))
+    (:deref :reader-macro) (not plain?)
     false))
 
 (def ^:private text-tags
@@ -1380,8 +1386,9 @@
 
 (defn- holds-field?
   "True when `loc` or anything it renders may be a field, `except` that one left out.
-  Only the vectors handed to a component or a text element are read: a component's other
-  arguments are data, and a text element's are text."
+
+  A component's arguments and a text element's body are plain: their calls and symbols
+  are data or text. A `for` in an element's props slot is read as its first child."
   [loc except context]
   (boolean
    (when loc
@@ -1389,13 +1396,13 @@
        :meta (holds-field? (hiccup/unwrap-meta loc) except context)
        :vector (and (not (identical? (z/node loc) (z/node except)))
                     (or (possible-field? loc context)
-                        (if (and (native-vector? loc)
-                                 (not (contains? text-tags (hiccup/parse-tag (parser/raw (z/down loc))))))
-                          (some #(renders-field? % except context) (body-locs loc))
-                          (->> (rest (parser/child-locs loc))
-                               (filter #(contains? #{:meta :vector} (z/tag %)))
-                               (some #(holds-field? % except context))))))
-       (renders-field? loc except context)))))
+                        (if (native-vector? loc)
+                          (let [slot (hiccup/props-slot loc)
+                                plain? (contains? text-tags (hiccup/parse-tag (parser/raw (z/down loc))))]
+                            (some #(renders-field? % except context plain?)
+                                  (concat (when (for-form? slot) [slot]) (body-locs loc))))
+                          (some #(renders-field? % except context true) (rest (parser/child-locs loc))))))
+       (renders-field? loc except context false)))))
 
 (defn- labels?
   "True when `loc` is a visible label, or opens with one."
