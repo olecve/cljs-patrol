@@ -252,7 +252,8 @@
        :form))
 
 (deftest long-form-snippet-is-longest-prefix-that-fits
-  (doseq [img [(str "[:img {:src \"" (apply str (repeat 300 "a")) "\"\n       :title \"x\"}]")
+  (doseq [img [(str "[:img {:src " (apply str (repeat 300 "a")) "}]")
+               (str "[:img {:src \"" (apply str (repeat 300 "a")) "\"\n       :title \"x\"}]")
                (str "[:img {:src \"" (apply str (repeat 40 "ab\\\"cd")) "\"\n       :title \"x\"}]")]]
     (let [form (img-snippet img)
           collapsed (str/replace img #"\s+" " ")
