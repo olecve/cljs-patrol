@@ -268,3 +268,56 @@ as a re-frame path, a binding that destructures, a value that is any other call,
 or sits in a style declaration.
 
 </details>
+
+### Discarded Hiccup
+
+`discarded-hiccup` · bugs — Hiccup written in a body before its last form, which is built and dropped.
+
+```clojure
+;; flagged
+(defn status [saved?]
+  (when saved?
+    [:span "Saved"]
+    [:span "Just now"]))
+
+;; fix
+(defn status [saved?]
+  (when saved?
+    [:<>
+     [:span "Saved"]
+     [:span "Just now"]]))
+```
+
+**Left alone:**
+
+```clojure
+;; a side effect before the returned element
+(defn status [saved?]
+  (when saved?
+    (js/console.log "saved")
+    [:span "Saved"]))
+
+;; a branch, not a body
+(defn status [saved?]
+  (if saved?
+    [:span "Saved"]
+    [:span "Unsaved"]))
+```
+
+<details>
+<summary>Details</summary>
+
+A `when`, `let` or function body returns its last form, and every form before it runs only for its side effects. A
+Hiccup vector has none, so one written there renders nothing and no error says so. It is usually two siblings written
+where a parent or a fragment was meant.
+
+The bodies read are those of `when`, `when-not`, `when-let`, `when-some`, `when-first`, `let`, `letfn`, `loop`, `do`,
+`binding`, `with-redefs`, Reagent's `with-let` (whose closing `(finally …)` runs on unmount and is no result), and the
+functions of `defn`, `defn-`, `defmethod`, `fn` and Rum's `defc`, every arity. Each head is resolved through the ns
+form, written bare, referred or through an alias. A look-alike from another library, such as Schema's `defn` with a
+`:- [schema]` return, writes forms of its own before the body and is not read, nor is a bare core name the ns form
+excludes. Hiccup is a vector headed by an HTML tag, the fragment or any symbol, taken as a component; a data vector such
+as `[:db :path]` or `[:dispatch x]` is not. A `#_` form is skipped, and quoted code, `(comment …)` blocks and Spade
+declarations are not read.
+
+</details>

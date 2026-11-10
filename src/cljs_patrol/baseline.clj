@@ -81,7 +81,8 @@
     :aria-label-beside-visible-label
     :redundant-into-hiccup
     :empty-fragment-props
-    :redundant-fragment})
+    :redundant-fragment
+    :discarded-hiccup})
 
 (def ^:private selector-keyed-rules
   "Spade rules identified by the declaration plus the one selector at fault.

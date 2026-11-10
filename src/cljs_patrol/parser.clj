@@ -130,6 +130,21 @@
       (when full-ns (keyword full-ns name-part)))
     (keyword ns-name sym-str)))
 
+(defn resolve-full-symbol
+  "Return the fully qualified symbol `head-str` names through the ns form's aliases or refers, or nil."
+  [head-str {:keys [aliases refers]}]
+  (cond
+    (str/includes? head-str "/")
+    (let [slash (str/index-of head-str "/")
+          alias-part (subs head-str 0 slash)
+          name-part (subs head-str (inc slash))]
+      (when-let [full-ns (get aliases alias-part)]
+        (symbol full-ns name-part)))
+
+    :else
+    (when-let [full-ns (get refers head-str)]
+      (symbol full-ns head-str))))
+
 (defn extract-kw-from-vector
   "Return {:kw resolved-kw :dynamic? bool} based on the first element of vec-zloc.
 

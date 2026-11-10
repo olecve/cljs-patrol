@@ -292,7 +292,7 @@
   [{:keys [ns-info test-id-elements]} loc]
   (when (= :vector (some-> loc z/tag))
     (let [head (some-> loc z/down parser/raw)]
-      (when-let [full-sym (some-> head (a11y/resolve-full-symbol ns-info))]
+      (when-let [full-sym (some-> head (parser/resolve-full-symbol ns-info))]
         (when-not (some? (hiccup/lexically-bound-value loc head))
           (or (get test-id-elements full-sym)
               (some->> (namespace full-sym) (#(symbol % "*")) (get test-id-elements))))))))

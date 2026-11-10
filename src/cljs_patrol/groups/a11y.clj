@@ -582,21 +582,6 @@
   (format ":role %s implies \"%s\", not \"%s\" — drop :aria-live, or set it to \"%s\"."
           (pr-str role) implied declared implied))
 
-(defn resolve-full-symbol
-  "Return the fully qualified symbol `head-str` names through the ns form's aliases or refers, or nil."
-  [head-str {:keys [aliases refers]}]
-  (cond
-    (str/includes? head-str "/")
-    (let [slash (str/index-of head-str "/")
-          alias-part (subs head-str 0 slash)
-          name-part (subs head-str (inc slash))]
-      (when-let [full-ns (get aliases alias-part)]
-        (symbol full-ns name-part)))
-
-    :else
-    (when-let [full-ns (get refers head-str)]
-      (symbol full-ns head-str))))
-
 (defn- resolve-component-alias
   "Return the `{:tag … :label-props …}` alias a resolved component symbol is mapped to, or nil.
 
@@ -604,7 +589,7 @@
   namespace costs one entry rather than one per var. An exact symbol wins over it."
   [head-str ns-info component-aliases]
   (when (seq component-aliases)
-    (when-let [full-sym (resolve-full-symbol head-str ns-info)]
+    (when-let [full-sym (parser/resolve-full-symbol head-str ns-info)]
       (or (get component-aliases full-sym)
           (when-let [component-ns (namespace full-sym)]
             (get component-aliases (symbol component-ns "*")))))))
@@ -1263,7 +1248,7 @@
        (let [head (z/down loc)]
          (and (some? head)
               (let [head-str (parser/raw head)]
-                (contains? label-styles (or (resolve-full-symbol head-str ns-info)
+                (contains? label-styles (or (parser/resolve-full-symbol head-str ns-info)
                                             (symbol (:ns-name ns-info) head-str))))))))
 
 (defn- visible-label?
