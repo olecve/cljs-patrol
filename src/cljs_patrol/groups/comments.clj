@@ -1,5 +1,8 @@
 (ns cljs-patrol.groups.comments
-  "Comments rule group: comments that are code rather than prose.
+  "Comments rule group: comments that are code rather than prose, or that only restate the code.
+
+  `restating-comment` flags a one-line comment that says in words what the line after it
+  does, `;; Create a project` above `(post-project …)`. `commented-out-code` flags the rest.
 
   A `;` comment block whose text reads back as Clojure forms is code switched off. It goes
   stale while the code around it moves, and version control already keeps what it held.
@@ -193,18 +196,29 @@
 
   It opens with an action verb, holds `restate-max-words` words at most and no punctuation,
   and every word after the verb, stopwords aside, is a word of the next line: `;; Fetch
-  tagged documents` above `(fetch {:source ::tagged-documents})`. A reason or a condition
-  brings words the line does not hold, so a comment giving one is left alone."
+  tagged documents` above `(fetch-tagged documents)`. Only the line's symbols count, not
+  its strings or keywords, which say what the code handles rather than what it does. A
+  reason or a condition brings words the line does not hold, so a comment giving one is
+  left alone."
   [text next-line]
   (let [[verb & others] (words text)
         named (remove stopwords others)
-        code-words (->> next-line words (map stem) set)]
+        code-words (->> (str/replace next-line #"\"(?:[^\"\\]|\\.)*\"|:{1,2}[^\s()\[\]{}\"]+" " ")
+                        words
+                        (map stem)
+                        set)]
     (boolean (and verb
                   (contains? action-verbs (stem verb))
                   (<= (count (words text)) restate-max-words)
                   (not (re-find #"[()\[\]{}#=?:`]|https?://" text))
                   (seq named)
                   (every? #(contains? code-words (stem %)) named)))))
+
+(defn- labelled-line?
+  "True when `line` opens a definition or a data entry, which a comment above it names as a label.
+  `;; Filter panel` above `(defn filter-panel …)`, `(rf/reg-event-fx ::save …)`, `[\"/export\" …]` or `:settings/x …`."
+  [line]
+  (boolean (re-find #"^(\[|:|\((?:[\w.-]+/)?(?:def|reg-))" line)))
 
 (defn- restating-findings
   "Return a :restating-comment finding for each comment that restates the source line after it.
@@ -215,6 +229,7 @@
                 text (comment-text block)
                 next-line (str/trim (get source-lines row ""))]
             (when (and (not (str/starts-with? next-line ";"))
+                       (not (labelled-line? next-line))
                        (restates? text next-line))
               {:type :restating-comment
                :kw 'comment
@@ -225,7 +240,10 @@
         blocks))
 
 (defn- handle-file
-  "Emit a :commented-out-code finding for each comment block that reads back as code.
+  "Emit the :commented-out-code and :restating-comment findings of a file.
+
+  A comment block that reads back as code is commented out, and a one-line comment that
+  says what the line after it does restates it.
 
   The finding points at the first form the block holds, and its `:form` is every form,
   so two blocks opening the same way stay two baseline entries."

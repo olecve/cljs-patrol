@@ -154,14 +154,14 @@
 
 (deftest comment-saying-next-line-is-flagged
   (is (= [[3 ";; Create a project project (post-project {:title \"x\"})"]
-          [5 ";; Fetch tagged documents (fetch {:source ::tagged-documents})"]
+          [5 ";; Fetch tagged documents (fetch-tagged documents)"]
           [7 ";; sort by count and text (sort-by (juxt count text) rows)"]
           [9 ";; Gets the users (get-users db)])"]]
          (restating ["(let ["
                      "  ;; Create a project"
                      "  project (post-project {:title \"x\"})"
                      "  ;; Fetch tagged documents"
-                     "  (fetch {:source ::tagged-documents})"
+                     "  (fetch-tagged documents)"
                      "  ;; sort by count and text"
                      "  (sort-by (juxt count text) rows)"
                      "  ;; Gets the users"
@@ -189,6 +189,36 @@
                           "  ;; fetch-documents"
                           "  (fetch-documents))"]))
       "reads one-line block only"))
+
+(deftest label-above-definition-or-entry-is-left-alone
+  (is (empty? (restating (separate [";; Filter panel\n(defn filter-panel [] [:div])"
+                                    ";; Add tag drawer\n(defn- add-tag-drawer [] [:div])"
+                                    ";; Update handlers\n(rf/reg-event-fx ::update-handler (fn [_ _] {}))"
+                                    ";; Set of colors\n(def set-of-colors #{})"
+                                    "(def routes\n  [;; Export settings\n   [\"/export\" :settings/export]])"
+                                    "(def pages\n  {;; Personal settings\n   :settings/personal [personal-settings]})"
+                                    "(def routes\n  [;; Export settings\n   [\"/export\" export-settings]])"
+                                    "(def pages\n  {;; Export settings\n   :settings/export export-settings})"
+                                    ";; Update handlers\n(rf/reg-event-fx :update update-handler)"
+                                    ";; Update handlers\n(reg-sub :update update-handler)"])))
+      "reads comment above definition, route or map entry as label"))
+
+(deftest words-only-in-strings-or-keywords-are-left-alone
+  (is (empty? (restating (separate [(step ";; Duplicate the collection" "duplicate-title \"Duplicated Collection\"")
+                                    (step ";; Sort by date" "(sort-by (comp :date-time first) rows)")])))
+      "matches symbols only"))
+
+(deftest comment-on-last-line-is-left-alone
+  (is (empty? (findings-in "(ns app.core)\n;; Fetch documents"))
+      "reads no next line past end of file"))
+
+(deftest crlf-line-endings-keep-rows
+  (is (= [[3 ";; Create a project (create-project db))"]]
+         (->> (temp-project/run-group comments/group {"app/core.cljs" "(ns app.core)\r\n(def x\r\n  ;; Create a project\r\n  (create-project db))"})
+              :results
+              :restating-comment
+              (mapv (juxt :row :form))))
+      "maps comment to its next line"))
 
 (deftest comment-without-words-is-left-alone
   (is (empty? (restating (separate [(step ";;" "(fetch-documents)")
