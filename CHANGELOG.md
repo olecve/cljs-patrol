@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.0.49] - 2026-11-10
+
+* Add aria-label-beside-visible-label a11y rule by @olecve in https://github.com/olecve/cljs-patrol/pull/123
+* Add discarded-hiccup reagent rule by @olecve in https://github.com/olecve/cljs-patrol/pull/122
+* Resolve form heads through the ns form in one shared place by @olecve in https://github.com/olecve/cljs-patrol/pull/124
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.48...v0.0.49
+
 ## [v0.0.48] - 2026-11-09
 
 * Flag every empty fragment props map by @olecve in https://github.com/olecve/cljs-patrol/pull/121
