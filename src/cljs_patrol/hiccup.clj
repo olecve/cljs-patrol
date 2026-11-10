@@ -695,46 +695,70 @@
                    (not (yields-hiccup? second-child)))
           second-child))))
 
+(defn- form-kind
+  "Return what loc's own form keeps from rendering: `:unrendered`, `:style-decl`, `:ns`, or nil."
+  [loc]
+  (cond
+    (unrendered-form? loc) :unrendered
+    (= :list (z/tag loc)) (let [head (some-> loc z/down parser/sym-name)]
+                            (cond
+                              (contains? style-decl-forms head) :style-decl
+                              (= "ns" head) :ns))))
+
+(defn- enclosing-forms-memo
+  "Return the table of enclosing forms by node for the file being analyzed, or nil outside one."
+  ^java.util.Map []
+  (when-let [^java.util.Map memo parser/*file-memo*]
+    (or (.get memo ::enclosing-forms)
+        (let [table (java.util.IdentityHashMap.)]
+          (.put memo ::enclosing-forms table)
+          table))))
+
+(defn enclosing-forms
+  "Return the set of the kinds of form that enclose loc at any depth: `:unrendered`, `:style-decl`, `:ns`.
+
+  One walk up to the root answers all three. While [[parser/analyze-file]] reads a file,
+  every ancestor the walk passes keeps its answer, so the next vector in the same form
+  stops at the first ancestor already asked about."
+  [loc]
+  (let [memo (enclosing-forms-memo)]
+    (loop [below ()
+           current (some-> loc z/up)]
+      (if-let [known (cond
+                       (nil? current) #{}
+                       memo (.get memo (z/node current)))]
+        (reduce (fn [kinds ancestor]
+                  (let [kinds (if-let [kind (form-kind ancestor)] (conj kinds kind) kinds)]
+                    (when memo (.put memo (z/node ancestor) kinds))
+                    kinds))
+                known
+                below)
+        (recur (cons current below) (z/up current))))))
+
+(defn inside-non-hiccup-form?
+  "True when a quoting, discarding, style-declaration or `ns` form encloses loc."
+  [loc]
+  (boolean (seq (enclosing-forms loc))))
+
 (defn inside-unrendered-form?
   "True when a quoting or discarding form encloses loc at any depth.
 
   Every ancestor is asked, not just the parent: the vectors inside `'[:div [:img …]]`
   have an ordinary vector for a parent, and a rule reading one level would report the
-  inner `[:img …]` while correctly skipping the outer one. This matches the two checks
-  beside it, which have always walked the whole chain of ancestors."
+  inner `[:img …]` while correctly skipping the outer one."
   [loc]
-  (loop [current (some-> loc z/up)]
-    (cond
-      (nil? current) false
-      (unrendered-form? current) true
-      :else (recur (z/up current)))))
+  (contains? (enclosing-forms loc) :unrendered))
 
 (defn inside-style-decl?
   "True when loc has any ancestor list beginning with defclass / defattrs.
   Those macros use `[:tag {…}]` for CSS selectors + property maps, not
   Hiccup elements — rules that assume Hiccup should skip these."
   [loc]
-  (loop [cur (some-> loc z/up)]
-    (cond
-      (nil? cur) false
-
-      (and (= :list (z/tag cur))
-           (contains? style-decl-forms (some-> cur z/down parser/sym-name)))
-      true
-
-      :else (recur (z/up cur)))))
+  (contains? (enclosing-forms loc) :style-decl))
 
 (defn inside-ns-form?
   "True when loc has an ancestor list beginning with `ns`.
   Data vectors inside `(ns … (:require […])) …` are library shapes, not
   Hiccup — rules that assume Hiccup should skip them."
   [loc]
-  (loop [cur (some-> loc z/up)]
-    (cond
-      (nil? cur) false
-
-      (and (= :list (z/tag cur))
-           (= "ns" (some-> cur z/down parser/sym-name)))
-      true
-
-      :else (recur (z/up cur)))))
+  (contains? (enclosing-forms loc) :ns))
