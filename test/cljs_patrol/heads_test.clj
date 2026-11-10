@@ -73,3 +73,41 @@
   (is (= 'reagent.core/with-let (resolve-in {:macro-aliases {"r" "reagent.core"}}
                                             "(r/with-let [a 1] a)" []))
       "resolves macro alias"))
+
+(defn- resolve-among
+  "Resolve the head of the list `path` steps into `source` reaches, keeping it only when it is a candidate."
+  ([candidates source path] (resolve-among {} candidates source path))
+  ([file-ns-info candidates source path]
+   (heads/resolve-head (reduce #(%2 %1) (z/of-string source) path) file-ns-info candidates)))
+
+(deftest candidate-heads-resolve-as-without-candidates
+  (is (= 'cljs.core/when (resolve-among #{'cljs.core/when} "(let [other f] (when x y))" [z/down z/right z/right]))
+      "reads candidate head no local binds as core")
+  (is (nil? (resolve-among #{'cljs.core/when} "(let [when f] (when x y))" [z/down z/right z/right]))
+      "gives nil for candidate head local binds")
+  (is (= 'cljs.core/into (resolve-among #{'cljs.core/into} "(clojure.core/into a b)" []))
+      "reads clojure.core candidate as cljs.core")
+  (is (= 'cljs.core/if (resolve-among #{'cljs.core/if} "(let [if f] (if x y))" [z/down z/right z/right]))
+      "reads special form under local of its name"))
+
+(deftest library-candidate-heads-resolve-through-ns-form
+  (is (= 'reagent.core/with-let
+         (resolve-among {:aliases {"r" "reagent.core"}} #{'reagent.core/with-let} "(r/with-let [a 1] a)" []))
+      "resolves candidate through alias")
+  (is (= 'reagent.core/with-let
+         (resolve-among {:refers {"with-let" "reagent.core"}} #{'reagent.core/with-let} "(with-let [a 1] a)" []))
+      "resolves candidate through refer")
+  (is (= 'reagent.core/with-let
+         (resolve-among {:macro-aliases {"r" "reagent.core"}} #{'reagent.core/with-let} "(r/with-let [a 1] a)" []))
+      "resolves candidate through macro alias")
+  (is (nil? (resolve-among {:refers {"with-let" "reagent.core"}} #{'cljs.core/let} "(with-let [a 1] a)" []))
+      "gives nil for referred head outside candidates"))
+
+(deftest non-candidate-heads-resolve-to-nil
+  (is (nil? (resolve-among #{'cljs.core/let} "(r/with-let [a 1] a)" []))
+      "gives nil for qualified head outside candidates")
+  (is (nil? (resolve-among #{'cljs.core/when} "(.foo x)" []))
+      "gives nil for interop head")
+  (with-redefs [heads/locally-bound? (fn [& _] (throw (ex-info "bindings read" {})))]
+    (is (nil? (resolve-among #{'cljs.core/when} "(let [map f] (map x y))" [z/down z/right z/right]))
+        "gives nil for bare head outside candidates without reading bindings")))
