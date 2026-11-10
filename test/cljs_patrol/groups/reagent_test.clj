@@ -54,8 +54,10 @@
       (is (= [into-finding] (:redundant-into-hiccup result))))))
 
 (deftest failed?-test
-  (testing "never fails (warning only)"
-    (is (not (group/failed? reagent/group {:defclass-as-sole-attr [defclass-sole]})))))
+  (is (not (group/failed? reagent/group {:defclass-as-sole-attr [defclass-sole]}))
+      "cleanup rule alone does not fail")
+  (is (group/failed? reagent/group {:discarded-hiccup [{:type :discarded-hiccup}]})
+      "discarded hiccup fails"))
 
 (deftest summary-lines-test
   (let [lines (group/summary-lines reagent/group
@@ -63,11 +65,13 @@
                                     :redundant-into-hiccup []
                                     :empty-fragment-props []
                                     :redundant-fragment []
-                                    :inline-component []})]
-    (is (= 5 (count lines)))
+                                    :inline-component []
+                                    :discarded-hiccup []})]
+    (is (= 6 (count lines)))
     (is (= 1 (second (first lines))))
     (is (= 0 (second (second lines))))
-    (is (= [["Empty fragment props:" 0] ["Redundant fragment:" 0] ["Inline component:" 0]] (take-last 3 lines)))))
+    (is (= [["Empty fragment props:" 0] ["Redundant fragment:" 0] ["Inline component:" 0] ["Discarded hiccup:" 0]]
+           (take-last 4 lines)))))
 
 (defn- fragment-findings
   "Walk `lines` the way the parser walks a file, and return the forms `rule` reports."
@@ -234,9 +238,9 @@
                                     "(defclass panel [] [:<> [:div]])"
                                     "(ns app.views (:require [:<> [row]]))"]))))
 
-(defn- inline-components
-  "Walk `lines` the way the parser walks a file, and return the hints the inline-component rule gives."
-  [lines]
+(defn- list-findings
+  "Walk `lines` the way the parser walks a file, and return `field` of each finding `rule` gives."
+  [rule field lines]
   (let [handle-lists (:handle-list (group/parse-handlers reagent/group))
         declarations (loop [loc (z/of-string (str/join "\n" lines) {:track-position? true})
                             found []]
@@ -248,8 +252,12 @@
                                   found))))]
     (->> (group/analyze reagent/group {:declarations declarations
                                        :usages []})
-         :inline-component
-         (mapv :hint))))
+         rule
+         (mapv field))))
+
+(defn- inline-components [lines] (list-findings :inline-component :hint lines))
+
+(defn- discarded-hiccup [lines] (list-findings :discarded-hiccup :form lines))
 
 (deftest let-binding-holding-several-handler-elements-is-flagged
   (is (= ["actions holds 2 elements with event handlers. Make it a component of its own."
@@ -304,3 +312,78 @@
                                   "#_(let [x [:div [b {:on-click f}] [b {:on-click g}]]] x)"
                                   "(defclass panel [] (let [x [:div [b {:on-click f}] [b {:on-click g}]]] x))"]))
       "one handler element, one per loop or branch, a handler body, data, a destructuring name, or no let"))
+
+(deftest hiccup-before-last-body-form-is-flagged
+  (is (= ["[:div \"Shown?\"]"
+          "[:p \"Hidden\"]"
+          "[:h1 title]"
+          "[header]"
+          "[nav]"
+          "[:a]"
+          "[:li x]"
+          "[toolbar]"
+          "[:dt k]"
+          "[ui/panel]"
+          "[:<> [row] [cell]]"
+          "^{:key 1} [row]"
+          "[:a]"
+          "[:b]"
+          "[:p a]"
+          "[:p]"
+          "[:p]"
+          "[:p]"
+          "[:p]"
+          "[:p]"
+          "[:p]"
+          "[:p]"
+          "[:p]"]
+         (discarded-hiccup ["(when open? [:div \"Shown?\"] [:div \"Shown!\"])"
+                            "(when-not open? [:p \"Hidden\"] [:p \"Shown\"])"
+                            "(defn view \"Doc.\" [title] [:h1 title] [:p title])"
+                            "(defn view [] [header] [body])"
+                            "(defn- view [] [nav] [body])"
+                            "(defn view ([] [:a] [:b]) ([x] [:c x]))"
+                            "(fn [x] [:li x] [:li x])"
+                            "(defc bar [] [toolbar] [content])"
+                            "(defmethod row [:term :def] [[k v]] [:dt k] [:dd v])"
+                            "(let [a 1] [ui/panel] [ui/footer])"
+                            "(do [:<> [row] [cell]] [footer])"
+                            "(when x ^{:key 1} [row] [row])"
+                            "(do [:a] [:b] [:c])"
+                            "(r/with-let [a 1] [:p a] [:span a] (finally (stop)))"
+                            "(when-let [a b] [:p] [:span])"
+                            "(when-some [a b] [:p] [:span])"
+                            "(when-first [a b] [:p] [:span])"
+                            "(letfn [(f [] 1)] [:p] [:span])"
+                            "(loop [a 1] [:p] [:span])"
+                            "(binding [*a* 1] [:p] [:span])"
+                            "(with-redefs [a 1] [:p] [:span])"
+                            "(when #_skipped x [:p] [:span])"]))))
+
+(deftest hiccup-that-is-returned-or-not-in-a-body-is-left-alone
+  (is (empty? (discarded-hiccup ["(when x [:div])"
+                                 "(when x (prn x) [:div])"
+                                 "(when [:a] [:b])"
+                                 "(let [a [:div] b [:span]] [:p a b])"
+                                 "(do [:db :path] [:x])"
+                                 "(do [:dispatch x] [:x])"
+                                 "(do [1 2] x)"
+                                 "(if x [:a] [:b])"
+                                 "(cond x [:a] :else [:b])"
+                                 "(defn view [x] {:pre [(pos? x)]} [:div x])"
+                                 "(defmethod row [:term :def] [[k v]] [:dt k])"
+                                 "(defmethod view [:a :b] [item] [:div item])"
+                                 "(r/with-let [a 1] [:p a] (finally (stop)))"
+                                 "(when x [:a] #_[:b])"
+                                 "(when x #_[:a] [:b])"
+                                 "(when #_skipped [:a] [:b])"
+                                 "(defn view [] [:a] #_[:b])"
+                                 "(defn view ([] [:a]) {:doc [:p] :added \"1.0\"})"
+                                 "(fn* [x] [:li x] [:li x])"
+                                 "(other [:a] [:b])"]))))
+
+(deftest unrendered-discarded-hiccup-is-left-alone
+  (is (empty? (discarded-hiccup ["'(do [:a] [:b])"
+                                 "#_(do [:a] [:b])"
+                                 "`(do [:a] [:b])"
+                                 "(defclass panel [] (do [:a] [:b]))"]))))

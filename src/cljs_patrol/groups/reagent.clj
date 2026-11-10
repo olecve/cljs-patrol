@@ -359,12 +359,97 @@
                                        " elements with event handlers. Make it a component of its own.")})))))
              vec)))))
 
+(def ^:private tail-body-offsets
+  "Forms that return the last form of their body, by how many forms come before the body."
+  {"binding" 1
+   "do" 0
+   "let" 1
+   "letfn" 1
+   "loop" 1
+   "when" 1
+   "when-first" 1
+   "when-let" 1
+   "when-not" 1
+   "when-some" 1
+   "with-let" 1
+   "with-redefs" 1})
+
+(def ^:private function-heads-with-body
+  "Forms defining a function that returns the last form of its body."
+  #{"defc" "defn" "defn-" "fn"})
+
+(defn- arity-bodies
+  "Return the body of each arity of a function form, its forms in order.
+
+  A single-arity form writes its body after the first vector from `start`, the parameters;
+  a name, a docstring or an attr map before it is no vector. A multi-arity form writes a
+  list per arity whose first child is that arity's parameters."
+  [start]
+  (loop [child start]
+    (cond
+      (nil? child) []
+      (= :vector (z/tag (hiccup/unwrap-meta child))) [(parser/right-siblings child)]
+      (= :list (z/tag child)) (->> (cons child (parser/right-siblings child))
+                                   (filter #(= :list (z/tag %)))
+                                   (map #(parser/right-siblings (z/down %))))
+      :else (recur (z/right child)))))
+
+(defn- finally-form? [loc]
+  (and (= :list (z/tag loc))
+       (= "finally" (some-> loc z/down parser/sym-name))))
+
+(defn- returning-bodies
+  "Return the bodies `loc` returns the last form of, each as its forms in order, a `#_` form left out.
+
+  Reagent's `with-let` returns the last form before a closing `(finally …)`, which runs on
+  unmount. A `defmethod` dispatch value may be a vector, so its parameters are looked for
+  after it."
+  [loc]
+  (let [head-name (some-> loc z/down parser/sym-name)
+        bodies (cond
+                 (contains? function-heads-with-body head-name)
+                 (arity-bodies (some-> loc z/down z/right))
+
+                 (= "defmethod" head-name)
+                 (arity-bodies (some-> loc z/down z/right z/right z/right))
+
+                 (contains? tail-body-offsets head-name)
+                 [(cond->> (->> loc code-locs rest (drop (get tail-body-offsets head-name)))
+                    (= "with-let" head-name) (remove finally-form?))])]
+    (map #(remove (fn [form] (= :uneval (z/tag form))) %) bodies)))
+
+(defn- discarded-hiccup-locs
+  "Return the Hiccup elements written in a body before its last form, whose values are dropped."
+  [loc]
+  (->> (returning-bodies loc)
+       (mapcat butlast)
+       (filter #(hiccup-element? (hiccup/unwrap-meta %)))))
+
+(defn- discarded-hiccup-finding [loc file]
+  (let [[row col] (try (z/position loc) (catch Exception _ [0 1]))]
+    {:kw (head-identifier (z/down (hiccup/unwrap-meta loc)))
+     :type :discarded-hiccup
+     :form (source-snippet loc)
+     :file file
+     :row row
+     :col col}))
+
 (defn- handle-let
   "Emit an :inline-component finding for each `let` binding holding an inline component."
   [loc _ns-info file]
   (when-not (or (hiccup/inside-unrendered-form? loc)
                 (hiccup/inside-style-decl? loc))
     (when-let [findings (seq (inline-component-findings loc file))]
+      {:decls (vec findings)
+       :usages []
+       :dynamics []})))
+
+(defn- handle-discarded-hiccup
+  "Emit a :discarded-hiccup finding for each Hiccup element a body drops before its last form."
+  [loc _ns-info file]
+  (when-not (or (hiccup/inside-unrendered-form? loc)
+                (hiccup/inside-style-decl? loc))
+    (when-let [findings (seq (map #(discarded-hiccup-finding % file) (discarded-hiccup-locs loc)))]
       {:decls (vec findings)
        :usages []
        :dynamics []})))
@@ -408,31 +493,36 @@
         redundant-into (filter #(= :redundant-into-hiccup (:type %)) declarations)
         empty-fragment-props (filter #(= :empty-fragment-props (:type %)) declarations)
         redundant-fragment (filter #(= :redundant-fragment (:type %)) declarations)
-        inline-component (filter #(= :inline-component (:type %)) declarations)]
+        inline-component (filter #(= :inline-component (:type %)) declarations)
+        discarded-hiccup (filter #(= :discarded-hiccup (:type %)) declarations)]
     {:defclass-as-sole-attr (vec defclass-as-sole-attr)
      :redundant-into-hiccup (vec redundant-into)
      :empty-fragment-props (vec empty-fragment-props)
      :redundant-fragment (vec redundant-fragment)
-     :inline-component (vec inline-component)}))
+     :inline-component (vec inline-component)
+     :discarded-hiccup (vec discarded-hiccup)}))
 
 (defn- summary-lines* [{:keys [defclass-as-sole-attr
                                redundant-into-hiccup
                                empty-fragment-props
                                redundant-fragment
-                               inline-component]}]
+                               inline-component
+                               discarded-hiccup]}]
   [["defclass as sole attr:" (count defclass-as-sole-attr)]
    ["Redundant into-hiccup:" (count redundant-into-hiccup)]
    ["Empty fragment props:" (count empty-fragment-props)]
    ["Redundant fragment:" (count redundant-fragment)]
-   ["Inline component:" (count inline-component)]])
+   ["Inline component:" (count inline-component)]
+   ["Discarded hiccup:" (count discarded-hiccup)]])
 
-(defn- failed?* [_] false)
+(defn- failed?* [{:keys [discarded-hiccup]}]
+  (boolean (seq discarded-hiccup)))
 
 (defrecord ReagentGroup []
   group/RuleGroup
   (group-id [_] :reagent)
   (group-name [_] "Reagent")
-  (parse-handlers [_] {:handle-list [spade-handle-list handle-into handle-let]
+  (parse-handlers [_] {:handle-list [spade-handle-list handle-into handle-let handle-discarded-hiccup]
                        :handle-vector handle-fragment})
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
@@ -450,19 +540,24 @@
      "A fragment around a single element renders the same as the element. Drop the [:<> ...] around it."
      :inline-component
      (str "A let binds Hiccup holding several elements with event handlers: a component written inline, with no "
-          "name, props or docstring of its own, which cannot be rendered or tested alone. Make it a component.")})
+          "name, props or docstring of its own, which cannot be rendered or tested alone. Make it a component.")
+     :discarded-hiccup
+     (str "Only the last form of the body is returned, so this Hiccup is built and dropped. Wrap the elements in "
+          "[:<> ...] or a parent element, or remove the one that should not render.")})
   (docs-anchors [_]
     {:defclass-as-sole-attr "defclass-as-sole-attr"
      :redundant-into-hiccup "redundant-into-around-hiccup"
      :empty-fragment-props "empty-fragment-props"
      :redundant-fragment "redundant-fragment"
-     :inline-component "inline-component"})
+     :inline-component "inline-component"
+     :discarded-hiccup "discarded-hiccup"})
   (rule->tier [_]
     {:defclass-as-sole-attr :deprecations
      :redundant-into-hiccup :cleanup
      :empty-fragment-props :cleanup
      :redundant-fragment :cleanup
-     :inline-component :cleanup})
+     :inline-component :cleanup
+     :discarded-hiccup :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->ReagentGroup))
