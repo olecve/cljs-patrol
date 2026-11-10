@@ -403,13 +403,18 @@
   #{"defc" "with-let"})
 
 (defn- body-head-name
-  "Return the name of the form `loc` opens, unless it is qualified by another library.
-  A qualified look-alike such as Schema's `s/defn` writes a return schema before its parameters."
-  [loc]
+  "Return the name of the form `loc` opens, when it is core's or one of `qualified-body-heads`.
+
+  A look-alike from another library, such as Schema's `s/defn`, writes a return schema
+  before its parameters, so a qualified head is left alone, and so is an unqualified one
+  the ns form excludes from core or refers over it."
+  [loc {:keys [shadowed-core]}]
   (let [head (some-> loc z/down)
         head-name (parser/sym-name head)]
-    (when (or (= head-name (parser/raw head))
-              (contains? qualified-body-heads head-name))
+    (when (or (contains? qualified-body-heads head-name)
+              (and (= head-name (parser/raw head))
+                   (not= :all shadowed-core)
+                   (not (contains? shadowed-core head-name))))
       head-name)))
 
 (defn- returning-bodies
@@ -418,8 +423,8 @@
   Reagent's `with-let` returns the last form before a closing `(finally …)`, which runs on
   unmount. A `defmethod` dispatch value may be a vector, so its parameters are looked for
   after it."
-  [loc]
-  (let [head-name (body-head-name loc)
+  [loc ns-info]
+  (let [head-name (body-head-name loc ns-info)
         bodies (cond
                  (contains? function-heads-with-body head-name)
                  (arity-bodies (some-> loc z/down z/right))
@@ -434,8 +439,8 @@
 
 (defn- discarded-hiccup-locs
   "Return the Hiccup elements written in a body before its last form, whose values are dropped."
-  [loc]
-  (->> (returning-bodies loc)
+  [loc ns-info]
+  (->> (returning-bodies loc ns-info)
        (mapcat butlast)
        (filter #(hiccup-element? (hiccup/unwrap-meta %)))))
 
@@ -466,11 +471,11 @@
 
 (defn- handle-discarded-hiccup
   "Emit a :discarded-hiccup finding for each Hiccup element a body drops before its last form."
-  [loc _ns-info file]
+  [loc ns-info file]
   (when-not (or (hiccup/inside-unrendered-form? loc)
                 (hiccup/inside-style-decl? loc)
                 (inside-comment-form? loc))
-    (when-let [findings (seq (map #(discarded-hiccup-finding % file) (discarded-hiccup-locs loc)))]
+    (when-let [findings (seq (map #(discarded-hiccup-finding % file) (discarded-hiccup-locs loc ns-info)))]
       {:decls (vec findings)
        :usages []
        :dynamics []})))

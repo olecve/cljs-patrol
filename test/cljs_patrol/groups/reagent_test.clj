@@ -240,7 +240,7 @@
 
 (defn- list-findings
   "Walk `lines` the way the parser walks a file, and return `field` of each finding `rule` gives."
-  [rule field lines]
+  [rule field ns-info lines]
   (let [handle-lists (:handle-list (group/parse-handlers reagent/group))
         declarations (loop [loc (z/of-string (str/join "\n" lines) {:track-position? true})
                             found []]
@@ -248,16 +248,18 @@
                          found
                          (recur (z/next loc)
                                 (if (#{:list :fn} (z/tag loc))
-                                  (into found (mapcat #(:decls (% loc {} "views.cljs")) handle-lists))
+                                  (into found (mapcat #(:decls (% loc ns-info "views.cljs")) handle-lists))
                                   found))))]
     (->> (group/analyze reagent/group {:declarations declarations
                                        :usages []})
          rule
          (mapv field))))
 
-(defn- inline-components [lines] (list-findings :inline-component :hint lines))
+(defn- inline-components [lines] (list-findings :inline-component :hint {} lines))
 
-(defn- discarded-hiccup [lines] (list-findings :discarded-hiccup :form lines))
+(defn- discarded-hiccup
+  ([lines] (discarded-hiccup {} lines))
+  ([ns-info lines] (list-findings :discarded-hiccup :form ns-info lines)))
 
 (deftest let-binding-holding-several-handler-elements-is-flagged
   (is (= ["actions holds 2 elements with event handlers. Make it a component of its own."
@@ -386,6 +388,19 @@
                                  "(s/defn names :- [s/Str] [users] (map :name users))"
                                  "(s/fn :- [s/Int] [xs] (map inc xs))"
                                  "(s/defmethod render :k :- [s/Str] [x] (str x))"]))))
+
+(deftest heads-shadowing-core-are-left-alone
+  (is (empty? (discarded-hiccup {:shadowed-core #{"defn" "fn"}}
+                                ["(defn names :- [s/Str] [people] (map :name people))"
+                                 "(fn :- [s/Int] [xs] (map inc xs))"]))
+      "skips heads the ns form takes from elsewhere")
+  (is (empty? (discarded-hiccup {:shadowed-core :all} ["(when x [:p] [:span])"]))
+      "skips every core head when the ns form may shadow any")
+  (is (= ["[:p]" "[:em]"]
+         (discarded-hiccup {:shadowed-core #{"defn"}}
+                           ["(when x [:p] [:span])"
+                            "(r/with-let [a 1] [:em] [:strong])"]))
+      "reads heads the ns form leaves to core"))
 
 (deftest unrendered-discarded-hiccup-is-left-alone
   (is (empty? (discarded-hiccup ["'(do [:a] [:b])"
