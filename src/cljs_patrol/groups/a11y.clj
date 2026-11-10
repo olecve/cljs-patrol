@@ -31,6 +31,17 @@
     (n/string written)
     (z/string loc)))
 
+(defn- truncate-to-fit
+  "Return the longest prefix of `collapsed`, with an ellipsis, whose printed form fits `snippet-edn-max`.
+  A printed candidate adds the ellipsis and two quotes to its prefix, so the search starts at the
+  longest prefix that could fit rather than at the whole string."
+  [collapsed]
+  (loop [n (-> collapsed count dec (min (- snippet-edn-max (count (pr-str "...")))) (max 3))]
+    (let [candidate (str (subs collapsed 0 n) "...")]
+      (if (<= (count (pr-str candidate)) snippet-edn-max)
+        candidate
+        (recur (dec n))))))
+
 (defn- source-snippet
   "Return a display-friendly snippet of loc's source form.
 
@@ -43,11 +54,7 @@
         collapsed (str/replace raw #"\s+" " ")]
     (if (<= (count (pr-str collapsed)) snippet-edn-max)
       collapsed
-      (loop [n (max 3 (dec (count collapsed)))]
-        (let [candidate (str (subs collapsed 0 n) "...")]
-          (if (<= (count (pr-str candidate)) snippet-edn-max)
-            candidate
-            (recur (dec n))))))))
+      (truncate-to-fit collapsed))))
 
 (defn- img-alt-missing? [{:keys [kind attrs]} tag]
   (when (= :img tag)
