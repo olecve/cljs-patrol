@@ -63,8 +63,8 @@ Analysis is split into independent rule groups. By default all groups run.
 - **[`idioms`](docs/rules/idioms.md)** — code a core idiom says more plainly: three or more calls nested one inside
   another that a `->` or `->>` thread would read top to bottom, a `cond` closing on an `:else nil` it returns anyway, an
   `if` or `when` whose test is a `not`, an `into` from a collection into an empty vector or set, a `+` or `-` of a
-  literal `1` that `inc` or `dec` names, a `not` of an `=` that `not=` names, and a `cond->` or `cond->>` clause whose
-  test is `true`
+  literal `1` that `inc` or `dec` names, a `not` of an `=` that `not=` names, a `cond->` or `cond->>` clause whose test
+  is `true`, and a `vec` of a `map` or `filter` that `mapv` or `filterv` builds at once
 - **[`comments`](docs/rules/comments.md)** — code left in a `;` comment, switched off rather than deleted, and a comment
   that says in words what the next line does
 - **[`css-order`](docs/rules/css-order.md)** — Spade style properties out of the

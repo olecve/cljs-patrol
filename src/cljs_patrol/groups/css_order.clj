@@ -103,7 +103,7 @@
 
 (defn- analyze* [{:keys [declarations]}]
   {:css-property-order-outside-in
-   (vec (filter #(= :css-property-order-outside-in (:type %)) declarations))})
+   (filterv #(= :css-property-order-outside-in (:type %)) declarations)})
 
 (defn- summary-lines* [{:keys [css-property-order-outside-in]}]
   [["CSS property order:" (count css-property-order-outside-in)]])

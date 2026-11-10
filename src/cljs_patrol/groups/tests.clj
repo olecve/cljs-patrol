@@ -413,16 +413,15 @@
     (->> usages
          (filter #(= ::literal-constant-assertion (:type %)))
          (filter #(= #{(:literal %)} (var->values (:var %))))
-         (map #(dissoc % :type :var :literal))
-         vec)))
+         (mapv #(dissoc % :type :var :literal)))))
 
 (defn- analyze* [{:keys [declarations usages usages-in-run]}]
   {:literal-constant-assertion (find-literal-constant-assertions usages (or usages-in-run usages))
-   :deftest-leading-article (vec (filter #(= :deftest-leading-article (:type %)) declarations))
-   :assertion-message-inline (vec (filter #(= :assertion-message-inline (:type %)) declarations))
-   :conditional-assertion (vec (filter #(= :conditional-assertion (:type %)) declarations))
-   :var-deref-in-test (vec (filter #(= :var-deref-in-test (:type %)) declarations))
-   :js-hint-in-test (vec (filter #(= :js-hint-in-test (:type %)) declarations))})
+   :deftest-leading-article (filterv #(= :deftest-leading-article (:type %)) declarations)
+   :assertion-message-inline (filterv #(= :assertion-message-inline (:type %)) declarations)
+   :conditional-assertion (filterv #(= :conditional-assertion (:type %)) declarations)
+   :var-deref-in-test (filterv #(= :var-deref-in-test (:type %)) declarations)
+   :js-hint-in-test (filterv #(= :js-hint-in-test (:type %)) declarations)})
 
 (defn- summary-lines* [{:keys [deftest-leading-article assertion-message-inline
                                conditional-assertion var-deref-in-test js-hint-in-test

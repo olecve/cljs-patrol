@@ -17,14 +17,14 @@ Run this group alone with `--only idioms`. Its settings live under `:idioms` in 
 ```clojure
 ;; flagged
 (defn active-users [rows]
-  (vec (filter active? (map :user rows))))
+  (set (filter active? (map :user rows))))
 
 (defn top-result [response]
   (select-keys (first (get-in response [:body :results])) [:id :title]))
 
 ;; fix
 (defn active-users [rows]
-  (->> rows (map :user) (filter active?) vec))
+  (->> rows (map :user) (filter active?) set))
 
 (defn top-result [response]
   (-> response (get-in [:body :results]) first (select-keys [:id :title])))
@@ -41,13 +41,16 @@ Run this group alone with `--only idioms`. Its settings live under `:idioms` in 
 
 ;; the nested call is the path, not the data
 (defn draft [db] (get-in db (editor-path :draft)))
+
+;; vec-of-map-filter asks for (mapv :id (:items order)), two calls
+(defn item-ids [order] (vec (map :id (:items order))))
 ```
 
 <details>
 <summary>Details</summary>
 
 Three or more calls nested one inside another, each passing the one below it where a thread would:
-`(vec (filter f (map g xs)))` threads to `(->> xs (map g) (filter f) vec)`, and
+`(set (filter f (map g xs)))` threads to `(->> xs (map g) (filter f) set)`, and
 `(select-keys (first (get-in m [:a])) [:b])` to `(-> m (get-in [:a]) first (select-keys [:b]))`. The reader starts at
 the innermost form and works outwards; a thread reads top to bottom in the order the calls run. The finding spells out
 the rewrite, with every part exactly as written, and is keyed by the operator it suggests, `->` or `->>`. A `#(…)` is
@@ -82,6 +85,12 @@ It reports only what it can rewrite without a judgement call:
   `(mapv f (range (count (get-in db path))))` as `(->> (get-in db path) count range (mapv f))`. It goes with the `->`
   part only when no part is long enough otherwise. Only the longest part is reported, the innermost on a tie, so one
   form never gets two threads
+- **A `vec` that [`vec-of-map-filter`](#vec-of-map-filter) flags is not a step.** The chain is measured below it and
+  above it, never through it, so the thread never ends in a `vec` that rule would flag again:
+  `(vec (filter f (map g (h xs))))` is reported as `(->> xs h (map g) (filter f))` in place of the `filter` call. Either
+  finding can be fixed first, and both lead to `(->> xs h (map g) (filterv f))`: the `vec` around the thread is flagged
+  in turn and asks for `filterv` as its last step, and `vec-of-map-filter` asks for `(filterv f (map g (h xs)))`, which
+  this rule threads
 
 Left alone as well: a predicate — a name ending in `?`, such as `contains?`, `every?`, `str/includes?` or `nil?` — or a
 `not`, `boolean`, `seq`, `not-empty` or `some` at the top of what would be threaded, which is not counted, since a test
@@ -239,7 +248,7 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
   (set (map :id tags)))
 
 (defn titles [docs]
-  (vec (map :title docs)))
+  (mapv :title docs))
 ```
 
 **Left alone:**
@@ -266,7 +275,8 @@ an empty literal to see the same thing. For every source the rule accepts, the r
 order, and the same type.
 
 Flagged: a two-argument `into` whose target is an empty `[]` or `#{}` literal, comments inside it included. The finding
-is keyed by `into` and asks for `vec` or `set`.
+is keyed by `into` and asks for `vec` or `set`, or for `mapv` or `filterv` where the `vec` would be one that
+[`vec-of-map-filter`](#vec-of-map-filter) flags: `(into [] (map f xs))` asks for `(mapv f xs)`.
 
 `into` always builds a new collection, and `vec` and `set` do not quite: `vec` aliases a Java or JavaScript array, so
 mutating the array later changes the vector; `set` returns a set it is given as it is, so a sorted set stays sorted; and
@@ -489,6 +499,87 @@ Left alone, since the scan cannot vouch that the clause always runs or that the 
   thread, so it writes whole pairs and the clauses it writes cannot be told apart
 - a `cond->`, `cond->>`, `->` or `->>` that may not be core's: from another library, named in the ns form, bound as a
   local, or defined by the namespace at the top level, and every case the [`cond-else-nil`](#cond-else-nil) rule leaves
+  alone for `cond`
+- anything quoted, discarded or inside `(comment …)`
+
+</details>
+
+### Vec of map or filter
+
+`vec-of-map-filter` · cleanup — A `vec` of a `map` or `filter` call, which `mapv` or `filterv` builds at once.
+
+```clojure
+;; flagged
+(defn ids [rows]
+  (vec (map :id rows)))
+
+(defn active [users]
+  (->> users (remove :deleted?) (filter :active?) vec))
+
+(defn names [users]
+  (vec (->> users (remove :deleted?) (map :name))))
+
+;; fix
+(defn ids [rows]
+  (mapv :id rows))
+
+(defn active [users]
+  (->> users (remove :deleted?) (filterv :active?)))
+
+(defn names [users]
+  (->> users (remove :deleted?) (mapv :name)))
+```
+
+**Left alone:**
+
+```clojure
+;; a transducer
+(defn ids [] (vec (map :id)))
+
+;; core has no removev
+(defn live [users] (vec (remove :deleted? users)))
+
+;; filterv takes one collection
+(defn active [users more] (vec (filter :active? users more)))
+
+;; a map the function binds
+(defn ids [map rows] (vec (map :id rows)))
+
+;; the map is the thread's starting value, not a step
+(defn ids [rows] (vec (->> (map :id rows))))
+```
+
+<details>
+<summary>Details</summary>
+
+Why: `(vec (map f xs))` builds a lazy seq only to pour it into a vector, and makes the reader take in two calls to see
+one. `mapv` and `filterv` say in one name that the result is a vector, and build it without the seq in between. Both
+read their whole collection either way, so the result and the order `f` runs in are the same.
+
+Flagged:
+
+- a `vec` of a `map` with a function and one or more collections, `(vec (map f xs ys))` asking for `(mapv f xs ys)`, or
+  of a `filter` with a predicate and one collection
+- a `->>` thread whose last two steps are such a `map` or `filter` call, its collection the thread's, and a bare `vec`:
+  `(->> xs (map f) vec)` asks for `(->> xs (mapv f))`
+- a `vec` of a `->>` thread whose last step is such a call: `(vec (->> xs (remove p) (map f)))` asks for
+  `(->> xs (remove p) (mapv f))`
+
+The finding is keyed by `vec`, and its hint spells out the `mapv` or `filterv` call. The `vec` it flags is no step of a
+[`nested-call-chain`](#nested-call-chain), so `(vec (filter f (map g xs)))` gets this finding alone, and an
+[`into-empty`](#into-empty) of such a call asks for `mapv` or `filterv` directly.
+
+Left alone, since the scan cannot vouch that the rewrite means the same:
+
+- a `remove`, `keep` or any other lazy function, which core has no eager twin for
+- a transducer, `(map f)` or `(filter p)`, and a `filter` of more than one collection
+- a comment or `#_` form in the `vec` or in the `map` or `filter` call, or anywhere in the thread, which the rewrite
+  would lose, and a reader conditional among the call's arguments, or anywhere in a thread the `vec` wraps, which may
+  read as nothing on one platform
+- a `vec` that is a step of a thread, and a `->>` that is a step of another, which take an argument they do not show; a
+  `map` or `filter` that is the thread's starting value, and a `vec` written as `(vec)` or followed by another step
+- a `vec`, `map`, `filter`, `mapv`, `filterv` or `->>` that may not be core's: from another library, named in the ns
+  form, bound as a local, or defined by the namespace, and every case the [`cond-else-nil`](#cond-else-nil) rule leaves
   alone for `cond`
 - anything quoted, discarded or inside `(comment …)`
 

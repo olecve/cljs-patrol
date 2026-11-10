@@ -597,8 +597,8 @@
          :dynamics []}))))
 
 (defn- analyze* [{:keys [declarations usages usages-in-run]}]
-  {:get-by-presence-check (vec (filter #(= :get-by-presence-check (:type %)) declarations))
-   :lookup-helper-name (vec (filter #(= :lookup-helper-name (:type %)) declarations))
+  {:get-by-presence-check (filterv #(= :get-by-presence-check (:type %)) declarations)
+   :lookup-helper-name (filterv #(= :lookup-helper-name (:type %)) declarations)
    :test-id-query-on-role (find-test-id-queries-on-role usages (or usages-in-run usages))})
 
 (defn- summary-lines* [{:keys [get-by-presence-check lookup-helper-name test-id-query-on-role]}]

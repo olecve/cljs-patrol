@@ -137,7 +137,7 @@
            :test-id-query-on-role
            :var-deref-in-test :js-hint-in-test :literal-constant-assertion
            :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality
-           :unconditional-cond-threading
+           :unconditional-cond-threading :vec-of-map-filter
            :commented-out-code :restating-comment}
          (severity/tier->rules rule->tier :cleanup)))
   (is (= #{} (severity/tier->rules rule->tier :unknown))
@@ -243,7 +243,7 @@
                :test-id-query-on-role
                :var-deref-in-test :js-hint-in-test :literal-constant-assertion
                :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality
-               :unconditional-cond-threading
+               :unconditional-cond-threading :vec-of-map-filter
                :commented-out-code :restating-comment}
              (->> tiered :cleanup (map :rule) set))))
 

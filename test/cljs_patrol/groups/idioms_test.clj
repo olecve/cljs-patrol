@@ -127,10 +127,29 @@
         "a starting value spanning lines is not squeezed onto the hint's one line")))
 
 (deftest data-last-call-threads-with-thread-last
-  (is (= ["(->> xs (map g) (filter f) vec)"
+  (is (= ["(->> xs (map g) (filter f) set)"
           "(->> m keys (map name) (str/join \", \"))"]
-         (rewrites ["(vec (filter f (map g xs)))"
+         (rewrites ["(set (filter f (map g xs)))"
                     "(str/join \", \" (map name (keys m)))"]))))
+
+(deftest vec-that-mapv-or-filterv-builds-is-not-a-step
+  (is (empty? (rewrites ["(vec (filter f (map g xs)))"
+                         "#(vec (map g (filter f %)))"]))
+      "vec-of-map-filter asks for filterv or mapv, leaving two calls")
+  (is (= ["(->> xs distinct (map g) (filter f))"
+          "(->> xs distinct sort (map f))"]
+         (rewrites ["(vec (filter f (map g (distinct xs))))"
+                    "(count (vec (map f (sort (distinct xs)))))"]))
+      "chain below vec is threaded without it"))
+
+(deftest vec-that-vec-of-map-filter-leaves-alone-is-a-step
+  (is (= ["(->> xs (map h) (filter g) vec)"]
+         (rewrites ["(let [filterv f] (vec (filter g (map h xs))))"]))
+      "local filterv is no core filterv")
+  (is (= ["(->> xs (map h) (filter g) vec)"]
+         (rewrites ["(defn filterv [p xs] xs)"
+                    "(vec (filter g (map h xs)))"]))
+      "namespace's own filterv is no core filterv"))
 
 (deftest data-first-call-threads-with-thread-first
   (is (= ["(-> m (get-in [:a]) first (select-keys [:b]))"
@@ -159,8 +178,8 @@
   (is (= ["(->> xs (map h) (filter g) sort vec)"]
          (rewrites ["(select-keys (dissoc (assoc (vec (sort (filter g (map h xs)))) :a 1) :b) [:c])"]))
       "the longer part wins wherever it sits")
-  (is (= ["(->> xs (map h) (filter g) vec)"]
-         (rewrites ["(select-keys (dissoc (assoc (vec (filter g (map h xs))) :a 1) :b) [:c])"]))
+  (is (= ["(->> xs (map h) (filter g) set)"]
+         (rewrites ["(get (disj (conj (set (filter g (map h xs))) :a) :b) :c)"]))
       "on a tie the innermost part wins")
   (is (= ["(->> (get-in db [:plan :phases]) count range (mapv f))"
           "(->> (get m :items) keys (reduce max 0) inc)"]
@@ -193,25 +212,25 @@
       "the part below the predicate still counts"))
 
 (deftest local-named-like-core-gets-no-data-slot
-  (is (empty? (rewrites ["(defn f [{:keys [filter]}] (vec (filter g (map h xs))))"
+  (is (empty? (rewrites ["(defn f [{:keys [filter]}] (set (filter g (map h xs))))"
                          "(let [update (fn [m k v] m)] (count (update (vec (sort xs)) :a inc)))"
                          "(letfn [(merge [a b] a)] (count (merge (vec (sort xs)) b)))"]))
       "a destructured, let-bound or letfn-bound name is a local")
-  (is (= ["(->> xs (filter g) (map h) vec)"]
-         (rewrites ["(defn f [filtered] (vec (map h (filter g xs))))"]))
+  (is (= ["(->> xs (filter g) (map h) set)"]
+         (rewrites ["(defn f [filtered] (set (map h (filter g xs))))"]))
       "a local with a different name changes nothing")
-  (is (empty? (rewrites ["(for [x xs :let [filter f]] (vec (filter g (map h x))))"]))
+  (is (empty? (rewrites ["(for [x xs :let [filter f]] (set (filter g (map h x))))"]))
       "a :let modifier binds too")
-  (is (= ["(->> a (map h) (filter g) vec)"]
-         (rewrites ["(let [a (filter f xs)] (vec (filter g (map h a))))"]))
+  (is (= ["(->> a (map h) (filter g) set)"]
+         (rewrites ["(let [a (filter f xs)] (set (filter g (map h a))))"]))
       "a name used in a binding's value is not bound by it")
-  (is (= ["(->> xs (filter g) (map h) vec)" "(->> ys (map f) distinct sort vec)"]
-         (rewrites ["(defn view [x] [:div (filter x)] (vec (map h (filter g xs))))"
+  (is (= ["(->> xs (filter g) (map h) set)" "(->> ys (map f) distinct sort vec)"]
+         (rewrites ["(defn view [x] [:div (filter x)] (set (map h (filter g xs))))"
                     "(defn build [x] (let [a (conj x 1)] (vec (sort (distinct (map f ys))))))"]))
       "a vector in a body and a let below are not parameter lists")
-  (is (empty? (rewrites ["(defn many ([filter] (vec (filter g (map h xs)))) ([a b] a))"
-                         "(defmethod render :x [filter] (vec (filter g (map h xs))))"
-                         "(defmethod render [:a :b] [filter] (vec (filter g (map h xs))))"]))
+  (is (empty? (rewrites ["(defn many ([filter] (set (filter g (map h xs)))) ([a b] a))"
+                         "(defmethod render :x [filter] (set (filter g (map h xs))))"
+                         "(defmethod render [:a :b] [filter] (set (filter g (map h xs))))"]))
       "each arity's parameters, and a method's after its dispatch value, are read"))
 
 (deftest member-access-macro-is-not-a-method
@@ -229,7 +248,7 @@
 
 (deftest finding-names-the-operator-it-suggests
   (is (= ['->> '->]
-         (map :kw (:nested-call-chain (parse ["(vec (filter f (map g xs)))"
+         (map :kw (:nested-call-chain (parse ["(set (filter f (map g xs)))"
                                               "(vec (sort (distinct xs)))"]))))))
 
 (deftest call-of-more-arguments-counts-only-for-a-known-slot
@@ -238,12 +257,12 @@
                     "(pick (first (sort (distinct xs))) :a)"]))
       "a project function's data slot is not known")
   (is (empty? (rewrites ["(defn map [f xs] xs)"
-                         "(vec (map f (filter g xs)))"]))
+                         "(set (map f (filter g xs)))"]))
       "a namespace's own map is not core map"))
 
 (deftest long-arguments-are-shortened-in-the-hint
   (let [finding (first (:nested-call-chain
-                        (parse ["(vec (filter some-very-long-predicate-name-that-goes-past-the-limit (map g xs)))"])))]
+                        (parse ["(set (filter some-very-long-predicate-name-that-goes-past-the-limit (map g xs)))"])))]
     (is (str/includes? (:hint finding) "(filter ...)"))
     (is (str/includes? (:rewrite finding) "some-very-long-predicate-name-that-goes-past-the-limit"))))
 
@@ -728,6 +747,36 @@
             :hint "Write (set (map :id rows))"}
            finding))))
 
+(deftest into-empty-vector-from-map-or-filter-asks-for-mapv-or-filterv
+  (is (= [["(into [] (map inc xs))" "Write (mapv inc xs)"]
+          ["(into [] (filter odd? xs))" "Write (filterv odd? xs)"]
+          ["(into [] (map + xs ys))" "Write (mapv + xs ys)"]
+          ["(into [] (map (comp keyword :value :some-very-long-option-key) rows))" "Write (mapv ... rows)"]
+          ["(into [] (filter odd? xs ys))" "Write (vec (filter odd? xs ys))"]
+          ["(into [] (map inc #?(:clj xs)))" "Write (vec (map inc #?(:clj xs)))"]
+          ["(into [] (map inc #_ys xs))" "Write (vec (map inc #_ys xs))"]
+          ["(into [] (keys m))" "Write (vec (keys m))"]
+          ["(into #{} (map inc xs))" "Write (set (map inc xs))"]]
+         (->> ["(into [] (map inc xs))"
+               "(into [] (filter odd? xs))"
+               "(into [] (map + xs ys))"
+               "(into [] (map (comp keyword :value :some-very-long-option-key) rows))"
+               "(into [] (filter odd? xs ys))"
+               "(into [] (map inc #?(:clj xs)))"
+               "(into [] (map inc #_ys xs))"
+               "(into [] (keys m))"
+               "(into #{} (map inc xs))"]
+              parse
+              :into-empty
+              (mapv (juxt :form :hint))))))
+
+(deftest into-empty-vector-from-map-asks-for-vec-when-mapv-is-not-core
+  (doseq [lines [["(let [mapv f] (into [] (map inc xs)))"]
+                 ["(defn mapv [f xs] xs)" "(into [] (map inc xs))"]]]
+    (is (= ["Write (vec (map inc xs))"]
+           (->> lines parse :into-empty (mapv :hint)))
+        (str/join " " lines))))
+
 (deftest into-empty-finding-shortens-a-long-source-in-the-hint-only
   (is (= [["(into #{} (map (comp keyword :value) available-permission-options))" "Write (set ...)"]]
          (->> ["(into #{} (map (comp keyword :value) available-permission-options))"]
@@ -1160,3 +1209,264 @@
                              "#_(cond-> db true (assoc :a 1))"
                              "(case x (cond-> db true (assoc :a 1)) :a :b)"
                              "(. o (cond-> db true (assoc :a 1)))"]))))
+
+(defn- vecs-of-map-filter
+  ([lines] (vecs-of-map-filter ns-info lines))
+  ([file-ns-info lines]
+   (->> lines (parse idioms/group file-ns-info) :vec-of-map-filter (mapv :form))))
+
+(deftest vec-of-map-or-filter-is-flagged
+  (is (= ["(vec (map :id rows))"
+          "(vec (map + xs ys zs))"
+          "(vec (filter odd? xs))"
+          "#(vec (map inc %))"
+          "(clojure.core/vec (cljs.core/filter odd? xs))"
+          "(vec (map inc (concat a #_b c)))"]
+         (vecs-of-map-filter ["(vec (map :id rows))"
+                              "(vec (map + xs ys zs))"
+                              "(vec (filter odd? xs))"
+                              "#(vec (map inc %))"
+                              "(clojure.core/vec (cljs.core/filter odd? xs))"
+                              "(vec (map inc (concat a #_b c)))"]))))
+
+(deftest vec-of-map-or-filter-finding-names-the-fused-call-and-where-it-is
+  (let [[finding] (:vec-of-map-filter (parse ["(defn f [rows]" "  (vec (filter :active? rows)))"]))]
+    (is (= {:kw 'vec
+            :type :vec-of-map-filter
+            :form "(vec (filter :active? rows))"
+            :file "views.cljs"
+            :row 2
+            :col 3
+            :test "f"
+            :hint "Write (filterv :active? rows)"}
+           finding)))
+  (is (not (contains? (first (:vec-of-map-filter (parse ["(vec (map f xs))"]))) :test))
+      "top-level form names no definition"))
+
+(deftest vec-of-map-or-filter-hint-keeps-a-fn-literal-and-shortens-a-long-argument
+  (is (= ["Write #(mapv inc %)"
+          "Write (mapv ... rows)"]
+         (->> ["#(vec (map inc %))"
+               "(vec (map (comp keyword :value :some-very-long-option-key) rows))"]
+              parse
+              :vec-of-map-filter
+              (mapv :hint)))))
+
+(deftest vec-of-what-is-no-collection-call-of-map-or-filter-is-left-alone
+  (is (empty? (vecs-of-map-filter ["(vec (map inc))"
+                                   "(vec (filter odd?))"
+                                   "(vec (map))"
+                                   "(vec (filter odd? xs ys))"
+                                   "(vec (remove odd? xs))"
+                                   "(vec (keep f xs))"
+                                   "(vec xs)"
+                                   "(vec)"
+                                   "(vec (map f xs) ys)"
+                                   "(vec [map f xs])"
+                                   "(vec #{filter odd? xs})"
+                                   "(vec #(map f %))"
+                                   "(vec ^:m (map f xs))"
+                                   "(set (map f xs))"]))))
+
+(deftest vec-of-map-or-filter-with-comment-or-discard-between-calls-is-left-alone
+  (is (empty? (vecs-of-map-filter ["(vec ;; why\n (map f xs))"
+                                   "(vec #_old (map f xs))"
+                                   "(vec (map ;; why\n f xs))"
+                                   "(vec (map f #_ys xs))"]))))
+
+(deftest vec-of-map-or-filter-holding-reader-conditional-is-left-alone
+  (is (empty? (vecs-of-map-filter ["(vec (map f #?(:clj xs)))"
+                                   "(vec (map f a #?@(:clj [b c])))"
+                                   "(vec #?(:clj (map f xs)))"]))))
+
+(deftest threaded-vec-of-map-or-filter-is-left-alone
+  (is (empty? (vecs-of-map-filter ["(-> x (vec (map f xs)))"
+                                   "(->> ys (vec (filter p xs)))"]))))
+
+(deftest vec-map-or-filter-that-is-not-core-is-left-alone
+  (is (empty? (vecs-of-map-filter ["(lib/vec (map f xs))"
+                                   "(vec (lib/map f xs))"
+                                   "(let [vec f] (vec (map g xs)))"
+                                   "(let [map f] (vec (map g xs)))"
+                                   "(let [filter f] (vec (filter g xs)))"
+                                   "(let [mapv f] (vec (map g xs)))"
+                                   "(let [filterv f] (vec (filter g xs)))"])))
+  (is (empty? (vecs-of-map-filter (assoc ns-info :shadowed-core #{"filterv"})
+                                  ["(vec (filter p xs))"]))
+      "filterv the ns form may take from elsewhere is no call to ask for")
+  (doseq [[definition line] [["(defn vec [xs] xs)" "(vec (map f xs))"]
+                             ["(defn map [f xs] xs)" "(vec (map f xs))"]
+                             ["(defmacro filter [p xs] xs)" "(vec (filter p xs))"]
+                             ["(defn mapv [f xs] xs)" "(vec (map f xs))"]
+                             ["(defn filterv [p xs] xs)" "(vec (filter p xs))"]]]
+    (is (empty? (vecs-of-map-filter [definition line]))
+        (str "namespace defines what fix relies on: " definition))))
+
+(deftest unevaluated-vec-of-map-or-filter-is-left-alone
+  (is (empty? (vecs-of-map-filter ["'(vec (map f xs))"
+                                   "`(vec (map f xs))"
+                                   "(comment (vec (map f xs)))"
+                                   "#_(vec (map f xs))"
+                                   "(case x (vec (map f xs)) :a :b)"]))))
+
+(deftest thread-ending-in-map-or-filter-and-vec-is-flagged
+  (is (= [["(->> rows (map :id) vec)" "Write (mapv :id) in place of (map :id) vec"]
+          ["(->> xs (filter odd?) vec)" "Write (filterv odd?) in place of (filter odd?) vec"]
+          ["(->> xs (map + ys) vec)" "Write (mapv + ys) in place of (map + ys) vec"]
+          ["(->> xs (remove nil?) (map inc) clojure.core/vec)" "Write (mapv inc) in place of (map inc) vec"]
+          ["#(->> % (map inc) vec)" "Write (mapv inc) in place of (map inc) vec"]
+          ["(cljs.core/->> xs (map inc) vec)" "Write (mapv inc) in place of (map inc) vec"]
+          ["(->> xs (map inc) vec)" "Write (mapv inc) in place of (map inc) vec"]
+          ["(->> xs (map (comp keyword :value :some-very-long-option-key)) vec)" "Write (mapv ...) in place of ... vec"]]
+         (->> ["(->> rows (map :id) vec)"
+               "(->> xs (filter odd?) vec)"
+               "(->> xs (map + ys) vec)"
+               "(->> xs (remove nil?) (map inc) clojure.core/vec)"
+               "#(->> % (map inc) vec)"
+               "(cljs.core/->> xs (map inc) vec)"
+               "(-> (->> xs (map inc) vec) count)"
+               "(->> xs (map (comp keyword :value :some-very-long-option-key)) vec)"]
+              parse
+              :vec-of-map-filter
+              (mapv (juxt :form :hint))))))
+
+(deftest thread-not-ending-in-map-or-filter-and-vec-is-left-alone
+  (is (empty? (vecs-of-map-filter ["(->> (map f xs) vec)"
+                                   "(->> (filter p) vec)"
+                                   "(->> xs (map f) vec count)"
+                                   "(->> xs (map f) (vec))"
+                                   "(->> xs (map f) set)"
+                                   "(->> xs (map f) :vec)"
+                                   "(->> xs (map) vec)"
+                                   "(->> xs (filter p ys) vec)"
+                                   "(->> xs (remove p) vec)"
+                                   "(->> xs [map f] vec)"
+                                   "(->> xs #?(:cljs (map f)) vec)"
+                                   "(->> xs (map f #?(:clj g)) vec)"
+                                   "(-> xs (map f) vec)"
+                                   "(some->> xs (map f) vec)"]))))
+
+(deftest thread-with-comment-or-discard-is-left-alone
+  (is (empty? (vecs-of-map-filter ["(->> xs (map f) ;; why\n vec)"
+                                   "(->> xs (map f) #_(filter p) vec)"
+                                   "(->> xs (map ;; why\n f) vec)"]))))
+
+(deftest thread-that-is-a-step-is-left-alone
+  (is (empty? (vecs-of-map-filter ["(-> m (->> (map f) vec))"
+                                   "(->> ys (->> xs (map f) vec))"
+                                   "(cond->> ys flag (->> xs (map f) vec))"]))
+      "thread above passes an argument that may land after vec"))
+
+(deftest thread-whose-heads-are-not-core-is-left-alone
+  (is (empty? (vecs-of-map-filter ["(lib/->> xs (map f) vec)"
+                                   "(->> xs (lib/map f) vec)"
+                                   "(->> xs (map f) lib/vec)"
+                                   "(->> xs (map f) helper)"
+                                   "(let [vec f] (->> xs (map g) vec))"
+                                   "(let [->> f] (->> xs (map g) vec))"
+                                   "(let [filterv f] (->> xs (filter g) vec))"])))
+  (is (empty? (vecs-of-map-filter (assoc ns-info :shadowed-core #{"vec"})
+                                  ["(->> xs (map f) vec)"]))
+      "vec the ns form may take from elsewhere")
+  (doseq [definition ["(defn vec [xs] xs)"
+                      "(defmacro ->> [& xs] xs)"]]
+    (is (empty? (vecs-of-map-filter [definition "(->> xs (map f) vec)"]))
+        (str "namespace defines what thread relies on: " definition))))
+
+(deftest vec-of-thread-ending-in-map-or-filter-is-flagged
+  (is (= [["(vec (->> xs distinct (map g) (filter p)))" "Write (->> ... (filterv p))"]
+          ["(vec (->> rows (map :id)))" "Write (->> ... (mapv :id))"]
+          ["(vec (->> xs (map + ys zs)))" "Write (->> ... (mapv + ys zs))"]
+          ["#(vec (->> % (map inc)))" "Write #(->> ... (mapv inc))"]
+          ["(clojure.core/vec (cljs.core/->> xs (cljs.core/filter odd?)))" "Write (->> ... (filterv odd?))"]
+          ["(vec (->> xs (map (comp keyword :value :some-very-long-option-key))))" "Write (->> ... (mapv ...))"]]
+         (->> ["(vec (->> xs distinct (map g) (filter p)))"
+               "(vec (->> rows (map :id)))"
+               "(vec (->> xs (map + ys zs)))"
+               "#(vec (->> % (map inc)))"
+               "(clojure.core/vec (cljs.core/->> xs (cljs.core/filter odd?)))"
+               "(vec (->> xs (map (comp keyword :value :some-very-long-option-key))))"]
+              parse
+              :vec-of-map-filter
+              (mapv (juxt :form :hint))))))
+
+(deftest vec-of-thread-not-ending-in-map-or-filter-is-left-alone
+  (is (empty? (vecs-of-map-filter ["(vec (->> (map f xs)))"
+                                   "(vec (->> xs))"
+                                   "(vec (->>))"
+                                   "(vec (->> xs (map f) count))"
+                                   "(vec (->> xs (map)))"
+                                   "(vec (->> xs (filter p ys)))"
+                                   "(vec (->> xs (remove p)))"
+                                   "(vec (->> xs [map f]))"
+                                   "(vec (->> xs (map f)) ys)"
+                                   "(vec (-> xs (map f)))"
+                                   "(vec (some->> xs (map f)))"]))))
+
+(deftest vec-of-thread-with-comment-discard-or-reader-conditional-is-left-alone
+  (is (empty? (vecs-of-map-filter ["(vec ;; why\n (->> xs (map f)))"
+                                   "(vec (->> xs ;; why\n (map f)))"
+                                   "(vec (->> xs #_(remove p) (map f)))"
+                                   "(vec (->> xs (map ;; why\n f)))"
+                                   "(vec (->> xs (map f #?(:clj ys))))"
+                                   "(vec (->> xs (map f) #?(:clj (filter p))))"]))
+      "rewrite would lose comment or discard, or misread reader conditional")
+  (is (empty? (vecs-of-map-filter ["(vec (->> #?(:clj xs) (map f)))"]))
+      "on cljs map would be starting value"))
+
+(deftest vec-of-thread-whose-heads-are-not-core-is-left-alone
+  (is (empty? (vecs-of-map-filter ["(lib/vec (->> xs (map f)))"
+                                   "(vec (lib/->> xs (map f)))"
+                                   "(vec (->> xs (lib/map f)))"
+                                   "(let [->> f] (vec (->> xs (map g))))"
+                                   "(let [mapv f] (vec (->> xs (map g))))"])))
+  (is (empty? (vecs-of-map-filter (assoc ns-info :shadowed-core #{"->>"})
+                                  ["(vec (->> xs (map f)))"]))
+      "->> the ns form may take from elsewhere")
+  (doseq [definition ["(defmacro ->> [& xs] xs)"
+                      "(defn filterv [p xs] xs)"]]
+    (is (empty? (vecs-of-map-filter [definition "(vec (->> xs (filter p)))"]))
+        (str "namespace defines what fix relies on: " definition))))
+
+(deftest unevaluated-or-threaded-vec-of-thread-is-left-alone
+  (is (empty? (vecs-of-map-filter ["'(vec (->> xs (map f)))"
+                                   "(comment (vec (->> xs (map f))))"
+                                   "#_(vec (->> xs (map f)))"
+                                   "(case x (vec (->> xs (map f))) :a :b)"
+                                   "(->> ys (vec (->> xs (map f))))"
+                                   "(-> y (vec (->> xs (map f))))"]))))
+
+(deftest nested-call-chain-hint-on-vec-of-map-or-filter-leads-to-flagged-form
+  (let [[chain] (:nested-call-chain (parse ["(vec (filter f (map g (distinct xs))))"]))
+        followed (parse [(str "(vec " (:rewrite chain) ")")])]
+    (is (= "(->> xs distinct (map g) (filter f))" (:rewrite chain))
+        "chain is threaded below vec")
+    (is (= ["Write (->> ... (filterv f))"] (mapv :hint (:vec-of-map-filter followed)))
+        "vec around thread asks for filterv as its last step")
+    (is (empty? (:nested-call-chain followed))
+        "thread under vec is no chain")
+    (is (every? empty? (vals (parse ["(->> xs distinct (map g) (filterv f))"])))
+        "thread ending in filterv leaves nothing to flag")))
+
+(deftest vec-of-thread-is-no-chain-step
+  (let [found (parse ["(count (vec (->> xs distinct sort (map f))))"
+                      "(first (sort (vec (->> xs (map f)))))"])]
+    (is (= ["(vec (->> xs distinct sort (map f)))" "(vec (->> xs (map f)))"]
+           (mapv :form (:vec-of-map-filter found)))
+        "vec of thread ending in map is flagged inside a call")
+    (is (empty? (:nested-call-chain found))
+        "vec that rule flags ends chain")))
+
+(deftest nested-call-chain-leaves-vec-of-map-or-filter-to-its-rule
+  (let [found (parse ["(vec (filter f (map g xs)))"
+                      "(vec (filter f (map g (distinct xs))))"])]
+    (is (= ["(->> xs distinct (map g) (filter f))"] (mapv :rewrite (:nested-call-chain found)))
+        "chain is threaded without vec, so two calls below it are no chain")
+    (is (= ["Write (filterv f (map g xs))" "Write (filterv f (map g (distinct xs)))"]
+           (mapv :hint (:vec-of-map-filter found)))
+        "vec is this rule's alone"))
+  (let [found (parse ["(filterv f (map g (distinct xs)))"])]
+    (is (= ["(->> xs distinct (map g) (filterv f))"] (mapv :rewrite (:nested-call-chain found)))
+        "chain is threaded once filterv is written")
+    (is (empty? (:vec-of-map-filter found))
+        "thread of filterv leaves nothing to flag")))

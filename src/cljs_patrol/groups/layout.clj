@@ -342,8 +342,8 @@
        :dynamics []})))
 
 (defn- analyze* [{:keys [declarations]}]
-  {:form-after-split-map (vec (filter #(= :form-after-split-map (:type %)) declarations))
-   :split-map-after-sibling (vec (filter #(= :split-map-after-sibling (:type %)) declarations))})
+  {:form-after-split-map (filterv #(= :form-after-split-map (:type %)) declarations)
+   :split-map-after-sibling (filterv #(= :split-map-after-sibling (:type %)) declarations)})
 
 (defn- summary-lines* [{:keys [form-after-split-map split-map-after-sibling]}]
   [["Form after split map:" (count form-after-split-map)]
