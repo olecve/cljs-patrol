@@ -57,7 +57,7 @@ Analysis is split into independent rule groups. By default all groups run.
   where they cannot fail, such as a presence check on a `get-by-*` lookup, helpers whose name lacks the prefix of the
   lookup they return, and a lookup by test id of an element a role query could find
 - **[`docstrings`](docs/rules/docstrings.md)** — bbatsov style-guide violations on every def (summary, indent,
-  whitespace)
+  whitespace), and a docstring that only repeats its var's name
 - **[`layout`](docs/rules/layout.md)** — the staircase cljfmt's `:split-keypairs-over-multiple-lines?` leaves behind and
   `cljfmt check` accepts
 - **[`idioms`](docs/rules/idioms.md)** — code a core idiom says more plainly: three or more calls nested one inside

@@ -131,7 +131,7 @@
            :redundant-into-hiccup :empty-fragment-props :redundant-fragment
            :inline-component
            :docstring-summary :docstring-indentation
-           :docstring-leading-trailing-whitespace
+           :docstring-leading-trailing-whitespace :docstring-repeats-name
            :css-property-order-outside-in
            :deftest-leading-article :assertion-message-inline :conditional-assertion :get-by-presence-check :lookup-helper-name
            :test-id-query-on-role
@@ -237,7 +237,7 @@
                :redundant-into-hiccup :empty-fragment-props :redundant-fragment
                :inline-component
                :docstring-summary :docstring-indentation
-               :docstring-leading-trailing-whitespace
+               :docstring-leading-trailing-whitespace :docstring-repeats-name
                :css-property-order-outside-in
                :deftest-leading-article :assertion-message-inline :conditional-assertion :get-by-presence-check :lookup-helper-name
                :test-id-query-on-role
