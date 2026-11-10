@@ -213,16 +213,12 @@
        (or (str/starts-with? head-name ".")
            (str/ends-with? head-name "."))))
 
-(defn resolve-head
-  "Return the fully qualified symbol the form at `loc` opens with, core's read as `cljs.core`.
+(defn- resolve-head-with
+  "Return the symbol [[resolve-head]] reads the head of `loc` as, asking `core-name?` about a bare name.
 
-  The head resolves through the ns form's aliases and refers, its macro ones after. An
-  unqualified name nothing refers is core's unless the ns form or a binding around the form
-  may shadow it, so Schema's `defn`, which writes a return schema before its parameters, is
-  never read as core's. A special form is core's always, and an interop head such as
-  `.method` or `Class.` never. Any other symbol is returned as written, and a head that is
-  no symbol gives nil."
-  [loc ns-info]
+  `core-name?` is asked only of an unqualified name nothing else decides: no special form, no
+  alias or refer, no interop, and no name the ns form may shadow."
+  [loc ns-info core-name?]
   (let [head (some-> loc z/down)
         head-name (parser/sym-name head)
         head-str (some-> head parser/raw)
@@ -236,9 +232,30 @@
                        (when-not (or (not bare?)
                                      (interop-name? head-name)
                                      (core-name-shadowed? ns-info head-name)
-                                     (locally-bound? loc head-name))
+                                     (not (core-name? head-name)))
                          (symbol "cljs.core" head-name))
                        (symbol head-str)))]
     (if (= "clojure.core" (some-> resolved namespace))
       (symbol "cljs.core" (name resolved))
       resolved)))
+
+(defn resolve-head
+  "Return the fully qualified symbol the form at `loc` opens with, core's read as `cljs.core`.
+
+  The head resolves through the ns form's aliases and refers, its macro ones after. An
+  unqualified name nothing refers is core's unless the ns form or a binding around the form
+  may shadow it, so Schema's `defn`, which writes a return schema before its parameters, is
+  never read as core's. A special form is core's always, and an interop head such as
+  `.method` or `Class.` never. Any other symbol is returned as written, and a head that is
+  no symbol gives nil.
+
+  Given `candidates`, a set of fully qualified symbols, the symbol is returned only when it is
+  one of them, and nil otherwise. The bindings around the form are then read only for a name
+  whose core var is a candidate, which is what makes this arity the cheap one for a caller
+  matching a few forms."
+  ([loc ns-info]
+   (resolve-head-with loc ns-info #(not (locally-bound? loc %))))
+  ([loc ns-info candidates]
+   (let [resolved (resolve-head-with loc ns-info #(and (contains? candidates (symbol "cljs.core" %))
+                                                       (not (locally-bound? loc %))))]
+     (when (contains? candidates resolved) resolved))))

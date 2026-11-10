@@ -56,7 +56,7 @@
   vector comes first. A multi-arity `fn` states no vector of its own and reads as nil,
   which costs only a finding this rule was never going to be sure of."
   [list-loc ns-info]
-  (when (contains? function-heads (heads/resolve-head list-loc ns-info))
+  (when (heads/resolve-head list-loc ns-info function-heads)
     (loop [child (some-> list-loc z/down z/right)]
       (cond
         (nil? child) nil
@@ -64,6 +64,10 @@
         :else (recur (z/right child))))))
 
 (def ^:private mapping-heads #{'cljs.core/keep 'cljs.core/keep-indexed 'cljs.core/map 'cljs.core/map-indexed})
+
+(def ^:private sequence-heads
+  "Every form [[mapping-body-locs]] reads a body of."
+  (conj mapping-heads 'cljs.core/for))
 
 (defn- mapping-body-locs
   "Return the body forms of a sequence expression, in order, or nil.
@@ -74,7 +78,7 @@
   function attaches cannot be read from this call site."
   [loc ns-info]
   (when (= :list (z/tag loc))
-    (let [head (heads/resolve-head loc ns-info)
+    (let [head (heads/resolve-head loc ns-info sequence-heads)
           argument (some-> loc z/down z/right)]
       (cond
         (= 'cljs.core/for head)
@@ -101,7 +105,7 @@
   [loc ns-info]
   (case (z/tag loc)
     :meta (key-meta-map? (z/down loc))
-    :list (and (= 'cljs.core/with-meta (heads/resolve-head loc ns-info))
+    :list (and (heads/resolve-head loc ns-info #{'cljs.core/with-meta})
                (key-meta-map? (some-> loc z/down z/rightmost)))
     :vector (and (hiccup-head-loc? (z/down loc))
                  (key-meta-map? (some-> loc z/down z/right)))
@@ -147,7 +151,7 @@
   Both halves have to hold: a Hiccup-shaped head, and a mapping whose body keys the
   elements it produces."
   [loc ns-info]
-  (when (= 'cljs.core/into (heads/resolve-head loc ns-info))
+  (when (heads/resolve-head loc ns-info #{'cljs.core/into})
     (let [vec-loc (some-> loc z/down z/right)
           more-loc (some-> vec-loc z/right)]
       (and vec-loc
@@ -207,6 +211,10 @@
   "Forms whose last form is the value a function returns."
   #{'cljs.core/defmethod 'cljs.core/defn 'cljs.core/defn- 'cljs.core/fn 'cljs.core/fn* 'rum.core/defc})
 
+(def ^:private rendering-heads
+  "Every form [[rendered-position?]] reads a body of."
+  (conj body-heads 'cljs.core/for))
+
 (defn- last-code-loc? [loc parent]
   (identical? (z/node loc) (some-> (last (code-locs parent)) z/node)))
 
@@ -239,7 +247,7 @@
                      count
                      odd?)
                 (rendered-position? parent ns-info))
-      :list (let [head (heads/resolve-head parent ns-info)]
+      :list (let [head (heads/resolve-head parent ns-info rendering-heads)]
               (cond
                 (contains? body-heads head) (last-code-loc? loc parent)
                 (= 'cljs.core/for head) (and (last-code-loc? loc parent) (rendered-position? parent ns-info))
@@ -338,7 +346,7 @@
   "Return a finding for each `let` binding whose Hiccup holds two or more elements with event handlers.
   The value is read as [[count-handler-elements]] reads Hiccup, so a `when` or an `if` around it counts too."
   [loc ns-info file]
-  (when (contains? binding-heads (heads/resolve-head loc ns-info))
+  (when (heads/resolve-head loc ns-info binding-heads)
     (let [bindings (some-> loc z/down z/right)]
       (when bindings
         (->> (z/down bindings)
@@ -400,6 +408,10 @@
   (and (= :list (z/tag loc))
        (= "finally" (some-> loc z/down parser/sym-name))))
 
+(def ^:private returning-heads
+  "Every form [[returning-bodies]] reads a body of."
+  (into (conj function-heads-with-body 'cljs.core/defmethod) (keys body-head->offset)))
+
 (defn- returning-bodies
   "Return the bodies `loc` returns the last form of, each as its forms in order, a `#_` form left out.
 
@@ -407,7 +419,7 @@
   unmount. A `defmethod` dispatch value may be a vector, so its parameters are looked for
   after it."
   [loc ns-info]
-  (let [head (heads/resolve-head loc ns-info)
+  (let [head (heads/resolve-head loc ns-info returning-heads)
         bodies (cond
                  (contains? function-heads-with-body head)
                  (arity-bodies (some-> loc z/down z/right))

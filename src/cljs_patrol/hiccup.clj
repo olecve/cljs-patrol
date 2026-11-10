@@ -622,11 +622,13 @@
   "Forms whose value is the value of one of two branches, written after a test or bindings."
   #{'cljs.core/if 'cljs.core/if-let 'cljs.core/if-not 'cljs.core/if-some})
 
+(def ^:private result-heads
+  "Every form [[result-locs]] reads."
+  (into tail-result-heads (conj branch-result-heads 'cljs.core/case 'cljs.core/cond)))
+
 (def ^:private result-head-by-name
   "Every form [[result-locs]] reads, by its bare name."
-  (into {}
-        (map (juxt name identity))
-        (concat tail-result-heads branch-result-heads ['cljs.core/case 'cljs.core/cond])))
+  (into {} (map (juxt name identity)) result-heads))
 
 (defn- result-locs*
   [loc head-of]
@@ -659,7 +661,7 @@
   ([loc]
    (result-locs* loc #(get result-head-by-name (some-> % z/down parser/sym-name))))
   ([loc ns-info]
-   (result-locs* loc #(heads/resolve-head % ns-info))))
+   (result-locs* loc #(heads/resolve-head % ns-info result-heads))))
 
 (defn- yields-hiccup?
   "True when the expression can yield a Hiccup vector rather than a value.
