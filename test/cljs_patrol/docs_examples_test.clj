@@ -17,6 +17,11 @@
 
 (def ^:private assemble-groups #'core/assemble-groups)
 
+(def ^:private docs-config
+  "Config the examples run under, for a rule that does nothing until it is configured.
+  An example calls `(field-label)`, which resolves to a var of the example's own namespace."
+  {:a11y {:label-styles #{'example.core/field-label}}})
+
 (def ^:private default-requires
   "Aliases an example may use without writing its own ns form."
   (str "(:require [re-frame.core :as rf]"
@@ -113,7 +118,7 @@
         (keys (group/rule->tier rule-group))))
 
 (deftest rule-examples-match-the-tool
-  (let [groups (into {} (map (juxt group/group-id identity)) (assemble-groups {} false))
+  (let [groups (into {} (map (juxt group/group-id identity)) (assemble-groups docs-config false))
         pages (->> (io/file "docs/rules") .listFiles (filter #(str/ends-with? (.getName ^java.io.File %) ".md")))]
     (is (seq pages))
     (doseq [^java.io.File page pages

@@ -19,7 +19,7 @@ screen-reader user cannot reach, name or tell apart, and a Spade selector that m
 - `reg-event-fx-empty`, `reg-event-db-empty`, `reg-event-db-returning-effects`
 - `img-alt-missing`, `invalid-tabindex`, `on-click-on-non-interactive`, `empty-interactive-element`,
   `missing-accessible-name`, `repeated-accessible-name`, `aria-live-contradicts-role`, `aria-hidden-focusable`,
-  `nested-interactive-element`, `label-not-associated`
+  `nested-interactive-element`, `label-not-associated`, `aria-label-beside-visible-label`
 - `discarded-hiccup`
 - `pseudo-in-main-map`, `consecutive-self-selectors`, `spade-ampersand-not-at-start`,
   `spade-keyword-combinator-selector`

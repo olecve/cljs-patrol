@@ -78,6 +78,7 @@
     :aria-hidden-focusable
     :nested-interactive-element
     :label-not-associated
+    :aria-label-beside-visible-label
     :redundant-into-hiccup
     :empty-fragment-props
     :redundant-fragment

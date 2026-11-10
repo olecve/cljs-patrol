@@ -151,8 +151,9 @@
                                     :aria-live-contradicts-role [(contradicting-aria-live-finding 8)]
                                     :aria-hidden-focusable []
                                     :nested-interactive-element []
-                                    :label-not-associated []})]
-    (is (= 10 (count lines)))
+                                    :label-not-associated []
+                                    :aria-label-beside-visible-label []})]
+    (is (= 11 (count lines)))
     (is (= 2 (second (first lines))))
     (is (= 1 (second (second lines))))
     (is (= 2 (second (nth lines 2))))
@@ -225,3 +226,16 @@
       "string key without component is refused")
   (is (some? (a11y/make-group {:component-aliases {"@scope/pkg/Comp" :button}}))
       "scoped package key is accepted"))
+
+(deftest make-group-label-styles-test
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":label-styles must be a collection of fully qualified symbols"
+                        (a11y/make-group {:label-styles 'my.ui.styles/field-label}))
+      "bare symbol is rejected")
+  (is (thrown? clojure.lang.ExceptionInfo
+               (a11y/make-group {:label-styles #{'field-label}}))
+      "unqualified symbol is rejected")
+  (is (thrown? clojure.lang.ExceptionInfo
+               (a11y/make-group {:label-styles {'my.ui.styles/field-label true}}))
+      "map is rejected")
+  (is (some? (a11y/make-group {:label-styles ['my.ui.styles/field-label]}))
+      "vector of qualified symbols is accepted"))
