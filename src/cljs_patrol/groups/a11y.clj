@@ -1594,9 +1594,7 @@
         first-child (z/down loc)]
     (when (and first-child
                (= :token (z/tag first-child))
-               (not (hiccup/inside-unrendered-form? loc))
-               (not (hiccup/inside-style-decl? loc))
-               (not (hiccup/inside-ns-form? loc)))
+               (not (hiccup/inside-non-hiccup-form? loc)))
       (when-let [tag (vector-tag loc ns-info component-aliases)]
         (let [info (element-info loc ns-info component-aliases)
               aria-live-conflict (contradicting-aria-live info)

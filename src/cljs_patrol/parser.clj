@@ -379,6 +379,13 @@
 (defn- groups-for-extension [enabled-groups ext]
   (filter #(contains? (group/file-extensions %) ext) enabled-groups))
 
+(def ^:dynamic *file-memo*
+  "A map [[analyze-file]] binds afresh for each file, or nil outside one.
+
+  A helper that answers the same question about a file's nodes over and over keeps its
+  answers here under its own key, and they go when the file is done."
+  nil)
+
 (defn analyze-file
   "Parse a single source file and return {:declarations :usages :dynamic-sites}.
   Only groups whose `file-extensions` include this file's extension are invoked."
@@ -392,19 +399,20 @@
                           (println "WARN: could not parse" file-path ":" (.getMessage e)))
                         nil))]
         (when zloc
-          (let [ns-info (or (find-ns-info zloc) empty-ns-info)
-                handlers (collect-handlers applicable)]
-            (loop [loc zloc
-                   result (reduce (fn [acc handler] (merge-result acc (handler zloc ns-info file-path)))
-                                  empty-result
-                                  (:handle-file handlers))]
-              (if (z/end? loc)
-                {:declarations (:decls result)
-                 :usages (:usages result)
-                 :dynamic-sites (:dynamics result)}
-                (let [tag (z/tag loc)]
-                  (recur (z/next loc)
-                         (merge-result result (call-handlers handlers tag loc ns-info file-path))))))))))))
+          (binding [*file-memo* (java.util.HashMap.)]
+            (let [ns-info (or (find-ns-info zloc) empty-ns-info)
+                  handlers (collect-handlers applicable)]
+              (loop [loc zloc
+                     result (reduce (fn [acc handler] (merge-result acc (handler zloc ns-info file-path)))
+                                    empty-result
+                                    (:handle-file handlers))]
+                (if (z/end? loc)
+                  {:declarations (:decls result)
+                   :usages (:usages result)
+                   :dynamic-sites (:dynamics result)}
+                  (let [tag (z/tag loc)]
+                    (recur (z/next loc)
+                           (merge-result result (call-handlers handlers tag loc ns-info file-path)))))))))))))
 
 (defn enabled-extensions
   "Union of the extensions `enabled-groups` declare, so a file is opened only when some enabled group can read it."

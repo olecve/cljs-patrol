@@ -1,6 +1,7 @@
 (ns cljs-patrol.hiccup-test
   (:require
    [cljs-patrol.hiccup :as hiccup]
+   [cljs-patrol.parser :as parser]
    [clojure.test :refer [deftest is testing]]
    [rewrite-clj.zip :as z]))
 
@@ -398,6 +399,67 @@
   (testing "false when parent is another vector"
     (let [zloc (-> (z/of-string "[[:img]]") z/down)]
       (is (not (hiccup/inside-unrendered-form? zloc))))))
+
+(defn- loc-at
+  "Return the loc of the first form in source whose text is target."
+  [source target]
+  (z/find (z/of-string source) z/next #(= target (z/string %))))
+
+(deftest enclosing-forms-names-each-kind
+  (is (= #{:unrendered} (hiccup/enclosing-forms (loc-at "'[:div [:img]]" "[:img]")))
+      "quote two levels up")
+  (is (= #{:style-decl} (hiccup/enclosing-forms (loc-at "(defclass c [] [:a {:color :red}])" "[:a {:color :red}]")))
+      "style declaration")
+  (is (= #{:ns} (hiccup/enclosing-forms (loc-at "(ns a (:require [b.c :as d]))" "[b.c :as d]")))
+      "ns form")
+  (is (= #{} (hiccup/enclosing-forms (loc-at "(defn v [] [:div [:img]])" "[:img]")))
+      "nothing for rendered markup")
+  (is (= #{} (hiccup/enclosing-forms (z/of-string "[:img]")))
+      "nothing at top level"))
+
+(deftest enclosing-forms-collects-nested-kinds
+  (is (= #{:unrendered :style-decl :ns}
+         (hiccup/enclosing-forms (loc-at "(ns a '(defclass c [] [:b]))" "[:b]")))
+      "every kind on path")
+  (is (= #{:unrendered :style-decl}
+         (hiccup/enclosing-forms (loc-at "(comment (defclass c [] '[:a [:b]]))" "[:b]")))
+      "comment form counts as no kind"))
+
+(deftest enclosing-forms-reads-heads-of-lists-only
+  (is (= #{} (hiccup/enclosing-forms (loc-at "[defclass [:a]]" "[:a]")))
+      "vector starting with style macro name")
+  (is (= #{} (hiccup/enclosing-forms (loc-at "[ns [:a]]" "[:a]")))
+      "vector starting with ns"))
+
+(deftest inside-predicates-answer-own-kind
+  (let [quoted (loc-at "'[:div [:img]]" "[:img]")
+        styled (loc-at "(defattrs c [] [:a {:color :red}])" "[:a {:color :red}]")
+        required (loc-at "(ns a (:require [b.c :as d]))" "[b.c :as d]")
+        rendered (loc-at "(defn v [] [:div [:img]])" "[:img]")]
+    (is (= [true false false false] (mapv hiccup/inside-unrendered-form? [quoted styled required rendered]))
+        "unrendered only under quote")
+    (is (= [false true false false] (mapv hiccup/inside-style-decl? [quoted styled required rendered]))
+        "style declaration only under defattrs")
+    (is (= [false false true false] (mapv hiccup/inside-ns-form? [quoted styled required rendered]))
+        "ns only under ns")
+    (is (= [true true true false] (mapv hiccup/inside-non-hiccup-form? [quoted styled required rendered]))
+        "non-hiccup under any of three")))
+
+(deftest enclosing-forms-remembers-ancestors-in-file-memo
+  (binding [parser/*file-memo* (java.util.HashMap.)]
+    (let [root (z/of-string "(defclass c [] [:a [:b] [:i]])")
+          find-loc (fn [target] (z/find root z/next #(= target (z/string %))))]
+      (is (= #{:style-decl} (hiccup/enclosing-forms (find-loc "[:b]")))
+          "first ask walks to root")
+      (let [^java.util.Map table (.get ^java.util.Map parser/*file-memo* :cljs-patrol.hiccup/enclosing-forms)
+            outer (z/node (find-loc "[:a [:b] [:i]]"))]
+        (is (= #{:style-decl} (.get table outer))
+            "answer kept for enclosing vector")
+        (is (= #{:style-decl} (.get table (z/node root)))
+            "answer kept for style declaration itself")
+        (.put table outer #{:ns})
+        (is (= #{:ns} (hiccup/enclosing-forms (find-loc "[:i]")))
+            "later ask stops at remembered ancestor")))))
 
 (defn- result-strings
   ([source] (mapv z/string (hiccup/result-locs (z/of-string source))))

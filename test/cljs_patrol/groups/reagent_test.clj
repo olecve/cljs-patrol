@@ -430,6 +430,12 @@
                            "(into [:ul] (keep-indexed (fn [n i] ^{:key n} [:li i]) is))"]))
       "reads core into, for, map, keep-indexed, fn and with-meta"))
 
+(deftest into-inside-non-hiccup-forms-is-left-alone
+  (is (empty? (redundant-intos ["'(into [:ul] (for [i is] ^{:key i} [:li i]))"
+                                "(defclass c [] (into [:ul] (for [i is] ^{:key i} [:li i])))"
+                                "(ns a (:require (into [:ul] (for [i is] ^{:key i} [:li i]))))"]))
+      "skips quoted, style-declaration and ns forms"))
+
 (deftest into-through-look-alike-heads-is-left-alone
   (is (empty? (redundant-intos ["(x/into [:ul] (for [i is] ^{:key i} [:li i]))"
                                 "(into [:ul] (x/for [i is] ^{:key i} [:li i]))"

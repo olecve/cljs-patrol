@@ -469,9 +469,7 @@
 (defn- handle-into
   "Emit a :redundant-into-hiccup finding when `loc` matches the anti-pattern."
   [loc ns-info file]
-  (when (and (not (hiccup/inside-unrendered-form? loc))
-             (not (hiccup/inside-style-decl? loc))
-             (not (hiccup/inside-ns-form? loc))
+  (when (and (not (hiccup/inside-non-hiccup-form? loc))
              (redundant-into? loc ns-info))
     {:decls [(redundant-into-finding loc file)]
      :usages []
@@ -480,9 +478,7 @@
 (defn- handle-fragment
   "Emit an :empty-fragment-props or :redundant-fragment finding when `loc` is a fragment that does nothing."
   [loc ns-info file]
-  (when (and (not (hiccup/inside-unrendered-form? loc))
-             (not (hiccup/inside-style-decl? loc))
-             (not (hiccup/inside-ns-form? loc)))
+  (when-not (hiccup/inside-non-hiccup-form? loc)
     (when-let [finding (cond
                          (empty-fragment-props? loc) (empty-fragment-props-finding loc file)
                          (redundant-fragment? loc ns-info) (redundant-fragment-finding loc file))]

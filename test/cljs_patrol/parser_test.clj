@@ -1,8 +1,11 @@
 (ns cljs-patrol.parser-test
   (:require
+   [cljs-patrol.group :as group]
    [cljs-patrol.groups.re-frame :as re-frame]
+   [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [cljs-patrol.temp-project :as temp-project]
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [rewrite-clj.zip :as z]))
 
@@ -92,3 +95,49 @@
                            "panel" "app.ui"}}
            (select-keys ns-info [:aliases :refers :macro-aliases :macro-refers]))
         "keeps require-macros and refer-macros names out of aliases and refers")))
+
+(defn- memo-probe
+  "Build a group that records, for every vector, the memo in force and whether a style declaration encloses it."
+  [seen]
+  (reify group/RuleGroup
+    (group-id [_] :memo-probe)
+    (group-name [_] "Memo probe")
+    (analyze [_ _] {})
+    (summary-lines [_ _] [])
+    (failed? [_ _] false)
+    (suggestions [_] {})
+    (docs-anchors [_] {})
+    (rule->tier [_] {})
+    (file-extensions [_] #{".cljs"})
+    (parse-handlers [_]
+      {:handle-vector (fn [loc _ file]
+                        (swap! seen conj {:file file
+                                          :memo parser/*file-memo*
+                                          :style-decl? (hiccup/inside-style-decl? loc)})
+                        nil)})))
+
+(deftest analyze-file-gives-each-file-own-memo
+  (let [dir (.toFile (java.nio.file.Files/createTempDirectory "cljs-patrol" (make-array java.nio.file.attribute.FileAttribute 0)))
+        styles (io/file dir "styles.cljs")
+        views (io/file dir "views.cljs")
+        seen (atom [])
+        probe (memo-probe seen)]
+    (try
+      (spit styles "(defclass c [] [:a])")
+      (spit views "(defn v [] [:a])")
+      (parser/analyze-file styles [probe])
+      (parser/analyze-file views [probe])
+      (let [[in-styles in-views] (map (fn [file] (filter #(= (str file) (:file %)) @seen)) [styles views])]
+        (is (= [[true true] [false false]] (map #(map :style-decl? %) [in-styles in-views]))
+            "each file answered from own forms")
+        (is (every? some? (map :memo @seen))
+            "memo bound while file is read")
+        (is (every? #(identical? (:memo (first in-styles)) (:memo %)) in-styles)
+            "one memo throughout file")
+        (is (not (identical? (:memo (first in-styles)) (:memo (first in-views))))
+            "fresh memo per file")
+        (is (nil? parser/*file-memo*)
+            "memo unbound after file"))
+      (finally
+        (doseq [file (reverse (file-seq dir))]
+          (.delete ^java.io.File file))))))
