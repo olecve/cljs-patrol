@@ -65,7 +65,8 @@ Analysis is split into independent rule groups. By default all groups run.
   `if` or `when` whose test is a `not`, an `into` from a collection into an empty vector or set, a `+` or `-` of a
   literal `1` that `inc` or `dec` names, a `not` of an `=` that `not=` names, and a `cond->` or `cond->>` clause whose
   test is `true`
-- **[`comments`](docs/rules/comments.md)** — code left in a `;` comment, switched off rather than deleted
+- **[`comments`](docs/rules/comments.md)** — code left in a `;` comment, switched off rather than deleted, and a comment
+  that says in words what the next line does
 - **[`css-order`](docs/rules/css-order.md)** — Spade style properties out of the
   [order](docs/rules/css-order.md#property-order-tables) a stylelint config defines
 

@@ -143,3 +143,69 @@
                                    "  ;; (reset! state {:x 1})"
                                    "  (prn 1))"]))
       "comment form holds REPL code on purpose"))
+
+(defn- restating
+  "Analyze `lines` as the only file of a project, and return the [row form] of each restating-comment finding."
+  [lines]
+  (->> (temp-project/run-group comments/group {"app/core.cljs" (str/join "\n" (cons "(ns app.core)" lines))})
+       :results
+       :restating-comment
+       (mapv (juxt :row :form))))
+
+(deftest comment-saying-next-line-is-flagged
+  (is (= [[3 ";; Create a project project (post-project {:title \"x\"})"]
+          [5 ";; Fetch tagged documents (fetch {:source ::tagged-documents})"]
+          [7 ";; sort by count and text (sort-by (juxt count text) rows)"]
+          [9 ";; Gets the users (get-users db)])"]]
+         (restating ["(let ["
+                     "  ;; Create a project"
+                     "  project (post-project {:title \"x\"})"
+                     "  ;; Fetch tagged documents"
+                     "  (fetch {:source ::tagged-documents})"
+                     "  ;; sort by count and text"
+                     "  (sort-by (juxt count text) rows)"
+                     "  ;; Gets the users"
+                     "  (get-users db)])"]))
+      "action verb, every other word on next line, plurals and verb forms folded"))
+
+(defn- step [comment-line next-line] (str "(def x\n  " comment-line "\n  " next-line ")"))
+
+(deftest comment-adding-to-next-line-is-left-alone
+  (is (empty? (restating (separate [(step ";; Create a project for the owner" "(post-project {})")
+                                    (step ";; Personal settings" "(settings :personal)")
+                                    (step ";; Fetch documents because cache is stale" "(fetch-documents)")
+                                    (step ";; Fetch documents (tagged)" "(fetch-documents)")
+                                    (step ";; Fetch: documents" "(fetch-documents)")
+                                    (step ";; Fetch the documents and then fetch project documents" "(fetch-project-documents)")
+                                    (step ";; Fetch the" "(fetch-documents)")
+                                    (step ";; Fetch documents" ";; tagged by the user\n  (fetch-documents)")
+                                    (step ";; Fetch documents" "\n  (fetch-documents)")
+                                    "(fetch-documents) ; Fetch documents"])))
+      "word next line lacks, no action verb, reason, punctuation, over six words, nothing named, block, blank or trailing"))
+
+(deftest comment-in-block-is-left-alone
+  (is (empty? (restating ["(def x"
+                          "  ;; Fetch documents"
+                          "  ;; fetch-documents"
+                          "  (fetch-documents))"]))
+      "reads one-line block only"))
+
+(deftest comment-without-words-is-left-alone
+  (is (empty? (restating (separate [(step ";;" "(fetch-documents)")
+                                    (step ";; ---" "(fetch-documents)")
+                                    (step ";; …" "(fetch-documents)")])))
+      "reads empty or punctuation-only comment without crashing"))
+
+(deftest comment-above-comment-is-left-alone
+  (is (empty? (restating ["(def x"
+                          "  ;; Fetch documents"
+                          "    ; fetch-documents"
+                          "  1)"]))
+      "reads no comment as next line"))
+
+(deftest plural-with-es-folds-onto-singular
+  (is (= [[3 ";; Find matches (find-match db))"]]
+         (restating ["(def x"
+                     "  ;; Find matches"
+                     "  (find-match db))"]))
+      "folds es plural"))

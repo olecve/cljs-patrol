@@ -138,7 +138,7 @@
            :var-deref-in-test :js-hint-in-test :literal-constant-assertion
            :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality
            :unconditional-cond-threading
-           :commented-out-code}
+           :commented-out-code :restating-comment}
          (severity/tier->rules rule->tier :cleanup)))
   (is (= #{} (severity/tier->rules rule->tier :unknown))
       "unknown tier returns empty set"))
@@ -244,7 +244,7 @@
                :var-deref-in-test :js-hint-in-test :literal-constant-assertion
                :form-after-split-map :split-map-after-sibling :nested-call-chain :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality
                :unconditional-cond-threading
-               :commented-out-code}
+               :commented-out-code :restating-comment}
              (->> tiered :cleanup (map :rule) set))))
 
     (testing "info-only contains rules without a tier"
