@@ -82,7 +82,7 @@
   "Walk `lines` the way the parser walks a file, and return the forms `rule` reports."
   [rule lines]
   (let [{:keys [handle-vector]} (group/parse-handlers reagent/group)
-        declarations (loop [loc (z/of-string (str/join "\n" lines) {:track-position? true})
+        declarations (loop [loc (z/of-string (str/join "\n" lines))
                             found []]
                        (if (z/end? loc)
                          found
@@ -144,7 +144,7 @@
 
 (deftest empty-fragment-props-finding-names-the-fragment-and-where-it-is
   (let [{:keys [handle-vector]} (group/parse-handlers reagent/group)
-        loc (-> (z/of-string "(defn f []\n  [:<> {} [row]])" {:track-position? true}) z/down z/rightmost)]
+        loc (-> (z/of-string "(defn f []\n  [:<> {} [row]])") z/down z/rightmost)]
     (is (= {:kw :<>
             :type :empty-fragment-props
             :form "[:<> {} [row]]"
@@ -260,7 +260,7 @@
   "Walk `lines` the way the parser walks a file, and return `field` of each finding `rule` gives."
   [rule field ns-info lines]
   (let [handle-lists (:handle-list (group/parse-handlers reagent/group))
-        declarations (loop [loc (z/of-string (str/join "\n" lines) {:track-position? true})
+        declarations (loop [loc (z/of-string (str/join "\n" lines))
                             found []]
                        (if (z/end? loc)
                          found

@@ -331,7 +331,7 @@
                            (mapv z/string))
      :argument-text (z/string argument)
      :form-text (z/string loc)
-     :position (try (z/position loc) (catch Exception _ [0 1]))}))
+     :position (parser/position loc)}))
 
 (def ^:private unevaluated-tags #{:quote :syntax-quote :unquote :unquote-splicing :uneval})
 
@@ -469,7 +469,7 @@
          :first-clause (map n/string (take 2 arguments))
          :clauses-between (- (quot (count arguments) 2) 2)
          :else-text (n/string test-node)
-         :position (try (z/position loc) (catch Exception _ [0 1]))
+         :position (parser/position loc)
          :file file
          :test (parser/top-level-name loc)}))))
 
@@ -522,7 +522,7 @@
              :head-text (z/string (z/down loc))
              :equality-text (n/string equality)
              :arguments (->> equality heads/code-forms rest (map n/string))
-             :position (try (z/position loc) (catch Exception _ [0 1]))
+             :position (parser/position loc)
              :file file
              :test (parser/top-level-name loc)}))))))
 
@@ -563,7 +563,7 @@
                :test-text (n/string test-node)
                :negated-text (n/string negated)
                :body (map n/string body)
-               :position (try (z/position loc) (catch Exception _ [0 1]))
+               :position (parser/position loc)
                :file file
                :test (parser/top-level-name loc)})))))))
 
@@ -630,7 +630,7 @@
              :head-text (z/string (z/down loc))
              :target-text (n/string target)
              :source-text (n/string source)
-             :position (try (z/position loc) (catch Exception _ [0 1]))
+             :position (parser/position loc)
              :file file
              :test (parser/top-level-name loc)}))))))
 
@@ -667,7 +667,7 @@
            :fn-literal? (= :fn (z/tag loc))
            :head-text (z/string (z/down loc))
            :operand-text (n/string operand)
-           :position (try (z/position loc) (catch Exception _ [0 1]))
+           :position (parser/position loc)
            :file file
            :test (parser/top-level-name loc)})))))
 
@@ -710,7 +710,7 @@
            :leading? (every? (comp written-true? first) (take (count steps) pairs))
            :before (count before-true)
            :after (dec (count true-pairs))
-           :position (try (z/position loc) (catch Exception _ [0 1]))
+           :position (parser/position loc)
            :file file
            :test (parser/top-level-name loc)})))))
 
@@ -785,7 +785,7 @@
            :type ::vec-of-map-filter
            :fn-literal? (= :fn (z/tag loc))
            :form-text (z/string loc)
-           :position (try (z/position loc) (catch Exception _ [0 1]))
+           :position (parser/position loc)
            :file file
            :test (parser/top-level-name loc))))
 
@@ -807,7 +807,7 @@
                 (assoc :type ::vec-of-map-filter
                        :step-text (n/string step)
                        :form-text (z/string loc)
-                       :position (try (z/position loc) (catch Exception _ [0 1]))
+                       :position (parser/position loc)
                        :file file
                        :test (parser/top-level-name loc)))))))))
 

@@ -1446,8 +1446,7 @@
 
   The body, not the whole vector: see [[hiccup/props-slot]] for why props are skipped.
   Below the body the whole subtree counts, since a control wrapped in positioning `:div`s
-  or produced by a `for` is nested just the same. The walk stays on the file's own zipper,
-  because `z/subzip` restarts position tracking and the hint names a line."
+  or produced by a `for` is nested just the same."
   [info loc tag ns-info component-aliases]
   (when (interactive-container? info tag)
     (first-matching-descendant {:match? #(content-loc? % ns-info component-aliases)}
@@ -1564,7 +1563,7 @@
   (let [unwrapped-locs (java.util.IdentityHashMap.)
         written-nodes (java.util.IdentityHashMap.)]
     (loop [written (z/of-node* written-root)
-           unwrapped (z/of-node* unwrapped-root {:track-position? true})]
+           unwrapped (z/of-node* unwrapped-root)]
       (when-not (z/end? written)
         (when (= :vector (z/tag written))
           (.put unwrapped-locs (z/node written) unwrapped)
@@ -1608,7 +1607,7 @@
               hidden-self? (aria-hidden-focusable? info tag)
               hidden-descendant (when-not hidden-self?
                                   (hidden-focusable-descendant info loc ns-info component-aliases))
-              [row col] (try (z/position loc) (catch Exception _ [0 1]))
+              [row col] (parser/position loc)
               base {:kw tag
                     :form (source-snippet written-loc)
                     :file file

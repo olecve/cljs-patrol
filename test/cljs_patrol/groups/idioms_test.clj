@@ -26,7 +26,7 @@
   ([rule-group file-ns-info lines] (parse rule-group file-ns-info "views.cljs" lines))
   ([rule-group file-ns-info file lines]
    (let [{:keys [handle-list]} (group/parse-handlers rule-group)
-         declarations (loop [loc (z/of-string (str/join "\n" lines) {:track-position? true})
+         declarations (loop [loc (z/of-string (str/join "\n" lines))
                              found []]
                         (if (z/end? loc)
                           found

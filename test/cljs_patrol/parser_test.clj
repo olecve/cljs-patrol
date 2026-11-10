@@ -32,6 +32,24 @@
   (testing "unknown alias returns nil"
     (is (nil? (parser/resolve-sym "unknown/fn-name" "my.ns" {})))))
 
+(deftest position-reads-node-metadata
+  (let [loc (-> (z/of-string "(ns a)\n\n  (f\n   x)") z/right)]
+    (is (= [3 3] (parser/position loc))
+        "start of form")
+    (is (= [[3 3] [4 6]] (parser/position-span loc))
+        "start and end of form")
+    (is (= 3 (parser/position-row loc))
+        "row of form")))
+
+(deftest position-falls-back-without-metadata
+  (let [marker-loc (-> (z/of-string "#?(:cljs 1)") z/down)]
+    (is (= [0 1] (parser/position marker-loc))
+        "fallback for reader conditional marker")
+    (is (nil? (parser/position-span marker-loc))
+        "no span for reader conditional marker")
+    (is (= 0 (parser/position-row marker-loc))
+        "row 0 for reader conditional marker")))
+
 (deftest distinct-by-test
   (testing "removes duplicates by key, last one wins"
     (let [result (parser/distinct-by :id [{:id 1

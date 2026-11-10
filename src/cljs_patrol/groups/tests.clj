@@ -34,7 +34,7 @@
        (string? (try (z/sexpr loc) (catch Exception _ nil)))))
 
 (defn- end-row [loc]
-  (try (first (second (z/position-span loc))) (catch Exception _ nil)))
+  (-> loc parser/position-span second first))
 
 (defn- inline-assertion-message
   "Return the message loc of an `(is expr \"…\")` that shares a line with the expression.
@@ -279,7 +279,7 @@
   shape in a file would be a single baseline identity. Several identical hints inside one
   definition still collapse, which matters little here: the fix removes all of them."
   [hint-loc test-name file]
-  (let [[row col] (try (z/position hint-loc) (catch Exception _ [0 1]))]
+  (let [[row col] (parser/position hint-loc)]
     {:kw (symbol js-tag)
      :type :js-hint-in-test
      :form (parser/normalize-form (parser/raw hint-loc))
