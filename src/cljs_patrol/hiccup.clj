@@ -311,18 +311,23 @@
   "Look up symbol-name in the bindings one enclosing form makes.
   `child` is that form's own child the usage descends from and `inner` the one below
   it: together they place a usage written inside the binding vector itself, where the
-  bindings to its right are not in scope yet."
+  bindings to its right are not in scope yet.
+
+  A value is read only out of a binding form written unqualified: a look-alike such as
+  `p/let` may bind something else, so it shadows the name the way an opaque form does."
   [list-loc child inner symbol-name]
   (let [head (z/down list-loc)
         head-name (some-> head parser/sym-name)
+        unqualified? (= head-name (some-> head parser/raw))
         bindings (some-> head z/right)
         binding-vector? (= :vector (some-> bindings z/tag))]
     (cond
-      (and binding-vector? (contains? map-binding-heads head-name))
+      (and binding-vector? unqualified? (contains? map-binding-heads head-name))
       (when (in-scope-branch? head-name child bindings)
         (bound-init bindings symbol-name (when (same-node? child bindings) inner)))
 
-      (and binding-vector? (contains? opaque-binding-heads head-name))
+      (and binding-vector? (or (contains? opaque-binding-heads head-name)
+                               (contains? map-binding-heads head-name)))
       (when (mentions-symbol? bindings symbol-name) ::shadowed)
 
       (contains? symbol-binding-heads head-name)

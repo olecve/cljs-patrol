@@ -120,6 +120,14 @@
     (is (= :map (:kind (img-attrs-info "(when-let [props {:alt \"cat\"}] [:img props])"))))
     (is (= :map (:kind (img-attrs-info "(if-let [props {:alt \"cat\"}] [:img props] nil)")))))
 
+  (testing "a qualified look-alike binding is read as no value"
+    (is (= :non-map (:kind (img-attrs-info "(p/let [props {:alt \"cat\"}] [:img props])")))
+        "p/let may bind something else")
+    (is (= :non-map (:kind (img-attrs-info "(let [props {:src \"x\"}] (x/when-let [props {:alt \"cat\"}] [:img props]))")))
+        "look-alike still shadows outer binding")
+    (is (= :map (:kind (img-attrs-info "(let [props {:alt \"cat\"}] (p/let [other 1] [:img props]))")))
+        "look-alike binding other name lets outer binding answer"))
+
   (testing "the innermost binding wins"
     (let [info (img-attrs-info "(let [props {:src \"x\"}] (let [props {:alt \"cat\"}] [:img props]))")]
       (is (= #{:alt} (-> info :attrs keys set))
