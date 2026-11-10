@@ -437,7 +437,10 @@
                                 "(into [:ul] (map (x/fn [i] ^{:key i} [:li i]) is))"
                                 "(into [:ul] (map (fn [i] (x/with-meta [:li i] {:key i})) is))"
                                 "(let [into f] (into [:ul] (for [i is] ^{:key i} [:li i])))"
-                                "(into [:ul] (for [i is] (x/when i ^{:key i} [:li i])))"]))
+                                "(into [:ul] (for [i is] (x/when i ^{:key i} [:li i])))"
+                                "(into [:ul] (for [i is] (if c (x/when c [:li i]) ^{:key i} [:li i])))"
+                                "(into [:ul] (for [i is] (cond c (x/if c [:li i] [:li]) :else ^{:key i} [:li i])))"
+                                "(into [:ul] (for [i is] (let [when f] (if c (when c [:li i]) ^{:key i} [:li i]))))"]))
       "skips heads resolving outside core"))
 
 (deftest heads-referred-as-macros-are-read

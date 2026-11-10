@@ -132,13 +132,15 @@
   One keyed branch is not enough: a body keying only some of what it produces still
   needs the `into` for the rest. And without any key the `into` is load-bearing — it
   splices the elements in as positional children, which React accepts, where a sequence
-  sitting inside the vector would draw a missing-key warning."
+  sitting inside the vector would draw a missing-key warning.
+
+  The keys are read where the body's heads resolve, the unkeyed elements wherever a head
+  of that name might yield one, so a look-alike `x/when` neither keys nor hides one."
   [loc ns-info]
   (boolean (when-let [bodies (seq (mapping-body-locs loc ns-info))]
-             (let [results (hiccup/result-locs (last bodies) ns-info)]
-               (and (some #(attaches-key? % ns-info) results)
-                    (not-any? unkeyed-element? results)
-                    (not-any? #(first-in-subtree reactive-deref? %) bodies))))))
+             (and (some #(attaches-key? % ns-info) (hiccup/result-locs (last bodies) ns-info))
+                  (not-any? unkeyed-element? (hiccup/result-locs (last bodies)))
+                  (not-any? #(first-in-subtree reactive-deref? %) bodies)))))
 
 (defn- redundant-into?
   "True when `loc` is `(into [HEAD …] MAPPING …)` and the `into` earns nothing.
