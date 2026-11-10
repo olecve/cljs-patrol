@@ -5,9 +5,10 @@
   stale while the code around it moves, and version control already keeps what it held.
   The reading is strict so that prose is never taken for code: every form in the block
   must be a list, a vector or a map, and the block must hold a call, a list headed by a
-  symbol, along with a qualified symbol or a form nested in another. A word only prose
-  writes, a shape holding a placeholder such as `[:dispatch [::kw args...]]`, and an
-  example a comment ending in `:` introduces are left alone."
+  symbol, along with a token English never writes, such as `@x`, `swap!`, `->` or a
+  call through an alias the ns form requires. A word only prose writes, a shape holding a
+  placeholder such as `[:dispatch [::kw args...]]`, and an example a comment ending in
+  `:` introduces are left alone."
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
@@ -62,16 +63,50 @@
 
 (def ^:private form-tags #{:list :map :vector})
 
-(defn- qualified-symbol-token? [node]
-  (and (= :token (n/tag node))
-       (some? (re-matches #"[^/:\"]+/.+" (n/string node)))))
+(def ^:private code-heads
+  "Heads that read as code and as no English word, so a call to one is code wherever it is written."
+  #{"assoc" "assoc-in" "cond" "condp" "conj" "dec" "def" "defmacro" "defmethod" "defn" "defn-" "defonce"
+    "dissoc" "doseq" "dotimes" "fn" "get-in" "if-let" "inc" "let" "letfn" "println" "prn" "recur" "str"
+    "update-in" "when-let" "when-not"})
+
+(def ^:private reader-tags
+  "Reader forms English never writes: `@x`, `#(…)`, `'x`, `` `x ``, `#\"re\"`, `#{…}` and `#?(…)`."
+  #{:deref :fn :quote :reader-macro :regex :set :syntax-quote})
+
+(defn- alias-call-head?
+  "True when the token node heads a call through an alias the ns form requires, or `js/`."
+  [node parent {:keys [aliases]}]
+  (let [text (n/string node)
+        [_ alias-part] (re-matches #"([^/:\"]+)/.+" text)]
+    (boolean (and alias-part
+                  (= :list (n/tag parent))
+                  (identical? node (first (remove n/whitespace-or-comment? (n/children parent))))
+                  (or (= "js" alias-part) (contains? aliases alias-part))))))
+
+(defn- code-token?
+  "True when the node is one English never writes.
+
+  A reader form, a symbol ending in `!` or `?`, an operator, an auto-resolved `::keyword`,
+  a head of [[code-heads]] in call position, or a call through a required alias."
+  [node parent ns-info]
+  (or (contains? reader-tags (n/tag node))
+      (and (= :token (n/tag node))
+           (let [text (n/string node)
+                 head? (and (= :list (some-> parent n/tag))
+                            (identical? node (first (remove n/whitespace-or-comment? (n/children parent)))))]
+             (or (some? (re-find #"[^!?][!?]$" text))
+                 (some? (re-matches #"[-+*/<>=]+|->>?|not=" text))
+                 (str/starts-with? text "::")
+                 (and head? (contains? code-heads text))
+                 (alias-call-head? node parent ns-info))))))
 
 (defn- code-signal?
-  "True when a form holds something prose does not: a qualified symbol, or a form nested in it."
-  [form]
-  (boolean (some #(or (contains? #{:list :map :set :vector} (n/tag %))
-                      (qualified-symbol-token? %))
-                 (rest (tree-seq n/inner? n/children form)))))
+  "True when a form holds a token English never writes, at any depth."
+  [form ns-info]
+  (letfn [(walk [node parent]
+            (or (code-token? node parent ns-info)
+                (and (n/inner? node) (some #(walk % node) (n/children node)))))]
+    (boolean (walk form nil))))
 
 (defn- descendants-of [forms]
   (mapcat #(tree-seq n/inner? n/children %) forms))
@@ -92,32 +127,33 @@
              (re-matches #"[A-Z]" text)))))
 
 (def ^:private prose-words
-  "Words prose writes and Clojure code does not name, `is` and `and` aside since code calls them."
-  #{"a" "an" "are" "as" "at" "be" "but" "by" "cf." "e.g." "etc." "from" "i.e." "in" "of" "on" "see"
-    "than" "that" "the" "this" "to" "via" "vs." "was" "were" "which" "with" "you"})
+  "Words prose writes and no Clojure code names, read without a trailing dot, so `e.g` counts as `e.g.` does."
+  #{"a" "an" "are" "as" "at" "be" "but" "by" "cf" "e.g" "etc" "from" "i.e" "in" "of" "on" "see"
+    "than" "that" "the" "this" "to" "via" "vs" "was" "were" "which" "with" "you"})
 
 (defn- prose-word?
-  "True when the token node is a word of prose: one of `prose-words`, or a capitalized word, `RFC`, that names no class."
+  "True when the token node is a word of prose: one of `prose-words`, or a capitalized word such as `RFC`.
+  A class name, `(catch Exception e …)`, reads as one too, which only costs a finding."
   [node]
   (and (= :token (n/tag node))
        (let [text (n/string node)]
-         (or (contains? prose-words (str/lower-case text))
+         (or (contains? prose-words (str/lower-case (str/replace text #"\.$" "")))
              (some? (re-matches #"[A-Z][a-z]*[A-Z]*" text))))))
 
 (defn- code-forms
   "Return the forms `text` reads back as when it is code, or nil.
 
-  Each form is a list, a vector or a map; one is a call; one holds a code signal; and none
-  holds a placeholder or a word of prose. A `=>` marks a REPL example showing a result,
-  which documents code rather than switching it off."
-  [text]
+  Each form is a list, a vector or a map; one is a call; one holds a token English never
+  writes; and none holds a placeholder or a word of prose. A `=>` marks a REPL example
+  showing a result, which documents code rather than switching it off."
+  [text ns-info]
   (when-not (str/includes? text "=>")
     (let [forms (try (remove n/whitespace-or-comment? (n/children (p/parse-string-all text)))
                      (catch Exception _ nil))
           nodes (descendants-of forms)]
       (when (and (seq forms)
                  (every? #(contains? form-tags (n/tag %)) forms)
-                 (some code-signal? forms)
+                 (some #(code-signal? % ns-info) forms)
                  (some call? nodes)
                  (not-any? placeholder? nodes)
                  (not-any? prose-word? nodes))
@@ -136,11 +172,11 @@
 
   The finding points at the first form the block holds, and its `:form` is every form,
   so two blocks opening the same way stay two baseline entries."
-  [zloc _ns-info file]
+  [zloc ns-info file]
   (let [blocks (comment-blocks zloc)
         findings (keep (fn [[previous block]]
                          (when-let [forms (and (not (introduced-example? block previous))
-                                               (code-forms (comment-text block)))]
+                                               (code-forms (comment-text block) ns-info))]
                            (let [[row col] (z/position (first block))]
                              {:type :commented-out-code
                               :kw 'comment

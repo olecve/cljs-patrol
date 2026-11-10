@@ -61,16 +61,20 @@ reading is strict, so that prose is never taken for code:
 
 - every form in the block is a list, a vector or a map, so prose with a word outside a parenthesis is not code
 - one of them is a call, a list headed by a symbol, so a data shape such as `[:div "x"]` is not either
-- it holds a qualified symbol or a form nested in another; a keyword, a string or a number alone is as likely a note in
-  parentheses, `(default 300)` or `(only :dev)`
+- it holds a token English never writes: a reader form (`@x`, `#(…)`, `'x`, `#{…}`), a symbol ending in `!` or `?`, an
+  operator such as `=` or `->`, an auto-resolved `::keyword`, a call to a head that is no English word (`defn`, `let`,
+  `fn`, `assoc`…), or a call through an alias the ns form requires, or `js/`. A nested form, a keyword or a qualified
+  symbol alone is as likely a note in parentheses: `(returns (nil) when empty)`, `(only :dev)`,
+  `(calls rf/dispatch twice)`
 - it holds no placeholder: `...`, `…`, a name ending in `...` such as `args...`, or a lone capital such as `N`
-- it holds no word of prose, such as `see`, `the`, `of`, `by`, `e.g.` or `cf.`, and no capitalized word, `(RFC 7231)`
+- it holds no word of prose, such as `see`, `the`, `of`, `by`, `e.g.` or `cf.`, and no capitalized word, `(RFC 7231)`; a
+  class name, `(catch Exception e …)`, reads as one too
 - it holds no `=>`, which marks a REPL example showing a result
 - the comment just before it, a blank line apart at most, does not end in `:`, as `;; Example:` does
 
 The finding points at the first form in the block, and its baseline identity is every form in it, so two blocks that
 open the same way stay apart.
 
-A comment after code on the same line, `(inc x) ; (dec x (y))`, is not read.
+A comment after code on the same line, `(inc x) ; (swap! x f)`, is not read.
 
 </details>
