@@ -405,6 +405,19 @@
    [:input {:aria-label "Min"}]
    [ui/form-row {:control [:input {:aria-label "Max"}]}]])
 
+(defn ok-label-names-field-and-field-in-props-items []
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "Min"}]
+   [ui/stack {:children [[:input {:aria-label "Max"}]
+                         [:p "Inclusive"]]}]])
+
+(defn ok-label-names-field-and-field-in-render-fn []
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "Min"}]
+   [ui/popover {:content (fn [] [:input {:aria-label "Max"}])}]])
+
 (defn ok-label-names-field-and-deref [max-input]
   [:div
    [:span (styles/field-label) "Range"]

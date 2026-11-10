@@ -1363,13 +1363,13 @@
 (defn- renders-field?
   "True when the form at `loc`, written where its value renders, may render a field.
 
-  What a `let`, `when`, `if`, `cond` or `case` yields and a `for` body are read. A call,
-  a symbol, a deref or a reader conditional cannot be read, so it may render one, unless
-  it is `plain?`: taken as text or data. A map is read for the vectors it holds."
+  What a `let`, `when`, `if`, `cond` or `case` yields and a `for` or `fn` body are read.
+  A call, a symbol, a deref or a reader conditional cannot be read, so it may render one,
+  unless it is `plain?`: taken as text or data. A map is read for the vectors it holds."
   [loc except context plain?]
   (case (z/tag loc)
     (:meta :vector) (holds-field? loc except context)
-    :list (let [results (if (for-form? loc)
+    :list (let [results (if (contains? #{"fn" "for"} (some-> loc z/down parser/sym-name))
                           (take-last 1 (parser/right-siblings (z/down loc)))
                           (hiccup/result-locs loc))]
             (if (identical? (z/node loc) (some-> results first z/node))
@@ -1401,7 +1401,7 @@
                                 plain? (contains? text-tags (hiccup/parse-tag (parser/raw (z/down loc))))]
                             (some #(renders-field? % except context plain?)
                                   (concat (when (for-form? slot) [slot]) (body-locs loc))))
-                          (some #(renders-field? % except context true) (rest (parser/child-locs loc))))))
+                          (some #(renders-field? % except context true) (parser/child-locs loc)))))
        (renders-field? loc except context false)))))
 
 (defn- labels?
