@@ -36,3 +36,7 @@
 (deftest unconditional-cond-threading-fixture-test
   (is (= ["true-clause-plain"] (map :test (found :unconditional-cond-threading)))
       "a cond-> the ns form excludes, or a cond->> or -> the namespace defines in another file, is no thread to ask for"))
+
+(deftest vec-of-map-filter-fixture-test
+  (is (= ["vec-of-map-filter-plain"] (map :test (found :vec-of-map-filter)))
+      "a filterv the ns form excludes, or a mapv the namespace defines in another file, is no call to ask for"))

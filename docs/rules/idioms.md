@@ -17,14 +17,14 @@ Run this group alone with `--only idioms`. Its settings live under `:idioms` in 
 ```clojure
 ;; flagged
 (defn active-users [rows]
-  (vec (filter active? (map :user rows))))
+  (set (filter active? (map :user rows))))
 
 (defn top-result [response]
   (select-keys (first (get-in response [:body :results])) [:id :title]))
 
 ;; fix
 (defn active-users [rows]
-  (->> rows (map :user) (filter active?) vec))
+  (->> rows (map :user) (filter active?) set))
 
 (defn top-result [response]
   (-> response (get-in [:body :results]) first (select-keys [:id :title])))
@@ -489,6 +489,76 @@ Left alone, since the scan cannot vouch that the clause always runs or that the 
   thread, so it writes whole pairs and the clauses it writes cannot be told apart
 - a `cond->`, `cond->>`, `->` or `->>` that may not be core's: from another library, named in the ns form, bound as a
   local, or defined by the namespace at the top level, and every case the [`cond-else-nil`](#cond-else-nil) rule leaves
+  alone for `cond`
+- anything quoted, discarded or inside `(comment …)`
+
+</details>
+
+### Vec of map or filter
+
+`vec-of-map-filter` · cleanup — A `vec` of a `map` or `filter` call, which `mapv` or `filterv` builds at once.
+
+```clojure
+;; flagged
+(defn ids [rows]
+  (vec (map :id rows)))
+
+(defn active [users]
+  (->> users (remove :deleted?) (filter :active?) vec))
+
+;; fix
+(defn ids [rows]
+  (mapv :id rows))
+
+(defn active [users]
+  (->> users (remove :deleted?) (filterv :active?)))
+```
+
+**Left alone:**
+
+```clojure
+;; a transducer
+(defn ids [] (vec (map :id)))
+
+;; core has no removev
+(defn live [users] (vec (remove :deleted? users)))
+
+;; filterv takes one collection
+(defn active [users more] (vec (filter :active? users more)))
+
+;; a map the function binds
+(defn ids [map rows] (vec (map :id rows)))
+```
+
+<details>
+<summary>Details</summary>
+
+Why: `(vec (map f xs))` builds a lazy seq only to pour it into a vector, and makes the reader take in two calls to see
+one. `mapv` and `filterv` say in one name that the result is a vector, and build it without the seq in between. Both
+read their whole collection either way, so the result and the order `f` runs in are the same.
+
+Flagged:
+
+- a `vec` of a `map` with a function and one or more collections, `(vec (map f xs ys))` asking for `(mapv f xs ys)`, or
+  of a `filter` with a predicate and one collection
+- a `->>` thread whose last two steps are such a `map` or `filter` call, its collection the thread's, and a bare `vec`:
+  `(->> xs (map f) vec)` asks for `(->> xs (mapv f))`
+
+The finding is keyed by `vec`, and its hint spells out the `mapv` or `filterv` call. A
+[`nested-call-chain`](#nested-call-chain) finding on the same form stands as well: `(vec (filter f (map g xs)))` reads
+either as `(filterv f (map g xs))`, two calls with no chain left to thread, or as the thread
+`(->> xs (map g) (filter f) vec)`, whose last two steps this rule then asks to write as `(filterv f)`.
+
+Left alone, since the scan cannot vouch that the rewrite means the same:
+
+- a `remove`, `keep` or any other lazy function, which core has no eager twin for
+- a transducer, `(map f)` or `(filter p)`, and a `filter` of more than one collection
+- a comment or `#_` form in the `vec` or in the `map` or `filter` call, or anywhere in the thread, which the rewrite
+  would lose, and a reader conditional among the call's arguments, which may read as nothing on one platform
+- a `vec` that is a step of a thread, and a `->>` that is a step of another, which take an argument they do not show; a
+  `map` or `filter` that is the thread's starting value, and a `vec` written as `(vec)` or followed by another step
+- a `vec`, `map`, `filter`, `mapv`, `filterv` or `->>` that may not be core's: from another library, named in the ns
+  form, bound as a local, or defined by the namespace, and every case the [`cond-else-nil`](#cond-else-nil) rule leaves
   alone for `cond`
 - anything quoted, discarded or inside `(comment …)`
 

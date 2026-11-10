@@ -3,8 +3,8 @@
 
   Nested calls a threading macro would read top to bottom, a `cond` closing on an
   `:else nil` it returns anyway, an `if` or `when` testing a `not`, an `into` from a
-  collection into an empty vector or set, a `+` or `-` of a literal `1`, and a `not` of
-  an `=`. Each rule reports only what it can rewrite without a judgement call.
+  collection into an empty vector or set, a `+` or `-` of a literal `1`, a `not` of an
+  `=`, and a `vec` of a `map` or `filter`. Each rule reports only what it can rewrite without a judgement call.
 
   For a thread, every step passes the call below it in the slot a thread fills, the first
   argument for `->` or the last for `->>`, so the rewrite expands back to exactly the code
@@ -705,6 +705,82 @@
            :file file
            :test (parser/top-level-name loc)})))))
 
+(def ^:private eager-builders
+  "Lazy core functions a `vec` makes eager, with the function that builds the vector at once and the argument counts it takes.
+
+  `(map f)` and `(filter p)` are transducers, with no collection to build from, and
+  `filterv` takes one collection where `mapv` takes any number."
+  {"map" ["mapv" #(>= % 2)]
+   "filter" ["filterv" #{2}]})
+
+(defn- child-loc
+  "Return the loc of node among the children of loc."
+  [loc node]
+  (->> loc z/down parser/right-siblings
+       (filter #(identical? node (z/node %)))
+       first))
+
+(defn- eager-call
+  "Describe loc when it calls core's `map` or `filter` with a collection, counting unwritten arguments a thread passes, or nil.
+
+  A comment or `#_` in the call would be lost by the rewrite, and a reader conditional
+  among its arguments may read as nothing on one platform and leave a transducer."
+  [loc ns-info unwritten]
+  (when (= :list (some-> loc z/tag))
+    (let [inner-name (some-> loc z/down parser/sym-name)
+          [fused-name arity?] (get eager-builders inner-name)
+          arguments (rest (code-children (z/node loc)))]
+      (when (and fused-name
+                 (arity? (+ unwritten (count arguments)))
+                 (not-any? written-reader-conditional? arguments)
+                 (core-name-unshadowed? loc ns-info fused-name))
+        (when-let [inner-head (core-call-head loc ns-info inner-name)]
+          {:fused-name fused-name
+           :heads [[inner-head inner-name] [(describe-name fused-name ns-info) fused-name]]
+           :arguments (map n/string arguments)})))))
+
+(defn- vec-of-map-filter-candidate
+  "Record a `vec` of a `map` or `filter` call, or nil.
+
+  A comment or `#_` beside the `map` or `filter` would be lost by the rewrite, and a step
+  of a thread takes an argument it does not show."
+  [loc ns-info file]
+  (when-let [head (core-call-head loc ns-info "vec")]
+    (let [[inner & more] (rest (code-children (z/node loc)))]
+      (when (and (empty? more)
+                 (not (threaded-step? loc)))
+        (when-let [call (eager-call (child-loc loc inner) ns-info 0)]
+          (-> call
+              (update :heads conj [head "vec"])
+              (assoc :type ::vec-of-map-filter
+                     :fn-literal? (= :fn (z/tag loc))
+                     :form-text (z/string loc)
+                     :position (try (z/position loc) (catch Exception _ [0 1]))
+                     :file file
+                     :test (parser/top-level-name loc))))))))
+
+(defn- threaded-vec-of-map-filter-candidate
+  "Record a `->>` whose last two steps are a `map` or `filter` call and `vec`, or nil.
+
+  A comment or `#_` in the thread would be lost by the rewrite, and a thread that is a
+  step of another takes an argument it does not show, which may land after the `vec`."
+  [loc ns-info file]
+  (when-let [thread-head (core-call-head loc ns-info "->>")]
+    (let [children (code-children (z/node loc))
+          [step vec-node] (take-last 2 children)]
+      (when (and (>= (count children) 4)
+                 (not (threaded-step? loc)))
+        (when-let [call (eager-call (child-loc loc step) ns-info 1)]
+          (when (core-name-unshadowed? loc ns-info "vec")
+            (-> call
+                (update :heads conj [thread-head "->>"] [(describe-head (child-loc loc vec-node) ns-info) "vec"])
+                (assoc :type ::vec-of-map-filter
+                       :step-text (n/string step)
+                       :form-text (z/string loc)
+                       :position (try (z/position loc) (catch Exception _ [0 1]))
+                       :file file
+                       :test (parser/top-level-name loc)))))))))
+
 (defn- handle [min-calls loc ns-info file]
   (let [found (keep identity [(when (= :list (z/tag loc)) (definition loc ns-info file))
                               (chain-candidate min-calls loc ns-info file)
@@ -713,7 +789,9 @@
                               (into-empty-candidate loc ns-info file)
                               (plus-minus-one-candidate loc ns-info file)
                               (true-clause-candidate loc ns-info file)
-                              (negated-equality-candidate loc ns-info file)])]
+                              (negated-equality-candidate loc ns-info file)
+                              (vec-of-map-filter-candidate loc ns-info file)
+                              (threaded-vec-of-map-filter-candidate loc ns-info file)])]
     (when (seq found)
       {:decls (vec found)
        :usages []
@@ -998,6 +1076,29 @@
              :hint (str "Write (" builder " " (shown source-text text-max) ")")}
       test (assoc :test test))))
 
+(defn- vec-of-map-filter? [{:keys [heads]} definitions]
+  (every? (fn [[head core-name]] (core-named? head definitions core-name)) heads))
+
+(defn- vec-of-map-filter-hint
+  "Spell out the call the finding asks for, and in a thread the steps it takes the place of."
+  [{:keys [fused-name fn-literal? arguments step-text]}]
+  (let [call (str fused-name (apply str (map #(str " " (shown % text-max)) arguments)))]
+    (if step-text
+      (str "Write (" call ") in place of " (shown step-text text-max) " vec")
+      (str "Write " (if fn-literal? "#(" "(") call ")"))))
+
+(defn- vec-of-map-filter-finding [{:keys [form-text position file test]
+                                   :as candidate}]
+  (let [[row col] position]
+    (cond-> {:kw 'vec
+             :type :vec-of-map-filter
+             :form (parser/normalize-form form-text)
+             :file file
+             :row row
+             :col col
+             :hint (vec-of-map-filter-hint candidate)}
+      test (assoc :test test))))
+
 (defn- plus-minus-one? [{:keys [head-name step-name head step-head]} definitions]
   (and (core-named? head definitions head-name)
        (core-named? step-head definitions step-name)))
@@ -1118,7 +1219,11 @@
      :unconditional-cond-threading
      (->> declarations
           (filter #(and (= ::true-clause (:type %)) (true-clause? % definitions)))
-          (mapv true-clause-finding))}))
+          (mapv true-clause-finding))
+     :vec-of-map-filter
+     (->> declarations
+          (filter #(and (= ::vec-of-map-filter (:type %)) (vec-of-map-filter? % definitions)))
+          (mapv vec-of-map-filter-finding))}))
 
 (defn- suggestion [min-calls]
   (str min-calls " or more calls nested one inside another, each passing its result to the "
@@ -1136,6 +1241,10 @@
 (def ^:private into-empty-suggestion
   (str "(into [] xs) or (into #{} xs) pours a collection into an empty vector or set. Write "
        "(vec xs) or (set xs), which name the collection they build."))
+
+(def ^:private vec-of-map-filter-suggestion
+  (str "(vec (map f xs)) or (vec (filter p xs)) builds a lazy seq only to pour it into a vector. Write "
+       "(mapv f xs) or (filterv p xs), which build the vector at once."))
 
 (def ^:private plus-minus-one-suggestion
   (str "(+ x 1) or (- x 1) adds or subtracts a literal 1. Write (inc x) or (dec x), which name "
@@ -1155,14 +1264,15 @@
   (parse-handlers [_] {:handle-list (fn [loc ns-info file] (handle min-calls loc ns-info file))})
   (analyze [_ data] (analyze* min-calls data))
   (summary-lines [_ {:keys [nested-call-chain cond-else-nil negated-test into-empty plus-minus-one negated-equality
-                            unconditional-cond-threading]}]
+                            unconditional-cond-threading vec-of-map-filter]}]
     [["Nested call chain:" (count nested-call-chain)]
      ["Cond else nil:" (count cond-else-nil)]
      ["Negated test:" (count negated-test)]
      ["Into empty:" (count into-empty)]
      ["Plus or minus one:" (count plus-minus-one)]
      ["Negated equality:" (count negated-equality)]
-     ["Unconditional cond threading:" (count unconditional-cond-threading)]])
+     ["Unconditional cond threading:" (count unconditional-cond-threading)]
+     ["Vec of map or filter:" (count vec-of-map-filter)]])
   (failed? [_ _] false)
   (suggestions [_] {:nested-call-chain (suggestion min-calls)
                     :cond-else-nil else-nil-suggestion
@@ -1170,7 +1280,8 @@
                     :into-empty into-empty-suggestion
                     :plus-minus-one plus-minus-one-suggestion
                     :negated-equality negated-equality-suggestion
-                    :unconditional-cond-threading unconditional-cond-threading-suggestion})
+                    :unconditional-cond-threading unconditional-cond-threading-suggestion
+                    :vec-of-map-filter vec-of-map-filter-suggestion})
   (docs-anchors [_]
     {:cond-else-nil "cond-else-nil"
      :into-empty "into-empty"
@@ -1178,14 +1289,16 @@
      :negated-test "negated-test"
      :nested-call-chain "nested-call-chain"
      :plus-minus-one "plus-or-minus-one"
-     :unconditional-cond-threading "unconditional-cond-threading"})
+     :unconditional-cond-threading "unconditional-cond-threading"
+     :vec-of-map-filter "vec-of-map-or-filter"})
   (rule->tier [_] {:nested-call-chain :cleanup
                    :cond-else-nil :cleanup
                    :negated-test :cleanup
                    :into-empty :cleanup
                    :plus-minus-one :cleanup
                    :negated-equality :cleanup
-                   :unconditional-cond-threading :cleanup})
+                   :unconditional-cond-threading :cleanup
+                   :vec-of-map-filter :cleanup})
   (file-extensions [_] extensions))
 
 (defn make-group

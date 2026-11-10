@@ -117,8 +117,7 @@
   (->> (walk-files (File. root-dir))
        (filter (fn [^File f] (.isFile f)))
        (map (fn [^File f] (.getPath f)))
-       (filter #(source-file? % extensions))
-       vec))
+       (filterv #(source-file? % extensions))))
 
 (defn missing-dirs
   "Which of `paths` do not exist. A scan of one silently finds nothing, so callers check first."
