@@ -1258,12 +1258,13 @@
 (defn- label-style-call?
   "True when `loc` calls one of the configured label styles.
   An unqualified name nothing refers is read as a var of the file's own namespace."
-  [loc {:keys [ns-name]
-        :as ns-info} label-styles]
+  [loc {:keys [ns-info label-styles]}]
   (and (= :list (some-> loc z/tag))
-       (let [head (some-> loc z/down parser/raw)]
-         (some? (some-> (or (resolve-full-symbol head ns-info) (symbol ns-name head))
-                        label-styles)))))
+       (let [head (z/down loc)]
+         (and (some? head)
+              (let [head-str (parser/raw head)]
+                (contains? label-styles (or (resolve-full-symbol head-str ns-info)
+                                            (symbol (:ns-name ns-info) head-str))))))))
 
 (defn- visible-label?
   "True when the native element at `loc` is styled as a label and shows only written text.
@@ -1272,13 +1273,13 @@
   label style, called as the props or as the `:class` of a literal props map. The body
   must be literal strings with some text in them: a symbol or a call may render nothing.
   A `<label>` is left to `label-not-associated`, which has a fix of its own for it."
-  [loc ns-info label-styles]
+  [loc context]
   (let [head (z/down loc)
         slot (z/right head)
         body (parser/right-siblings slot)]
     (and (not= :label (hiccup/parse-tag (parser/raw head)))
-         (or (label-style-call? slot ns-info label-styles)
-             (label-style-call? (-> loc hiccup/attrs-info :attrs :class) ns-info label-styles))
+         (or (label-style-call? slot context)
+             (label-style-call? (-> loc hiccup/attrs-info :attrs :class) context))
          (every? literal-string-loc? body)
          (some #(not (str/blank? (z/sexpr %))) body))))
 
@@ -1328,16 +1329,47 @@
           (recur parent (inc depth) (conj found parent)))
         found))))
 
+(defn- holds-field?
+  "True when `loc` or anything it renders is a field, `except` that one left out."
+  [loc except {:keys [ns-info component-aliases]}]
+  (some? (first-matching-descendant
+          {:match? #(and (not (identical? (z/node %) (z/node except)))
+                         (when-let [tag (vector-tag % ns-info component-aliases)]
+                           (labelled-field? (:attrs (hiccup/attrs-info %)) tag %)))}
+          [loc])))
+
+(defn- labels?
+  "True when `loc` is a visible label, or opens with one."
+  [loc context]
+  (boolean (some #(visible-label? % context) (leading-locs loc))))
+
+(defn- field-before-next-label?
+  "True when a field follows `loc` among its siblings before another visible label does.
+  The label before `loc` then names a group of fields, not the one in `loc`."
+  [loc field context]
+  (loop [[sibling & more] (parser/right-siblings loc)]
+    (cond
+      (nil? sibling) false
+      (labels? sibling context) false
+      (holds-field? sibling field context) true
+      :else (recur more))))
+
 (defn- aria-label-beside-visible-label?
   "True when a field names itself with `:aria-label` right after a visible label.
 
   The label is text styled with a configured label style, written as the sibling just
   before the field inside a native container. Either side may sit in wrappers it opens,
   as a field in a `[:div (field-wrapper) …]`. Two strings then say what the field is, and
-  nothing keeps them alike when one is reworded (WCAG 2.5.3 Label in Name)."
-  [tag loc ns-info label-styles]
+  nothing keeps them alike when one is reworded (WCAG 2.5.3 Label in Name).
+
+  A label shared by several fields names the group, so a field beside another field, in
+  its wrapper or after it before the next label, is left alone. So is a label whose
+  wrapper holds a field of its own, which it names instead."
+  [tag loc {:keys [label-styles]
+            :as context}]
   (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
-    (and (= :map kind)
+    (and (seq label-styles)
+         (= :map kind)
          (attr-written? attrs :aria-label)
          (not (contains? attrs :aria-labelledby))
          (labelled-field? attrs tag loc)
@@ -1345,7 +1377,10 @@
           (some (fn [field-side]
                   (let [previous (z/left field-side)]
                     (and (native-vector? (z/up field-side))
-                         (some #(visible-label? % ns-info label-styles) (leading-locs previous)))))
+                         (labels? previous context)
+                         (not (holds-field? previous loc context))
+                         (not (holds-field? field-side loc context))
+                         (not (field-before-next-label? field-side loc context)))))
                 (enclosing-locs loc))))))
 
 (defn- nested-interactive-loc
@@ -1551,7 +1586,9 @@
                        (label-not-associated? info tag loc ns-info component-aliases)
                        (conj (assoc base :type :label-not-associated))
 
-                       (aria-label-beside-visible-label? tag loc ns-info label-styles)
+                       (aria-label-beside-visible-label? tag loc {:component-aliases component-aliases
+                                                                  :label-styles label-styles
+                                                                  :ns-info ns-info})
                        (conj (assoc base :type :aria-label-beside-visible-label))
 
                        (or hidden-self? hidden-descendant)
@@ -1774,6 +1811,16 @@
           {}
           component-aliases))
 
+(defn- normalize-label-styles
+  "Read the label styles as a set of fully qualified symbols, refusing any other shape."
+  [label-styles]
+  (if (and (or (nil? label-styles) (coll? label-styles))
+           (every? qualified-symbol? label-styles))
+    (set label-styles)
+    (throw (ex-info (str ":a11y :label-styles must be a collection of fully qualified symbols, got "
+                         (pr-str label-styles))
+                    {:label-styles label-styles}))))
+
 (defn make-group
   "Return an a11y RuleGroup configured with the given map (see `A11yGroup`).
   Supported keys:
@@ -1787,6 +1834,6 @@
       text as a field's visible label. Off until set."
   ([] (make-group nil))
   ([{:keys [component-aliases label-styles]}]
-   (->A11yGroup (normalize-aliases component-aliases) (set label-styles))))
+   (->A11yGroup (normalize-aliases component-aliases) (normalize-label-styles label-styles))))
 
 (def group (make-group))

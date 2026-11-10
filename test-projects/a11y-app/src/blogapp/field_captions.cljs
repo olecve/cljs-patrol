@@ -219,3 +219,41 @@
    [:span (styles/field-label) "Status"]
    [:div {:aria-label "Post status"
           :role "status"}]])
+
+(defn ok-label-names-two-fields []
+  [:div
+   [:span (styles/field-label) "Date range"]
+   [:input {:aria-label "Start date"}]
+   [:input {:aria-label "End date"}]])
+
+(defn ok-label-names-wrapped-pair []
+  [:div
+   [:span (styles/field-label) "Date range"]
+   [:div
+    [:input {:aria-label "Start date"}]
+    [:input {:aria-label "End date"}]]])
+
+(defn bad-field-in-row-beside-label []
+  [:div
+   [:div
+    [:span (styles/field-label) "Name"]
+    [:input {:aria-label "Full name"}]]
+   [:div
+    [:input {:aria-label "Email address"}]]])
+
+(defn bad-flat-form-label-per-field []
+  [:div
+   [:span (styles/field-label) "Name"]
+   [:input {:aria-label "Full name"}]
+   [:span (styles/field-label) "Email"]
+   [:input {:aria-label "Email address"}]])
+
+(defn ok-empty-list-props []
+  [:div
+   [:span () "Title"]
+   [:input {:aria-label "Post title"}]])
+
+(defn ok-label-style-as-child-vector []
+  [:div
+   [:span [styles/field-label] "Title"]
+   [:input {:aria-label "Post title"}]])

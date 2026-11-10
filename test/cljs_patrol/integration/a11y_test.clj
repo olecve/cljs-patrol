@@ -1535,9 +1535,18 @@
            "bad-field-in-branch-inside-wrapper"
            "bad-field-with-key-metadata"
            "bad-label-styled-by-own-namespace"
-           "bad-label-and-field-two-wrappers-deep"}
+           "bad-label-and-field-two-wrappers-deep"
+           "bad-field-in-row-beside-label"
+           "bad-flat-form-label-per-field"}
          (set (fn-names-in field-captions-file
                            (field-caption-findings #{'blogapp.styles/field-label 'blogapp.field-captions/caption}))))
       "flags exactly the bad- cases")
+  (let [counts (->> (field-caption-findings #{'blogapp.styles/field-label})
+                    (map #(first (fn-names-in field-captions-file [%])))
+                    frequencies)]
+    (is (= 2 (get counts "bad-flat-form-label-per-field"))
+        "each label in a flat form names the field after it")
+    (is (= 1 (get counts "bad-field-in-row-beside-label"))
+        "label in previous row names only its own field"))
   (is (empty? (field-caption-findings nil))
       "no label styles configured flags nothing"))

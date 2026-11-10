@@ -226,3 +226,16 @@
       "string key without component is refused")
   (is (some? (a11y/make-group {:component-aliases {"@scope/pkg/Comp" :button}}))
       "scoped package key is accepted"))
+
+(deftest make-group-label-styles-test
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":label-styles must be a collection of fully qualified symbols"
+                        (a11y/make-group {:label-styles 'my.ui.styles/field-label}))
+      "bare symbol is rejected")
+  (is (thrown? clojure.lang.ExceptionInfo
+               (a11y/make-group {:label-styles #{'field-label}}))
+      "unqualified symbol is rejected")
+  (is (thrown? clojure.lang.ExceptionInfo
+               (a11y/make-group {:label-styles {'my.ui.styles/field-label true}}))
+      "map is rejected")
+  (is (some? (a11y/make-group {:label-styles ['my.ui.styles/field-label]}))
+      "vector of qualified symbols is accepted"))
