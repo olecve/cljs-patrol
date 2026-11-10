@@ -79,6 +79,9 @@ of an element the body writes out. Three shapes are left alone on purpose:
 A `:key` in the props of the container being spliced into — `(into [:div {:class c :key k}] children)` — belongs to the
 container, not to its children, and is not read as one.
 
+`into`, `for`, `map`, `map-indexed`, `keep`, `keep-indexed`, `fn` and `with-meta` are read only as core's, resolved
+through the ns form: a look-alike from another library, such as xforms' `x/into`, or a local of that name is left alone.
+
 </details>
 
 ### Empty fragment props
@@ -191,6 +194,8 @@ Left alone, since the scan cannot vouch that the element can take the fragment's
   function body
 - a vector that is data rather than Hiccup, such as `[:<> [:path :to :key]]`
 - a fragment that is quoted, discarded, or sits in a style declaration or the ns form
+- a fragment under a function head or a `for` that resolves outside core and Rum's `defc`, such as `x/defn`, or a local
+  of that name
 
 </details>
 
@@ -265,7 +270,8 @@ a `let`, or a `for` or `map` body yields. A loop body counts once however many i
 `case` as its busiest branch, since only one renders. An attrs map, a handler's body and any other call are not read, so
 an event vector a handler dispatches, `[::open {:on-confirm f}]`, is no element. Left alone as well: a data vector such
 as a re-frame path, a binding that destructures, a value that is any other call, and a `let` that is quoted, discarded,
-or sits in a style declaration.
+or sits in a style declaration. `let`, `with-let`, `for` and `map` count only as core's and Reagent's, resolved through
+the ns form, so `x/let` or a local `let` is left alone.
 
 </details>
 

@@ -237,10 +237,12 @@
                                     "(when [:<> [row]] [a])"]))
       "data the call may change, or no value the form returns"))
 
-(deftest fragment-under-look-alike-heads-is-left-alone
+(deftest fragment-under-rum-defc-is-flagged
   (is (= ["[:<> [row]]"]
          (fragment-findings :redundant-fragment ["(rum/defc view [] [:<> [row]])"]))
-      "reads rum defc as function body")
+      "reads rum defc as function body"))
+
+(deftest fragment-under-look-alike-heads-is-left-alone
   (is (empty? (fragment-findings :redundant-fragment ["(x/defn view [] [:<> [row]])"
                                                       "(defn view [] (x/for [x xs] [:<> [row x]]))"
                                                       "(let [defn f] (defn view [] [:<> [row]]))"]))
