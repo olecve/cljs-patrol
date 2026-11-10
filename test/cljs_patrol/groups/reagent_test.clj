@@ -336,7 +336,8 @@
           "[:p]"
           "[:p]"
           "[:p]"
-          "[:p]"]
+          "[:p]"
+          "[:em]"]
          (discarded-hiccup ["(when open? [:div \"Shown?\"] [:div \"Shown!\"])"
                             "(when-not open? [:p \"Hidden\"] [:p \"Shown\"])"
                             "(defn view \"Doc.\" [title] [:h1 title] [:p title])"
@@ -344,7 +345,7 @@
                             "(defn- view [] [nav] [body])"
                             "(defn view ([] [:a] [:b]) ([x] [:c x]))"
                             "(fn [x] [:li x] [:li x])"
-                            "(defc bar [] [toolbar] [content])"
+                            "(rum/defc bar [] [toolbar] [content])"
                             "(defmethod row [:term :def] [[k v]] [:dt k] [:dd v])"
                             "(let [a 1] [ui/panel] [ui/footer])"
                             "(do [:<> [row] [cell]] [footer])"
@@ -358,7 +359,8 @@
                             "(loop [a 1] [:p] [:span])"
                             "(binding [*a* 1] [:p] [:span])"
                             "(with-redefs [a 1] [:p] [:span])"
-                            "(when #_skipped x [:p] [:span])"]))))
+                            "(when #_skipped x [:p] [:span])"
+                            "(defn view [x] (when x [:em] [:strong]))"]))))
 
 (deftest hiccup-that-is-returned-or-not-in-a-body-is-left-alone
   (is (empty? (discarded-hiccup ["(when x [:div])"
@@ -380,10 +382,14 @@
                                  "(defn view [] [:a] #_[:b])"
                                  "(defn view ([] [:a]) {:doc [:p] :added \"1.0\"})"
                                  "(fn* [x] [:li x] [:li x])"
-                                 "(other [:a] [:b])"]))))
+                                 "(other [:a] [:b])"
+                                 "(s/defn names :- [s/Str] [users] (map :name users))"
+                                 "(s/fn :- [s/Int] [xs] (map inc xs))"
+                                 "(s/defmethod render :k :- [s/Str] [x] (str x))"]))))
 
 (deftest unrendered-discarded-hiccup-is-left-alone
   (is (empty? (discarded-hiccup ["'(do [:a] [:b])"
                                  "#_(do [:a] [:b])"
                                  "`(do [:a] [:b])"
-                                 "(defclass panel [] (do [:a] [:b]))"]))))
+                                 "(defclass panel [] (do [:a] [:b]))"
+                                 "(comment (defn f [] [:div] [:span]))"]))))

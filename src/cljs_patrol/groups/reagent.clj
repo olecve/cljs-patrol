@@ -398,6 +398,20 @@
   (and (= :list (z/tag loc))
        (= "finally" (some-> loc z/down parser/sym-name))))
 
+(def ^:private qualified-body-heads
+  "Body forms written through their library's alias, Reagent's `with-let` and Rum's `defc`."
+  #{"defc" "with-let"})
+
+(defn- body-head-name
+  "Return the name of the form `loc` opens, unless it is qualified by another library.
+  A qualified look-alike such as Schema's `s/defn` writes a return schema before its parameters."
+  [loc]
+  (let [head (some-> loc z/down)
+        head-name (parser/sym-name head)]
+    (when (or (= head-name (parser/raw head))
+              (contains? qualified-body-heads head-name))
+      head-name)))
+
 (defn- returning-bodies
   "Return the bodies `loc` returns the last form of, each as its forms in order, a `#_` form left out.
 
@@ -405,7 +419,7 @@
   unmount. A `defmethod` dispatch value may be a vector, so its parameters are looked for
   after it."
   [loc]
-  (let [head-name (some-> loc z/down parser/sym-name)
+  (let [head-name (body-head-name loc)
         bodies (cond
                  (contains? function-heads-with-body head-name)
                  (arity-bodies (some-> loc z/down z/right))
@@ -444,11 +458,18 @@
        :usages []
        :dynamics []})))
 
+(defn- inside-comment-form?
+  "True when a `(comment …)` encloses loc: code kept for the REPL, which no page renders."
+  [loc]
+  (boolean (some #(and (= :list (z/tag %)) (= "comment" (some-> % z/down parser/sym-name)))
+                 (take-while some? (rest (iterate z/up loc))))))
+
 (defn- handle-discarded-hiccup
   "Emit a :discarded-hiccup finding for each Hiccup element a body drops before its last form."
   [loc _ns-info file]
   (when-not (or (hiccup/inside-unrendered-form? loc)
-                (hiccup/inside-style-decl? loc))
+                (hiccup/inside-style-decl? loc)
+                (inside-comment-form? loc))
     (when-let [findings (seq (map #(discarded-hiccup-finding % file) (discarded-hiccup-locs loc)))]
       {:decls (vec findings)
        :usages []
