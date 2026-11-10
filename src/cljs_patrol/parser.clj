@@ -93,8 +93,8 @@
   "Return the [row col] where zloc's node starts, or [0 1] for a node the parser gave no position.
 
   The parser records each node's position as metadata, so reading it costs nothing, where a
-  zipper that tracks positions pays on every move. The `?` of `#?(…)` and the `:ns` of
-  `#:ns{…}` carry none."
+  zipper that tracks positions pays on every move. The reader-conditional marker (`?`,
+  `?@`) and a namespaced map's qualifier carry none."
   [zloc]
   (let [{:keys [row col]} (meta (z/node zloc))]
     (if row [row col] [0 1])))
