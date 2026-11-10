@@ -1540,7 +1540,7 @@
            "bad-flat-form-label-per-field"
            "bad-field-before-plain-component"
            "bad-field-with-hiccup-in-its-own-props"
-           "bad-field-before-unread-call"}
+           "bad-field-before-non-fields"}
          (set (fn-names-in field-captions-file
                            (field-caption-findings #{'blogapp.styles/field-label 'blogapp.field-captions/caption}))))
       "flags exactly the bad- cases")

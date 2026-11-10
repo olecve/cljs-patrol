@@ -310,8 +310,72 @@
                :option (fn [option] [ui/option {:label option}])
                :options options}]])
 
-(defn bad-field-before-unread-call [errors]
+(defn ok-label-names-field-and-unread-call [ranges]
+  [:div
+   [:span (styles/field-label) "Ranges"]
+   [:input {:aria-label "First"}]
+   (render-range-inputs ranges)])
+
+(defn ok-label-names-fields-built-by-map [emails]
+  [:div
+   [:span (styles/field-label) "Emails"]
+   [:input {:aria-label "Primary"}]
+   (doall (map (fn [email] [:input {:aria-label email}]) emails))])
+
+(defn ok-label-names-field-and-symbol [max-input]
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "Min"}]
+   max-input])
+
+(defn ok-label-names-field-and-threaded-field [k]
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "Min"}]
+   (-> [:input {:aria-label "Max"}]
+       (with-meta {:key k}))])
+
+(defn ok-label-names-field-and-reader-conditional []
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "Min"}]
+   #?(:cljs [:input {:aria-label "Max"}])])
+
+(defn ok-label-names-field-and-computed-type-input [input-type]
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "Min"}]
+   [:input {:aria-label "Max"
+            :type input-type}]])
+
+(defn ok-label-names-field-and-component-with-value [value on-change]
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "Min"}]
+   [ui/number-input {:on-change on-change
+                     :value value}]])
+
+(defn bad-field-before-non-fields [hint notes]
   [:div
    [:span (styles/field-label) "Title"]
    [:input {:aria-label "Post title"}]
-   (render-errors errors)])
+   [:input {:type "checkbox"}]
+   "Shown on the front page"
+   [:p (styles/hint) hint]
+   #_[:input {:aria-label "Subtitle"}]
+   (for [note notes]
+     ^{:key note}
+     [:p note])])
+
+(defn ok-label-names-field-and-wrapped-symbol [max-input]
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "Min"}]
+   [:div (styles/value) max-input]])
+
+(defn ok-label-names-field-and-field-in-component []
+  [:div
+   [:span (styles/field-label) "Range"]
+   [:input {:aria-label "Min"}]
+   [ui/card
+    [:input {:aria-label "Max"}]]])

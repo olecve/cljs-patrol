@@ -1329,53 +1329,73 @@
           (recur parent (inc depth) (conj found parent)))
         found))))
 
-(def ^:private field-naming-props
-  "Props a component that renders a field is named through."
-  #{:aria-label :aria-labelledby :label :placeholder})
+(def ^:private field-props
+  "Props a component that renders a field is named or driven through."
+  #{:aria-label :aria-labelledby :default-value :label :on-change :placeholder :value})
 
 (defn- possible-field?
   "True when the vector at `loc` is a field, or a component that may render one.
 
-  A component no alias maps cannot be seen into, so it counts when its props name it the
-  way a field is named, or when they cannot be read at all: a symbol or a call. Interop,
-  `[:> Comp …]`, counts always, its props sitting past the component."
+  Unlike [[labelled-field?]], an input whose type is computed counts: it may show a value.
+  A component no alias maps cannot be seen into, so it counts when its props name or drive
+  it the way a field's are, or when they cannot be read at all: a symbol or a call.
+  Interop, `[:> Comp …]`, counts always, its props sitting past the component."
   [loc {:keys [ns-info component-aliases]}]
-  (let [head (z/down loc)]
+  (let [head (z/down loc)
+        {:keys [kind attrs]} (hiccup/attrs-info loc)]
     (cond
       (= ":>" (some-> head parser/raw)) true
 
       :else
       (if-let [tag (vector-tag loc ns-info component-aliases)]
-        (labelled-field? (:attrs (hiccup/attrs-info loc)) tag loc)
-        (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
-          (or (contains? #{:dynamic :dynamic-map} kind)
-              (some? (parser/sym-name (z/right head)))
-              (some #(contains? attrs %) field-naming-props)))))))
+        (if (= :input tag)
+          (not (contains? self-named-input-types (literal-sexpr (get attrs :type))))
+          (labelled-field? attrs tag loc))
+        (or (contains? #{:dynamic :dynamic-map} kind)
+            (some? (parser/sym-name (z/right head)))
+            (some #(contains? attrs %) field-props))))))
 
-(defn- rendered-children
-  "Return the forms `loc` renders.
+(declare holds-field?)
 
-  That is an element's children, what a `let`, `when` or `if` yields, and a `for` body. A
-  call this cannot read, a props map and a `#_` form render nothing it can see."
-  [loc]
+(defn- renders-field?
+  "True when the form at `loc`, written where its value renders, may render a field.
+
+  What a `let`, `when`, `if`, `cond` or `case` yields and a `for` body are read. A call,
+  a symbol or a reader conditional cannot be read, so it may render one."
+  [loc except context]
   (case (z/tag loc)
-    :meta [(hiccup/unwrap-meta loc)]
-    :vector (parser/child-locs loc)
-    :list (if (= "for" (some-> loc z/down parser/sym-name))
-            (take-last 1 (parser/right-siblings (z/down loc)))
-            (let [results (hiccup/result-locs loc)]
-              (if (identical? (z/node loc) (some-> results first z/node)) [] results)))
-    []))
+    (:meta :vector) (holds-field? loc except context)
+    :list (let [results (if (= "for" (some-> loc z/down parser/sym-name))
+                          (take-last 1 (parser/right-siblings (z/down loc)))
+                          (hiccup/result-locs loc))]
+            (or (identical? (z/node loc) (some-> results first z/node))
+                (some #(renders-field? % except context) results)))
+    :token (some? (parser/sym-name loc))
+    :reader-macro true
+    false))
+
+(def ^:private text-tags
+  "Elements whose symbols and calls are taken as text, not as fields they may render."
+  #{:b :code :em :h1 :h2 :h3 :h4 :h5 :h6 :i :p :small :span :strong})
 
 (defn- holds-field?
-  "True when `loc` or anything it renders may be a field, `except` that one left out."
+  "True when `loc` or anything it renders may be a field, `except` that one left out.
+  Only the vectors handed to a component or a text element are read: a component's other
+  arguments are data, and a text element's are text."
   [loc except context]
   (boolean
    (when loc
-     (or (and (= :vector (z/tag loc))
-              (not (identical? (z/node loc) (z/node except)))
-              (possible-field? loc context))
-         (some #(holds-field? % except context) (rendered-children loc))))))
+     (case (z/tag loc)
+       :meta (holds-field? (hiccup/unwrap-meta loc) except context)
+       :vector (and (not (identical? (z/node loc) (z/node except)))
+                    (or (possible-field? loc context)
+                        (if (and (native-vector? loc)
+                                 (not (contains? text-tags (hiccup/parse-tag (parser/raw (z/down loc))))))
+                          (some #(renders-field? % except context) (body-locs loc))
+                          (->> (rest (parser/child-locs loc))
+                               (filter #(contains? #{:meta :vector} (z/tag %)))
+                               (some #(holds-field? % except context))))))
+       (renders-field? loc except context)))))
 
 (defn- labels?
   "True when `loc` is a visible label, or opens with one."
