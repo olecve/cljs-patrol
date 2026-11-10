@@ -1231,6 +1231,224 @@
               (not (named-through-aria-reference? props loc))
               (= :orphan (label-body-verdict loc ns-info component-aliases))))))
 
+(def ^:private self-named-input-types
+  "Input types named by their own value, rendered with their label after them, or not shown."
+  #{"button" "checkbox" "hidden" "image" "radio" "reset" "submit"})
+
+(def ^:private field-roles
+  "Roles of the fields a visible label written before them is taken to name."
+  #{"combobox" "listbox" "searchbox" "slider" "spinbutton" "textbox"})
+
+(defn- labelled-field?
+  "True when the element is a field that a visible label written before it names.
+
+  Buttons and links are left out: an icon button beside a caption acts on the value the
+  caption names, and its own `:aria-label` says what it does. An input counts only when
+  its type is missing or written as one that shows a value, since a computed type may be
+  a checkbox, whose label follows it."
+  [attrs tag loc]
+  (cond
+    (= :input tag) (let [input-type (literal-sexpr (get attrs :type))]
+                     (or (= ::absent input-type)
+                         (and (string? input-type) (not (contains? self-named-input-types input-type)))))
+    (contains? #{:select :textarea} tag) true
+    (contains? widget-role-tags tag) (and (not= :switch tag) (widget-role-vector? tag loc))
+    :else (contains? field-roles (literal-sexpr (get attrs :role)))))
+
+(defn- label-style-call?
+  "True when `loc` calls one of the configured label styles.
+  An unqualified name nothing refers is read as a var of the file's own namespace."
+  [loc {:keys [ns-info label-styles]}]
+  (and (= :list (some-> loc z/tag))
+       (let [head (z/down loc)]
+         (and (some? head)
+              (let [head-str (parser/raw head)]
+                (contains? label-styles (or (resolve-full-symbol head-str ns-info)
+                                            (symbol (:ns-name ns-info) head-str))))))))
+
+(defn- visible-label?
+  "True when the native element at `loc` is styled as a label and shows only written text.
+
+  The style is the one thing that says the text is a label, so it must be a configured
+  label style, called as the props or as the `:class` of a literal props map. The body
+  must be literal strings with some text in them: a symbol or a call may render nothing.
+  A `<label>` is left to `label-not-associated`, which has a fix of its own for it."
+  [loc context]
+  (let [head (z/down loc)
+        slot (z/right head)
+        body (parser/right-siblings slot)]
+    (and (not= :label (hiccup/parse-tag (parser/raw head)))
+         (or (label-style-call? slot context)
+             (label-style-call? (-> loc hiccup/attrs-info :attrs :class) context))
+         (every? literal-string-loc? body)
+         (some #(not (str/blank? (z/sexpr %))) body))))
+
+(defn- native-vector? [loc]
+  (and (= :vector (some-> loc z/tag))
+       (some? (some-> loc z/down parser/raw hiccup/parse-tag))))
+
+(defn- first-body-child? [loc]
+  (let [parent (z/up loc)]
+    (and (native-vector? parent)
+         (= (z/node loc) (some-> (body-locs parent) first z/node)))))
+
+(def ^:private label-wrapper-depth
+  "How many wrapping elements may stand between a label or field and the shared container."
+  2)
+
+(defn- leading-locs
+  "Return `loc` and the native elements it opens, as far as `label-wrapper-depth`."
+  [loc]
+  (->> (iterate #(some-> % body-locs first) loc)
+       (take-while native-vector?)
+       (take (inc label-wrapper-depth))))
+
+(defn- yielding-parent
+  "Return the form `loc` stands in for in its parent's place, or nil.
+
+  Metadata wraps it, and a `let`, `when` or `if` yields it, so either sits where the
+  element renders. Neither counts as a wrapper: no element of its own comes between."
+  [loc]
+  (let [parent (z/up loc)]
+    (case (some-> parent z/tag)
+      :meta parent
+      :list (when (some #(= (z/node loc) (z/node %)) (hiccup/result-locs parent)) parent)
+      nil)))
+
+(defn- enclosing-locs
+  "Return `loc` and the native elements it opens from outside, as far as `label-wrapper-depth`.
+  The forms that yield it count too, as [[yielding-parent]] says."
+  [loc]
+  (loop [current loc
+         depth 0
+         found [loc]]
+    (if-let [parent (yielding-parent current)]
+      (recur parent depth (conj found parent))
+      (if (and (< depth label-wrapper-depth) (first-body-child? current))
+        (let [parent (z/up current)]
+          (recur parent (inc depth) (conj found parent)))
+        found))))
+
+(def ^:private field-props
+  "Props a component that renders a field is named or driven through."
+  #{:aria-label :aria-labelledby :default-value :label :on-change :placeholder :value})
+
+(defn- possible-field?
+  "True when the vector at `loc` is a field, or a component that may render one.
+
+  Unlike [[labelled-field?]], an input whose type is computed counts: it may show a value.
+  A component no alias maps cannot be seen into, so it counts when its props name or drive
+  it the way a field's are, or when they cannot be read at all: a symbol or a call.
+  Interop, `[:> Comp …]`, counts always, its props sitting past the component."
+  [loc {:keys [ns-info component-aliases]}]
+  (let [head (z/down loc)
+        {:keys [kind attrs]} (hiccup/attrs-info loc)]
+    (cond
+      (= ":>" (some-> head parser/raw)) true
+
+      :else
+      (if-let [tag (vector-tag loc ns-info component-aliases)]
+        (if (= :input tag)
+          (not (contains? self-named-input-types (literal-sexpr (get attrs :type))))
+          (labelled-field? attrs tag loc))
+        (or (contains? #{:dynamic :dynamic-map} kind)
+            (some? (parser/sym-name (z/right head)))
+            (some #(contains? attrs %) field-props))))))
+
+(declare holds-field?)
+
+(defn- for-form? [loc]
+  (= "for" (some-> loc z/down parser/sym-name)))
+
+(defn- renders-field?
+  "True when the form at `loc`, written where its value renders, may render a field.
+
+  What a `let`, `when`, `if`, `cond` or `case` yields and a `for` or `fn` body are read.
+  A call, a symbol, a deref or a reader conditional cannot be read, so it may render one,
+  unless it is `plain?`: taken as text or data. A map is read for the vectors it holds."
+  [loc except context plain?]
+  (case (z/tag loc)
+    (:meta :vector) (holds-field? loc except context)
+    :list (let [results (if (contains? #{"fn" "for"} (some-> loc z/down parser/sym-name))
+                          (take-last 1 (parser/right-siblings (z/down loc)))
+                          (hiccup/result-locs loc))]
+            (if (identical? (z/node loc) (some-> results first z/node))
+              (not plain?)
+              (some #(renders-field? % except context plain?) results)))
+    :map (some #(renders-field? % except context true) (parser/child-locs loc))
+    :token (and (not plain?) (some? (parser/sym-name loc)))
+    (:deref :reader-macro) (not plain?)
+    false))
+
+(def ^:private text-tags
+  "Elements whose symbols and calls are taken as text, not as fields they may render."
+  #{:b :code :em :h1 :h2 :h3 :h4 :h5 :h6 :i :p :small :span :strong})
+
+(defn- holds-field?
+  "True when `loc` or anything it renders may be a field, `except` that one left out.
+
+  A component's arguments and a text element's body are plain: their calls and symbols
+  are data or text. A `for` in an element's props slot is read as its first child."
+  [loc except context]
+  (boolean
+   (when loc
+     (case (z/tag loc)
+       :meta (holds-field? (hiccup/unwrap-meta loc) except context)
+       :vector (and (not (identical? (z/node loc) (z/node except)))
+                    (or (possible-field? loc context)
+                        (if (native-vector? loc)
+                          (let [slot (hiccup/props-slot loc)
+                                plain? (contains? text-tags (hiccup/parse-tag (parser/raw (z/down loc))))]
+                            (some #(renders-field? % except context plain?)
+                                  (concat (when (for-form? slot) [slot]) (body-locs loc))))
+                          (some #(renders-field? % except context true) (parser/child-locs loc)))))
+       (renders-field? loc except context false)))))
+
+(defn- labels?
+  "True when `loc` is a visible label, or opens with one."
+  [loc context]
+  (boolean (some #(visible-label? % context) (leading-locs loc))))
+
+(defn- field-before-next-label?
+  "True when a field follows `loc` among its siblings before another visible label does.
+  The label before `loc` then names a group of fields, not the one in `loc`."
+  [loc field context]
+  (loop [[sibling & more] (parser/right-siblings loc)]
+    (cond
+      (nil? sibling) false
+      (labels? sibling context) false
+      (holds-field? sibling field context) true
+      :else (recur more))))
+
+(defn- aria-label-beside-visible-label?
+  "True when a field names itself with `:aria-label` right after a visible label.
+
+  The label is text styled with a configured label style, written as the sibling just
+  before the field inside a native container. Either side may sit in wrappers it opens,
+  as a field in a `[:div (field-wrapper) …]`. Two strings then say what the field is, and
+  nothing keeps them alike when one is reworded (WCAG 2.5.3 Label in Name).
+
+  A label shared by several fields names the group, so a field beside another field, in
+  its wrapper or after it before the next label, is left alone. So is a label whose
+  wrapper holds a field of its own, which it names instead."
+  [tag loc {:keys [label-styles]
+            :as context}]
+  (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
+    (and (seq label-styles)
+         (= :map kind)
+         (attr-written? attrs :aria-label)
+         (not (contains? attrs :aria-labelledby))
+         (labelled-field? attrs tag loc)
+         (boolean
+          (some (fn [field-side]
+                  (let [previous (z/left field-side)]
+                    (and (native-vector? (z/up field-side))
+                         (labels? previous context)
+                         (not (holds-field? previous loc context))
+                         (not (holds-field? field-side loc context))
+                         (not (field-before-next-label? field-side loc context)))))
+                (enclosing-locs loc))))))
+
 (defn- nested-interactive-loc
   "Return the first interactive element inside a control's body, or nil.
 
@@ -1380,7 +1598,7 @@
     (or (some-> ^java.util.IdentityHashMap (:unwrapped-locs @interop-index) (.get (z/node written-loc)))
         written-loc)))
 
-(defn- handle-vector* [written-loc ns-info file component-aliases]
+(defn- handle-vector* [written-loc ns-info file {:keys [component-aliases label-styles]}]
   (let [loc (unwrapped-loc written-loc ns-info component-aliases)
         first-child (z/down loc)]
     (when (and first-child
@@ -1433,6 +1651,11 @@
 
                        (label-not-associated? info tag loc ns-info component-aliases)
                        (conj (assoc base :type :label-not-associated))
+
+                       (aria-label-beside-visible-label? tag loc {:component-aliases component-aliases
+                                                                  :label-styles label-styles
+                                                                  :ns-info ns-info})
+                       (conj (assoc base :type :aria-label-beside-visible-label))
 
                        (or hidden-self? hidden-descendant)
                        (conj (cond-> (assoc base :type :aria-hidden-focusable)
@@ -1490,6 +1713,7 @@
                                    (sort-by (juxt :file :row :col))
                                    vec)
      :label-not-associated (vec (:label-not-associated by-type))
+     :aria-label-beside-visible-label (vec (:aria-label-beside-visible-label by-type))
      :aria-hidden-focusable (vec (:aria-hidden-focusable by-type))
      :nested-interactive-element (vec (:nested-interactive-element by-type))
      :repeated-accessible-name (vec (:repeated-accessible-name by-type))
@@ -1499,7 +1723,7 @@
                                empty-interactive-element missing-accessible-name
                                repeated-accessible-name aria-live-contradicts-role
                                aria-hidden-focusable nested-interactive-element
-                               label-not-associated]}]
+                               label-not-associated aria-label-beside-visible-label]}]
   [["Img missing alt:" (count img-alt-missing)]
    ["Invalid tabindex:" (count invalid-tabindex)]
    ["Onclick on non-interactive:" (count on-click-on-non-interactive)]
@@ -1509,13 +1733,14 @@
    ["Aria-live contradicts role:" (count aria-live-contradicts-role)]
    ["Aria-hidden focusable:" (count aria-hidden-focusable)]
    ["Nested interactive element:" (count nested-interactive-element)]
-   ["Label not associated:" (count label-not-associated)]])
+   ["Label not associated:" (count label-not-associated)]
+   ["Aria-label beside visible label:" (count aria-label-beside-visible-label)]])
 
 (defn- failed?* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
                          empty-interactive-element missing-accessible-name
                          repeated-accessible-name aria-live-contradicts-role
                          aria-hidden-focusable nested-interactive-element
-                         label-not-associated]}]
+                         label-not-associated aria-label-beside-visible-label]}]
   (or (seq img-alt-missing)
       (seq invalid-tabindex)
       (seq on-click-on-non-interactive)
@@ -1525,15 +1750,17 @@
       (seq aria-live-contradicts-role)
       (seq aria-hidden-focusable)
       (seq nested-interactive-element)
-      (seq label-not-associated)))
+      (seq label-not-associated)
+      (seq aria-label-beside-visible-label)))
 
-(defrecord A11yGroup [component-aliases]
+(defrecord A11yGroup [component-aliases label-styles]
   group/RuleGroup
   (group-id [_] :a11y)
   (group-name [_] "A11y")
   (parse-handlers [_]
     {:handle-vector (fn [loc ns-info file]
-                      (handle-vector* loc ns-info file component-aliases))
+                      (handle-vector* loc ns-info file {:component-aliases component-aliases
+                                                        :label-styles label-styles}))
      :handle-list (fn [loc _ns-info _file]
                     (file-literals loc))})
   (analyze [_ data] (analyze* data))
@@ -1570,6 +1797,10 @@
      :label-not-associated
      (str "A :label is tied to no control, so clicking it focuses nothing and it names nothing "
           "(WCAG 1.3.1). Give it :for with the control's :id, or wrap the control inside it.")
+     :aria-label-beside-visible-label
+     (str "A field names itself with :aria-label right after a visible label, so two strings say what it "
+          "is and drift apart when one is reworded (WCAG 2.5.3 Label in Name). Give the label an :id and "
+          "point the field's :aria-labelledby at it, or make the label a [:label {:for id}].")
      :nested-interactive-element
      (str "An interactive element contains another one, which the HTML content model bans and screen "
           "readers announce as overlapping controls. Make the wrapper a plain :div with the two "
@@ -1580,6 +1811,7 @@
           "match: \"status\" and \"log\" imply polite, \"alert\" assertive.")})
   (docs-anchors [_]
     {:aria-hidden-focusable "aria-hidden-on-a-focusable-element"
+     :aria-label-beside-visible-label "aria-label-beside-visible-label"
      :aria-live-contradicts-role "aria-live-contradicts-role"
      :empty-interactive-element "empty-interactive-element"
      :img-alt-missing "img-missing-alt"
@@ -1599,7 +1831,8 @@
      :aria-live-contradicts-role :bugs
      :aria-hidden-focusable :bugs
      :nested-interactive-element :bugs
-     :label-not-associated :bugs})
+     :label-not-associated :bugs
+     :aria-label-beside-visible-label :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (defn- alias-key
@@ -1644,6 +1877,16 @@
           {}
           component-aliases))
 
+(defn- normalize-label-styles
+  "Read the label styles as a set of fully qualified symbols, refusing any other shape."
+  [label-styles]
+  (if (and (or (nil? label-styles) (coll? label-styles))
+           (every? qualified-symbol? label-styles))
+    (set label-styles)
+    (throw (ex-info (str ":a11y :label-styles must be a collection of fully qualified symbols, got "
+                         (pr-str label-styles))
+                    {:label-styles label-styles}))))
+
 (defn make-group
   "Return an a11y RuleGroup configured with the given map (see `A11yGroup`).
   Supported keys:
@@ -1652,9 +1895,11 @@
       as a call or through `[:> Comp …]` interop. A key may be a string,
       \"@scope/package/Comp\", for a name no symbol can spell. The value may
       instead be {:tag native-tag-keyword :label-props #{prop …}}, naming the
-      props the wrapper wires to an accessible name of its own."
+      props the wrapper wires to an accessible name of its own.
+    :label-styles #{full-qualified-symbol …} — style functions that mark
+      text as a field's visible label. Off until set."
   ([] (make-group nil))
-  ([{:keys [component-aliases]}]
-   (->A11yGroup (normalize-aliases component-aliases))))
+  ([{:keys [component-aliases label-styles]}]
+   (->A11yGroup (normalize-aliases component-aliases) (normalize-label-styles label-styles))))
 
 (def group (make-group))
