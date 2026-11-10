@@ -4,7 +4,8 @@
   Nested calls a threading macro would read top to bottom, a `cond` closing on an
   `:else nil` it returns anyway, an `if` or `when` testing a `not`, an `into` from a
   collection into an empty vector or set, a `+` or `-` of a literal `1`, a `not` of an
-  `=`, and a `vec` of a `map` or `filter`. Each rule reports only what it can rewrite without a judgement call.
+  `=`, and a `vec` of a `map` or `filter`. Each rule reports only what it can rewrite
+  without a judgement call.
 
   For a thread, every step passes the call below it in the slot a thread fills, the first
   argument for `->` or the last for `->>`, so the rewrite expands back to exactly the code
@@ -309,9 +310,16 @@
     :reader-macro (boolean (some #(str/starts-with? (z/string loc) %) literal-reader-tags))
     false))
 
-(defn- level [loc [direction argument head]]
+(declare
+ eager-call
+ vec-of-eager-call
+ vec-of-map-filter-hint
+ vec-of-map-filter?)
+
+(defn- level [loc ns-info [direction argument head]]
   (let [arguments (call-arguments loc)]
     {:head head
+     :vec-of-eager-call (vec-of-eager-call loc ns-info)
      :direction direction
      :arity (count arguments)
      :fn-literal? (= :fn (z/tag loc))
@@ -351,7 +359,7 @@
       (let [levels (loop [current loc
                           current-slot slot
                           found []]
-                     (let [found (conj found (level current current-slot))
+                     (let [found (conj found (level current ns-info current-slot))
                            argument (second current-slot)
                            next-slot (when (link-shaped? argument) (data-slot argument ns-info))]
                        (if next-slot
@@ -617,6 +625,7 @@
              :head head
              :builder-head (describe-name builder ns-info)
              :source-head (when (map? vouch) vouch)
+             :eager-call (when (= "vec" builder) (eager-call source-loc ns-info 0))
              :fn-literal? (= :fn (z/tag loc))
              :head-text (z/string (z/down loc))
              :target-text (n/string target)
@@ -739,25 +748,30 @@
            :heads [[inner-head inner-name] [(describe-name fused-name ns-info) fused-name]]
            :arguments (map n/string arguments)})))))
 
-(defn- vec-of-map-filter-candidate
-  "Record a `vec` of a `map` or `filter` call, or nil.
+(defn- vec-of-eager-call
+  "Describe loc when it is a `vec` of a `map` or `filter` call, or nil.
 
   A comment or `#_` beside the `map` or `filter` would be lost by the rewrite, and a step
   of a thread takes an argument it does not show."
-  [loc ns-info file]
+  [loc ns-info]
   (when-let [head (core-call-head loc ns-info "vec")]
     (let [[inner & more] (rest (code-children (z/node loc)))]
       (when (and (empty? more)
                  (not (threaded-step? loc)))
-        (when-let [call (eager-call (child-loc loc inner) ns-info 0)]
-          (-> call
-              (update :heads conj [head "vec"])
-              (assoc :type ::vec-of-map-filter
-                     :fn-literal? (= :fn (z/tag loc))
-                     :form-text (z/string loc)
-                     :position (try (z/position loc) (catch Exception _ [0 1]))
-                     :file file
-                     :test (parser/top-level-name loc))))))))
+        (some-> (eager-call (child-loc loc inner) ns-info 0)
+                (update :heads conj [head "vec"]))))))
+
+(defn- vec-of-map-filter-candidate
+  "Record a `vec` of a `map` or `filter` call, or nil."
+  [loc ns-info file]
+  (when-let [call (vec-of-eager-call loc ns-info)]
+    (assoc call
+           :type ::vec-of-map-filter
+           :fn-literal? (= :fn (z/tag loc))
+           :form-text (z/string loc)
+           :position (try (z/position loc) (catch Exception _ [0 1]))
+           :file file
+           :test (parser/top-level-name loc))))
 
 (defn- threaded-vec-of-map-filter-candidate
   "Record a `->>` whose last two steps are a `map` or `filter` call and `vec`, or nil.
@@ -814,15 +828,20 @@
   "True when a level is a step the scan can vouch for.
 
   A one-argument call needs a head known to be a function. A call of more is a step only
-  for a head whose data slot is known, core or `clojure.string` by name, or a method call."
+  for a head whose data slot is known, core or `clojure.string` by name, or a method call.
+  A `vec` the vec-of-map-filter rule asks to write as `mapv` or `filterv` is no step, so the
+  chain below it is threaded without it, and a thread ending in that `vec` is never asked for."
   [{:keys [direction arity]
     :as level} definitions]
   (let [{:keys [kind library name method?]} (settle-head (:head level) definitions)]
-    (if (= :either direction)
+    (cond
+      (some-> (:vec-of-eager-call level) (vec-of-map-filter? definitions)) false
+      (= :either direction)
       (case kind
         (:keyword :host :project) true
         :core (contains? (if (= :string library) string-fns core-fns) name)
         false)
+      :else
       (case kind
         :core (let [[slot arity?] (get data-slots [library name])]
                 (boolean (and slot (arity? arity))))
@@ -1064,7 +1083,15 @@
        (core-named? builder-head definitions builder)
        (or (nil? source-head) (core-named? source-head definitions (:name source-head)))))
 
-(defn- into-empty-finding [{:keys [builder fn-literal? head-text target-text source-text position file test]}]
+(defn- into-empty-hint
+  "Spell out the call the finding asks for: `mapv` or `filterv` in place of a `vec` of a `map` or `filter`, `vec` or `set` otherwise."
+  [{:keys [builder eager-call source-text]} definitions]
+  (if (some-> eager-call (vec-of-map-filter? definitions))
+    (vec-of-map-filter-hint eager-call)
+    (str "Write (" builder " " (shown source-text text-max) ")")))
+
+(defn- into-empty-finding [definitions {:keys [fn-literal? head-text target-text source-text position file test]
+                                        :as candidate}]
   (let [[row col] position]
     (cond-> {:kw 'into
              :type :into-empty
@@ -1073,7 +1100,7 @@
              :file file
              :row row
              :col col
-             :hint (str "Write (" builder " " (shown source-text text-max) ")")}
+             :hint (into-empty-hint candidate definitions)}
       test (assoc :test test))))
 
 (defn- vec-of-map-filter? [{:keys [heads]} definitions]
@@ -1207,7 +1234,7 @@
      :into-empty
      (->> declarations
           (filter #(and (= ::into-empty (:type %)) (into-empty? % definitions)))
-          (mapv into-empty-finding))
+          (mapv #(into-empty-finding definitions %)))
      :plus-minus-one
      (->> declarations
           (filter #(and (= ::plus-minus-one (:type %)) (plus-minus-one? % definitions)))
