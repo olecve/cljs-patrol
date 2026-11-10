@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.0.53] - 2026-11-10
+
+* Start the snippet truncation loop where a candidate can fit by @olecve in https://github.com/olecve/cljs-patrol/pull/132
+* Test a snippet whose longest fitting prefix sits at the bound by @olecve in https://github.com/olecve/cljs-patrol/pull/133
+* Read node positions from parser metadata instead of tracking them in the zipper by @olecve in https://github.com/olecve/cljs-patrol/pull/134
+* Walk for locals only when a head could be one the caller asks about by @olecve in https://github.com/olecve/cljs-patrol/pull/135
+* Walk up once for the forms that hide Hiccup and remember the answers per file by @olecve in https://github.com/olecve/cljs-patrol/pull/136
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.52...v0.0.53
+
 ## [v0.0.52] - 2026-11-10
 
 * Flag a comment that restates the line after it by @olecve in https://github.com/olecve/cljs-patrol/pull/130
