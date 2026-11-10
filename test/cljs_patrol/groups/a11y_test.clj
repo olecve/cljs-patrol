@@ -2,6 +2,8 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
+   [cljs-patrol.temp-project :as temp-project]
+   [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
 
 (defn- img-finding [row]
@@ -239,3 +241,27 @@
       "map is rejected")
   (is (some? (a11y/make-group {:label-styles ['my.ui.styles/field-label]}))
       "vector of qualified symbols is accepted"))
+
+(defn- img-snippet
+  "Analyze an `[:img …]` vector with no alt as the only form of a project, and return its finding's snippet."
+  [img]
+  (->> (temp-project/run-group a11y/group {"app/core.cljs" (str "(ns app.core)\n(defn v [] " img ")")})
+       :results
+       :img-alt-missing
+       first
+       :form))
+
+(deftest long-form-snippet-is-longest-prefix-that-fits
+  (doseq [img [(str "[:img {:src \"" (apply str (repeat 300 "a")) "\"\n       :title \"x\"}]")
+               (str "[:img {:src \"" (apply str (repeat 40 "ab\\\"cd")) "\"\n       :title \"x\"}]")]]
+    (let [form (img-snippet img)
+          collapsed (str/replace img #"\s+" " ")
+          kept (- (count form) 3)]
+      (is (str/ends-with? form "...")
+          "marks cut with ellipsis")
+      (is (= (subs collapsed 0 kept) (subs form 0 kept))
+          "keeps prefix of collapsed source")
+      (is (<= (count (pr-str form)) 107)
+          "fits escaped limit")
+      (is (> (count (pr-str (str (subs collapsed 0 (inc kept)) "..."))) 107)
+          "keeps longest prefix that fits"))))
