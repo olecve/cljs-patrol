@@ -359,24 +359,24 @@
                                        " elements with event handlers. Make it a component of its own.")})))))
              vec)))))
 
-(def ^:private tail-body-offsets
-  "Forms that return the last form of their body, by how many forms come before the body."
-  {"binding" 1
-   "do" 0
-   "let" 1
-   "letfn" 1
-   "loop" 1
-   "when" 1
-   "when-first" 1
-   "when-let" 1
-   "when-not" 1
-   "when-some" 1
-   "with-let" 1
-   "with-redefs" 1})
+(def ^:private body-head->offset
+  "Forms that return the last form of their body, to how many forms come before the body."
+  {'cljs.core/binding 1
+   'cljs.core/do 0
+   'cljs.core/let 1
+   'cljs.core/letfn 1
+   'cljs.core/loop 1
+   'cljs.core/when 1
+   'cljs.core/when-first 1
+   'cljs.core/when-let 1
+   'cljs.core/when-not 1
+   'cljs.core/when-some 1
+   'cljs.core/with-redefs 1
+   'reagent.core/with-let 1})
 
 (def ^:private function-heads-with-body
   "Forms defining a function that returns the last form of its body."
-  #{"defc" "defn" "defn-" "fn"})
+  #{'cljs.core/defn 'cljs.core/defn- 'cljs.core/fn 'rum.core/defc})
 
 (defn- arity-bodies
   "Return the body of each arity of a function form, its forms in order.
@@ -398,24 +398,27 @@
   (and (= :list (z/tag loc))
        (= "finally" (some-> loc z/down parser/sym-name))))
 
-(def ^:private qualified-body-heads
-  "Body forms written through their library's alias, Reagent's `with-let` and Rum's `defc`."
-  #{"defc" "with-let"})
+(defn- resolve-head
+  "Return the fully qualified symbol the form at `loc` opens with, core's read as `cljs.core`.
 
-(defn- body-head-name
-  "Return the name of the form `loc` opens, when it is core's or one of `qualified-body-heads`.
-
-  A look-alike from another library, such as Schema's `s/defn`, writes a return schema
-  before its parameters, so a qualified head is left alone, and so is an unqualified one
-  the ns form excludes from core or refers over it."
-  [loc {:keys [shadowed-core]}]
+  The head resolves through the ns form's aliases and refers. An unqualified name nothing
+  refers is core's unless the ns form excludes it, so Schema's `defn`, which writes a return
+  schema before its parameters, is never read as core's."
+  [loc {:keys [shadowed-core]
+        :as ns-info}]
   (let [head (some-> loc z/down)
-        head-name (parser/sym-name head)]
-    (when (or (contains? qualified-body-heads head-name)
-              (and (= head-name (parser/raw head))
-                   (not= :all shadowed-core)
-                   (not (contains? shadowed-core head-name))))
-      head-name)))
+        head-name (parser/sym-name head)
+        head-str (some-> head parser/raw)
+        resolved (when head-name
+                   (or (parser/resolve-full-symbol head-str ns-info)
+                       (when-not (or (not= head-name head-str)
+                                     (= :all shadowed-core)
+                                     (contains? shadowed-core head-name))
+                         (symbol "cljs.core" head-name))
+                       (symbol head-str)))]
+    (if (= "clojure.core" (some-> resolved namespace))
+      (symbol "cljs.core" (name resolved))
+      resolved)))
 
 (defn- returning-bodies
   "Return the bodies `loc` returns the last form of, each as its forms in order, a `#_` form left out.
@@ -424,17 +427,17 @@
   unmount. A `defmethod` dispatch value may be a vector, so its parameters are looked for
   after it."
   [loc ns-info]
-  (let [head-name (body-head-name loc ns-info)
+  (let [head (resolve-head loc ns-info)
         bodies (cond
-                 (contains? function-heads-with-body head-name)
+                 (contains? function-heads-with-body head)
                  (arity-bodies (some-> loc z/down z/right))
 
-                 (= "defmethod" head-name)
+                 (= 'cljs.core/defmethod head)
                  (arity-bodies (some-> loc z/down z/right z/right z/right))
 
-                 (contains? tail-body-offsets head-name)
-                 [(cond->> (->> loc code-locs rest (drop (get tail-body-offsets head-name)))
-                    (= "with-let" head-name) (remove finally-form?))])]
+                 (contains? body-head->offset head)
+                 [(cond->> (->> loc code-locs rest (drop (body-head->offset head)))
+                    (= 'reagent.core/with-let head) (remove finally-form?))])]
     (map #(remove (fn [form] (= :uneval (z/tag form))) %) bodies)))
 
 (defn- discarded-hiccup-locs

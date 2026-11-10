@@ -257,9 +257,13 @@
 
 (defn- inline-components [lines] (list-findings :inline-component :hint {} lines))
 
+(def ^:private library-aliases {:aliases {"r" "reagent.core"
+                                          "rum" "rum.core"
+                                          "s" "schema.core"}})
+
 (defn- discarded-hiccup
   ([lines] (discarded-hiccup {} lines))
-  ([ns-info lines] (list-findings :discarded-hiccup :form ns-info lines)))
+  ([ns-info lines] (list-findings :discarded-hiccup :form (merge library-aliases ns-info) lines)))
 
 (deftest let-binding-holding-several-handler-elements-is-flagged
   (is (= ["actions holds 2 elements with event handlers. Make it a component of its own."
@@ -389,18 +393,28 @@
                                  "(s/fn :- [s/Int] [xs] (map inc xs))"
                                  "(s/defmethod render :k :- [s/Str] [x] (str x))"]))))
 
-(deftest heads-shadowing-core-are-left-alone
-  (is (empty? (discarded-hiccup {:shadowed-core #{"defn" "fn"}}
-                                ["(defn names :- [s/Str] [people] (map :name people))"
-                                 "(fn :- [s/Int] [xs] (map inc xs))"]))
-      "skips heads the ns form takes from elsewhere")
+(deftest heads-resolving-outside-core-reagent-and-rum-are-left-alone
+  (is (empty? (discarded-hiccup {:refers {"defn" "schema.core"}}
+                                ["(defn names :- [s/Str] [people] (map :name people))"]))
+      "skips a head referred from another library")
+  (is (empty? (discarded-hiccup {:shadowed-core #{"fn"}}
+                                ["(fn :- [s/Int] [xs] (map inc xs))"]))
+      "skips a head the ns form excludes from core")
   (is (empty? (discarded-hiccup {:shadowed-core :all} ["(when x [:p] [:span])"]))
       "skips every core head when the ns form may shadow any")
-  (is (= ["[:p]" "[:em]"]
-         (discarded-hiccup {:shadowed-core #{"defn"}}
+  (is (empty? (discarded-hiccup ["(x/defc bar [] [toolbar] [content])"
+                                 "(defc bar [] [toolbar] [content])"
+                                 "(x/with-let [a 1] [:p] [:span])"
+                                 "(x/when a [:p] [:span])"]))
+      "skips a head from an unknown library")
+  (is (= ["[:p]" "[:em]" "[:b]" "[:i]"]
+         (discarded-hiccup {:refers {"with-let" "reagent.core"}
+                            :shadowed-core #{"defn"}}
                            ["(when x [:p] [:span])"
-                            "(r/with-let [a 1] [:em] [:strong])"]))
-      "reads heads the ns form leaves to core"))
+                            "(with-let [a 1] [:em] [:strong])"
+                            "(clojure.core/when x [:b] [:span])"
+                            "(cljs.core/when x [:i] [:span])"]))
+      "reads heads resolving to core, Reagent or Rum"))
 
 (deftest unrendered-discarded-hiccup-is-left-alone
   (is (empty? (discarded-hiccup ["'(do [:a] [:b])"

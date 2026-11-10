@@ -313,10 +313,11 @@ where a parent or a fragment was meant.
 
 The bodies read are those of `when`, `when-not`, `when-let`, `when-some`, `when-first`, `let`, `letfn`, `loop`, `do`,
 `binding`, `with-redefs`, Reagent's `with-let` (whose closing `(finally …)` runs on unmount and is no result), and the
-functions of `defn`, `defn-`, `defc`, `defmethod` and `fn`, every arity. Only unqualified heads the ns form leaves to
-core are read, plus `with-let` and `defc` through any alias: a look-alike from another library, such as Schema's `defn`
-with a `:- [schema]` return, writes forms of its own before the body. Hiccup is a vector headed by an HTML tag, the
-fragment or any symbol, taken as a component; a data vector such as `[:db :path]` or `[:dispatch x]` is not. A `#_` form
-is skipped, and quoted code, `(comment …)` blocks and Spade declarations are not read.
+functions of `defn`, `defn-`, `defmethod`, `fn` and Rum's `defc`, every arity. Each head is resolved through the ns
+form, written bare, referred or through an alias. A look-alike from another library, such as Schema's `defn` with a
+`:- [schema]` return, writes forms of its own before the body and is not read, nor is a bare core name the ns form
+excludes. Hiccup is a vector headed by an HTML tag, the fragment or any symbol, taken as a component; a data vector such
+as `[:db :path]` or `[:dispatch x]` is not. A `#_` form is skipped, and quoted code, `(comment …)` blocks and Spade
+declarations are not read.
 
 </details>
