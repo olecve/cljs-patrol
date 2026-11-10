@@ -20,6 +20,7 @@
   judgement call."
   (:require
    [cljs-patrol.group :as group]
+   [cljs-patrol.heads :as heads]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [rewrite-clj.node :as n]
@@ -129,16 +130,11 @@
     (when-not (some #(contains? #{:comment :uneval} (n/tag %)) children)
       children)))
 
-(defn- code-forms
-  "Return the child nodes of node that are code: no whitespace, comment or `#_` form."
-  [node]
-  (remove #(or (n/whitespace-or-comment? %) (= :uneval (n/tag %))) (n/children node)))
-
 (defn- index-in-parent
   "Return the position of loc among its parent's children, the head at 0, or nil."
   [loc]
   (when-let [parent (z/up loc)]
-    (->> (code-forms (z/node parent))
+    (->> (heads/code-forms (z/node parent))
          (keep-indexed (fn [i child] (when (identical? child (z/node loc)) i)))
          first)))
 
@@ -149,22 +145,6 @@
 (def ^:private conditional-threading-heads
   "Forms that pass that argument only to the step of each test-and-step pair."
   #{"cond->" "cond->>"})
-
-(defn- site
-  "Return the outermost of loc and what wraps it without changing it: metadata, a reader conditional."
-  [loc]
-  (let [parent (z/up loc)]
-    (cond
-      (= :meta (some-> parent z/tag)) (recur parent)
-      (= :reader-macro (some-> parent z/up z/tag)) (recur (z/up parent))
-      :else loc)))
-
-(defn- parent-head
-  "Return the name of the symbol heading the list or `#(…)` loc's site sits in, or nil."
-  [loc]
-  (let [parent (z/up (site loc))]
-    (when (contains? #{:list :fn} (some-> parent z/tag))
-      (some-> parent z/down parser/sym-name))))
 
 (def ^:private first-slot-threading-heads
   "Threads that pass their value as the first argument, so each step takes one argument more than it writes."
@@ -191,14 +171,14 @@
   thread takes one argument more than it writes, so its steps sit one further along: the
   `if` of `(-> m (cond-> flag (if a b)))` is a step."
   [loc]
-  (let [at (site loc)
-        head (parent-head loc)]
+  (let [at (heads/site loc)
+        head (heads/parent-head loc)]
     (cond
       (spliced? at) true
       (not (or (contains? threading-heads head) (contains? conditional-threading-heads head))) false
       :else (let [thread-loc (z/up at)
                   index (+ (index-in-parent at)
-                           (if (and (contains? first-slot-threading-heads (parent-head thread-loc))
+                           (if (and (contains? first-slot-threading-heads (heads/parent-head thread-loc))
                                     (threaded-step? thread-loc))
                              1
                              0))]
@@ -224,168 +204,6 @@
               (and (str/ends-with? sym-str ".") (> (count sym-str) 1) (nil? slash))
               (= "js" qualifier)
               (class-name? (some-> qualifier (str/split #"\.") last)))))))
-
-(def ^:private let-like-heads
-  "Forms whose first argument is a vector of binding pairs."
-  #{"let" "let*" "loop" "loop*" "when-let" "if-let" "when-some" "if-some" "when-first"
-    "binding" "with-open" "with-redefs" "with-let" "with-local-vars" "doseq" "for" "dotimes"
-    "go-loop"})
-
-(def ^:private fn-like-heads #{"fn" "fn*" "defn" "defn-" "defmacro" "defmethod"})
-
-(defn- token-value [node]
-  (when (= :token (n/tag node))
-    (try (n/sexpr node) (catch Exception _ nil))))
-
-(defn- keys-entry?
-  "True when node is the key of a destructuring map entry naming its locals: `:keys`, `:syms`, `:strs`."
-  [node]
-  (let [value (token-value node)]
-    (and (keyword? value) (contains? #{"keys" "syms" "strs"} (name value)))))
-
-(defn- symbol-names
-  "Return the names node binds when it sits on the binding side, at any depth.
-
-  An unqualified symbol, and every symbol or keyword in the vector of a `:keys`, `:syms`
-  or `:strs` entry, `{:keys [:cond app/id]}` binding `cond` and `id`. A default under
-  `:or` reads as bound too, which only gives up a finding."
-  [node]
-  (letfn [(keyed-names [vector-node]
-            (keep #(let [value (token-value %)]
-                     (when (or (symbol? value) (keyword? value)) (name value)))
-                  (code-forms vector-node)))
-          (names [node]
-            (cond
-              (= :token (n/tag node))
-              (let [value (token-value node)]
-                (when (and (symbol? value) (nil? (namespace value))) [(name value)]))
-
-              (= :map (n/tag node))
-              (->> (code-forms node)
-                   (partition-all 2)
-                   (mapcat (fn [[k v]]
-                             (if (and (keys-entry? k) (= :vector (some-> v n/tag)))
-                               (keyed-names v)
-                               (concat (names k) (some-> v names))))))
-
-              (n/inner? node)
-              (mapcat names (n/children node))))]
-    (set (names node))))
-
-(defn- binding-sides
-  "Return the binding-side nodes of a binding vector, `:let` modifiers included."
-  [vector-node]
-  (let [elements (vec (code-forms vector-node))]
-    (->> (range 0 (count elements) 2)
-         (mapcat (fn [i]
-                   (let [binding-node (nth elements i)
-                         value-node (get elements (inc i))]
-                     (if (and (= :let (try (n/sexpr binding-node) (catch Exception _ nil)))
-                              (= :vector (some-> value-node n/tag)))
-                       (binding-sides value-node)
-                       [binding-node])))))))
-
-(defn- parameter-vectors
-  "Return the parameter vectors of a fn-like form from its arguments.
-
-  The first vector is the parameter list of a single arity, and the vector opening each
-  arity list of a multi-arity form. A `defmethod` has its dispatch value first, which may be
-  a vector too. A vector in a body, the return of a Hiccup view, is not a parameter list."
-  [head-name arguments]
-  (let [after-dispatch (if (= "defmethod" head-name) (drop 2 arguments) arguments)]
-    (if-let [single (first (filter #(= :vector (n/tag %)) after-dispatch))]
-      [single]
-      (keep #(when (= :list (n/tag %))
-               (let [opening (first (code-forms %))]
-                 (when (= :vector (some-> opening n/tag)) opening)))
-            after-dispatch))))
-
-(defn- names-bound-by
-  "Return the names list-node binds for its body.
-
-  Let-like bindings, the names and parameters of a `letfn`'s functions, the parameters of a
-  fn or any `def`-headed form, a `defui` or `defnc` as much as a `defn`, a named fn's own
-  name, the fields of a `deftype` or `defrecord`, the name of a `catch`, `as->` or
-  `this-as`, the template names of an `are`, and the index and result of an `amap` or
-  `areduce`. An `as->` that is a step of a thread has its name first, so either of its first
-  two symbols counts. A comment or `#_` form among them changes nothing they bind."
-  [list-node]
-  (let [[head & arguments] (code-forms list-node)
-        head-name (when (= :token (some-> head n/tag))
-                    (some-> (try (n/sexpr head) (catch Exception _ nil)) name))]
-    (cond
-      (contains? let-like-heads head-name)
-      (some->> arguments first binding-sides (mapcat symbol-names) set)
-
-      (= "letfn" head-name)
-      (some->> arguments first code-forms
-               (mapcat #(let [[fn-name & fn-arguments] (code-forms %)]
-                          (concat (some-> fn-name symbol-names)
-                                  (mapcat symbol-names (parameter-vectors "fn" fn-arguments)))))
-               set)
-
-      (or (contains? fn-like-heads head-name) (some-> head-name (str/starts-with? "def")))
-      (cond-> (->> (parameter-vectors head-name arguments)
-                   (mapcat symbol-names)
-                   set)
-        (and (= "fn" head-name) (= :token (some-> arguments first n/tag)))
-        (into (symbol-names (first arguments))))
-
-      (= "catch" head-name)
-      (some-> (nth arguments 1 nil) symbol-names)
-
-      (= "as->" head-name)
-      (->> (take 2 arguments)
-           (filter #(= :token (n/tag %)))
-           (mapcat symbol-names)
-           set)
-
-      (= "this-as" head-name)
-      (some-> (first arguments) symbol-names)
-
-      (= "are" head-name)
-      (some-> (first arguments) symbol-names)
-
-      (contains? #{"amap" "areduce"} head-name)
-      (->> (take 2 (rest arguments))
-           (mapcat symbol-names)
-           set))))
-
-(def ^:private method-defining-heads
-  "Forms whose lists define methods: a list's head names the method, and its vector the parameters."
-  #{"reify" "deftype" "defrecord" "extend-type" "extend-protocol" "proxy" "specify" "specify!"
-    "definterface" "defprotocol"})
-
-(defn- method-definition?
-  "True when loc is a list defining a method, not a call: `(toString [_] …)` in a `reify`."
-  [loc]
-  (and (= :list (z/tag loc))
-       (contains? method-defining-heads (parent-head loc))))
-
-(defn- method-parameter-names
-  "Return the names a method definition binds for its body, one arity or several."
-  [loc]
-  (->> (code-forms (z/node loc))
-       rest
-       (parameter-vectors "fn")
-       (mapcat symbol-names)
-       set))
-
-(defn- locally-bound?
-  "True when a form enclosing loc binds the unqualified name, so it is a local and not a var.
-
-  Every binding form above loc is read, whatever part of it loc sits in: a local that shadows
-  `filter` in one branch is reason enough to vouch for no `filter` there. Only a name core's
-  data-slot table holds, or `cond`, is ever asked about, so the walk runs for few calls."
-  [loc unqualified-name]
-  (loop [current (z/up loc)]
-    (cond
-      (nil? current) false
-      (and (contains? #{:list :fn} (z/tag current))
-           (contains? (names-bound-by (z/node current)) unqualified-name)) true
-      (and (method-definition? current)
-           (contains? (method-parameter-names current) unqualified-name)) true
-      :else (recur (z/up current)))))
 
 (defn- describe-var
   "Classify the var full-ns/var-name: core or `clojure.string`, or a var to look up."
@@ -453,7 +271,7 @@
       (if (= 1 (count arguments))
         [:either (first arguments) head]
         (let [[direction] (when (and (contains? #{:core :local} kind)
-                                     (not (and (= :local kind) (locally-bound? loc name))))
+                                     (not (and (= :local kind) (heads/locally-bound? loc name))))
                             (get data-slots [(or library :core) name]))]
           (cond
             direction [direction (if (= :last direction) (last arguments) (first arguments)) head]
@@ -585,9 +403,9 @@
   "True when loc is a test of the `case` it sits in."
   [loc]
   (boolean
-   (when (= "case" (parent-head loc))
-     (let [index (index-in-parent (site loc))
-           size (->> (site loc) z/up z/node code-forms count)]
+   (when (= "case" (heads/parent-head loc))
+     (let [index (index-in-parent (heads/site loc))
+           size (->> (heads/site loc) z/up z/node heads/code-forms count)]
        (and (even? index)
             (not (and (odd? size) (= index (dec size)))))))))
 
@@ -599,20 +417,14 @@
 (defn- member-position?
   "True when loc names a member of `.` or `..`, `(. o (cond a b))` calling a method `cond`."
   [loc]
-  (and (contains? #{"." ".."} (parent-head loc))
-       (>= (index-in-parent (site loc)) 2)))
-
-(defn- core-name-shadowed?
-  "True when the ns form may take the unqualified name from somewhere other than core."
-  [{:keys [shadowed-core]} unqualified-name]
-  (or (= :all shadowed-core)
-      (contains? shadowed-core unqualified-name)))
+  (and (contains? #{"." ".."} (heads/parent-head loc))
+       (>= (index-in-parent (heads/site loc)) 2)))
 
 (defn- core-name-unshadowed?
   "True when no name the ns form takes and no local above loc hides core's unqualified-name."
   [loc ns-info unqualified-name]
-  (not (or (core-name-shadowed? ns-info unqualified-name)
-           (locally-bound? loc unqualified-name))))
+  (not (or (heads/core-name-shadowed? ns-info unqualified-name)
+           (heads/locally-bound? loc unqualified-name))))
 
 (defn- core-call-head
   "Return the head of loc when it may call core's core-name, or nil.
@@ -626,7 +438,7 @@
     (let [head (describe-head (z/down loc) ns-info)]
       (when (and (= core-name (:name head))
                  (or (not= :local (:kind head)) (core-name-unshadowed? loc ns-info core-name))
-                 (not (method-definition? loc))
+                 (not (heads/method-definition? loc))
                  (not (member-position? loc))
                  (not (case-constant? loc))
                  (not (unevaluated? loc)))
@@ -636,7 +448,7 @@
   "Record a `cond` whose last clause pairs an always-true test with `nil`, or nil."
   [loc ns-info file]
   (when-let [head (core-call-head loc ns-info "cond")]
-    (let [arguments (rest (code-forms (z/node loc)))
+    (let [arguments (rest (heads/code-forms (z/node loc)))
           [test-node value-node] (take-last 2 arguments)]
       (when (and (>= (count arguments) 4)
                  (even? (count arguments))
@@ -671,7 +483,7 @@
   "True when node is a list headed by a symbol named `=`, from whichever namespace."
   [node]
   (and (= :list (n/tag node))
-       (let [head (some-> (first (code-forms node)) token-value)]
+       (let [head (some-> (first (heads/code-forms node)) heads/token-value)]
          (and (symbol? head) (= "=" (name head))))))
 
 (defn- negated-equality-candidate
@@ -683,11 +495,11 @@
   `=` hides what it is, and a step of a thread takes an argument the `not` does not show."
   [loc ns-info file]
   (when-let [head (core-call-head loc ns-info "not")]
-    (let [[equality & more] (rest (code-forms (z/node loc)))]
+    (let [[equality & more] (rest (heads/code-forms (z/node loc)))]
       (when (and equality
                  (empty? more)
                  (equality-call? equality)
-                 (>= (count (code-forms equality)) 3)
+                 (>= (count (heads/code-forms equality)) 3)
                  (not (threaded-step? loc))
                  (core-name-unshadowed? loc ns-info "not="))
         (let [equality-loc (->> loc z/down parser/right-siblings
@@ -701,7 +513,7 @@
              :fn-literal? (= :fn (z/tag loc))
              :head-text (z/string (z/down loc))
              :equality-text (n/string equality)
-             :arguments (->> equality code-forms rest (map n/string))
+             :arguments (->> equality heads/code-forms rest (map n/string))
              :position (try (z/position loc) (catch Exception _ [0 1]))
              :file file
              :test (parser/top-level-name loc)}))))))
@@ -718,7 +530,7 @@
   (let [form-name (some-> loc z/down parser/sym-name)
         [folded-name arity?] (get negatable-forms form-name)]
     (when-let [head (when folded-name (core-call-head loc ns-info form-name))]
-      (let [[test-node & body] (rest (code-forms (z/node loc)))]
+      (let [[test-node & body] (rest (heads/code-forms (z/node loc)))]
         (when (and (arity? (inc (count body)))
                    (= :list (some-> test-node n/tag))
                    (not (threaded-step? loc))
@@ -726,7 +538,7 @@
           (let [test-loc (->> loc z/down parser/right-siblings
                               (filter #(identical? test-node (z/node %)))
                               first)
-                [negated & more] (rest (code-forms test-node))]
+                [negated & more] (rest (heads/code-forms test-node))]
             (when-let [not-head (when (and negated
                                            (empty? more)
                                            (not= :reader-macro (n/tag negated)))
@@ -787,12 +599,12 @@
   the thread."
   [loc ns-info file]
   (when-let [head (core-call-head loc ns-info "into")]
-    (let [[target source & more] (rest (code-forms (z/node loc)))
+    (let [[target source & more] (rest (heads/code-forms (z/node loc)))
           builder (get into-empty-builders (some-> target n/tag))]
       (when (and builder
                  source
                  (empty? more)
-                 (empty? (code-forms target))
+                 (empty? (heads/code-forms target))
                  (not (threaded-step? loc))
                  (core-name-unshadowed? loc ns-info builder))
         (let [source-loc (->> loc z/down parser/right-siblings
@@ -830,7 +642,7 @@
   (let [head-name (some-> loc z/down parser/sym-name)
         step-name (get one-steps head-name)]
     (when-let [head (when step-name (core-call-head loc ns-info head-name))]
-      (let [[operand one & more] (rest (code-forms (z/node loc)))]
+      (let [[operand one & more] (rest (heads/code-forms (z/node loc)))]
         (when (and one
                    (empty? more)
                    (= "1" (n/string one))
@@ -869,7 +681,7 @@
   (let [form-name (some-> loc z/down parser/sym-name)
         thread-name (get plain-threads form-name)]
     (when-let [head (when thread-name (core-call-head loc ns-info form-name))]
-      (let [[expression & clauses] (rest (code-forms (z/node loc)))
+      (let [[expression & clauses] (rest (heads/code-forms (z/node loc)))
             pairs (partition 2 clauses)
             [before-true true-pairs] (split-with (comp (complement written-true?) first) pairs)
             steps (->> true-pairs (filter (comp written-true? first)) (mapv (comp n/string second)))]

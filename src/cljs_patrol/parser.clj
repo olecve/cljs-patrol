@@ -172,7 +172,7 @@
                 v (second pairs)]
             (cond
               (= :as k) (recur (drop 2 pairs) (str v) refers)
-              (and (= :refer k) (sequential? v))
+              (and (contains? #{:refer :refer-macros} k) (sequential? v))
               (recur (drop 2 pairs) as-alias (into refers (map str) v))
               :else (recur (drop 2 pairs) as-alias refers))))))))
 
@@ -181,7 +181,7 @@
   [ns-sexpr]
   (let [ns-name (str (second ns-sexpr))
         requires (for [clause (rest ns-sexpr)
-                       :when (and (seq? clause) (= :require (first clause)))
+                       :when (and (seq? clause) (contains? #{:require :require-macros} (first clause)))
                        req (rest clause)
                        :let [parsed (parse-require req)]
                        :when parsed]

@@ -3,6 +3,7 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.spade :as spade]
+   [cljs-patrol.heads :as heads]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
@@ -398,28 +399,6 @@
   (and (= :list (z/tag loc))
        (= "finally" (some-> loc z/down parser/sym-name))))
 
-(defn- resolve-head
-  "Return the fully qualified symbol the form at `loc` opens with, core's read as `cljs.core`.
-
-  The head resolves through the ns form's aliases and refers. An unqualified name nothing
-  refers is core's unless the ns form excludes it, so Schema's `defn`, which writes a return
-  schema before its parameters, is never read as core's."
-  [loc {:keys [shadowed-core]
-        :as ns-info}]
-  (let [head (some-> loc z/down)
-        head-name (parser/sym-name head)
-        head-str (some-> head parser/raw)
-        resolved (when head-name
-                   (or (parser/resolve-full-symbol head-str ns-info)
-                       (when-not (or (not= head-name head-str)
-                                     (= :all shadowed-core)
-                                     (contains? shadowed-core head-name))
-                         (symbol "cljs.core" head-name))
-                       (symbol head-str)))]
-    (if (= "clojure.core" (some-> resolved namespace))
-      (symbol "cljs.core" (name resolved))
-      resolved)))
-
 (defn- returning-bodies
   "Return the bodies `loc` returns the last form of, each as its forms in order, a `#_` form left out.
 
@@ -427,7 +406,7 @@
   unmount. A `defmethod` dispatch value may be a vector, so its parameters are looked for
   after it."
   [loc ns-info]
-  (let [head (resolve-head loc ns-info)
+  (let [head (heads/resolve-head loc ns-info)
         bodies (cond
                  (contains? function-heads-with-body head)
                  (arity-bodies (some-> loc z/down z/right))

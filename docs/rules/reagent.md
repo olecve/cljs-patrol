@@ -316,8 +316,8 @@ The bodies read are those of `when`, `when-not`, `when-let`, `when-some`, `when-
 functions of `defn`, `defn-`, `defmethod`, `fn` and Rum's `defc`, every arity. Each head is resolved through the ns
 form, written bare, referred or through an alias. A look-alike from another library, such as Schema's `defn` with a
 `:- [schema]` return, writes forms of its own before the body and is not read, nor is a bare core name the ns form
-excludes. Hiccup is a vector headed by an HTML tag, the fragment or any symbol, taken as a component; a data vector such
-as `[:db :path]` or `[:dispatch x]` is not. A `#_` form is skipped, and quoted code, `(comment …)` blocks and Spade
-declarations are not read.
+excludes or a local binding shadows. Hiccup is a vector headed by an HTML tag, the fragment or any symbol, taken as a
+component; a data vector such as `[:db :path]` or `[:dispatch x]` is not. A `#_` form is skipped, and quoted code,
+`(comment …)` blocks and Spade declarations are not read.
 
 </details>
