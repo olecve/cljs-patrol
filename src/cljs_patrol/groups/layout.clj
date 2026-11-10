@@ -14,10 +14,10 @@
 (def ^:private map-tags #{:map :namespaced-map})
 
 (defn- span
-  "Return [start-row end-row] of loc, or nil when positions are not tracked."
+  "Return [start-row end-row] of loc, or nil for a node the parser gave no position."
   [loc]
-  (try (let [[[start-row] [end-row]] (z/position-span loc)] [start-row end-row])
-       (catch Exception _ nil)))
+  (when-let [[[start-row] [end-row]] (parser/position-span loc)]
+    [start-row end-row]))
 
 (defn- start-row [loc] (first (span loc)))
 
@@ -216,7 +216,7 @@
   form. A layout finding's form is short and repeats — the same `{:run-op-id …} #{:loading}`
   call appears in several handlers of one file — so without it they would be one entry."
   [rule container-loc a b file]
-  (let [[row col] (try (z/position b) (catch Exception _ [0 1]))]
+  (let [[row col] (parser/position b)]
     (cond-> {:kw (container-kind container-loc)
              :type rule
              :form (str (part a) " " (part b))

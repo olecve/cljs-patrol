@@ -184,7 +184,7 @@
 
 (defn- issues-for-doc [kw doc-loc file]
   (let [content (try (z/sexpr doc-loc) (catch Exception _ ""))
-        [row col] (try (z/position doc-loc) (catch Exception _ [0 1]))]
+        [row col] (parser/position doc-loc)]
     (mapv (fn [t]
             {:kw kw
              :type t

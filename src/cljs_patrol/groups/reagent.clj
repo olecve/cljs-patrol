@@ -167,7 +167,7 @@
 
 (defn- redundant-into-finding [loc file]
   (let [head-loc (some-> loc z/down z/right z/down)
-        [row col] (try (z/position loc) (catch Exception _ [0 1]))]
+        [row col] (parser/position loc)]
     {:kw (head-identifier head-loc)
      :type :redundant-into-hiccup
      :form (source-snippet loc)
@@ -195,7 +195,7 @@
          (empty? (code-locs props)))))
 
 (defn- empty-fragment-props-finding [loc file]
-  (let [[row col] (try (z/position loc) (catch Exception _ [0 1]))]
+  (let [[row col] (parser/position loc)]
     {:kw :<>
      :type :empty-fragment-props
      :form (source-snippet loc)
@@ -264,7 +264,7 @@
           (rendered-position? loc ns-info)))))
 
 (defn- redundant-fragment-finding [loc file]
-  (let [[row col] (try (z/position loc) (catch Exception _ [0 1]))]
+  (let [[row col] (parser/position loc)]
     {:kw :<>
      :type :redundant-fragment
      :form (source-snippet loc)
@@ -350,7 +350,7 @@
                      (let [binding-name (parser/sym-name name-loc)
                            handler-count (when binding-name (count-handler-elements value-loc ns-info))]
                        (when (and handler-count (>= handler-count inline-component-min))
-                         (let [[row col] (try (z/position value-loc) (catch Exception _ [0 1]))]
+                         (let [[row col] (parser/position value-loc)]
                            {:kw (symbol binding-name)
                             :type :inline-component
                             :form (source-snippet value-loc)
@@ -428,7 +428,7 @@
        (filter #(hiccup-element? (hiccup/unwrap-meta %)))))
 
 (defn- discarded-hiccup-finding [loc file]
-  (let [[row col] (try (z/position loc) (catch Exception _ [0 1]))]
+  (let [[row col] (parser/position loc)]
     {:kw (head-identifier (z/down (hiccup/unwrap-meta loc)))
      :type :discarded-hiccup
      :form (source-snippet loc)

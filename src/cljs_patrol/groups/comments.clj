@@ -50,8 +50,8 @@
   (->> (raw-locs zloc)
        (filter #(and (= :comment (z/tag %)) (own-line? %) (not (inside-comment-form? %))))
        (reduce (fn [blocks loc]
-                 (let [[row col] (z/position loc)
-                       [last-row last-col] (some-> blocks peek peek z/position)]
+                 (let [[row col] (parser/position loc)
+                       [last-row last-col] (some-> blocks peek peek parser/position)]
                    (if (and (= col last-col) (= row (inc last-row)))
                      (conj (pop blocks) (conj (peek blocks) loc))
                      (conj blocks [loc]))))
@@ -163,7 +163,7 @@
   [block previous]
   (let [last-comment (peek previous)]
     (boolean (and last-comment
-                  (<= (- (first (z/position (first block))) (first (z/position last-comment))) 2)
+                  (<= (- (parser/position-row (first block)) (parser/position-row last-comment)) 2)
                   (str/ends-with? (str/trim (n/string (z/node last-comment))) ":")))))
 
 (def ^:private action-verbs
@@ -225,7 +225,7 @@
   A line of a longer block has another comment after it, which is no code, so only a one-line block counts."
   [blocks source-lines file]
   (keep (fn [block]
-          (let [[row col] (z/position (first block))
+          (let [[row col] (parser/position (first block))
                 text (comment-text block)
                 next-line (str/trim (get source-lines row ""))]
             (when (and (not (str/starts-with? next-line ";"))
@@ -252,7 +252,7 @@
         findings (keep (fn [[previous block]]
                          (when-let [forms (and (not (introduced-example? block previous))
                                                (code-forms (comment-text block) ns-info))]
-                           (let [[row col] (z/position (first block))]
+                           (let [[row col] (parser/position (first block))]
                              {:type :commented-out-code
                               :kw 'comment
                               :form (->> forms (map n/string) (str/join " ") parser/normalize-form)

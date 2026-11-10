@@ -13,7 +13,7 @@
   ([lines] (parse layout/group lines))
   ([rule-group lines]
    (let [{:keys [handle-list handle-vector]} (group/parse-handlers rule-group)
-         declarations (loop [loc (z/of-string (str/join "\n" lines) {:track-position? true})
+         declarations (loop [loc (z/of-string (str/join "\n" lines))
                              found []]
                         (if (z/end? loc)
                           found

@@ -89,10 +89,26 @@
   [loc]
   (take-while some? (rest (iterate #(some-> % z/right) loc))))
 
-(defn position-row
-  "Return the line number of zloc, or 0 on error."
+(defn position
+  "Return the [row col] where zloc's node starts, or [0 1] for a node the parser gave no position.
+
+  The parser records each node's position as metadata, so reading it costs nothing, where a
+  zipper that tracks positions pays on every move. The `?` of `#?(…)` and the `:ns` of
+  `#:ns{…}` carry none."
   [zloc]
-  (try (first (z/position zloc)) (catch Exception _ 0)))
+  (let [{:keys [row col]} (meta (z/node zloc))]
+    (if row [row col] [0 1])))
+
+(defn position-span
+  "Return [[row col] [end-row end-col]] of zloc's node, or nil for a node the parser gave no position."
+  [zloc]
+  (let [{:keys [row col end-row end-col]} (meta (z/node zloc))]
+    (when row [[row col] [end-row end-col]])))
+
+(defn position-row
+  "Return the line number of zloc, or 0 for a node the parser gave no position."
+  [zloc]
+  (first (position zloc)))
 
 (defn resolve-kw
   "Resolve a raw keyword string to a fully-qualified Clojure keyword.
@@ -370,7 +386,7 @@
   (let [file-path (str file)
         applicable (groups-for-extension enabled-groups (file-extension file-path))]
     (when (seq applicable)
-      (let [zloc (try (z/of-file file {:track-position? true})
+      (let [zloc (try (z/of-file file)
                       (catch Exception e
                         (binding [*out* *err*]
                           (println "WARN: could not parse" file-path ":" (.getMessage e)))
@@ -408,11 +424,7 @@
        :dynamic-sites (mapcat :dynamic-sites results)})))
 
 (defn descendant-locs
-  "Return the locs strictly inside `loc`, confined to it.
-
-  On the file's own zipper rather than a `z/subzip` of it: a subzip restarts position
-  tracking, and a finding reported from one names line 1 of the form instead of its line
-  in the file."
+  "Return the locs strictly inside `loc`, confined to it."
   [loc]
   (let [inside? (fn [candidate]
                   (loop [current candidate]
