@@ -61,10 +61,16 @@ reading is strict, so that prose is never taken for code:
 
 - every form in the block is a list, a vector or a map, so prose with a word outside a parenthesis is not code
 - one of them is a call, a list headed by a symbol, so a data shape such as `[:div "x"]` is not either
-- it holds something prose does not write: a keyword, a string, a number, a qualified symbol or a form nested in another
+- it holds a qualified symbol or a form nested in another; a keyword, a string or a number alone is as likely a note in
+  parentheses, `(default 300)` or `(only :dev)`
 - it holds no placeholder: `...`, `…`, a name ending in `...` such as `args...`, or a lone capital such as `N`
+- it holds no word of prose, such as `see`, `the`, `of`, `by`, `e.g.` or `cf.`, and no capitalized word, `(RFC 7231)`
 - it holds no `=>`, which marks a REPL example showing a result
+- the comment just before it, a blank line apart at most, does not end in `:`, as `;; Example:` does
 
-A comment after code on the same line, `(inc x) ; (dec x)`, is not read.
+The finding points at the first form in the block, and its baseline identity is every form in it, so two blocks that
+open the same way stay apart.
+
+A comment after code on the same line, `(inc x) ; (dec x (y))`, is not read.
 
 </details>

@@ -5,17 +5,16 @@
   stale while the code around it moves, and version control already keeps what it held.
   The reading is strict so that prose is never taken for code: every form in the block
   must be a list, a vector or a map, and the block must hold a call, a list headed by a
-  symbol, along with something prose does not write, a keyword, a string, a number, a
-  qualified symbol or a form nested in another. A shape written to document data,
-  `[:dispatch [::kw args...]]`, holds a placeholder and is left alone."
+  symbol, along with a qualified symbol or a form nested in another. A word only prose
+  writes, a shape holding a placeholder such as `[:dispatch [::kw args...]]`, and an
+  example a comment ending in `:` introduces are left alone."
   (:require
    [cljs-patrol.group :as group]
+   [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [rewrite-clj.node :as n]
    [rewrite-clj.parser :as p]
    [rewrite-clj.zip :as z]))
-
-(def ^:private snippet-max-length 80)
 
 (defn- raw-locs
   "Return every loc of the file `zloc` sits in, whitespace and comments included, in order."
@@ -63,21 +62,15 @@
 
 (def ^:private form-tags #{:list :map :vector})
 
-(defn- code-token?
-  "True when the token node is one prose does not write: a keyword, a string, a number or a qualified symbol."
-  [node]
-  (let [text (n/string node)]
-    (or (str/starts-with? text ":")
-        (str/starts-with? text "\"")
-        (re-matches #"[+-]?\d.*" text)
-        (re-matches #"[^/]+/.+" text))))
+(defn- qualified-symbol-token? [node]
+  (and (= :token (n/tag node))
+       (some? (re-matches #"[^/:\"]+/.+" (n/string node)))))
 
 (defn- code-signal?
-  "True when a form holds something prose does not: a code token, or a form nested in it."
+  "True when a form holds something prose does not: a qualified symbol, or a form nested in it."
   [form]
-  (boolean (some (fn [node]
-                   (or (contains? #{:list :map :multi-line :set :vector} (n/tag node))
-                       (and (= :token (n/tag node)) (code-token? node))))
+  (boolean (some #(or (contains? #{:list :map :set :vector} (n/tag %))
+                      (qualified-symbol-token? %))
                  (rest (tree-seq n/inner? n/children form)))))
 
 (defn- descendants-of [forms]
@@ -98,40 +91,64 @@
              (str/includes? text "…")
              (re-matches #"[A-Z]" text)))))
 
-(defn- code?
-  "True when `text` reads back as Clojure forms, each a list, a vector or a map, with a call, a code signal and no placeholder.
-  A `=>` marks a REPL example showing a result, which documents code rather than switching it off."
-  [text]
-  (and (not (str/includes? text "=>"))
-       (let [forms (try (remove n/whitespace-or-comment? (n/children (p/parse-string-all text)))
-                        (catch Exception _ nil))
-             nodes (descendants-of forms)]
-         (boolean (and (seq forms)
-                       (every? #(contains? form-tags (n/tag %)) forms)
-                       (some code-signal? forms)
-                       (some call? nodes)
-                       (not-any? placeholder? nodes))))))
+(def ^:private prose-words
+  "Words prose writes and Clojure code does not name, `is` and `and` aside since code calls them."
+  #{"a" "an" "are" "as" "at" "be" "but" "by" "cf." "e.g." "etc." "from" "i.e." "in" "of" "on" "see"
+    "than" "that" "the" "this" "to" "via" "vs." "was" "were" "which" "with" "you"})
 
-(defn- snippet [text]
-  (let [line (first (str/split-lines text))]
-    (if (<= (count line) snippet-max-length)
-      line
-      (str (subs line 0 (- snippet-max-length 3)) "..."))))
+(defn- prose-word?
+  "True when the token node is a word of prose: one of `prose-words`, or a capitalized word, `RFC`, that names no class."
+  [node]
+  (and (= :token (n/tag node))
+       (let [text (n/string node)]
+         (or (contains? prose-words (str/lower-case text))
+             (some? (re-matches #"[A-Z][a-z]*[A-Z]*" text))))))
+
+(defn- code-forms
+  "Return the forms `text` reads back as when it is code, or nil.
+
+  Each form is a list, a vector or a map; one is a call; one holds a code signal; and none
+  holds a placeholder or a word of prose. A `=>` marks a REPL example showing a result,
+  which documents code rather than switching it off."
+  [text]
+  (when-not (str/includes? text "=>")
+    (let [forms (try (remove n/whitespace-or-comment? (n/children (p/parse-string-all text)))
+                     (catch Exception _ nil))
+          nodes (descendants-of forms)]
+      (when (and (seq forms)
+                 (every? #(contains? form-tags (n/tag %)) forms)
+                 (some code-signal? forms)
+                 (some call? nodes)
+                 (not-any? placeholder? nodes)
+                 (not-any? prose-word? nodes))
+        forms))))
+
+(defn- introduced-example?
+  "True when the comment just before `block`, a blank line apart at most, ends in `:`, as `;; Example:` does."
+  [block previous]
+  (let [last-comment (peek previous)]
+    (boolean (and last-comment
+                  (<= (- (first (z/position (first block))) (first (z/position last-comment))) 2)
+                  (str/ends-with? (str/trim (n/string (z/node last-comment))) ":")))))
 
 (defn- handle-file
-  "Emit a :commented-out-code finding for each comment block that reads back as code."
+  "Emit a :commented-out-code finding for each comment block that reads back as code.
+
+  The finding points at the first form the block holds, and its `:form` is every form,
+  so two blocks opening the same way stay two baseline entries."
   [zloc _ns-info file]
-  (let [findings (keep (fn [block]
-                         (let [text (comment-text block)]
-                           (when (code? text)
-                             (let [[row col] (z/position (first block))]
-                               {:type :commented-out-code
-                                :kw 'comment
-                                :form (snippet text)
-                                :file file
-                                :row row
-                                :col col}))))
-                       (comment-blocks zloc))]
+  (let [blocks (comment-blocks zloc)
+        findings (keep (fn [[previous block]]
+                         (when-let [forms (and (not (introduced-example? block previous))
+                                               (code-forms (comment-text block)))]
+                           (let [[row col] (z/position (first block))]
+                             {:type :commented-out-code
+                              :kw 'comment
+                              :form (->> forms (map n/string) (str/join " ") parser/normalize-form)
+                              :file file
+                              :row (+ row (-> forms first meta :row dec))
+                              :col col})))
+                       (map vector (cons nil blocks) blocks))]
     (when (seq findings)
       {:decls (vec findings)
        :usages []
