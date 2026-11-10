@@ -1,5 +1,8 @@
 (ns cljs-patrol.groups.comments
-  "Comments rule group: comments that are code rather than prose.
+  "Comments rule group: comments that are code rather than prose, or that only restate the code.
+
+  `restating-comment` flags a one-line comment that says in words what the line after it
+  does, `;; Create a project` above `(post-project …)`. `commented-out-code` flags the rest.
 
   A `;` comment block whose text reads back as Clojure forms is code switched off. It goes
   stale while the code around it moves, and version control already keeps what it held.
@@ -163,8 +166,84 @@
                   (<= (- (first (z/position (first block))) (first (z/position last-comment))) 2)
                   (str/ends-with? (str/trim (n/string (z/node last-comment))) ":")))))
 
+(def ^:private action-verbs
+  "Verbs a step comment opens with, `;; Create a project`, in any of their forms."
+  #{"add" "build" "call" "check" "compute" "convert" "create" "delete" "duplicate" "export" "fetch" "filter"
+    "find" "get" "load" "make" "parse" "remove" "render" "return" "save" "send" "set" "sort" "update" "view"})
+
+(def ^:private restate-max-words
+  "The most words a comment may hold and still be read as only restating the line after it."
+  6)
+
+(def ^:private stopwords
+  "Words a comment holds around what it names without naming anything."
+  #{"a" "all" "an" "and" "by" "for" "from" "in" "into" "it" "its" "of" "on" "or" "the" "then" "this" "to" "with"})
+
+(defn- stem
+  "Fold a plural or a third person onto its base, so `documents` matches the `document` of a name."
+  [word]
+  (cond
+    (str/ends-with? word "ies") (str (subs word 0 (- (count word) 3)) "y")
+    (re-find #"(s|x|z|ch|sh)es$" word) (subs word 0 (- (count word) 2))
+    (and (str/ends-with? word "s") (not (str/ends-with? word "ss"))) (subs word 0 (dec (count word)))
+    :else word))
+
+(defn- words [text]
+  (re-seq #"(?U)[\p{L}\p{N}]+" (str/lower-case text)))
+
+(defn- restates?
+  "True when a one-line comment only says, in words, what the source line after it does.
+
+  It opens with an action verb, holds `restate-max-words` words at most and no punctuation,
+  and every word after the verb, stopwords aside, is a word of the next line: `;; Fetch
+  tagged documents` above `(fetch-tagged documents)`. Only the line's symbols count, not
+  its strings or keywords, which say what the code handles rather than what it does. A
+  reason or a condition brings words the line does not hold, so a comment giving one is
+  left alone."
+  [text next-line]
+  (let [[verb & others] (words text)
+        named (remove stopwords others)
+        code-words (->> (str/replace next-line #"\"(?:[^\"\\]|\\.)*\"|:{1,2}[^\s()\[\]{}\"]+" " ")
+                        words
+                        (map stem)
+                        set)]
+    (boolean (and verb
+                  (contains? action-verbs (stem verb))
+                  (<= (count (words text)) restate-max-words)
+                  (not (re-find #"[()\[\]{}#=?:`]|https?://" text))
+                  (seq named)
+                  (every? #(contains? code-words (stem %)) named)))))
+
+(defn- labelled-line?
+  "True when `line` opens a definition or a data entry, which a comment above it names as a label.
+  `;; Filter panel` above `(defn filter-panel …)`, `(rf/reg-event-fx ::save …)`, `[\"/export\" …]` or `:settings/x …`."
+  [line]
+  (boolean (re-find #"^(\[|:|\((?:[\w.-]+/)?(?:def|reg-))" line)))
+
+(defn- restating-findings
+  "Return a :restating-comment finding for each comment that restates the source line after it.
+  A line of a longer block has another comment after it, which is no code, so only a one-line block counts."
+  [blocks source-lines file]
+  (keep (fn [block]
+          (let [[row col] (z/position (first block))
+                text (comment-text block)
+                next-line (str/trim (get source-lines row ""))]
+            (when (and (not (str/starts-with? next-line ";"))
+                       (not (labelled-line? next-line))
+                       (restates? text next-line))
+              {:type :restating-comment
+               :kw 'comment
+               :form (parser/normalize-form (str ";; " text " " next-line))
+               :file file
+               :row row
+               :col col})))
+        blocks))
+
 (defn- handle-file
-  "Emit a :commented-out-code finding for each comment block that reads back as code.
+  "Emit the :commented-out-code and :restating-comment findings of a file.
+
+  A comment block that reads back as code is commented out, and a one-line comment that
+  says what the line after it does restates it.
 
   The finding points at the first form the block holds, and its `:form` is every form,
   so two blocks opening the same way stay two baseline entries."
@@ -180,17 +259,21 @@
                               :file file
                               :row (+ row (-> forms first meta :row dec))
                               :col col})))
-                       (map vector (cons nil blocks) blocks))]
+                       (map vector (cons nil blocks) blocks))
+        restating (restating-findings blocks (str/split-lines (z/root-string zloc)) file)
+        findings (concat findings restating)]
     (when (seq findings)
       {:decls (vec findings)
        :usages []
        :dynamics []})))
 
 (defn- analyze* [{:keys [declarations]}]
-  {:commented-out-code (vec (filter #(= :commented-out-code (:type %)) declarations))})
+  {:commented-out-code (filterv #(= :commented-out-code (:type %)) declarations)
+   :restating-comment (filterv #(= :restating-comment (:type %)) declarations)})
 
-(defn- summary-lines* [{:keys [commented-out-code]}]
-  [["Commented-out code:" (count commented-out-code)]])
+(defn- summary-lines* [{:keys [commented-out-code restating-comment]}]
+  [["Commented-out code:" (count commented-out-code)]
+   ["Restating comment:" (count restating-comment)]])
 
 (defrecord CommentsGroup [extensions]
   group/RuleGroup
@@ -203,9 +286,13 @@
   (failed? [_ _] false)
   (suggestions [_]
     {:commented-out-code (str "This comment is code switched off. Delete it: version control keeps it. "
-                              "Keep code meant for the REPL in a (comment …) form instead.")})
-  (docs-anchors [_] {:commented-out-code "commented-out-code"})
-  (rule->tier [_] {:commented-out-code :cleanup})
+                              "Keep code meant for the REPL in a (comment …) form instead.")
+     :restating-comment (str "This comment says in words what the next line does. Delete it, or say why the "
+                             "line is there.")})
+  (docs-anchors [_] {:commented-out-code "commented-out-code"
+                     :restating-comment "restating-comment"})
+  (rule->tier [_] {:commented-out-code :cleanup
+                   :restating-comment :cleanup})
   (file-extensions [_] extensions))
 
 (defn make-group

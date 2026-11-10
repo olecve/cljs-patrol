@@ -39,7 +39,7 @@ screen-reader user cannot reach, name or tell apart, and a Spade selector that m
   `test-id-query-on-role`
 - `form-after-split-map`, `split-map-after-sibling`, `nested-call-chain`, `cond-else-nil`, `negated-test`, `into-empty`,
   `plus-minus-one`, `negated-equality`, `unconditional-cond-threading`
-- `commented-out-code`
+- `commented-out-code`, `restating-comment`
 
 `dynamic-sites` is info-only — it never affects the exit code.
 

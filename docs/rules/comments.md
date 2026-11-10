@@ -78,3 +78,53 @@ open the same way stay apart.
 A comment after code on the same line, `(inc x) ; (swap! x f)`, is not read.
 
 </details>
+
+### Restating comment
+
+`restating-comment` · cleanup — A one-line comment that says in words what the next line does.
+
+```clojure
+;; flagged
+(defn tagged [db]
+  ;; Fetch tagged documents
+  (fetch-tagged-documents db))
+
+;; fix
+(defn tagged [db]
+  (fetch-tagged-documents db))
+```
+
+**Left alone:**
+
+```clojure
+;; a reason the line cannot give
+(defn tagged [db]
+  ;; Fetch documents again because the cache is stale
+  (fetch-tagged-documents db))
+
+;; a label naming the group after it
+(def palette
+  ;; Button pin
+  {:button-pin-pinned "#EF4444"})
+```
+
+<details>
+<summary>Details</summary>
+
+A comment on a line of its own, with no other comment line next to it, is read against the source line right after it.
+It restates that line when:
+
+- it opens with an action verb, such as `create`, `fetch`, `get`, `delete`, `update`, `parse` or `sort`, in any form, so
+  a label naming what follows, `;; Button pin` or `;; Personal settings`, is left alone
+- it holds six words at most, and no parenthesis, bracket, `#`, `=`, `?`, `:`, backtick or URL
+- every word after the verb, `the`, `a`, `of` and the like aside, is a word of the next line's symbols, plurals and verb
+  forms folded: `;; Create a project` above `project (post-project {:title "x"})`. Its strings and keywords do not
+  count, since they say what the code handles rather than what it does. A reason or a condition brings words the line
+  does not hold, so a comment giving one is left alone
+- the next line opens no definition or data entry, `(defn …)`, `(def …)`, `(rf/reg-event-fx …)`, `[…]` or `:key …`: a
+  comment there is a label naming what follows, `;; Filter panel` above `(defn filter-panel …)`
+
+The finding's baseline identity is the comment and the line after it, so two `;; Create a project` comments in one file
+stay apart when the lines they sit on differ.
+
+</details>
