@@ -1510,3 +1510,34 @@
         "nested interop element shows as written")
     (is (re-find #"line 48" (->> nested (filter #(= 45 (:row %))) first :hint))
         "inner element keeps its own line")))
+
+(def ^:private field-captions-file (str fixture-dir "/field_captions.cljs"))
+
+(def ^:private field-caption-aliases
+  {'blogapp.ui/button :button
+   'blogapp.ui/select :combobox
+   'blogapp.ui/switch :switch})
+
+(defn- field-caption-findings [label-styles]
+  (let [{:keys [group-results]} (core/run fixture-dir [(a11y/make-group {:component-aliases field-caption-aliases
+                                                                         :label-styles label-styles})])]
+    (:aria-label-beside-visible-label (first group-results))))
+
+(deftest aria-label-beside-visible-label-fixture-test
+  (is (= #{"bad-input-after-label"
+           "bad-label-class-in-props-map"
+           "bad-textarea-after-label"
+           "bad-select-after-label"
+           "bad-aliased-combobox-after-label"
+           "bad-role-combobox-after-label"
+           "bad-both-sides-wrapped"
+           "bad-field-yielded-by-let"
+           "bad-field-in-branch-inside-wrapper"
+           "bad-field-with-key-metadata"
+           "bad-label-styled-by-own-namespace"
+           "bad-label-and-field-two-wrappers-deep"}
+         (set (fn-names-in field-captions-file
+                           (field-caption-findings #{'blogapp.styles/field-label 'blogapp.field-captions/caption}))))
+      "flags exactly the bad- cases")
+  (is (empty? (field-caption-findings nil))
+      "no label styles configured flags nothing"))

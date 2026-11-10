@@ -151,8 +151,9 @@
                                     :aria-live-contradicts-role [(contradicting-aria-live-finding 8)]
                                     :aria-hidden-focusable []
                                     :nested-interactive-element []
-                                    :label-not-associated []})]
-    (is (= 10 (count lines)))
+                                    :label-not-associated []
+                                    :aria-label-beside-visible-label []})]
+    (is (= 11 (count lines)))
     (is (= 2 (second (first lines))))
     (is (= 1 (second (second lines))))
     (is (= 2 (second (nth lines 2))))
