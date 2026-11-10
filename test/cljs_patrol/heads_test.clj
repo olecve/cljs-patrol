@@ -76,8 +76,9 @@
 
 (defn- resolve-among
   "Resolve the head of the list `path` steps into `source` reaches, keeping it only when it is a candidate."
-  [candidates source path]
-  (heads/resolve-head (reduce #(%2 %1) (z/of-string source) path) {} candidates))
+  ([candidates source path] (resolve-among {} candidates source path))
+  ([file-ns-info candidates source path]
+   (heads/resolve-head (reduce #(%2 %1) (z/of-string source) path) file-ns-info candidates)))
 
 (deftest candidate-heads-resolve-as-without-candidates
   (is (= 'cljs.core/when (resolve-among #{'cljs.core/when} "(let [other f] (when x y))" [z/down z/right z/right]))
@@ -88,6 +89,19 @@
       "reads clojure.core candidate as cljs.core")
   (is (= 'cljs.core/if (resolve-among #{'cljs.core/if} "(let [if f] (if x y))" [z/down z/right z/right]))
       "reads special form under local of its name"))
+
+(deftest library-candidate-heads-resolve-through-ns-form
+  (is (= 'reagent.core/with-let
+         (resolve-among {:aliases {"r" "reagent.core"}} #{'reagent.core/with-let} "(r/with-let [a 1] a)" []))
+      "resolves candidate through alias")
+  (is (= 'reagent.core/with-let
+         (resolve-among {:refers {"with-let" "reagent.core"}} #{'reagent.core/with-let} "(with-let [a 1] a)" []))
+      "resolves candidate through refer")
+  (is (= 'reagent.core/with-let
+         (resolve-among {:macro-aliases {"r" "reagent.core"}} #{'reagent.core/with-let} "(r/with-let [a 1] a)" []))
+      "resolves candidate through macro alias")
+  (is (nil? (resolve-among {:refers {"with-let" "reagent.core"}} #{'cljs.core/let} "(with-let [a 1] a)" []))
+      "gives nil for referred head outside candidates"))
 
 (deftest non-candidate-heads-resolve-to-nil
   (is (nil? (resolve-among #{'cljs.core/let} "(r/with-let [a 1] a)" []))
