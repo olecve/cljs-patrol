@@ -9,6 +9,7 @@
   (:require
    [cljs-patrol.core :as core]
    [cljs-patrol.group :as group]
+   [cljs-patrol.temp-project :as temp-project]
    [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
@@ -98,18 +99,10 @@
         source (if (str/starts-with? code "(ns ")
                  code
                  (str "(ns " ns-name " " default-requires ")\n\n" code "\n"))
-        dir (.toFile (java.nio.file.Files/createTempDirectory "docs-example" (make-array java.nio.file.attribute.FileAttribute 0)))
-        file (io/file dir (if test-ns? "core_test.cljs" "core.cljs"))
-        errors (java.io.StringWriter.)]
-    (try
-      (spit file source)
-      (let [result (binding [*err* errors]
-                     (-> (core/run (str dir) [rule-group]) :group-results first))]
-        {:count (count (get result rule))
-         :warnings (str/replace (str errors) #"(?m)^Analyzing .*\n?" "")})
-      (finally
-        (.delete file)
-        (.delete dir)))))
+        {:keys [results errors]} (temp-project/run-group rule-group
+                                                         {(if test-ns? "core_test.cljs" "core.cljs") source})]
+    {:count (count (get results rule))
+     :warnings (str/replace errors #"(?m)^Analyzing .*\n?" "")}))
 
 (defn- declared-rules
   "Return every rule a group declares, however it declares it."

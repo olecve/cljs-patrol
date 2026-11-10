@@ -2,6 +2,7 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.reagent :as reagent]
+   [cljs-patrol.temp-project :as temp-project]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
    [rewrite-clj.zip :as z]))
@@ -392,6 +393,21 @@
                                  "(s/defn names :- [s/Str] [users] (map :name users))"
                                  "(s/fn :- [s/Int] [xs] (map inc xs))"
                                  "(s/defmethod render :k :- [s/Str] [x] (str x))"]))))
+
+(defn- file-discarded-hiccup
+  "Analyze `source` as the only file of a project, and return the forms discarded-hiccup flags."
+  [source]
+  (->> (temp-project/run-group reagent/group {"core.cljs" source}) :results :discarded-hiccup (mapv :form)))
+
+(deftest heads-referred-as-macros-are-read
+  (is (= ["[:p]"]
+         (file-discarded-hiccup "(ns app.core (:require-macros [reagent.core :refer [with-let]]))
+(with-let [a 1] [:p] [:span])"))
+      "reads head referred through require-macros")
+  (is (= ["[:p]"]
+         (file-discarded-hiccup "(ns app.core (:require [rum.core :refer-macros [defc]]))
+(defc view [] [:p] [:span])"))
+      "reads head referred through refer-macros"))
 
 (deftest heads-resolving-outside-core-reagent-and-rum-are-left-alone
   (is (empty? (discarded-hiccup {:refers {"defn" "schema.core"}}

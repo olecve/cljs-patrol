@@ -163,40 +163,56 @@
     (when-let [ns-sym (first req-vec)]
       (loop [pairs (rest req-vec)
              as-alias nil
-             refers []]
+             refers []
+             macro-refers []]
         (if (< (count pairs) 2)
           {:full-ns (str ns-sym)
            :as as-alias
-           :refers refers}
+           :refers refers
+           :macro-refers macro-refers}
           (let [k (first pairs)
                 v (second pairs)]
             (cond
-              (= :as k) (recur (drop 2 pairs) (str v) refers)
+              (= :as k) (recur (drop 2 pairs) (str v) refers macro-refers)
               (and (= :refer k) (sequential? v))
-              (recur (drop 2 pairs) as-alias (into refers (map str) v))
-              :else (recur (drop 2 pairs) as-alias refers))))))))
+              (recur (drop 2 pairs) as-alias (into refers (map str) v) macro-refers)
+              (and (= :refer-macros k) (sequential? v))
+              (recur (drop 2 pairs) as-alias refers (into macro-refers (map str) v))
+              :else (recur (drop 2 pairs) as-alias refers macro-refers))))))))
 
 (defn- parse-ns-form
-  "Return {:ns-name str :aliases {alias-str full-ns-str} :refers {refer-name-str full-ns-str}}."
+  "Return the ns name, and the aliases and refers its `:require` and `:require-macros` clauses write.
+
+  {:ns-name str :aliases {alias-str full-ns-str} :refers {refer-name-str full-ns-str}
+   :macro-aliases {…} :macro-refers {…}}. Macro aliases and refers are kept apart, so a
+  `:require-macros` alias never replaces the `:require` alias of the same name."
   [ns-sexpr]
-  (let [ns-name (str (second ns-sexpr))
-        requires (for [clause (rest ns-sexpr)
-                       :when (and (seq? clause) (= :require (first clause)))
-                       req (rest clause)
-                       :let [parsed (parse-require req)]
-                       :when parsed]
-                   parsed)
-        aliases (into {}
-                      (keep (fn [{:keys [full-ns as]}]
-                              (when as [as full-ns])))
-                      requires)
-        refers (into {}
-                     (mapcat (fn [{:keys [full-ns refers]}]
-                               (map (fn [r] [r full-ns]) refers)))
-                     requires)]
-    {:ns-name ns-name
-     :aliases aliases
-     :refers refers}))
+  (let [requires-in (fn [clause-key]
+                      (for [clause (rest ns-sexpr)
+                            :when (and (seq? clause) (= clause-key (first clause)))
+                            req (rest clause)
+                            :let [parsed (parse-require req)]
+                            :when parsed]
+                        parsed))
+        aliases-of (fn [requires]
+                     (into {}
+                           (keep (fn [{:keys [full-ns as]}]
+                                   (when as [as full-ns])))
+                           requires))
+        refers-of (fn [requires refers-key]
+                    (into {}
+                          (mapcat (fn [{:keys [full-ns]
+                                        :as parsed}]
+                                    (map (fn [r] [r full-ns]) (get parsed refers-key))))
+                          requires))
+        requires (requires-in :require)
+        macro-requires (requires-in :require-macros)]
+    {:ns-name (str (second ns-sexpr))
+     :aliases (aliases-of requires)
+     :refers (refers-of requires :refers)
+     :macro-aliases (aliases-of macro-requires)
+     :macro-refers (merge (refers-of macro-requires :refers)
+                          (refers-of requires :macro-refers))}))
 
 (def ^:private empty-ns-info {:ns-name "unknown"
                               :aliases {}
@@ -286,7 +302,7 @@
       :all
       (into by-ns by-others))))
 
-(defn- find-ns-info
+(defn find-ns-info
   "Find and parse the ns form from a rewrite-clj zip.
 
   z/of-file positions at the first top-level form (not a :forms wrapper).

@@ -1,7 +1,10 @@
 (ns cljs-patrol.parser-test
   (:require
+   [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.parser :as parser]
-   [clojure.test :refer [deftest is testing]]))
+   [cljs-patrol.temp-project :as temp-project]
+   [clojure.test :refer [deftest is testing]]
+   [rewrite-clj.zip :as z]))
 
 (deftest resolve-kw-test
   (testing "plain keyword"
@@ -45,3 +48,29 @@
 
   (testing "no duplicates returns all items"
     (is (= 3 (count (parser/distinct-by :id [{:id 1} {:id 2} {:id 3}]))))))
+
+(deftest macro-alias-keeps-require-alias-of-same-name
+  (let [{:keys [results]} (temp-project/run-group re-frame/group
+                                                  {"app/events.cljs" "(ns app.events (:require [re-frame.core :as rf]))
+(rf/reg-event-db ::save (fn [db _] db))"
+                                                   "app/views.cljs" "(ns app.views
+  (:require [app.events :as e] [re-frame.core :as rf])
+  (:require-macros [app.macros :as e]))
+(defn view [] [:button {:on-click #(rf/dispatch [::e/save])}])"})]
+    (is (empty? (:phantom-events results))
+        "resolves keyword through require alias")
+    (is (empty? (:unused-events results))
+        "counts dispatch toward event")))
+
+(deftest macro-aliases-and-refers-are-kept-apart
+  (let [ns-info (parser/find-ns-info (z/of-string "(ns app.views
+  (:require [app.events :as e :refer [save]] [app.ui :refer-macros [panel]])
+  (:require-macros [app.macros :as e :refer [save with-let]]))"))]
+    (is (= {:aliases {"e" "app.events"}
+            :refers {"save" "app.events"}
+            :macro-aliases {"e" "app.macros"}
+            :macro-refers {"save" "app.macros"
+                           "with-let" "app.macros"
+                           "panel" "app.ui"}}
+           (select-keys ns-info [:aliases :refers :macro-aliases :macro-refers]))
+        "keeps require-macros and refer-macros names out of aliases and refers")))
