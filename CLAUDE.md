@@ -20,6 +20,7 @@ src/cljs_patrol/
 ├── baseline.clj        # Baseline identities, read/write, comparison
 ├── severity.clj        # Tier classification and --fail-on parsing
 ├── fs.clj              # File discovery and path helpers
+├── timings.clj         # What --timings records and prints
 ├── groups/             # One namespace per rule group
 │   ├── re_frame.clj    #   subs/events: unused, phantom, duplicate, effects
 │   ├── spade.clj       #   styles: unused, defattrs-in-merge, selector shapes

@@ -3,6 +3,7 @@
   (:require
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
+   [cljs-patrol.timings :as timings]
    [clojure.string :as str]
    [rewrite-clj.node :as n]
    [rewrite-clj.zip :as z]))
@@ -345,22 +346,33 @@
     acc))
 
 (defn- collect-handlers
-  "Collect unique handler functions from all enabled groups, keyed by handler type."
-  [enabled-groups]
-  (let [all-handlers (map group/parse-handlers enabled-groups)
-        gather (fn [k]
-                 (->> all-handlers
-                      (mapcat #(let [v (get % k)]
-                                 (cond
-                                   (nil? v) nil
-                                   (sequential? v) v
-                                   :else [v])))
-                      (keep identity)
-                      distinct))]
-    {:handle-file (gather :handle-file)
-     :handle-list (gather :handle-list)
-     :handle-vector (gather :handle-vector)
-     :handle-token (gather :handle-token)}))
+  "Collect unique handler functions from all enabled groups, keyed by handler type.
+
+  With `wrap`, each handler is replaced by what `(wrap index handler)` returns, index being
+  the position in `enabled-groups` of the first group naming the handler."
+  ([enabled-groups] (collect-handlers enabled-groups (fn [_ handler] handler)))
+  ([enabled-groups wrap]
+   (let [all-handlers (map-indexed vector (map group/parse-handlers enabled-groups))
+         gather (fn [k]
+                  (->> all-handlers
+                       (mapcat (fn [[index handlers]]
+                                 (let [v (get handlers k)]
+                                   (map #(vector index %)
+                                        (cond
+                                          (nil? v) nil
+                                          (sequential? v) v
+                                          :else [v])))))
+                       (filter second)
+                       (reduce (fn [[seen wrapped] [index handler]]
+                                 (if (contains? seen handler)
+                                   [seen wrapped]
+                                   [(conj seen handler) (conj wrapped (wrap index handler))]))
+                               [#{} []])
+                       second))]
+     {:handle-file (gather :handle-file)
+      :handle-list (gather :handle-list)
+      :handle-vector (gather :handle-vector)
+      :handle-token (gather :handle-token)})))
 
 (defn- call-handlers [handlers tag loc ns-info file]
   (let [fns (cond
@@ -386,33 +398,67 @@
   answers here under its own key, and they go when the file is done."
   nil)
 
+(defn- parse-file
+  "Read file and its ns form, or warn and return nil for a file the reader cannot parse."
+  [file file-path]
+  (when-let [zloc (try (z/of-file file)
+                       (catch Exception e
+                         (binding [*out* *err*]
+                           (println "WARN: could not parse" file-path ":" (.getMessage e)))
+                         nil))]
+    {:ns-info (or (find-ns-info zloc) empty-ns-info)
+     :zloc zloc}))
+
+(defn- walk-file [{:keys [zloc ns-info]} file-path handlers]
+  (binding [*file-memo* (java.util.HashMap.)]
+    (loop [loc zloc
+           result (reduce (fn [acc handler] (merge-result acc (handler zloc ns-info file-path)))
+                          empty-result
+                          (:handle-file handlers))]
+      (if (z/end? loc)
+        {:declarations (:decls result)
+         :usages (:usages result)
+         :dynamic-sites (:dynamics result)}
+        (let [tag (z/tag loc)]
+          (recur (z/next loc)
+                 (merge-result result (call-handlers handlers tag loc ns-info file-path))))))))
+
+(defn- walk-file-timed
+  "Walk the parsed file as [[walk-file]] does, adding what it took to `recorder` along with `parse-nanos`."
+  [parsed file-path applicable recorder parse-nanos]
+  (let [started (timings/now recorder)
+        nanos (long-array (count applicable))
+        handlers (collect-handlers applicable #(timings/timed-handler recorder nanos %1 %2))
+        result (walk-file parsed file-path handlers)]
+    (timings/record-file! recorder {:file file-path
+                                    :handlers (zipmap (map group/group-id applicable) nanos)
+                                    :parse parse-nanos
+                                    :walk (- (timings/now recorder) started)})
+    result))
+
 (defn analyze-file
   "Parse a single source file and return {:declarations :usages :dynamic-sites}.
-  Only groups whose `file-extensions` include this file's extension are invoked."
-  [file enabled-groups]
-  (let [file-path (str file)
-        applicable (groups-for-extension enabled-groups (file-extension file-path))]
-    (when (seq applicable)
-      (let [zloc (try (z/of-file file)
-                      (catch Exception e
-                        (binding [*out* *err*]
-                          (println "WARN: could not parse" file-path ":" (.getMessage e)))
-                        nil))]
-        (when zloc
-          (binding [*file-memo* (java.util.HashMap.)]
-            (let [ns-info (or (find-ns-info zloc) empty-ns-info)
-                  handlers (collect-handlers applicable)]
-              (loop [loc zloc
-                     result (reduce (fn [acc handler] (merge-result acc (handler zloc ns-info file-path)))
-                                    empty-result
-                                    (:handle-file handlers))]
-                (if (z/end? loc)
-                  {:declarations (:decls result)
-                   :usages (:usages result)
-                   :dynamic-sites (:dynamics result)}
-                  (let [tag (z/tag loc)]
-                    (recur (z/next loc)
-                           (merge-result result (call-handlers handlers tag loc ns-info file-path)))))))))))))
+  Only groups whose `file-extensions` include this file's extension are invoked. With a
+  `recorder`, the time each step and each group's handlers took is added to it."
+  ([file enabled-groups] (analyze-file file enabled-groups nil))
+  ([file enabled-groups recorder]
+   (let [file-path (str file)
+         applicable (groups-for-extension enabled-groups (file-extension file-path))]
+     (when (seq applicable)
+       (if recorder
+         (let [started (timings/now recorder)
+               parsed (parse-file file file-path)
+               parse-nanos (- (timings/now recorder) started)]
+           (if parsed
+             (walk-file-timed parsed file-path applicable recorder parse-nanos)
+             (do
+               (timings/record-file! recorder {:file file-path
+                                               :handlers {}
+                                               :parse parse-nanos
+                                               :walk 0})
+               nil)))
+         (some-> (parse-file file file-path)
+                 (walk-file file-path (collect-handlers applicable))))))))
 
 (defn enabled-extensions
   "Union of the extensions `enabled-groups` declare, so a file is opened only when some enabled group can read it."
@@ -421,15 +467,18 @@
 
 (defn analyze-project
   "Analyze all source files under root-dir using enabled-groups.
-  Returns {:declarations :usages :dynamic-sites} across all files."
-  [root-dir enabled-groups]
-  (let [files (fs/list-source-files root-dir (enabled-extensions enabled-groups))]
-    (binding [*out* *err*]
-      (println (str "Analyzing " (count files) " files under " root-dir " ...")))
-    (let [results (keep #(analyze-file % enabled-groups) files)]
-      {:declarations (mapcat :declarations results)
-       :usages (mapcat :usages results)
-       :dynamic-sites (mapcat :dynamic-sites results)})))
+  Returns {:declarations :usages :dynamic-sites} across all files. With a `recorder`, the
+  time discovery and each file took is added to it."
+  ([root-dir enabled-groups] (analyze-project root-dir enabled-groups nil))
+  ([root-dir enabled-groups recorder]
+   (let [discover #(fs/list-source-files root-dir (enabled-extensions enabled-groups))
+         files (if recorder (timings/timed recorder :discovery discover) (discover))]
+     (binding [*out* *err*]
+       (println (str "Analyzing " (count files) " files under " root-dir " ...")))
+     (let [results (keep #(analyze-file % enabled-groups recorder) files)]
+       {:declarations (mapcat :declarations results)
+        :usages (mapcat :usages results)
+        :dynamic-sites (mapcat :dynamic-sites results)}))))
 
 (defn descendant-locs
   "Return the locs strictly inside `loc`, confined to it."

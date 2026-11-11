@@ -156,6 +156,19 @@ considers the whole codebase. Combinable with other flags:
 clojure -M:run --output edn --files src/app/subs.cljs src/cljs/myapp
 ```
 
+## Timings
+
+`--timings` prints where the run spent its time to stderr, so stdout stays the same in every output mode:
+
+```bash
+clojure -M:run --timings src/cljs/myapp
+```
+
+It lists the phases (file discovery, parsing, the walk over every node, each group's cross-file analysis, and the
+baseline comparison and report), the time each group spent in its handlers during the walk and in its analysis, and the
+10 slowest files. Parse, walk and handler times add up over files; the total runs from the start of the run to its exit,
+JVM startup aside. Timings cover a run that starts analysis; `--list-rules` and argument errors print none.
+
 ## Documentation
 
 - **[What it detects](docs/rules.md)** — every rule, what it flags, and what it deliberately leaves alone, one page per
