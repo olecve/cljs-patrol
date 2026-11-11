@@ -28,6 +28,7 @@
    [cljs-patrol.reporters.html :as html-reporter]
    [cljs-patrol.reporters.markdown :as md-reporter]
    [cljs-patrol.severity :as severity]
+   [cljs-patrol.timings :as timings]
    [clojure.string :as str]
    [clojure.tools.cli :as cli]))
 
@@ -96,6 +97,7 @@
          (str/join ", " (map name orders/names)) " (default " (name orders/default-order) ")")
     :parse-fn keyword]
    [nil "--[no-]experimental-clj" "Experimental: also read .clj files (docstrings, tests, layout, idioms and comments groups only)"]
+   [nil "--timings" "Print where the run spent its time to stderr: phases, groups, slowest files"]
    [nil "--list-rules" "Print all rules grouped by tier and exit"]
    ["-h" "--help"]])
 
@@ -161,30 +163,45 @@
      (or (seq blocking-new)
          (and strict-baseline (seq fixed-issues))))))
 
-(defn- analyze-groups [source-dir parsed-data enabled-groups]
+(defn- analyze-group [group parsed-data]
+  (->> parsed-data
+       (group/analyze group)
+       (severity/annotate-tiers group)))
+
+(defn- analyze-group-timed [recorder group parsed-data]
+  (let [started (timings/now recorder)
+        result (analyze-group group parsed-data)
+        nanos (- (timings/now recorder) started)]
+    (timings/record-phase! recorder :analyze nanos)
+    (timings/record-analyze! recorder (group/group-id group) nanos)
+    result))
+
+(defn- analyze-groups [source-dir parsed-data enabled-groups recorder]
   {:source-dir source-dir
-   :group-results (mapv (fn [group]
-                          (->> parsed-data
-                               (group/analyze group)
-                               (severity/annotate-tiers group)))
+   :group-results (mapv (if recorder
+                          #(analyze-group-timed recorder % parsed-data)
+                          #(analyze-group % parsed-data))
                         enabled-groups)})
 
 (defn run-all
   "Analyze each of source-dirs with enabled-groups, return one {:source-dir … :group-results [...]} per directory.
   Each directory is judged on its own findings, while `:usages-in-run` hands every group the
-  usages of all of them, for a rule whose evidence may sit in another directory of the run."
-  [source-dirs enabled-groups]
-  (let [parsed (mapv #(parser/analyze-project % enabled-groups) source-dirs)
-        usages-in-run (vec (mapcat :usages parsed))]
-    (mapv (fn [source-dir {:keys [declarations dynamic-sites usages]}]
-            (analyze-groups source-dir
-                            {:declarations declarations
-                             :dynamic-sites dynamic-sites
-                             :usages usages
-                             :usages-in-run usages-in-run}
-                            enabled-groups))
-          source-dirs
-          parsed)))
+  usages of all of them, for a rule whose evidence may sit in another directory of the run.
+  With a `recorder`, the time each step took is added to it."
+  ([source-dirs enabled-groups] (run-all source-dirs enabled-groups nil))
+  ([source-dirs enabled-groups recorder]
+   (let [parsed (mapv #(parser/analyze-project % enabled-groups recorder) source-dirs)
+         usages-in-run (vec (mapcat :usages parsed))]
+     (mapv (fn [source-dir {:keys [declarations dynamic-sites usages]}]
+             (analyze-groups source-dir
+                             {:declarations declarations
+                              :dynamic-sites dynamic-sites
+                              :usages usages
+                              :usages-in-run usages-in-run}
+                             enabled-groups
+                             recorder))
+           source-dirs
+           parsed))))
 
 (defn run
   "Analyze source-dir with enabled-groups, return {:source-dir source-dir :group-results [...]}."
@@ -251,12 +268,23 @@
                  quiet? (remove baselined?))
      :present (count (filter baselined? findings))}))
 
-(defn- refuse-baseline-write! [enabled-groups run-results path added]
+(def ^:private slowest-files-shown 10)
+
+(defn- exit!
+  "Print the timings when the run records them, then exit with `code`."
+  [opts code]
+  (when-let [recorder (:timings opts)]
+    (binding [*out* *err*]
+      (println)
+      (run! println (timings/report-lines (timings/summary recorder) slowest-files-shown))))
+  (System/exit code))
+
+(defn- refuse-baseline-write! [enabled-groups run-results path added opts]
   (console/print-report (:findings (baseline-console-rows enabled-groups run-results added nil true))
                         {:docs (docs-by-rule enabled-groups)})
   (println (str "\nRefusing to write " path ": the findings above are not in it."
                 " Fix them, or pass --allow-new to add them."))
-  (System/exit 1))
+  (exit! opts 1))
 
 (defn- run-baseline-write! [enabled-groups run-results opts dirs rule->tier]
   (let [identities (baseline/collect-identities run-results)
@@ -265,18 +293,18 @@
       (if error
         (do
           (println (str "Error: " error))
-          (System/exit 1))
-        (refuse-baseline-write! enabled-groups run-results path added)))
+          (exit! opts 1))
+        (refuse-baseline-write! enabled-groups run-results path added opts)))
     (baseline/write-baseline path identities rule->tier)
     (println (str "Wrote baseline with " (count identities) " entries to " path))
-    (System/exit 0)))
+    (exit! opts 0)))
 
 (defn- run-baseline-compare! [enabled-groups run-results opts dirs rule->tier]
   (let [path (baseline/resolve-baseline-path (:baseline-path opts) dirs)
         {:keys [ok error]} (baseline/read-baseline path)]
     (when error
       (println (str "Error: " error))
-      (System/exit 1))
+      (exit! opts 1))
     (let [found (baseline/collect-identities run-results)
           {new-issues :new
            present :present
@@ -289,7 +317,7 @@
                       1 0)]
       (when (= :markdown (:output opts))
         (println "Error: --output markdown is not supported with --baseline.")
-        (System/exit 1))
+        (exit! opts 1))
       (case (:output opts)
         :edn (edn-reporter/print-baseline-report
               dirs new-issues present fixed exit-code
@@ -308,7 +336,7 @@
                                             :present present
                                             :strict? (boolean (:strict-baseline opts))}
                                  :docs (docs-by-rule enabled-groups)})))
-      (System/exit exit-code))))
+      (exit! opts exit-code))))
 
 (defn- run-standalone! [enabled-groups run-results opts dirs]
   (let [fail-on-rules (:fail-on-rules opts)
@@ -325,10 +353,11 @@
       :markdown (md-reporter/print-report enabled-groups dirs run-results)
       (console/print-report (console-findings enabled-groups run-results (standalone-severity fail-on-rules))
                             {:docs (docs-by-rule enabled-groups)}))
-    (System/exit (if any-failed? 1 0))))
+    (exit! opts (if any-failed? 1 0))))
 
 (defn -main [& args]
-  (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)]
+  (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)
+        recorder (when (:timings options) (timings/recorder))]
     (when (or (:help options) (empty? args))
       (println "Usage: cljs-patrol [options] <source-dir> [<source-dir> ...]")
       (println)
@@ -368,7 +397,9 @@
           _ (when error
               (println (str "Error: " error))
               (System/exit 1))
-          opts (assoc base-opts :fail-on-rules (or ok #{}))]
+          opts (assoc base-opts
+                      :fail-on-rules (or ok #{})
+                      :timings recorder)]
       (when (:list-rules options)
         (println (severity/format-rules (severity/list-rules enabled-groups)))
         (System/exit 0))
@@ -386,7 +417,9 @@
                           "."))
             (println (str "WARN: --experimental-clj does nothing here. No enabled group reads .clj; "
                           "the groups that can are docstrings, tests, layout, idioms and comments.")))))
-      (let [run-results (cond-> (run-all dirs enabled-groups)
+      (let [analyzed (run-all dirs enabled-groups recorder)
+            _ (some-> recorder (timings/start-phase! :report))
+            run-results (cond-> analyzed
                           (:files opts) (filter-run-results (:files opts)))]
         (cond
           (:baseline-write opts)
