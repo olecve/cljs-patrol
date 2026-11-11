@@ -446,9 +446,17 @@
          applicable (groups-for-extension enabled-groups (file-extension file-path))]
      (when (seq applicable)
        (if recorder
-         (let [started (timings/now recorder)]
-           (when-let [parsed (parse-file file file-path)]
-             (walk-file-timed parsed file-path applicable recorder (- (timings/now recorder) started))))
+         (let [started (timings/now recorder)
+               parsed (parse-file file file-path)
+               parse-nanos (- (timings/now recorder) started)]
+           (if parsed
+             (walk-file-timed parsed file-path applicable recorder parse-nanos)
+             (do
+               (timings/record-file! recorder {:file file-path
+                                               :handlers {}
+                                               :parse parse-nanos
+                                               :walk 0})
+               nil)))
          (some-> (parse-file file file-path)
                  (walk-file file-path (collect-handlers applicable))))))))
 

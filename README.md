@@ -167,7 +167,7 @@ clojure -M:run --timings src/cljs/myapp
 It lists the phases (file discovery, parsing, the walk over every node, each group's cross-file analysis, and the
 baseline comparison and report), the time each group spent in its handlers during the walk and in its analysis, and the
 10 slowest files. Parse, walk and handler times add up over files; the total runs from the start of the run to its exit,
-JVM startup aside.
+JVM startup aside. Timings cover a run that starts analysis; `--list-rules` and argument errors print none.
 
 ## Documentation
 

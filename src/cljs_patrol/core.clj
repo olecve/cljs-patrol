@@ -272,8 +272,8 @@
 
 (defn- exit!
   "Print the timings when the run records them, then exit with `code`."
-  [opts code]
-  (when-let [recorder (:timings opts)]
+  [options code]
+  (when-let [recorder (:timings options)]
     (binding [*out* *err*]
       (println)
       (run! println (timings/report-lines (timings/summary recorder) slowest-files-shown))))

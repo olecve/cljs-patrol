@@ -7,6 +7,8 @@
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is]])
   (:import
+   (java.util
+    Locale)
    (java.util.concurrent.atomic
     AtomicLong)
    (java.util.function
@@ -71,7 +73,7 @@
               :report 10
               :walk 30}
              phases)
-          "file times add up into parse and walk, and the open report phase closes at the summary")
+          "file times add up into parse and walk, and open report phase closes at summary")
       (is (= 60 total)
           "total runs from recorder creation to summary")
       (is (= [{:analyze 9
@@ -178,15 +180,15 @@
             timed (parser/analyze-file file groups recorder)
             {:keys [token list shared]} @calls
             [{:keys [handlers parse]
-              :as file-times}] @(:files recorder)]
+              :as file-times}] (:files @(:state recorder))]
         (is (= untimed timed)
             "recording leaves the result as it was")
         (is (= 1 shared)
-            "a handler two groups share runs once per node")
+            "handler shared by two groups runs once per node")
         (is (= {:lists list
                 :tokens (+ token shared)}
                handlers)
-            "each call ticks once, on the group that first names the handler")
+            "each call ticks once, on first group naming handler")
         (is (= 1 parse)
             "parse spans one tick")
         (is (= (inc (* 2 (+ token list shared))) (:walk file-times))
@@ -215,3 +217,90 @@
         "each group's analyze spans one tick, one with no handlers too")
     (is (seq files)
         "every file recorded")))
+
+(deftest report-lines-ignore-default-locale
+  (let [default (Locale/getDefault)]
+    (try
+      (Locale/setDefault (Locale/forLanguageTag "fi-FI"))
+      (is (= ["  discovery  0.10s   100%"
+              "  total      0.10s"]
+             (->> (timings/report-lines {:files []
+                                         :groups []
+                                         :phases {:discovery 100000000}
+                                         :total 100000000}
+                                        10)
+                  (drop 2)
+                  (take 2)))
+          "decimal point and percent sign as in root locale")
+      (finally
+        (Locale/setDefault default)))))
+
+(deftest record-file-adds-one-file-in-one-swap
+  (let [recorder (timings/recorder (ticking-clock))
+        states (atom [])]
+    (add-watch (:state recorder) ::swaps (fn [_ _ _ state] (swap! states conj state)))
+    (timings/record-file! recorder {:file "a.cljs"
+                                    :handlers {:x 3}
+                                    :parse 2
+                                    :walk 10})
+    (is (= [{:files [{:file "a.cljs"
+                      :handlers {:x 3}
+                      :parse 2
+                      :walk 10}]
+             :group-analyze {}
+             :group-handlers {:x 3}
+             :open {}
+             :phases {:parse 2
+                      :walk 10}}]
+           @states)
+        "parse, walk, handlers and file land together")))
+
+(deftest analyze-file-records-handle-file-time-for-its-group
+  (let [calls (atom 0)
+        groups [(fake-group :tokens {})
+                (fake-group :files {:handle-file (fn [_ _ _] (swap! calls inc) {:usages [:f]})})]
+        file (temp-source-file "(ns a.b)\n")
+        recorder (timings/recorder (ticking-clock))]
+    (try
+      (let [untimed (parser/analyze-file file groups)
+            _ (reset! calls 0)
+            timed (parser/analyze-file file groups recorder)
+            [{:keys [handlers]}] (:files (timings/summary recorder))]
+        (is (= untimed timed)
+            "recording leaves result as it was")
+        (is (= 1 @calls)
+            "handle-file runs once per file")
+        (is (= 1 handlers)
+            "handle-file call ticks once")
+        (is (= [{:analyze 0
+                 :group :files
+                 :handlers 1
+                 :total 1}
+                {:analyze 0
+                 :group :tokens
+                 :handlers 0
+                 :total 0}]
+               (:groups (timings/summary recorder)))
+            "handle-file time charged to its group"))
+      (finally
+        (io/delete-file file)))))
+
+(deftest analyze-file-records-parse-time-of-unparsable-file
+  (let [groups [(fake-group :tokens {:handle-token (constantly nil)})]
+        file (temp-source-file "(ns a.b\n(defn f [")
+        recorder (timings/recorder (ticking-clock))]
+    (try
+      (is (nil? (binding [*err* (java.io.StringWriter.)]
+                  (parser/analyze-file file groups recorder)))
+          "unparsable file yields no result")
+      (let [{:keys [phases files]} (timings/summary recorder)]
+        (is (= 1 (:parse phases))
+            "parse phase holds parse attempt")
+        (is (= [{:file (str file)
+                 :handlers 0
+                 :parse 1
+                 :total 1}]
+               files)
+            "unparsable file listed among slowest files"))
+      (finally
+        (io/delete-file file)))))

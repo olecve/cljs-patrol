@@ -62,3 +62,14 @@
       (finally
         (doseq [file (reverse (file-seq dir))]
           (io/delete-file file))))))
+
+(deftest timings-leave-error-exit-unchanged
+  (let [{:keys [plain timed]} (compare-runs ["--only" "a11y" "--baseline"] fixture-src)]
+    (is (str/includes? (:out plain) "Baseline file not found")
+        "run stops on missing baseline")
+    (is (= (:out plain) (:out timed))
+        "stdout byte-identical")
+    (is (= 1 (:exit plain) (:exit timed))
+        "exit code 1 with and without flag")
+    (is (= ["discovery" "parse" "walk" "analyze" "report" "total"] (phase-rows (:err timed)))
+        "timings on stderr after error")))

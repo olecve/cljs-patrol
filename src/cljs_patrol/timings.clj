@@ -1,11 +1,13 @@
 (ns cljs-patrol.timings
   "Where a run spends its time, for --timings.
 
-  A recorder is safe to share between threads: every total sits in an atom, and a file's
+  A recorder is safe to share between threads: every total sits in one atom, and a file's
   numbers arrive in one swap once the file is done."
   (:require
    [clojure.string :as str])
   (:import
+   (java.util
+    Locale)
    (java.util.function
     LongSupplier)))
 
@@ -17,16 +19,16 @@
   [:discovery :parse :walk :analyze :report])
 
 (defn recorder
-  "Return a new recorder whose clock starts now, reading `clock` (nanoseconds) or the system's."
+  "Create a recorder whose clock starts now, reading `clock` (nanoseconds) or the system's."
   ([] (recorder system-clock))
   ([^LongSupplier clock]
    {:clock clock
-    :files (atom [])
-    :group-analyze (atom {})
-    :group-handlers (atom {})
-    :open (atom {})
-    :phases (atom {})
-    :started (.getAsLong clock)}))
+    :started (.getAsLong clock)
+    :state (atom {:files []
+                  :group-analyze {}
+                  :group-handlers {}
+                  :open {}
+                  :phases {}})}))
 
 (defn now
   "Read the recorder's clock."
@@ -39,7 +41,7 @@
 (defn record-phase!
   "Add `nanos` to `phase`."
   [recorder phase nanos]
-  (swap! (:phases recorder) add-nanos phase nanos))
+  (swap! (:state recorder) update :phases add-nanos phase nanos))
 
 (defn timed
   "Call `f` and add the time it took to `phase`, returning what `f` returned."
@@ -52,7 +54,7 @@
 (defn start-phase!
   "Open `phase`, which [[summary]] closes."
   [recorder phase]
-  (swap! (:open recorder) assoc phase (now recorder)))
+  (swap! (:state recorder) assoc-in [:open phase] (now recorder)))
 
 (defn timed-handler
   "Wrap parse handler `f` so each call adds the time it took to slot `index` of `nanos`.
@@ -69,17 +71,17 @@
 (defn record-analyze!
   "Add `nanos` to the time `group-id`'s cross-file analyze step took."
   [recorder group-id nanos]
-  (swap! (:group-analyze recorder) add-nanos group-id nanos))
+  (swap! (:state recorder) update :group-analyze add-nanos group-id nanos))
 
 (defn record-file!
   "Add one file's times: `parse` and `walk` in nanoseconds, `handlers` a map of group id to nanoseconds."
   [recorder {:keys [parse walk handlers]
              :as file-times}]
-  (swap! (:phases recorder) #(-> %
-                                 (add-nanos :parse parse)
-                                 (add-nanos :walk walk)))
-  (swap! (:group-handlers recorder) #(merge-with + % handlers))
-  (swap! (:files recorder) conj file-times))
+  (swap! (:state recorder) #(-> %
+                                (update :phases add-nanos :parse parse)
+                                (update :phases add-nanos :walk walk)
+                                (update :group-handlers (partial merge-with +) handlers)
+                                (update :files conj file-times))))
 
 (defn summary
   "Total what the recorder holds, closing any phase still open at the time of the call.
@@ -88,10 +90,11 @@
    :files [{:file :parse :handlers :total}]}, groups and files slowest first."
   [recorder]
   (let [end (now recorder)
-        open (into {} (map (fn [[phase start]] [phase (- end start)])) @(:open recorder))
-        handlers @(:group-handlers recorder)
-        analyze @(:group-analyze recorder)]
-    {:files (->> @(:files recorder)
+        state @(:state recorder)
+        open (into {} (map (fn [[phase start]] [phase (- end start)])) (:open state))
+        handlers (:group-handlers state)
+        analyze (:group-analyze state)]
+    {:files (->> (:files state)
                  (map (fn [{:keys [file parse walk handlers]}]
                         {:file file
                          :handlers (reduce + 0 (vals handlers))
@@ -109,15 +112,18 @@
                             :total (+ handler-nanos analyze-nanos)})))
                   (sort-by (juxt (comp - :total) (comp name :group)))
                   vec)
-     :phases (merge-with + @(:phases recorder) open)
+     :phases (merge-with + (:phases state) open)
      :total (- end (:started recorder))}))
 
+(defn- format-root [pattern & args]
+  (String/format Locale/ROOT pattern (to-array args)))
+
 (defn- seconds [nanos]
-  (format "%.2fs" (/ nanos 1e9)))
+  (format-root "%.2fs" (/ nanos 1e9)))
 
 (defn- share [nanos total]
   (if (pos? total)
-    (format "%.0f%%" (* 100.0 (/ nanos total)))
+    (format-root "%.0f%%" (* 100.0 (/ nanos total)))
     "-"))
 
 (defn- table
