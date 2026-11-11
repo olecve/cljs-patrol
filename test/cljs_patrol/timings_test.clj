@@ -15,13 +15,13 @@
     LongSupplier)))
 
 (defn- manual-clock
-  "A clock that reads `time` and moves only when the test sets it."
+  "Make a clock that reads `time` and moves only when the test sets it."
   [^AtomicLong time]
   (reify LongSupplier
     (getAsLong [_] (.get time))))
 
 (defn- ticking-clock
-  "A clock that moves one nanosecond each time it is read."
+  "Make a clock that moves one nanosecond each time it is read."
   []
   (let [time (AtomicLong.)]
     (reify LongSupplier
@@ -182,7 +182,7 @@
             [{:keys [handlers parse]
               :as file-times}] (:files @(:state recorder))]
         (is (= untimed timed)
-            "recording leaves the result as it was")
+            "recording leaves result as it was")
         (is (= 1 shared)
             "handler shared by two groups runs once per node")
         (is (= {:lists list
@@ -206,7 +206,7 @@
         {:keys [phases files]
          recorded-groups :groups} (timings/summary recorder)]
     (is (= (core/run-all ["test-projects/a11y-app/src"] groups) timed)
-        "recording leaves the results as they were")
+        "recording leaves results as they were")
     (is (= 1 (:discovery phases))
         "discovery spans one tick")
     (is (= 2 (:analyze phases))
