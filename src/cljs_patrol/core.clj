@@ -97,9 +97,10 @@
          (str/join ", " (map name orders/names)) " (default " (name orders/default-order) ")")
     :parse-fn keyword]
    [nil "--[no-]experimental-clj" "Experimental: also read .clj files (docstrings, tests, layout, idioms and comments groups only)"]
-   [nil "--jobs N" "Files to analyze at once (default: the number of processors; 1 reads them one at a time)"
+   [nil "--jobs N" "Files to analyze at once, at most 256 (default: the number of processors; 1 reads them one at a time)"
     :parse-fn parse-long
-    :validate [#(and % (pos? %)) "Must be a positive integer"]]
+    :validate [#(and % (pos? %)) "Must be a positive integer"
+               #(<= % 256) "Must be at most 256"]]
    [nil "--timings" "Print where the run spent its time to stderr: phases, groups, slowest files"]
    [nil "--list-rules" "Print all rules grouped by tier and exit"]
    ["-h" "--help"]])

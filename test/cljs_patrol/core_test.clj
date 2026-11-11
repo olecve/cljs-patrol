@@ -325,6 +325,14 @@
   (is (= {:errors nil
           :jobs 4}
          (parse-jobs "--jobs" "4")))
+  (is (= {:errors nil
+          :jobs 256}
+         (parse-jobs "--jobs" "256"))
+      "accepts limit")
+  (is (= {:errors ["Failed to validate \"--jobs 257\": Must be at most 256"]
+          :jobs nil}
+         (parse-jobs "--jobs" "257"))
+      "rejects value above limit")
   (doseq [value ["0" "-2" "abc" "1.5" "" "99999999999999999999"]]
     (is (= {:errors [(str "Failed to validate \"--jobs " value "\": Must be a positive integer")]
             :jobs nil}
@@ -357,7 +365,7 @@
                        (binding [*err* (java.io.StringWriter.)]
                          (->> (core/run-all [fixture-dir] [(thread-probe)] nil jobs) first :group-results first :threads (map :thread))))
         caller (Thread/currentThread)]
-    (is (every? #(identical? caller %) (threads-with 1))
-        "one job reads on caller")
+    (is (not-any? #(identical? caller %) (threads-with 1))
+        "one job reads on worker")
     (is (not-any? #(identical? caller %) (threads-with 4))
         "four jobs read on workers")))

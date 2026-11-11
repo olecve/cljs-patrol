@@ -202,6 +202,25 @@
         (is (= files (map :file declarations))
             "results in file order")))))
 
+(deftest parallel-run-submits-every-file-before-awaiting-first
+  (let [file-count 40]
+    (with-project (into {} (map #(vector (format "f%02d.cljs" %) (str "(ns f" % ")"))) (range file-count))
+      (fn [dir files]
+        (let [others-done (java.util.concurrent.CountDownLatch. (dec file-count))
+              others-awaited (promise)
+              probe (file-probe (fn [file]
+                                  (if (= file (first files))
+                                    (deliver others-awaited (.await others-done 5 java.util.concurrent.TimeUnit/SECONDS))
+                                    (.countDown others-done))))]
+          (analyze-quietly dir [probe] 4)
+          (is (true? @others-awaited)
+              "later files read while first file waits"))))))
+
+(deftest empty-project-gives-no-declarations
+  (with-project {}
+    (fn [dir _]
+      (is (empty? (analyze-quietly dir [(file-probe (constantly nil))] 4))))))
+
 (deftest parallel-warnings-keep-file-order
   (with-project {"a.cljs" "(ns a"
                  "b.cljs" "(ns b"
@@ -281,7 +300,7 @@
         (is (= 4 (count-identities memos))
             "fresh memo per file")))))
 
-(deftest one-job-reads-files-on-calling-thread
+(deftest one-job-reads-files-on-one-worker
   (with-project four-files
     (fn [dir files]
       (let [caller (Thread/currentThread)
@@ -289,10 +308,42 @@
             parallel (analyze-quietly dir [(file-probe (constantly nil))] 4)]
         (is (= files (map :file sequential))
             "results in file order")
-        (is (every? #(identical? caller (:thread %)) sequential)
-            "one job stays on caller")
+        (is (= ["cljs-patrol-worker"] (distinct (map #(.getName ^Thread (:thread %)) sequential)))
+            "one job reads on worker")
+        (is (= 1 (->> sequential (map :thread) distinct count))
+            "one job reads on single thread")
         (is (not-any? #(identical? caller (:thread %)) parallel)
             "four jobs leave caller")))))
+
+(defn- call-on-small-stack
+  "Call `f` on a thread with a 512 KiB stack, the size a native binary gives a thread it starts, and give back what it returns or throws."
+  [f]
+  (let [outcome (promise)]
+    (doto (Thread. nil
+                   #(deliver outcome (try (f) (catch Throwable thrown thrown)))
+                   "small-stack-caller"
+                   (long (* 512 1024)))
+      (.start))
+    @outcome))
+
+(def ^:private nesting-depth 2000)
+
+(deftest deep-nesting-reads-alike-at-any-jobs
+  (with-project {"deep.cljs" (str "(ns deep (:require [re-frame.core :as rf]))\n"
+                                  "(rf/reg-sub ::items (fn [_] "
+                                  (str/join (repeat nesting-depth "["))
+                                  (str/join (repeat nesting-depth "]"))
+                                  "))\n")}
+    (fn [dir _]
+      (let [declarations-with #(call-on-small-stack (fn [] (analyze-quietly dir [re-frame/group] %)))
+            sequential (declarations-with 1)
+            parallel (declarations-with 4)]
+        (is (sequential? sequential)
+            "one job reads deep file without overflow")
+        (is (= [:deep/items] (map :kw sequential))
+            "subscription found past deep form")
+        (is (= sequential parallel)
+            "one job and four jobs agree")))))
 
 (deftest file-state-test
   (binding [parser/*file-memo* (java.util.HashMap.)]

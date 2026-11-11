@@ -11,6 +11,9 @@
    (java.io
     StringWriter
     Writer)
+   (java.util
+    HashMap
+    Map)
    (java.util.concurrent
     Callable
     ExecutionException
@@ -414,7 +417,7 @@
 
   Outside a file, each call gets an atom of its own, so nothing is shared between calls."
   [k initial]
-  (if-let [^java.util.Map memo *file-memo*]
+  (if-let [^Map memo *file-memo*]
     (or (.get memo k)
         (let [state (atom initial)]
           (.put memo k state)
@@ -433,7 +436,7 @@
      :zloc zloc}))
 
 (defn- walk-file [{:keys [zloc ns-info]} file-path handlers]
-  (binding [*file-memo* (java.util.HashMap.)]
+  (binding [*file-memo* (HashMap.)]
     (loop [loc zloc
            result (reduce (fn [acc handler] (merge-result acc (handler zloc ns-info file-path)))
                           empty-result
@@ -518,36 +521,29 @@
     (catch ExecutionException e
       (throw (or (.getCause e) e)))))
 
-(defn- analyze-files-in-parallel
-  "Analyze `files` on `thread-count` threads, one task per file, and collect the results in file order.
-
-  What a file writes to `*err*` is printed in file order too, once the files before it are done."
-  [files enabled-groups recorder thread-count]
-  (let [^ExecutorService pool (Executors/newFixedThreadPool (int thread-count) worker-factory)]
-    (try
-      (let [tasks (mapv (fn [file]
-                          (.submit pool ^Callable (fn [] (analyze-file-holding-errors file enabled-groups recorder))))
-                        files)]
-        (into []
-              (keep (fn [task]
-                      (let [{:keys [errors result]} (await-task task)]
-                        (when (seq errors)
-                          (.write ^Writer *err* ^String errors)
-                          (.flush ^Writer *err*))
-                        result)))
-              tasks))
-      (finally
-        (.shutdownNow pool)))))
+(defn- await-printing-errors
+  "Wait for `task`, write the warnings it captured to `*err*`, and give back its result."
+  [task]
+  (let [{:keys [errors result]} (await-task task)]
+    (when (seq errors)
+      (.write ^Writer *err* ^String errors)
+      (.flush ^Writer *err*))
+    result))
 
 (defn- analyze-files
-  "Analyze `files`, on up to `jobs` threads, into the non-nil results in file order.
+  "Analyze `files` on up to `jobs` worker threads, one task per file, into the non-nil results in file order.
 
-  One thread reads them lazily, one after another, as the run always has."
+  What a file writes to `*err*` is printed in file order too, once the files before it are done."
   [files enabled-groups recorder jobs]
-  (let [thread-count (min jobs (count files))]
-    (if (<= thread-count 1)
-      (keep #(analyze-file % enabled-groups recorder) files)
-      (analyze-files-in-parallel files enabled-groups recorder thread-count))))
+  (let [thread-count (max 1 (min jobs (count files)))
+        ^ExecutorService pool (Executors/newFixedThreadPool (int thread-count) worker-factory)]
+    (try
+      (->> files
+           (mapv #(.submit pool ^Callable (fn [] (analyze-file-holding-errors % enabled-groups recorder))))
+           (keep await-printing-errors)
+           vec)
+      (finally
+        (.shutdownNow pool)))))
 
 (defn analyze-project
   "Analyze all source files under root-dir using enabled-groups.

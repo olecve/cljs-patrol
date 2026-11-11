@@ -9,7 +9,11 @@
    [cljs-patrol.heads :as heads]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
-   [rewrite-clj.zip :as z]))
+   [rewrite-clj.zip :as z])
+  (:import
+   (java.util
+    IdentityHashMap
+    Map)))
 
 (def ^:private dynamic-attr-tags
   "Zipper tags that indicate the attrs slot is a non-literal form.
@@ -707,10 +711,10 @@
 
 (defn- enclosing-forms-memo
   "Return the table of enclosing forms by node for the file being analyzed, or nil outside one."
-  ^java.util.Map []
-  (when-let [^java.util.Map memo parser/*file-memo*]
+  ^Map []
+  (when-let [^Map memo parser/*file-memo*]
     (or (.get memo ::enclosing-forms)
-        (let [table (java.util.IdentityHashMap.)]
+        (let [table (IdentityHashMap.)]
           (.put memo ::enclosing-forms table)
           table))))
 

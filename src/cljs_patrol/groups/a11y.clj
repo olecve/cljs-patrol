@@ -10,7 +10,10 @@
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [rewrite-clj.node :as n]
-   [rewrite-clj.zip :as z]))
+   [rewrite-clj.zip :as z])
+  (:import
+   (java.util
+    IdentityHashMap)))
 
 (def ^:private snippet-edn-max
   ;; Chars available for `(pr-str snippet)` — the double-quoted, escaped form
@@ -28,7 +31,7 @@
 (defn- written-string
   "Return loc's source as written, `:>` included."
   [loc]
-  (if-let [written (some-> ^java.util.IdentityHashMap (:written-nodes @(interop-index)) (.get (z/node loc)))]
+  (if-let [written (some-> ^IdentityHashMap (:written-nodes @(interop-index)) (.get (z/node loc)))]
     (n/string written)
     (z/string loc)))
 
@@ -1565,8 +1568,8 @@
 (defn- index-unwrapped-vectors
   "Map each written vector node to its rewritten loc, and each rewritten vector node back."
   [written-root unwrapped-root]
-  (let [unwrapped-locs (java.util.IdentityHashMap.)
-        written-nodes (java.util.IdentityHashMap.)]
+  (let [unwrapped-locs (IdentityHashMap.)
+        written-nodes (IdentityHashMap.)]
     (loop [written (z/of-node* written-root)
            unwrapped (z/of-node* unwrapped-root)]
       (when-not (z/end? written)
@@ -1592,7 +1595,7 @@
                                {:unwrapped-locs nil
                                 :written-nodes nil}
                                (index-unwrapped-vectors root-node unwrapped))))))
-    (or (some-> ^java.util.IdentityHashMap (:unwrapped-locs @state) (.get (z/node written-loc)))
+    (or (some-> ^IdentityHashMap (:unwrapped-locs @state) (.get (z/node written-loc)))
         written-loc)))
 
 (defn- handle-vector* [written-loc ns-info file {:keys [component-aliases label-styles]}]

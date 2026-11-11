@@ -20,8 +20,8 @@ clojure -M:run src/cljs/myapp
 Scans skip `target/`, `node_modules/`, `out/` and any dot-directory, so a build that copies sources into its output does
 not get reported twice.
 
-Files are analyzed in parallel, as many at once as there are processors. `--jobs N` sets how many, and `--jobs 1` reads
-them one at a time. The output is the same either way.
+Files are analyzed in parallel, as many at once as there are processors. `--jobs N` sets how many, up to 256, and
+`--jobs 1` reads them one at a time. The output is the same either way.
 
 By default, exits with code `1` when any blocking issue is found, making it suitable for CI pipelines. The set of
 blocking issues can be narrowed with [`--fail-on`](docs/severity.md) and existing issues can be ignored with
