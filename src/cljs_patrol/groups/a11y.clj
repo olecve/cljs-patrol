@@ -18,16 +18,17 @@
   ;; `   :form "…"}]}` (last-issue tail case) never exceeds 120 columns.
   107)
 
-(def ^:private interop-index
-  "The last file rewritten for interop: its root, and identity maps between its vectors."
-  (atom {:written-root nil
-         :unwrapped-locs nil
-         :written-nodes nil}))
+(defn- interop-index
+  "Find the file being read as rewritten for interop: its root, and identity maps between its vectors."
+  []
+  (parser/file-state ::interop-index {:written-root nil
+                                      :unwrapped-locs nil
+                                      :written-nodes nil}))
 
 (defn- written-string
   "Return loc's source as written, `:>` included."
   [loc]
-  (if-let [written (some-> ^java.util.IdentityHashMap (:written-nodes @interop-index) (.get (z/node loc)))]
+  (if-let [written (some-> ^java.util.IdentityHashMap (:written-nodes @(interop-index)) (.get (z/node loc)))]
     (n/string written)
     (z/string loc)))
 
@@ -815,8 +816,8 @@
   is still labelling nothing."
   :aria-labelledby)
 
-(def ^:private aria-reference-index
-  "What `aria-labelledby` in the file points at, held one file at a time.
+(defn- aria-reference-index
+  "Find what `aria-labelledby` in the file points at, kept in [[parser/file-state]] for that file alone.
 
   Two sets, because an id is written both ways: `:ids` holds the literal ones, and
   `:sources` the source text of computed ones. A field component builds the same id on
@@ -825,10 +826,11 @@
 
   Every label in a file asks the same question, so this turns a scan per label into a scan
   per file. Keyed by identity of the file's root node, the way hiccup.clj keys its own
-  index, so a file this never saw rebuilds it."
-  (atom {:cached-root nil
-         :references {:ids #{}
-                      :sources #{}}}))
+  index, so a tree this never saw rebuilds it."
+  []
+  (parser/file-state ::aria-reference-index {:cached-root nil
+                                             :references {:ids #{}
+                                                          :sources #{}}}))
 
 (defn- file-root [loc]
   (loop [current loc]
@@ -859,12 +861,13 @@
 
 (defn- aria-references [loc]
   (let [node (z/node (file-root loc))
-        {:keys [cached-root references]} @aria-reference-index]
+        state (aria-reference-index)
+        {:keys [cached-root references]} @state]
     (if (and node (identical? node cached-root))
       references
       (let [scanned (scan-aria-references (file-root loc))]
-        (reset! aria-reference-index {:cached-root node
-                                      :references scanned})
+        (reset! state {:cached-root node
+                       :references scanned})
         scanned))))
 
 (defn- shorthand-id
@@ -1100,10 +1103,11 @@
     {:literals (persistent! @literals)
      :computed-reference? @computed?}))
 
-(def ^:private file-literals-root
-  "Root node of the file whose literals were last collected.
-  Keyed by identity, as [[aria-reference-index]] is, so a file parsed again is collected again."
-  (atom nil))
+(defn- file-literals-root
+  "Find the root node whose literals were last collected, kept in [[parser/file-state]] for the file being read.
+  Keyed by identity, as [[aria-reference-index]] is, so a tree parsed again is collected again."
+  []
+  (parser/file-state ::file-literals-root nil))
 
 (defn- file-literals
   "Collect what can point an id at an element in the file of `loc`, once per file.
@@ -1111,9 +1115,10 @@
   `aria-labelledby` list, a markup string, or a constant either is built from. Lists are
   where a file is met, so a file holding none, not even an `ns` form, is not read."
   [loc]
-  (let [root (file-root loc)]
-    (when-not (identical? (z/node root) @file-literals-root)
-      (reset! file-literals-root (z/node root))
+  (let [root (file-root loc)
+        state (file-literals-root)]
+    (when-not (identical? (z/node root) @state)
+      (reset! state (z/node root))
       {:decls []
        :dynamics []
        :usages [(assoc (scan-file-literals (z/node root)) :type ::file-literals)]})))
@@ -1576,17 +1581,18 @@
   "Return loc's place in the file with every aliased `[:> Comp …]` read as a call."
   [written-loc ns-info component-aliases]
   (let [root-node (z/node (file-root written-loc))
-        cached @interop-index]
+        state (interop-index)
+        cached @state]
     (when-not (identical? root-node (:written-root cached))
       (let [unwrapped (if (seq component-aliases)
                         (unwrap-interop root-node ns-info component-aliases)
                         root-node)]
-        (reset! interop-index (merge {:written-root root-node}
-                                     (if (identical? unwrapped root-node)
-                                       {:unwrapped-locs nil
-                                        :written-nodes nil}
-                                       (index-unwrapped-vectors root-node unwrapped))))))
-    (or (some-> ^java.util.IdentityHashMap (:unwrapped-locs @interop-index) (.get (z/node written-loc)))
+        (reset! state (merge {:written-root root-node}
+                             (if (identical? unwrapped root-node)
+                               {:unwrapped-locs nil
+                                :written-nodes nil}
+                               (index-unwrapped-vectors root-node unwrapped))))))
+    (or (some-> ^java.util.IdentityHashMap (:unwrapped-locs @state) (.get (z/node written-loc)))
         written-loc)))
 
 (defn- handle-vector* [written-loc ns-info file {:keys [component-aliases label-styles]}]

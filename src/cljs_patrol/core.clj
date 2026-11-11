@@ -97,6 +97,9 @@
          (str/join ", " (map name orders/names)) " (default " (name orders/default-order) ")")
     :parse-fn keyword]
    [nil "--[no-]experimental-clj" "Experimental: also read .clj files (docstrings, tests, layout, idioms and comments groups only)"]
+   [nil "--jobs N" "Files to analyze at once (default: the number of processors; 1 reads them one at a time)"
+    :parse-fn parse-long
+    :validate [#(and % (pos? %)) "Must be a positive integer"]]
    [nil "--timings" "Print where the run spent its time to stderr: phases, groups, slowest files"]
    [nil "--list-rules" "Print all rules grouped by tier and exit"]
    ["-h" "--help"]])
@@ -187,10 +190,12 @@
   "Analyze each of source-dirs with enabled-groups, return one {:source-dir … :group-results [...]} per directory.
   Each directory is judged on its own findings, while `:usages-in-run` hands every group the
   usages of all of them, for a rule whose evidence may sit in another directory of the run.
-  With a `recorder`, the time each step took is added to it."
+  With a `recorder`, the time each step took is added to it. Up to `jobs` files are read at
+  once, one by default."
   ([source-dirs enabled-groups] (run-all source-dirs enabled-groups nil))
-  ([source-dirs enabled-groups recorder]
-   (let [parsed (mapv #(parser/analyze-project % enabled-groups recorder) source-dirs)
+  ([source-dirs enabled-groups recorder] (run-all source-dirs enabled-groups recorder 1))
+  ([source-dirs enabled-groups recorder jobs]
+   (let [parsed (mapv #(parser/analyze-project % enabled-groups recorder jobs) source-dirs)
          usages-in-run (vec (mapcat :usages parsed))]
      (mapv (fn [source-dir {:keys [declarations dynamic-sites usages]}]
              (analyze-groups source-dir
@@ -269,6 +274,9 @@
      :present (count (filter baselined? findings))}))
 
 (def ^:private slowest-files-shown 10)
+
+(defn- available-processors []
+  (.availableProcessors (Runtime/getRuntime)))
 
 (defn- exit!
   "Print the timings when the run records them, then exit with `code`."
@@ -417,7 +425,7 @@
                           "."))
             (println (str "WARN: --experimental-clj does nothing here. No enabled group reads .clj; "
                           "the groups that can are docstrings, tests, layout, idioms and comments.")))))
-      (let [analyzed (run-all dirs enabled-groups recorder)
+      (let [analyzed (run-all dirs enabled-groups recorder (or (:jobs options) (available-processors)))
             _ (some-> recorder (timings/start-phase! :report))
             run-results (cond-> analyzed
                           (:files opts) (filter-run-results (:files opts)))]

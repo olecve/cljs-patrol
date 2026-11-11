@@ -396,27 +396,27 @@
                        (assoc defs defined value))))
                  defs)))))
 
-(def ^:private def-index
-  "The `def`s of the file being read, held one file at a time.
+(defn- def-index
+  "Find the `def`s of the file being read, kept in [[parser/file-state]] for that file alone.
 
-  Files are walked one after another, and a file's vectors ask about its vars over
-  and over, so this turns a scan per question into a scan per file — the difference
-  between linear and quadratic on a namespace with a thousand `def`s. Keyed by
-  identity of the file's first top-level form, so a file this never saw rebuilds it.
-  One entry is enough because files are read in sequence; walking them in parallel
-  would make each file rebuild what the last one cached, correctly but pointlessly."
-  (atom {:cached-root nil
-         :defs {}}))
+  A file's vectors ask about its vars over and over, so this turns a scan per question
+  into a scan per file: the difference between linear and quadratic on a namespace with
+  a thousand `def`s. Keyed by identity of the file's first top-level form, so a tree this
+  never saw rebuilds it."
+  []
+  (parser/file-state ::def-index {:cached-root nil
+                                  :defs {}}))
 
 (defn- top-level-defs [loc]
   (let [first-form (first-top-level-form loc)
         root (some-> first-form z/node)
-        {:keys [cached-root defs]} @def-index]
+        state (def-index)
+        {:keys [cached-root defs]} @state]
     (if (and root (identical? root cached-root))
       defs
       (let [scanned (scan-top-level-defs first-form)]
-        (reset! def-index {:cached-root root
-                           :defs scanned})
+        (reset! state {:cached-root root
+                       :defs scanned})
         scanned))))
 
 (defn- top-level-def-value
