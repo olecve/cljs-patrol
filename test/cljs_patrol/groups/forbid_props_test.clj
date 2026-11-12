@@ -51,18 +51,45 @@
         source)))
 
 (deftest prop-reagent-drops-is-left-alone
-  (doseq [value ["false" "nil"]]
+  (doseq [value ["false" "nil" "#?(:clj nil :cljs false)"]]
     (is (= [] (flagged (str "(defn v [] [:button {:aria-disabled " value "} \"Save\"])")))
         value)))
 
-(deftest props-built-by-call-are-left-alone
+(deftest props-built-on-unseen-map-are-left-alone
   (doseq [props ["(merge attrs {:aria-disabled true})" "(assoc attrs :aria-disabled true)" "attrs"]]
     (is (= [] (flagged (str "(defn v [attrs] [:button " props " \"Save\"])")))
+        props)))
+
+(deftest props-built-from-readable-parts-are-read
+  (doseq [props ["(assoc {:type \"button\"} :aria-disabled true)" "(merge {:type \"button\"} {:aria-disabled true})"]]
+    (is (= finding (flagged (str "(defn v [] [:button " props " \"Save\"])")))
         props)))
 
 (deftest props-named-by-symbol-are-read
   (is (= finding (flagged "(def attrs {:aria-disabled true})\n(defn v [] [:button attrs \"Save\"])"))
       "file def holding literal map"))
+
+(deftest re-frame-vectors-are-left-alone
+  (doseq [source ["(defn v [] (rf/dispatch [:button {:aria-disabled true}]))"
+                  "(defn v [] (rf/dispatch-sync [:button {:aria-disabled true}]))"
+                  "(defn v [] @(rf/subscribe [:button {:aria-disabled true}]))"
+                  "(rf/reg-sub :x :<- [:button {:aria-disabled true}] identity)"
+                  "(rf/reg-event-fx :x (fn [] {:dispatch [:button {:aria-disabled true}]}))"
+                  "(rf/reg-event-fx :x (fn [] {:dispatch-n [[:button {:aria-disabled true}]]}))"
+                  "(rf/reg-event-fx :x (fn [] {:fx [[:dispatch [:button {:aria-disabled true}]]]}))"]]
+    (is (= [] (flagged source))
+        source))
+  (is (= finding (flagged "(defn v [] [:div {:on-click #(rf/dispatch [:save])} [:button {:aria-disabled true}]])"))
+      "element beside dispatch")
+  (is (= finding (flagged "(defn v [] [tooltip {:content [:button {:aria-disabled true}]}])"))
+      "element as map value under other key"))
+
+(deftest local-shadowing-referred-component-is-left-alone
+  (let [entries [(assoc aria-disabled :disallowed-for #{'app.ui.button/icon-button})]]
+    (doseq [source ["(defn v [icon-button] [icon-button {:aria-disabled true}])"
+                    "(defn v [] (let [icon-button (fn [])] [icon-button {:aria-disabled true}]))"]]
+      (is (= [] (flagged entries source))
+          source))))
 
 (deftest vectors-that-are-not-elements-are-left-alone
   (is (= [] (flagged [:closed] "(def schema [:map {:closed true} [:id :int]])"))
@@ -110,7 +137,14 @@
                    [{:prop :x
                      :message :use-disabled}]
                    [{:prop :x
-                     :disalowed-for #{:button}}]]]
+                     :disalowed-for #{:button}}]
+                   [{:prop :x
+                     :disallowed-for #{:button.primary}}]
+                   [{:prop :x
+                     :disallowed-for #{:ns/button}}]
+                   [:x
+                    {:prop :x
+                     :disallowed-for #{:button}}]]]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"^:forbid-props "
                           (forbid-props/make-group entries))
         (pr-str entries))))

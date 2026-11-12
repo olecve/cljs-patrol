@@ -7,18 +7,11 @@
   configured."
   (:require
    [cljs-patrol.group :as group]
+   [cljs-patrol.heads :as heads]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [rewrite-clj.zip :as z]))
-
-(def ^:private snippet-max-length 120)
-
-(defn- source-snippet [loc]
-  (let [collapsed (str/replace (try (z/string loc) (catch Exception _ "")) #"\s+" " ")]
-    (if (> (count collapsed) snippet-max-length)
-      (str (subs collapsed 0 (- snippet-max-length 3)) "...")
-      collapsed)))
 
 (defn- literal [loc]
   (when (= :token (z/tag loc))
@@ -27,9 +20,9 @@
 (defn- element
   "Return what a Hiccup vector renders: an HTML tag keyword, a component's fully qualified symbol, or nil.
 
-  A keyword counts only when HTML has the element, so a re-frame event vector or a Malli
-  schema is never read as one. A symbol counts when the file's aliases or refers resolve it,
-  or when it is written fully qualified. A local stays unknown."
+  A keyword counts only when HTML has the element, so a Malli schema is never read as one. A
+  symbol counts when the file's aliases or refers resolve it, or when it is written fully
+  qualified. A local stays unknown, one that shadows a referred component included."
   [loc ns-info]
   (let [head (z/down loc)]
     (when (= :token (some-> head z/tag))
@@ -38,8 +31,36 @@
         (cond
           (keyword? value) (let [tag (hiccup/parse-tag raw)]
                              (when (hiccup/html-tag? tag) tag))
-          (symbol? value) (or (parser/resolve-full-symbol raw ns-info)
-                              (when (some-> (namespace value) (str/includes? ".")) value)))))))
+          (symbol? value) (when-not (and (nil? (namespace value)) (heads/locally-bound? loc (name value)))
+                            (or (parser/resolve-full-symbol raw ns-info)
+                                (when (some-> (namespace value) (str/includes? ".")) value))))))))
+
+(def ^:private re-frame-calls
+  "Calls whose vector arguments are event or subscription vectors, not Hiccup."
+  #{"dispatch" "dispatch-sync" "dispatch-n" "subscribe"})
+
+(def ^:private event-effect-keys
+  "Effect keys whose value is an event vector, or a vector of them."
+  #{:dispatch :dispatch-sync :dispatch-later :dispatch-n})
+
+(defn- re-frame-vector?
+  "True when a vector is a re-frame event or subscription, though its id names an HTML element.
+
+  An argument of `dispatch`, `subscribe` or a `reg-*` call, the value of a `:dispatch`-like
+  effect key, an item of a `:dispatch-n` value, and the event of an `[:dispatch …]` fx tuple."
+  [loc]
+  (let [parent (z/up loc)
+        effect-value? (fn [vector-loc]
+                        (let [up (z/up vector-loc)]
+                          (and (= :map (some-> up z/tag))
+                               (contains? event-effect-keys (some-> vector-loc z/left literal)))))]
+    (case (some-> parent z/tag)
+      :list (let [head (parser/sym-name (z/down parent))]
+              (boolean (and head (or (contains? re-frame-calls head) (str/starts-with? head "reg-")))))
+      :map (effect-value? loc)
+      :vector (or (contains? event-effect-keys (some-> parent z/down literal))
+                  (effect-value? parent))
+      false)))
 
 (defn- forbidden-for?
   "True when an entry forbids its prop on `element`."
@@ -49,16 +70,24 @@
     allowed-for (not (contains? allowed-for element))
     :else true))
 
+(defn- dropped-literal? [loc]
+  (and (= :token (z/tag loc)) (contains? #{false nil} (literal loc))))
+
 (defn- written?
-  "True when a prop reaches the element: Reagent drops one whose value is false or nil."
+  "True when a prop reaches the element: Reagent drops one whose value is false or nil.
+
+  A reader conditional whose every branch is such a literal is dropped on every platform."
   [value-loc]
-  (not (and (= :token (z/tag value-loc)) (contains? #{false nil} (literal value-loc)))))
+  (not (if (= :reader-macro (z/tag value-loc))
+         (let [branches (some-> value-loc z/down z/right parser/child-locs)]
+           (and (seq branches) (every? dropped-literal? (take-nth 2 (rest branches)))))
+         (dropped-literal? value-loc))))
 
 (defn- finding [loc prop element message file]
   (let [[row col] (parser/position loc)]
     {:kw prop
      :type :forbidden-prop
-     :form (source-snippet loc)
+     :form (parser/source-snippet loc)
      :file file
      :row row
      :col col
@@ -66,7 +95,7 @@
 
 (defn- handle-vector [entries]
   (fn [loc ns-info file]
-    (when-not (hiccup/inside-non-hiccup-form? loc)
+    (when-not (or (hiccup/inside-non-hiccup-form? loc) (re-frame-vector? loc))
       (when-let [element (element loc ns-info)]
         (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
           (when (and (= :map kind) (seq attrs))
@@ -104,13 +133,16 @@
   (throw (ex-info (str ":forbid-props " message ", got " (binding [*print-namespace-maps* false] (pr-str value)))
                   {:forbid-props value})))
 
-(defn- element-name? [value]
-  (or (keyword? value) (qualified-symbol? value)))
+(defn- element-name?
+  "True for a tag keyword as `parse-tag` gives it, plain, or a fully qualified component symbol."
+  [value]
+  (or (and (simple-keyword? value) (not (re-find #"[.#]" (name value))))
+      (qualified-symbol? value)))
 
 (defn- read-elements [entry k]
   (when-some [elements (get entry k)]
     (when-not (and (coll? elements) (not (map? elements)) (every? element-name? elements))
-      (invalid-config (str k " must be a collection of tag keywords and fully qualified component symbols") entry))
+      (invalid-config (str k " must be a collection of plain tag keywords and fully qualified component symbols") entry))
     (set elements)))
 
 (defn- read-entry
@@ -149,6 +181,9 @@
   ([entries]
    (when-not (or (nil? entries) (sequential? entries))
      (invalid-config "must be a vector of entries" entries))
-   (->ForbidPropsGroup (mapv read-entry entries))))
+   (let [read (mapv read-entry entries)]
+     (when-let [repeated (seq (for [[prop n] (frequencies (map :prop read)) :when (< 1 n)] prop))]
+       (invalid-config (str "names " (str/join ", " repeated) " in more than one entry") entries))
+     (->ForbidPropsGroup read))))
 
 (def group (make-group))

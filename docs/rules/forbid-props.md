@@ -64,11 +64,15 @@ element or component. The finding gives the entry's message.
 
 The rule reads every Hiccup vector whose head is an HTML tag, such as `:button` or `:button.primary`, or a component the
 file's aliases and refers resolve, such as `button/button` for `app.ui.button/button`. A keyword that names no HTML
-element, as in a re-frame event vector or a Malli schema, is not an element, and a local component is not one either.
+element, as in a Malli schema, is not an element. Neither is a re-frame event or subscription vector whose id happens to
+name one: an argument of `dispatch`, `subscribe` or a `reg-*` call, the value of a `:dispatch`-like effect, or the event
+of a `[:dispatch …]` fx tuple. A local component is unknown, one that shadows a referred component included.
 
 A prop counts when the element's props are a literal map, or a symbol bound to one, and the prop's value reaches the
-element. Reagent drops a prop whose value is `false` or `nil`, so `{:aria-disabled false}` is left alone. Props built by
-a call, `(merge attrs {…})` or `(assoc attrs …)`, are not read, so a prop in them is never reported.
+element. Reagent drops a prop whose value is `false` or `nil`, so `{:aria-disabled false}` is left alone, and so is a
+reader conditional whose every branch is one. Props built by a call are read when every part of it is:
+`(assoc {:type "button"} :aria-disabled true)` sets the prop and is reported. Props built on a map the file cannot see,
+`(merge attrs {…})` or `(assoc attrs …)`, are not read, so a prop in them is never reported.
 
 The example config forbids `:aria-disabled` on buttons, a pattern coding agents copy from blog posts to keep a disabled
 button focusable for a tooltip. On a native button it only announces the state: click, Enter and Space still fire, so
@@ -95,15 +99,15 @@ The examples on this page run under this config:
 Each entry is a prop keyword, forbidden on every element and component, or a map:
 
 - `:prop` — the prop, a keyword as written in the props map.
-- `:disallowed-for` — the tags and components the prop is forbidden on: tag keywords such as `:button`, and fully
-  qualified component symbols such as `app.ui.button/button`.
+- `:disallowed-for` — the tags and components the prop is forbidden on: plain tag keywords such as `:button`, with no
+  class or id, and fully qualified component symbols such as `app.ui.button/button`.
 - `:allowed-for` — the tags and components the prop is allowed on; it is forbidden on every other. An entry takes one of
   the two at most, and with neither the prop is forbidden everywhere.
 - `:message` — what the finding says: why the prop is forbidden and what to use instead. Without it the finding names
   the prop and the element.
 
-An entry of another shape, such as a prop that is not a keyword, an unknown key, or both `:allowed-for` and
-`:disallowed-for`, stops the run with a message that names it.
+An entry of another shape, such as a prop that is not a keyword, an unknown key, both `:allowed-for` and
+`:disallowed-for`, or a prop another entry already names, stops the run with a message that names it.
 
 The shape follows ESLint's
 [`react/forbid-dom-props`](https://github.com/jsx-eslint/eslint-plugin-react/blob/master/docs/rules/forbid-dom-props.md)

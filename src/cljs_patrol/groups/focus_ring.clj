@@ -22,14 +22,6 @@
   "Values of `:box-shadow` that paint no ring, so no outline needs to go with them."
   #{"none" "unset" "initial" "inherit" "revert" "revert-layer"})
 
-(def ^:private snippet-max-length 120)
-
-(defn- source-snippet [loc]
-  (let [collapsed (str/replace (try (z/string loc) (catch Exception _ "")) #"\s+" " ")]
-    (if (> (count collapsed) snippet-max-length)
-      (str (subs collapsed 0 (- snippet-max-length 3)) "...")
-      collapsed)))
-
 (defn- literal [loc]
   (when (= :token (z/tag loc))
     (try (z/sexpr loc) (catch Exception _ nil))))
@@ -223,7 +215,7 @@
     (cond-> {:kw decl-kw
              :type rule
              :selector selector
-             :form (source-snippet loc)
+             :form (parser/source-snippet loc)
              :file file
              :row row
              :col col}
