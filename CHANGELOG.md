@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.0.55] - 2026-11-12
+
+* Reject the G1 collector ADR with the Linux measurement by @olecve in https://github.com/olecve/cljs-patrol/pull/140
+* Add focus-ring group for forced-colors companions and preset shadows by @olecve in https://github.com/olecve/cljs-patrol/pull/141
+* Add forbid-props group for props a codebase forbids on tags or components by @olecve in https://github.com/olecve/cljs-patrol/pull/142
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.54...v0.0.55
+
 ## [v0.0.54] - 2026-11-12
 
 * Add a --timings option that reports where a run spends its time by @olecve in https://github.com/olecve/cljs-patrol/pull/137
