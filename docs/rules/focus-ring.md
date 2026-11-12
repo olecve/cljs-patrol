@@ -64,16 +64,22 @@ a selector holding `:not(:focus-visible)` narrows, written as one selector or ne
 focus from a pointer, so that no ring shows.
 
 When the block sets `:box-shadow`, it must also set an outline that draws: any value but one with a `none` or `hidden`
-style or a zero width. Forced-colors mode paints any such outline in the system color, whatever color it was written
-with. With `:outline` configured, the outline must be that value instead, compared without regard to case, spacing or
-`!important`, so a codebase can keep one outline everywhere.
+style or a zero width outside parentheses, so the `0` of `rgb(0 0 0)` is no width. Forced-colors mode paints any such
+outline in the system color, whatever color it was written with. With `:outline` configured, the outline must be that
+value instead, compared without regard to case, spacing or `!important`, so a codebase can keep one outline everywhere.
 
-The outline may sit in the block's literal maps or in a focus block around it. For a ring on `::after` or `::before`,
-the element's own block in the same declaration counts too, `[:&:focus-visible {:outline …}]` beside
-`["&:focus-visible::after" {:box-shadow …}]`, because forced-colors mode paints the element's outline. Each of these
-holds on its own, so an `:outline :none` on the element does not undo the outline on its `::after`. A value the rule
-cannot read, a symbol or a call, is taken as set, and so is an outline written as its longhands, `:outline-width`,
-`:outline-style` or `:outline-color`.
+The outline may sit in the block's literal maps or in a map around it that applies while the element has focus: the
+declaration's base map, a focus block, or a block with no pseudo-class, such as `[:.btn …]`. A `:hover` block around it
+does not count. For a ring on `::after` or `::before`, the element's own block in the same declaration counts too,
+`[:&:focus-visible {:outline …}]` beside `["&:focus-visible::after" {:box-shadow …}]`, because forced-colors mode paints
+the element's outline. A ring on the pseudo-elements of several elements needs the outline on every one of them. The
+block and the element hold each on its own, so an `:outline :none` on the element does not undo the outline on its
+`::after`.
+
+A value the rule cannot read, a symbol or a call, is taken as set, and so is an outline written as its longhands,
+`:outline-width`, `:outline-style` or `:outline-color`, which the rule does not read further. So `:outline-style "none"`
+passes, and so does a width with no style, `:outline "2px"`, which draws nothing. The rule leaves these to review rather
+than risk reporting an outline that works.
 
 A reset (`:box-shadow :none`, or `"none"`, `"unset"` and the other CSS-wide keywords, with or without `!important`)
 paints no ring and is left alone. So is a block holding anything besides literal maps and nested blocks, such as

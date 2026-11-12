@@ -121,9 +121,10 @@
   "Return every selector block under `locs`, each with the focus states of its own selectors and those above it.
 
   Only vectors written in the declaration are read: a block a call produces is not something
-  this can see. A block's `:outer-maps` are the literal maps of the focus blocks around it,
-  where its outline may already be set. A selector holding `:not(:focus-visible)` styles focus
-  from a pointer, so that no ring shows, and takes `:focus` out of the states it inherits too."
+  this can see. A block's `:outer-maps` are the literal maps around it that apply while it has
+  focus, where its outline may already be set: those of the declaration's base, of focus blocks,
+  and of blocks with no pseudo-class at all. A selector holding `:not(:focus-visible)` styles
+  focus from a pointer, so that no ring shows, and takes `:focus` out of the states it inherits too."
   [locs patterns outer]
   (mapcat (fn [loc]
             (when (= :vector (z/tag loc))
@@ -145,7 +146,8 @@
                            :path path
                            :states states
                            :opaque? (:opaque? block)
-                           :maps (cond-> (:outer-maps block) (seq states) (into maps))}]
+                           :maps (cond-> (:outer-maps block)
+                                   (or (seq states) (not-any? #(str/includes? % ":") texts)) (into maps))}]
                 (when (or (seq maps) (seq vectors) opaque?)
                   (cons block (blocks vectors patterns inner))))))
           locs))
@@ -221,9 +223,14 @@
 (def ^:private outline-longhands #{"outline-width" "outline-style" "outline-color"})
 
 (defn- drawn-outline-text?
-  "True when an `outline` value draws a line: no `none` or `hidden` style, and no zero width."
+  "True when an `outline` value draws a line: no `none` or `hidden` style, and no zero width.
+
+  What sits inside parentheses, the arguments of `rgb(0 0 0)` or a `calc(…)`, is no width."
   [text]
-  (let [parts (str/split (str/lower-case text) #"\s+")]
+  (let [outside-parentheses (loop [current (str/lower-case text)]
+                              (let [next-text (str/replace current #"\([^()]*\)" " ")]
+                                (if (= next-text current) current (recur next-text))))
+        parts (str/split (str/trim outside-parentheses) #"\s+")]
     (not-any? #(or (contains? #{"none" "hidden"} %)
                    (re-matches #"[+-]?0*\.?0+[a-z%]*" %))
               parts)))
@@ -231,9 +238,9 @@
 (def ^:private default-outline "2px solid transparent")
 
 (defn- outline-text
-  "Normalize an outline for comparison: lower case, one space between parts, `!important` left out."
+  "Normalize an outline for comparison: lower case, one space between parts, none inside a color, `!important` left out."
   [text]
-  (str/lower-case (css-text text)))
+  (-> text css-text str/lower-case compact-color-text))
 
 (defn- outline-holds?
   "True when `maps`, read in the order the cascade applies them, end on the required outline, or one this cannot read.
@@ -253,13 +260,16 @@
 (defn- outline-finding
   "Return a missing-outline finding when no block that may carry the ring's outline sets it.
 
-  The block itself counts with the focus blocks around it, and a pseudo-element's ring counts
-  the blocks of the element it decorates, each on its own: forced-colors mode paints the
-  outline of either."
+  The block itself counts with the maps around it. A pseudo-element's ring also counts the
+  element it decorates, whose outline forced-colors mode paints: it holds when every element
+  the ring's selectors decorate has a block that sets the outline."
   [block key-loc expected decl-kw file]
-  (let [sources (cons block (:siblings block))]
-    (when-not (or (some :opaque? sources)
-                  (some #(outline-holds? (concat (:outer-maps %) (:maps %)) expected) sources))
+  (let [holds? #(outline-holds? (concat (:outer-maps %) (:maps %)) expected)
+        element-groups (:element-groups block)]
+    (when-not (or (:opaque? block)
+                  (some :opaque? (apply concat element-groups))
+                  (holds? block)
+                  (and (seq element-groups) (every? #(some holds? %) element-groups)))
       (finding :focus-ring-missing-outline block key-loc decl-kw file
                (str "Set :outline " (pr-str (or expected default-outline)) " beside :box-shadow.")))))
 
@@ -317,29 +327,29 @@
                         (and (str/includes? % "/") (str/ends-with? path (str "/" %))))
                    exempt-paths))))
 
-(defn- pseudo-element-base
-  "Return the path of the element a pseudo-element block decorates, or nil when its selectors name no `::after` or `::before`.
+(defn- element-groups
+  "Return the blocks of the element each `::after` or `::before` selector of a block's last level decorates.
 
-  Each selector of the last level loses its pseudo-element. A level left with only `&`, as in a
-  nested `[:&::after …]`, is the element above it, so the path ends one level up."
-  [path]
-  (let [level (peek path)
-        base (mapv #(str/replace % #"::?(after|before)$" "") level)]
-    (when (not= base level)
-      (if (every? #{"&" ""} base)
-        (pop path)
-        (conj (pop path) base)))))
+  A selector left with only `&`, as in a nested `[:&::after …]`, decorates the element of the
+  level above. Any other is looked up among the blocks beside this one, in any block whose
+  selectors hold it."
+  [path by-path by-parent]
+  (for [selector (peek path)
+        :let [base (str/replace selector #"::?(after|before)$" "")]
+        :when (not= base selector)]
+    (if (contains? #{"&" ""} base)
+      (get by-path (pop path))
+      (filter #(some #{base} (peek (:path %))) (get by-parent (pop path))))))
 
-(defn- with-siblings
-  "Give each pseudo-element block the blocks of the element it decorates, where its outline may be set.
+(defn- with-element-groups
+  "Give each pseudo-element block the blocks of the elements it decorates, where its outline may be set.
 
   Forced-colors mode paints the element's outline, so a ring on `&:focus-visible::after` keeps
   showing when a sibling `&:focus-visible` block sets the outline."
   [all-blocks]
-  (let [by-path (group-by :path all-blocks)]
-    (map (fn [block]
-           (assoc block :siblings (some->> (pseudo-element-base (:path block)) (get by-path))))
-         all-blocks)))
+  (let [by-path (group-by :path all-blocks)
+        by-parent (group-by (comp pop :path) all-blocks)]
+    (map #(assoc % :element-groups (element-groups (:path %) by-path by-parent)) all-blocks)))
 
 (defn- handle-list [config]
   (fn [loc {:keys [ns-name]
@@ -349,8 +359,9 @@
         (when-let [decl-name (parser/sym-name name-loc)]
           (let [decl-kw (keyword ns-name decl-name)
                 exempt? (exempt-path? file (:exempt-paths config))
-                findings (->> (blocks (parser/right-siblings name-loc) (:patterns config) {})
-                              with-siblings
+                body (parser/right-siblings name-loc)
+                findings (->> (blocks body (:patterns config) {:maps (filter #(= :map (z/tag %)) body)})
+                              with-element-groups
                               (mapcat #(block-findings % config ns-info decl-kw file exempt?))
                               vec)]
             (when (seq findings)
@@ -381,8 +392,8 @@
   (failed? [_ result] (boolean (some #(seq (get result %)) rules)))
   (suggestions [_]
     {:focus-ring-missing-outline
-     (str "A focus style paints a ring with box-shadow, which forced-colors mode drops. Set a transparent "
-          "outline in the same block, which forced-colors mode paints, so the ring still shows there.")
+     (str "A focus style paints a ring with box-shadow, which forced-colors mode drops. Set an outline that "
+          "draws, such as 2px solid transparent, on this block or the focus block around it.")
      :focus-ring-raw-shadow
      "A focus style builds its box-shadow by hand. Use one of the approved focus-ring shadows from the preset."
      :focus-ring-forbidden-token

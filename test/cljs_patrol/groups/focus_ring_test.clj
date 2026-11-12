@@ -377,3 +377,43 @@
         "bare file name")
     (is (= {:focus-ring-forbidden-color ["a"]} (flagged (run (assoc config :exempt-paths #{"p/core.cljs"}) source)))
         "partial directory name")))
+
+(deftest outline-color-arguments-are-no-width
+  (doseq [value ["\"2px solid rgb(0 0 0)\"" "\"2px solid hsl(0 0% 100% / 0)\"" "\"calc( 0px + 2px) solid\""]]
+    (is (= {} (flagged (run (visible-ring ":box-shadow " ring " :outline " value))))
+        value))
+  (is (= {:focus-ring-missing-outline ["a"]}
+         (flagged (run (visible-ring ":box-shadow " ring " :outline \"0 solid rgb(0 0 0)\""))))
+      "zero width outside color"))
+
+(deftest outline-that-always-applies-passes
+  (is (= {} (flagged (run (str "(defclass a [] {" outline "} [:&:focus-visible {:box-shadow " ring "}])"))))
+      "outline in base map")
+  (is (= {} (flagged (run (str "(defclass a [] [:.btn {" outline "} [:&:focus-visible {:box-shadow " ring "}]])"))))
+      "outline on block with no state")
+  (is (= {:focus-ring-missing-outline ["a"]}
+         (flagged (run (str "(defclass a [] [:.btn:hover {" outline "} [:&:focus-visible {:box-shadow " ring "}]])"))))
+      "outline on hover block"))
+
+(deftest configured-outline-ignores-spacing-in-color
+  (is (= {} (flagged (run (assoc config :outline "2px solid rgba(0,0,0,0)")
+                          (visible-ring ":box-shadow " ring " :outline \"2px solid rgba(0, 0, 0, 0)\""))))
+      "rgba spacing"))
+
+(deftest ring-on-pseudo-elements-of-several-elements
+  (let [ring-after (str "[:&:focus-visible::after :&:focus-within::after {:box-shadow " ring "}]")]
+    (is (= {} (flagged (run (str "(defclass a [] [:&:focus-visible {" outline "}]"
+                                 " [:&:focus-within {" outline "}] " ring-after ")"))))
+        "every element sets outline")
+    (is (= {:focus-ring-missing-outline ["a"]}
+           (flagged (run (str "(defclass a [] [:&:focus-visible {" outline "}] " ring-after ")"))))
+        "one element without block")
+    (is (= {:focus-ring-missing-outline ["a"]}
+           (flagged (run (str "(defclass a [] [:&:focus-visible {" outline "}]"
+                              " [:&:focus-within {:outline :none}] " ring-after ")"))))
+        "one element without outline")))
+
+(deftest pointer-only-negation-keeps-focus-within
+  (is (= {:focus-ring-missing-outline ["a"]}
+         (flagged (run (str "(defclass a [] [:&:focus-within [\"&:not(:focus-visible)\" {:box-shadow " ring "}]])"))))
+      "nested focus-within"))
