@@ -2,7 +2,9 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
+   [cljs-patrol.parser :as parser]
    [cljs-patrol.temp-project :as temp-project]
+   [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
 
@@ -266,3 +268,29 @@
           "fits escaped limit")
       (is (> (count (pr-str (str (subs collapsed 0 (inc kept)) "..."))) 107)
           "keeps longest prefix that fits"))))
+
+(defn- file-source [index]
+  (str "(ns views" index " (:require [ui.kit :as kit]))\n"
+       (str/join "\n" (for [form (range 20)]
+                        (str "(defn field" form " [] [:div [:label {:for \"id" form "\"} \"Name\"]"
+                             " [:> kit/Input {:id \"id" form "\"}] [:img {:src \"a.png\"}]"
+                             " [:div {:role \"tablist\"} [:> kit/Input {:id \"other" form "\"}]]])")))))
+
+(deftest parallel-run-keeps-file-state-per-file
+  (let [dir (.toFile (java.nio.file.Files/createTempDirectory "cljs-patrol" (make-array java.nio.file.attribute.FileAttribute 0)))
+        rule-group (a11y/make-group {:component-aliases {'ui.kit/Input :input}})
+        usages (fn [jobs]
+                 (binding [*err* (java.io.StringWriter.)]
+                   (vec (:usages (parser/analyze-project (str dir) [rule-group] nil jobs)))))]
+    (try
+      (doseq [index (range 64)]
+        (spit (io/file dir (str "views" index ".cljs")) (file-source index)))
+      (let [sequential (usages 1)
+            parallel (usages 4)]
+        (is (= 64 (count (filter #(= :cljs-patrol.groups.a11y/file-literals (:type %)) parallel)))
+            "literals collected once per file")
+        (is (= sequential parallel)
+            "four jobs find what one job finds"))
+      (finally
+        (doseq [file (reverse (file-seq dir))]
+          (.delete ^java.io.File file))))))

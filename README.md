@@ -20,6 +20,9 @@ clojure -M:run src/cljs/myapp
 Scans skip `target/`, `node_modules/`, `out/` and any dot-directory, so a build that copies sources into its output does
 not get reported twice.
 
+Files are analyzed in parallel, as many at once as there are processors. `--jobs N` sets how many, up to 256, and
+`--jobs 1` reads them one at a time. The output is the same either way.
+
 By default, exits with code `1` when any blocking issue is found, making it suitable for CI pipelines. The set of
 blocking issues can be narrowed with [`--fail-on`](docs/severity.md) and existing issues can be ignored with
 [`--baseline`](docs/baseline.md).
@@ -166,8 +169,9 @@ clojure -M:run --timings src/cljs/myapp
 
 It lists the phases (file discovery, parsing, the walk over every node, each group's cross-file analysis, and the
 baseline comparison and report), the time each group spent in its handlers during the walk and in its analysis, and the
-10 slowest files. Parse, walk and handler times add up over files; the total runs from the start of the run to its exit,
-JVM startup aside. Timings cover a run that starts analysis; `--list-rules` and argument errors print none.
+10 slowest files. Parse, walk and handler times add up over files, so with files analyzed in parallel they can exceed
+the total, which runs from the start of the run to its exit, JVM startup aside. Timings cover a run that starts
+analysis; `--list-rules` and argument errors print none.
 
 ## Documentation
 

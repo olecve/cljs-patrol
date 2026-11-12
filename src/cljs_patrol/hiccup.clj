@@ -9,7 +9,11 @@
    [cljs-patrol.heads :as heads]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
-   [rewrite-clj.zip :as z]))
+   [rewrite-clj.zip :as z])
+  (:import
+   (java.util
+    IdentityHashMap
+    Map)))
 
 (def ^:private dynamic-attr-tags
   "Zipper tags that indicate the attrs slot is a non-literal form.
@@ -396,27 +400,27 @@
                        (assoc defs defined value))))
                  defs)))))
 
-(def ^:private def-index
-  "The `def`s of the file being read, held one file at a time.
+(defn- def-index
+  "Find the `def`s of the file being read, kept in [[parser/file-state]] for that file alone.
 
-  Files are walked one after another, and a file's vectors ask about its vars over
-  and over, so this turns a scan per question into a scan per file — the difference
-  between linear and quadratic on a namespace with a thousand `def`s. Keyed by
-  identity of the file's first top-level form, so a file this never saw rebuilds it.
-  One entry is enough because files are read in sequence; walking them in parallel
-  would make each file rebuild what the last one cached, correctly but pointlessly."
-  (atom {:cached-root nil
-         :defs {}}))
+  A file's vectors ask about its vars over and over, so this turns a scan per question
+  into a scan per file: the difference between linear and quadratic on a namespace with
+  a thousand `def`s. Keyed by identity of the file's first top-level form, so a tree this
+  never saw rebuilds it."
+  []
+  (parser/file-state ::def-index {:cached-root nil
+                                  :defs {}}))
 
 (defn- top-level-defs [loc]
   (let [first-form (first-top-level-form loc)
         root (some-> first-form z/node)
-        {:keys [cached-root defs]} @def-index]
+        state (def-index)
+        {:keys [cached-root defs]} @state]
     (if (and root (identical? root cached-root))
       defs
       (let [scanned (scan-top-level-defs first-form)]
-        (reset! def-index {:cached-root root
-                           :defs scanned})
+        (reset! state {:cached-root root
+                       :defs scanned})
         scanned))))
 
 (defn- top-level-def-value
@@ -707,10 +711,10 @@
 
 (defn- enclosing-forms-memo
   "Return the table of enclosing forms by node for the file being analyzed, or nil outside one."
-  ^java.util.Map []
-  (when-let [^java.util.Map memo parser/*file-memo*]
+  ^Map []
+  (when-let [^Map memo parser/*file-memo*]
     (or (.get memo ::enclosing-forms)
-        (let [table (java.util.IdentityHashMap.)]
+        (let [table (IdentityHashMap.)]
           (.put memo ::enclosing-forms table)
           table))))
 

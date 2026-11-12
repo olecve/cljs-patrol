@@ -6,7 +6,8 @@
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.spade :as spade]
-   [clojure.test :refer [deftest is testing]]))
+   [clojure.test :refer [deftest is testing]]
+   [clojure.tools.cli :as cli]))
 
 (def ^:private filter-groups #'core/filter-groups)
 (def ^:private filter-run-results #'core/filter-run-results)
@@ -307,3 +308,64 @@
         "new finding in --fail-on labeled error")
     (is (= "baseline" (label nil old-item))
         "baselined finding labeled baseline")))
+
+(defn- parse-jobs [& args]
+  (let [{:keys [options errors]} (cli/parse-opts (vec args) core/cli-options)]
+    {:errors errors
+     :jobs (:jobs options)}))
+
+(deftest jobs-option-test
+  (is (= {:errors nil
+          :jobs nil}
+         (parse-jobs))
+      "absent leaves default to processor count")
+  (is (= {:errors nil
+          :jobs 1}
+         (parse-jobs "--jobs" "1")))
+  (is (= {:errors nil
+          :jobs 4}
+         (parse-jobs "--jobs" "4")))
+  (is (= {:errors nil
+          :jobs 256}
+         (parse-jobs "--jobs" "256"))
+      "accepts limit")
+  (is (= {:errors ["Failed to validate \"--jobs 257\": Must be at most 256"]
+          :jobs nil}
+         (parse-jobs "--jobs" "257"))
+      "rejects value above limit")
+  (doseq [value ["0" "-2" "abc" "1.5" "" "99999999999999999999"]]
+    (is (= {:errors [(str "Failed to validate \"--jobs " value "\": Must be a positive integer")]
+            :jobs nil}
+           (parse-jobs "--jobs" value))
+        (str "rejects " (pr-str value))))
+  (is (= ["Missing required argument for \"--jobs N\""] (:errors (parse-jobs "--jobs")))
+      "value required"))
+
+(defn- thread-probe
+  "Build a group that declares, for each file, the thread that read it."
+  []
+  (reify group/RuleGroup
+    (group-id [_] :thread-probe)
+    (group-name [_] "Thread probe")
+    (analyze [_ {:keys [declarations]}] {:threads (vec declarations)})
+    (summary-lines [_ _] [])
+    (failed? [_ _] false)
+    (suggestions [_] {})
+    (docs-anchors [_] {})
+    (rule->tier [_] {})
+    (file-extensions [_] #{".cljs"})
+    (parse-handlers [_]
+      {:handle-file (fn [_ _ _]
+                      {:decls [{:thread (Thread/currentThread)}]
+                       :dynamics []
+                       :usages []})})))
+
+(deftest run-all-reads-files-on-jobs-threads
+  (let [threads-with (fn [jobs]
+                       (binding [*err* (java.io.StringWriter.)]
+                         (->> (core/run-all [fixture-dir] [(thread-probe)] nil jobs) first :group-results first :threads (map :thread))))
+        caller (Thread/currentThread)]
+    (is (not-any? #(identical? caller %) (threads-with 1))
+        "one job reads on worker")
+    (is (not-any? #(identical? caller %) (threads-with 4))
+        "four jobs read on workers")))

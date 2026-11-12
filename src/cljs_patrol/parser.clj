@@ -6,7 +6,21 @@
    [cljs-patrol.timings :as timings]
    [clojure.string :as str]
    [rewrite-clj.node :as n]
-   [rewrite-clj.zip :as z]))
+   [rewrite-clj.zip :as z])
+  (:import
+   (java.io
+    StringWriter
+    Writer)
+   (java.util
+    HashMap
+    Map)
+   (java.util.concurrent
+    Callable
+    ExecutionException
+    ExecutorService
+    Executors
+    Future
+    ThreadFactory)))
 
 (defn distinct-by [key-fn coll]
   (->> coll
@@ -398,6 +412,18 @@
   answers here under its own key, and they go when the file is done."
   nil)
 
+(defn file-state
+  "Find the atom the file being analyzed keeps under `k`, starting it at `initial` on first use.
+
+  Outside a file, each call gets an atom of its own, so nothing is shared between calls."
+  [k initial]
+  (if-let [^Map memo *file-memo*]
+    (or (.get memo k)
+        (let [state (atom initial)]
+          (.put memo k state)
+          state))
+    (atom initial)))
+
 (defn- parse-file
   "Read file and its ns form, or warn and return nil for a file the reader cannot parse."
   [file file-path]
@@ -410,7 +436,7 @@
      :zloc zloc}))
 
 (defn- walk-file [{:keys [zloc ns-info]} file-path handlers]
-  (binding [*file-memo* (java.util.HashMap.)]
+  (binding [*file-memo* (HashMap.)]
     (loop [loc zloc
            result (reduce (fn [acc handler] (merge-result acc (handler zloc ns-info file-path)))
                           empty-result
@@ -465,17 +491,73 @@
   [enabled-groups]
   (into #{} (mapcat group/file-extensions) enabled-groups))
 
+(def ^:private worker-stack-bytes
+  "Stack each worker thread gets: the 8 MiB a native binary's main thread runs on.
+
+  A deeply nested form recurses as deep on a worker as on the main thread, where a thread
+  started with the default size gets less, down to 512 KiB in a native binary on macOS."
+  (* 8 1024 1024))
+
+(def ^:private worker-factory
+  (reify ThreadFactory
+    (newThread [_ runnable]
+      (doto (Thread. nil runnable "cljs-patrol-worker" (long worker-stack-bytes))
+        (.setDaemon true)))))
+
+(defn- analyze-file-holding-errors
+  "Analyze file as [[analyze-file]] does, keeping what it writes to `*err*` instead of printing it."
+  [file enabled-groups recorder]
+  (let [errors (StringWriter.)
+        result (binding [*err* errors]
+                 (analyze-file file enabled-groups recorder))]
+    {:errors (str errors)
+     :result result}))
+
+(defn- await-task
+  "Wait for task, throwing what the task threw rather than the ExecutionException around it."
+  [^Future task]
+  (try
+    (.get task)
+    (catch ExecutionException e
+      (throw (or (.getCause e) e)))))
+
+(defn- await-printing-errors
+  "Wait for `task`, write the warnings it captured to `*err*`, and give back its result."
+  [task]
+  (let [{:keys [errors result]} (await-task task)]
+    (when (seq errors)
+      (.write ^Writer *err* ^String errors)
+      (.flush ^Writer *err*))
+    result))
+
+(defn- analyze-files
+  "Analyze `files` on up to `jobs` worker threads, one task per file, into the non-nil results in file order.
+
+  What a file writes to `*err*` is printed in file order too, once the files before it are done."
+  [files enabled-groups recorder jobs]
+  (let [thread-count (max 1 (min jobs (count files)))
+        ^ExecutorService pool (Executors/newFixedThreadPool (int thread-count) worker-factory)]
+    (try
+      (->> files
+           (mapv #(.submit pool ^Callable (fn [] (analyze-file-holding-errors % enabled-groups recorder))))
+           (keep await-printing-errors)
+           vec)
+      (finally
+        (.shutdownNow pool)))))
+
 (defn analyze-project
   "Analyze all source files under root-dir using enabled-groups.
   Returns {:declarations :usages :dynamic-sites} across all files. With a `recorder`, the
-  time discovery and each file took is added to it."
+  time discovery and each file took is added to it. Up to `jobs` files are read at once,
+  one by default."
   ([root-dir enabled-groups] (analyze-project root-dir enabled-groups nil))
-  ([root-dir enabled-groups recorder]
+  ([root-dir enabled-groups recorder] (analyze-project root-dir enabled-groups recorder 1))
+  ([root-dir enabled-groups recorder jobs]
    (let [discover #(fs/list-source-files root-dir (enabled-extensions enabled-groups))
          files (if recorder (timings/timed recorder :discovery discover) (discover))]
      (binding [*out* *err*]
        (println (str "Analyzing " (count files) " files under " root-dir " ...")))
-     (let [results (keep #(analyze-file % enabled-groups recorder) files)]
+     (let [results (analyze-files files enabled-groups recorder jobs)]
        {:declarations (mapcat :declarations results)
         :usages (mapcat :usages results)
         :dynamic-sites (mapcat :dynamic-sites results)}))))

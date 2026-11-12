@@ -184,7 +184,9 @@ Register the group in `assemble-groups` in `core.clj`. Then, for every rule it a
 - **Parse phase:** `parser/analyze-project` walks every file an enabled group reads (`.cljs`/`.cljc`, and `.clj` under
   `--experimental-clj`), calls each group's `:parse` handlers per node type (list, vector, token), and accumulates
   results per file. Each group declares the file extensions it applies to via `file-extensions`; only matching groups
-  are invoked per file.
+  are invoked per file. Files are walked in parallel (`--jobs`), each on one thread, and their results merged in file
+  order. A handler that keeps state about the file it reads puts it in `parser/file-state` or `parser/*file-memo*`,
+  which `parser/analyze-file` binds afresh per file, never in a namespace-level atom another thread's file would share.
 - **Analyze phase:** Each group cross-references declarations vs. usages to compute unused/phantom sets.
 - **Namespace resolution:** `parser/resolve-kw` handles `::alias/name`, `::local`, and `:plain` keywords using per-file
   alias maps extracted from `ns` forms.
