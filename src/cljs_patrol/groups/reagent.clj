@@ -9,15 +9,6 @@
    [clojure.string :as str]
    [rewrite-clj.zip :as z]))
 
-(def ^:private snippet-max-length 120)
-
-(defn- source-snippet [loc]
-  (let [raw (try (z/string loc) (catch Exception _ ""))
-        collapsed (str/replace raw #"\s+" " ")]
-    (if (> (count collapsed) snippet-max-length)
-      (str (subs collapsed 0 (- snippet-max-length 3)) "...")
-      collapsed)))
-
 (defn- hiccup-head-loc?
   "True when `loc` is a token that heads a Hiccup vector rather than a data one.
 
@@ -174,7 +165,7 @@
         [row col] (parser/position loc)]
     {:kw (head-identifier head-loc)
      :type :redundant-into-hiccup
-     :form (source-snippet loc)
+     :form (parser/source-snippet loc)
      :file file
      :row row
      :col col}))
@@ -202,7 +193,7 @@
   (let [[row col] (parser/position loc)]
     {:kw :<>
      :type :empty-fragment-props
-     :form (source-snippet loc)
+     :form (parser/source-snippet loc)
      :file file
      :row row
      :col col}))
@@ -275,7 +266,7 @@
   (let [[row col] (parser/position loc)]
     {:kw :<>
      :type :redundant-fragment
-     :form (source-snippet loc)
+     :form (parser/source-snippet loc)
      :file file
      :row row
      :col col}))
@@ -361,7 +352,7 @@
                          (let [[row col] (parser/position value-loc)]
                            {:kw (symbol binding-name)
                             :type :inline-component
-                            :form (source-snippet value-loc)
+                            :form (parser/source-snippet value-loc)
                             :file file
                             :row row
                             :col col
@@ -443,7 +434,7 @@
   (let [[row col] (parser/position loc)]
     {:kw (head-identifier (z/down (hiccup/unwrap-meta loc)))
      :type :discarded-hiccup
-     :form (source-snippet loc)
+     :form (parser/source-snippet loc)
      :file file
      :row row
      :col col}))

@@ -48,6 +48,16 @@
       (str/replace #"([(\[{]) " "$1")
       (str/replace #" ([)\]}])" "$1")))
 
+(def ^:private snippet-max-length 120)
+
+(defn source-snippet
+  "Return loc's source on one line, cut to 120 characters with an ellipsis, for a finding's `:form`."
+  [loc]
+  (let [collapsed (str/replace (try (z/string loc) (catch Exception _ "")) #"\s+" " ")]
+    (if (> (count collapsed) snippet-max-length)
+      (str (subs collapsed 0 (- snippet-max-length 3)) "...")
+      collapsed)))
+
 (defn kw-node?
   "True if the node is a keyword token (including :: prefixed ones)."
   [zloc]

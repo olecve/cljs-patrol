@@ -54,6 +54,8 @@ Analysis is split into independent rule groups. By default all groups run.
 - **[`typography`](docs/rules/typography.md)** — mixed Figma typography token groups in a single style
 - **[`focus-ring`](docs/rules/focus-ring.md)** — focus rings in Spade styles that lose the forced-colors outline or skip
   the design system's preset; off until configured
+- **[`forbid-props`](docs/rules/forbid-props.md)** — props a codebase forbids on some elements or components, each with
+  the reason, like ESLint's `react/forbid-dom-props`; off until configured
 - **[`a11y`](docs/rules/a11y.md)** — accessibility in Hiccup: missing alt text and accessible names, controls a keyboard
   cannot reach, nested controls, labels that label nothing
 - **[`tests`](docs/rules/tests.md)** — conventions on test code: test names, assertion messages, conditional assertions,
@@ -200,6 +202,9 @@ Every setting can live in `.cljs-patrol/config.edn`, where it persists for the p
  :layout {:split-map-after-symbol true}
  :idioms {:min-calls 3}
  :focus-ring {:approved-shadows #{my.ui.styles.focus-rings/primary-shadow}}
+ :forbid-props [{:prop :aria-disabled
+                 :disallowed-for #{:button my.ui/button}
+                 :message "Use :disabled."}]
  :experimental-clj true}
 ```
 
@@ -210,6 +215,7 @@ A CLI flag overrides the matching setting. See [Severity tiers](docs/severity.md
 [Test id elements](docs/rules/react-testing-library-cljs.md#test-id-elements) for `:react-testing-library-cljs`,
 [Test paths](docs/rules/tests.md#test-paths) for `:tests`, [Layout options](docs/rules/layout.md#layout-options) for
 `:layout`, [Focus ring options](docs/rules/focus-ring.md#focus-ring-options) for `:focus-ring`,
+[Forbid props options](docs/rules/forbid-props.md#forbid-props-options) for `:forbid-props`,
 [Idioms options](docs/rules/idioms.md#idioms-options) for `:idioms`, and
 [Reading .clj files](docs/rules.md#experimental-reading-clj-files) for `:experimental-clj`. A flag written
 `--no-experimental-clj` turns that last one off for one run.

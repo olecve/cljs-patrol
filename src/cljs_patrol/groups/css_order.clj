@@ -12,14 +12,6 @@
   "Smallest map worth ordering. Below this there is no meaningful outside-to-inside shape."
   4)
 
-(def ^:private snippet-max-length 120)
-
-(defn- source-snippet [loc]
-  (let [collapsed (str/replace (try (z/string loc) (catch Exception _ "")) #"\s+" " ")]
-    (if (> (count collapsed) snippet-max-length)
-      (str (subs collapsed 0 (- snippet-max-length 3)) "...")
-      collapsed)))
-
 (defn- property-name
   "CSS property a map key names, or nil when the key is not one.
   Namespaced keywords are data, and an `&`-prefixed key is a selector that landed in the
@@ -87,7 +79,7 @@
          :expected-before (:key expected-before)
          :found-after (:key found-after)
          :expected-order (expected-order ordered)
-         :form (str style-kw " " (source-snippet map-loc))
+         :form (str style-kw " " (parser/source-snippet map-loc))
          :hint (str "Move " (:key property) " before " (:key expected-before) ". "
                     (order-hint ordered))
          :file file
