@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.0.54] - 2026-11-12
+
+* Add a --timings option that reports where a run spends its time by @olecve in https://github.com/olecve/cljs-patrol/pull/137
+* Analyze files in parallel with a --jobs option by @olecve in https://github.com/olecve/cljs-patrol/pull/138
+* Add an ADR for building the Linux native binary with the G1 collector by @olecve in https://github.com/olecve/cljs-patrol/pull/139
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.53...v0.0.54
+
 ## [v0.0.53] - 2026-11-10
 
 * Start the snippet truncation loop where a candidate can fit by @olecve in https://github.com/olecve/cljs-patrol/pull/132
