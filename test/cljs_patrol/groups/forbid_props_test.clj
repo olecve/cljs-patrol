@@ -173,3 +173,17 @@
       "finding")
   (is (not (group/failed? forbid-props/group {:forbidden-prop []}))
       "no finding"))
+
+(deftest svg-tags-and-data-like-tags-in-config
+  (is (some? (forbid-props/make-group [{:prop :x
+                                        :disallowed-for #{:textPath :feGaussianBlur :animateTransform}}]))
+      "svg tags with no data collision")
+  (doseq [tag [:search :filter :image :desc :map]]
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (forbid-props/make-group [{:prop :x
+                                            :disallowed-for #{tag}}]))
+        (str tag))))
+
+(deftest re-frame-alpha-sub-vector-is-left-alone
+  (is (= [] (flagged "(defn v [] @(rf/sub [:button {:aria-disabled true}]))"))
+      "sub"))

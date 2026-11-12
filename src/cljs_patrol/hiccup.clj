@@ -43,7 +43,9 @@
 
   `:map` is left out on purpose. The HTML `<map>` element is vanishingly rare in
   application code, while `[:map {:closed true} …]` is the everyday shape of a Malli
-  schema, so reading one as Hiccup costs more than missing the other."
+  schema, so reading one as Hiccup costs more than missing the other. `:search`, and the SVG
+  `:filter`, `:image` and `:desc`, are left out for the same reason: each is an everyday db
+  path or event id, as in `[:search :query]` or `[:filter :status]`."
   #{:<>
     ;; document and sections
     :html :head :body :header :footer :main :nav :aside :article :section :address :hgroup
@@ -65,7 +67,9 @@
     :details :summary :dialog :template :slot :noscript :script :style :link :title :base
     ;; svg
     :g :path :circle :ellipse :rect :line :polyline :polygon :defs :use :text :tspan
-    :mask :pattern :clipPath :linearGradient :radialGradient :stop :marker :symbol :foreignObject})
+    :mask :pattern :clipPath :linearGradient :radialGradient :stop :marker :symbol :foreignObject
+    :textPath :animate :animateMotion :animateTransform :feBlend :feColorMatrix :feComposite
+    :feDropShadow :feFlood :feGaussianBlur :feMerge :feMergeNode :feOffset})
 
 (defn html-tag?
   "True when `tag` names an HTML/SVG element or the fragment."

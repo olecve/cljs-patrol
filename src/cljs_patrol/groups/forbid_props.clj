@@ -37,7 +37,7 @@
 
 (def ^:private re-frame-calls
   "Calls whose vector arguments are event or subscription vectors, not Hiccup."
-  #{"dispatch" "dispatch-sync" "dispatch-n" "subscribe"
+  #{"dispatch" "dispatch-sync" "dispatch-n" "subscribe" "sub"
     "reg-event-db" "reg-event-fx" "reg-event-ctx" "reg-sub" "reg-sub-raw"})
 
 (def ^:private event-effect-keys
