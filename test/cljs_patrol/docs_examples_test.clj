@@ -21,7 +21,12 @@
 (def ^:private docs-config
   "Config the examples run under, for a rule that does nothing until it is configured.
   An example calls `(field-label)`, which resolves to a var of the example's own namespace."
-  {:a11y {:label-styles #{'example.core/field-label}}})
+  {:a11y {:label-styles #{'example.core/field-label}}
+   :focus-ring {:approved-shadows #{'app.styles.focus-rings/primary-shadow}
+                :allow-stacking-under #{":focus-visible"}
+                :required-companion {:outline "2px solid transparent"}
+                :forbidden-tokens {'app.theme.button/shadow-brand-focused 'app.styles.focus-rings/primary-shadow}
+                :forbidden-color-literals #{"#516bff"}}})
 
 (def ^:private default-requires
   "Aliases an example may use without writing its own ns form."
@@ -29,7 +34,9 @@
        " [spade.core :refer [defclass defattrs]]"
        " [clojure.string :as str]"
        " [clojure.test :refer [deftest is testing]]"
-       " [react-testing-library-cljs.screen :as s])"))
+       " [react-testing-library-cljs.screen :as s]"
+       " [app.styles.focus-rings :as focus-rings]"
+       " [app.theme.button :as button-theme])"))
 
 (defn- chunks
   "Split code into chunks of top-level forms, a blank line between two forms ending a chunk.

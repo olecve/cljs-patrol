@@ -14,6 +14,7 @@
    [cljs-patrol.groups.css-order :as css-order]
    [cljs-patrol.groups.css-order.orders :as orders]
    [cljs-patrol.groups.docstrings :as docstrings]
+   [cljs-patrol.groups.focus-ring :as focus-ring]
    [cljs-patrol.groups.idioms :as idioms]
    [cljs-patrol.groups.layout :as layout]
    [cljs-patrol.groups.re-frame :as re-frame]
@@ -43,6 +44,7 @@
    spade/group
    reagent/group
    typography/group
+   (focus-ring/make-group (get config :focus-ring))
    (a11y/make-group (get config :a11y))
    (docstrings/make-group (get config :docstrings) clj?)
    (css-order/make-group (get config :css-order))

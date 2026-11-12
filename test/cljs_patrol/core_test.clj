@@ -37,7 +37,7 @@
 
 (deftest filter-groups-test
   (testing "no filters returns all groups"
-    (is (= 12 (count (filter-groups default-groups {})))))
+    (is (= 13 (count (filter-groups default-groups {})))))
 
   (testing "--only selects specific group"
     (let [groups (filter-groups default-groups {:only #{:re-frame}})]
@@ -46,8 +46,8 @@
 
   (testing "--disable removes specific group"
     (let [groups (filter-groups default-groups {:disable #{:spade}})]
-      (is (= 11 (count groups)))
-      (is (= #{:re-frame :reagent :typography :a11y :docstrings :css-order :tests :react-testing-library-cljs :layout :idioms :comments}
+      (is (= 12 (count groups)))
+      (is (= #{:re-frame :reagent :typography :focus-ring :a11y :docstrings :css-order :tests :react-testing-library-cljs :layout :idioms :comments}
              (set (map group/group-id groups))))))
 
   (testing "--only takes precedence over --disable"
