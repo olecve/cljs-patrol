@@ -282,59 +282,42 @@
       (finding :focus-ring-missing-outline block key-loc decl-kw file
                (str "Set :outline " (pr-str (or expected default-outline)) " beside :box-shadow.")))))
 
-(defn- source-findings
-  "Return the findings about where a block's `:box-shadow` value comes from."
-  [block key-loc shadow {:keys [approved-shadows allow-stacking-under forbidden-tokens forbidden-color-patterns]} ns-info decl-kw
-   file]
+(defn- replacement
+  "Return the approved shadow a raw token or color in the value stands in for, or nil."
+  [symbols strings {:keys [replaced-symbols replaced-colors]}]
+  (or (some replaced-symbols symbols)
+      (some (fn [[pattern approved]] (when (some #(re-find pattern %) strings) approved)) replaced-colors)))
+
+(defn- raw-shadow-finding
+  "Return a raw-shadow finding when a block's `:box-shadow` is not one of the approved shadows.
+
+  A `str` or a Garden vector holding an approved shadow is a stacked ring and accepted, unless
+  it also holds a raw value an approved shadow replaces. One that holds a local or a call may
+  hold anything and is left alone."
+  [block key-loc shadow {:keys [approved-shadows]
+                         :as config} ns-info decl-kw file]
   (let [token-values (map literal (:tokens shadow))
         symbols (keep #(resolve-symbol % ns-info) token-values)
         strings (map compact-color-text (filter string? token-values))
-        forbidden-token (first (filter #(contains? forbidden-tokens %) symbols))
-        forbidden-color (first (filter (fn [pattern] (some #(re-find pattern %) strings)) forbidden-color-patterns))
-        holds-approved? (boolean (some #(contains? approved-shadows %) symbols))
-        parts (remove #(and (string? %) (str/blank? (without-important %))) token-values)
-        accepted? (case (:kind shadow)
-                    :var (contains? approved-shadows (:symbol shadow))
-                    (:str :composed) (if holds-approved?
-                                       (or (= 1 (count parts))
-                                           (boolean (some #(contains? allow-stacking-under %) (:states block))))
-                                       (:unreadable? shadow))
-                    false)]
-    (cond-> []
-      forbidden-token (conj (finding :focus-ring-forbidden-token block key-loc decl-kw file
-                                     (when-let [approved (get forbidden-tokens forbidden-token)]
-                                       (str "Use " approved "."))))
-      forbidden-color (conj (finding :focus-ring-forbidden-color block key-loc decl-kw file nil))
-      (and (not forbidden-token) (not forbidden-color) (seq approved-shadows) (not accepted?))
-      (conj (finding :focus-ring-raw-shadow block key-loc decl-kw file nil)))))
+        approved (replacement symbols strings config)
+        accepted? (and (nil? approved)
+                       (case (:kind shadow)
+                         :var (contains? approved-shadows (:symbol shadow))
+                         (:str :composed) (or (boolean (some approved-shadows symbols)) (:unreadable? shadow))
+                         false))]
+    (when-not accepted?
+      (finding :focus-ring-raw-shadow block key-loc decl-kw file (some->> approved (format "Use %s."))))))
 
-(defn- block-findings [block config ns-info decl-kw file exempt?]
+(defn- block-findings [block config ns-info decl-kw file preset?]
   (when (seq (:states block))
     (when-let [[_ key-loc value-loc] (entry-value (:maps block) "box-shadow")]
       (when-let [shadow (shadow-value value-loc ns-info)]
         (when-not (= :reset (:kind shadow))
-          (let [outline (when-not (false? (:outline config))
-                          (outline-finding block key-loc (:outline config) decl-kw file))]
-            (cond-> (if outline [outline] [])
-              (and (not exempt?) (not= :local (:kind shadow)))
-              (into (source-findings block key-loc shadow config ns-info decl-kw file)))))))))
-
-(defn- normalize-path [path]
-  (-> (str path)
-      (str/replace "\\" "/")
-      (str/replace #"^(\./)+" "")))
-
-(defn- exempt-path?
-  "True when `file` is one of the configured paths, written relative to the project.
-
-  A configured path matches the end of the file's path on a directory boundary, so it holds
-  whether discovery wrote the path relative or absolute. A bare file name matches only a file
-  at the root, or it would exempt every file of that name."
-  [file exempt-paths]
-  (let [path (normalize-path file)]
-    (boolean (some #(or (= path %)
-                        (and (str/includes? % "/") (str/ends-with? path (str "/" %))))
-                   exempt-paths))))
+          (->> [(when-not (false? (:outline config))
+                  (outline-finding block key-loc (:outline config) decl-kw file))
+                (when (and (seq (:approved-shadows config)) (not preset?) (not= :local (:kind shadow)))
+                  (raw-shadow-finding block key-loc shadow config ns-info decl-kw file))]
+               (remove nil?)))))))
 
 (defn- element-groups
   "Return the blocks of the element each `::after` or `::before` selector of a block's last level decorates.
@@ -382,11 +365,11 @@
       (let [name-loc (parser/declared-name-loc loc)]
         (when-let [decl-name (parser/sym-name name-loc)]
           (let [decl-kw (keyword ns-name decl-name)
-                exempt? (exempt-path? file (:exempt-paths config))
+                preset? (contains? (:preset-namespaces config) ns-name)
                 body (parser/right-siblings name-loc)
                 findings (->> (blocks body (:patterns config) {:element-maps (base-maps body)})
                               with-element-groups
-                              (mapcat #(block-findings % config ns-info decl-kw file exempt?))
+                              (mapcat #(block-findings % config ns-info decl-kw file preset?))
                               vec)]
             (when (seq findings)
               {:decls findings
@@ -394,7 +377,7 @@
                :dynamics []})))))))
 
 (def ^:private rules
-  [:focus-ring-missing-outline :focus-ring-raw-shadow :focus-ring-forbidden-token :focus-ring-forbidden-color])
+  [:focus-ring-missing-outline :focus-ring-raw-shadow])
 
 (defn- analyze* [{:keys [declarations]}]
   (let [by-type (group-by :type declarations)]
@@ -402,9 +385,7 @@
 
 (defn- summary-lines* [result]
   [["Focus ring without an outline:" (count (:focus-ring-missing-outline result))]
-   ["Focus ring not from the preset:" (count (:focus-ring-raw-shadow result))]
-   ["Focus ring from a forbidden token:" (count (:focus-ring-forbidden-token result))]
-   ["Focus ring with a forbidden color:" (count (:focus-ring-forbidden-color result))]])
+   ["Focus ring not from the preset:" (count (:focus-ring-raw-shadow result))]])
 
 (defrecord FocusRingGroup [config]
   group/RuleGroup
@@ -419,21 +400,13 @@
      (str "A focus style paints a ring with box-shadow, which forced-colors mode drops. Set an outline that "
           "draws, such as 2px solid transparent, on this block or the focus block around it.")
      :focus-ring-raw-shadow
-     "A focus style builds its box-shadow by hand. Use one of the approved focus-ring shadows from the preset."
-     :focus-ring-forbidden-token
-     "A focus style paints its box-shadow from a raw theme token. Use the approved focus-ring shadow instead."
-     :focus-ring-forbidden-color
-     "A focus style paints its box-shadow with a raw brand color. Use one of the approved focus-ring shadows."})
+     "A focus style builds its box-shadow by hand. Use one of the approved focus-ring shadows from the preset."})
   (docs-anchors [_]
     {:focus-ring-missing-outline "focus-ring-without-an-outline"
-     :focus-ring-raw-shadow "focus-ring-not-from-the-preset"
-     :focus-ring-forbidden-token "focus-ring-from-a-forbidden-token"
-     :focus-ring-forbidden-color "focus-ring-with-a-forbidden-color"})
+     :focus-ring-raw-shadow "focus-ring-not-from-the-preset"})
   (rule->tier [_]
     {:focus-ring-missing-outline :bugs
-     :focus-ring-raw-shadow :deprecations
-     :focus-ring-forbidden-token :deprecations
-     :focus-ring-forbidden-color :deprecations})
+     :focus-ring-raw-shadow :deprecations})
   (file-extensions [_] group/cljs-extensions))
 
 (defn- state-pattern
@@ -449,33 +422,29 @@
 (defn- normalize-config [config]
   (when (map? config)
     (let [selectors (set (or (seq (:selectors config)) default-selectors))
-          forbidden-tokens (:forbidden-tokens config)]
+          approved (:approved-shadows config)
+          replaced (when (map? approved)
+                     (for [[shadow values] approved
+                           value values]
+                       [value shadow]))]
       {:patterns (mapv (juxt identity state-pattern) selectors)
-       :approved-shadows (set (:approved-shadows config))
-       :allow-stacking-under (set (:allow-stacking-under config))
-       :outline (:outline config)
-       :forbidden-tokens (if (map? forbidden-tokens)
-                           forbidden-tokens
-                           (zipmap forbidden-tokens (repeat nil)))
-       :forbidden-color-patterns (mapv color-pattern (:forbidden-color-literals config))
-       :exempt-paths (->> config :exempt-paths (map normalize-path) set)})))
+       :approved-shadows (set (if (map? approved) (keys approved) approved))
+       :preset-namespaces (into #{} (keep namespace) (if (map? approved) (keys approved) approved))
+       :replaced-symbols (into {} (filter (comp symbol? first)) replaced)
+       :replaced-colors (into [] (keep (fn [[value shadow]] (when (string? value) [(color-pattern value) shadow]))) replaced)
+       :outline (:outline config)})))
 
 (defn make-group
   "Return a focus-ring RuleGroup configured with the given map.
 
   Off until set. Supported keys:
-    :selectors #{\":focus\" …} — focus pseudo-classes; a selector holding one, outside
-      `:not(…)`, is a focus selector. Defaults to `:focus`, `:focus-visible`, `:focus-within`.
-    :approved-shadows #{fully-qualified-symbol …} — vars whose value is an approved ring.
-    :allow-stacking-under #{\":focus-visible\" …} — focus states under which a `(str …)`
-      or a Garden vector holding an approved shadow beside other parts is accepted.
+    :approved-shadows — the vars whose value is an approved ring, fully qualified: a set, or a
+      map from each to the raw tokens and colors it replaces, which a finding then names it for.
+      Their namespaces, the preset, may build rings by hand.
     :outline \"2px solid transparent\" — the outline a focus block with a shadow must set.
       Unset, any outline that draws holds; false turns the check off.
-    :forbidden-tokens {fully-qualified-symbol approved-symbol} — raw tokens, each mapped to
-      the approved var to suggest, or a set when there is none to suggest.
-    :forbidden-color-literals #{\"#516bff\" …} — colors no focus shadow may hold.
-    :exempt-paths #{\"src/app/styles/focus_rings.cljs\" …} — files that may build a ring
-      by hand; the outline is still required there."
+    :selectors #{\":focus\" …} — focus pseudo-classes; a selector holding one, outside
+      `:not(…)`, is a focus selector. Defaults to `:focus`, `:focus-visible`, `:focus-within`."
   ([] (make-group nil))
   ([config] (->FocusRingGroup (normalize-config config))))
 

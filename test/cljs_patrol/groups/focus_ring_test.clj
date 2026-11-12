@@ -6,10 +6,7 @@
    [clojure.test :refer [deftest is]]))
 
 (def ^:private config
-  {:approved-shadows #{'app.styles.focus-rings/primary-shadow}
-   :allow-stacking-under #{":focus-visible"}
-   :forbidden-tokens {'app.theme.button/shadow-brand-focused 'app.styles.focus-rings/primary-shadow}
-   :forbidden-color-literals #{"#516bff"}})
+  {:approved-shadows {'app.styles.focus-rings/primary-shadow #{'app.theme.button/shadow-brand-focused "#516bff"}}})
 
 (def ^:private ns-form
   (str "(ns app.core (:require [spade.core :refer [defclass defattrs defglobal]]"
@@ -185,26 +182,27 @@
     (is (= {:focus-ring-raw-shadow ["a"]} (flagged (run (visible-ring ":box-shadow " value " " outline))))
         value)))
 
-(deftest stacked-ring-depends-on-state
+(deftest stacked-ring-holding-approved-shadow-passes
   (let [stacked (str ":box-shadow (str highlight \", \" " ring ") " outline)]
-    (is (= {} (-> stacked visible-ring run flagged))
-        "stacking allowed under focus-visible")
-    (is (= {:focus-ring-raw-shadow ["a"]} (flagged (run (focus-class "a" ":&:focus" stacked))))
-        "stacking not allowed under focus")
-    (is (= {:focus-ring-raw-shadow ["a"]}
-           (flagged (run (visible-ring ":box-shadow (str \"0 0 0 2px \" button-theme/ring-color) " outline))))
-        "str without approved shadow")))
+    (doseq [selector [":&:focus-visible" ":&:focus" ":&:focus-within"]]
+      (is (= {} (flagged (run (focus-class "a" selector stacked))))
+          selector)))
+  (is (= {:focus-ring-raw-shadow ["a"]}
+         (flagged (run (visible-ring ":box-shadow (str \"0 0 0 2px \" button-theme/ring-color) " outline))))
+      "str without approved shadow"))
 
 (deftest shadow-resolves-through-refer-and-full-name
   (let [referred (str ":box-shadow danger-shadow " outline)]
     (is (= {:focus-ring-raw-shadow ["a"]} (-> referred visible-ring run flagged))
         "referred name not approved")
-    (is (= {} (flagged (run (update config :approved-shadows conj 'app.styles.focus-rings/danger-shadow)
-                            (visible-ring referred))))
+    (is (= {} (flagged (run {:approved-shadows #{'app.styles.focus-rings/danger-shadow}} (visible-ring referred))))
         "referred name approved"))
-  (is (= {:focus-ring-forbidden-token ["a"]}
-         (flagged (run (visible-ring ":box-shadow app.theme.button/shadow-brand-focused " outline))))
-      "fully qualified forbidden token")
+  (is (= "Use app.styles.focus-rings/primary-shadow."
+         (-> (run (visible-ring ":box-shadow app.theme.button/shadow-brand-focused " outline))
+             :focus-ring-raw-shadow
+             first
+             :hint))
+      "fully qualified replaced token")
   (is (= {} (flagged (run (visible-ring ":box-shadow app.styles.focus-rings/primary-shadow " outline))))
       "fully qualified approved shadow"))
 
@@ -220,53 +218,48 @@
 (deftest custom-property-shadow-is-hand-built
   (is (= {:focus-ring-raw-shadow ["a"]}
          (flagged (run (focus-class "a" ":&:focus" (str ":box-shadow \"var(--ring) !important\" " outline)))))
-      "custom property alone")
-  (is (= {:focus-ring-forbidden-color ["a"]}
-         (flagged (run (focus-class "a" ":&:focus" (str ":box-shadow \"var(--ring, 0 0 0 2px #516bff)\" " outline)))))
-      "custom property with literal fallback"))
+      "custom property alone"))
 
-(deftest forbidden-token-is-flagged
-  (let [results (run (visible-ring ":box-shadow button-theme/shadow-brand-focused " outline))]
-    (is (= {:focus-ring-forbidden-token ["a"]} (flagged results))
-        "token replaces raw-shadow finding")
-    (is (= "Use app.styles.focus-rings/primary-shadow." (-> results :focus-ring-forbidden-token first :hint))
-        "hint names mapped shadow"))
-  (is (= {:focus-ring-forbidden-token ["a"]}
-         (flagged (run (visible-ring ":box-shadow (str \"inset \" button-theme/shadow-brand-focused) " outline))))
-      "token inside str")
-  (let [results (run (assoc config :forbidden-tokens #{'app.theme.button/shadow-brand-focused})
-                     (visible-ring ":box-shadow button-theme/shadow-brand-focused " outline))]
-    (is (= {:focus-ring-forbidden-token ["a"]} (flagged results))
-        "token from set")
-    (is (nil? (-> results :focus-ring-forbidden-token first :hint))
-        "no hint without mapping")))
+(defn- hint-of [config source] (-> (run config source) :focus-ring-raw-shadow first :hint))
 
-(deftest forbidden-color-is-flagged
-  (is (= {:focus-ring-forbidden-color ["a"]}
-         (flagged (run (visible-ring ":box-shadow \"0 0 0 2px #516BFF\" " outline))))
-      "upper-case color")
-  (is (= {:focus-ring-forbidden-color ["a"]}
-         (flagged (run (visible-ring ":box-shadow (str \"0 0 0 2px \" \"#516bff\") " outline))))
-      "color inside str")
-  (is (= {:focus-ring-forbidden-color ["a"]}
-         (flagged (run (assoc config :forbidden-color-literals #{"#516BFF"})
-                       (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline))))
-      "upper-case color in config")
-  (is (= {:focus-ring-forbidden-color ["a"]
+(deftest replaced-value-names-approved-shadow
+  (let [use-primary "Use app.styles.focus-rings/primary-shadow."]
+    (doseq [value ["button-theme/shadow-brand-focused"
+                   "(str \"inset \" button-theme/shadow-brand-focused)"
+                   "\"0 0 0 2px #516BFF\""
+                   "(str \"0 0 0 2px \" \"#516bff\")"
+                   "\"var(--ring, 0 0 0 2px #516bff)\""
+                   "(str (darken \"#516bff\"))"]]
+      (is (= use-primary (hint-of config (visible-ring ":box-shadow " value " " outline)))
+          value))
+    (is (= use-primary (hint-of config (visible-ring ":box-shadow (str " ring " \", 0 0 0 1px #516bff\") " outline)))
+        "replaced color stacked with approved shadow")
+    (is (= use-primary (hint-of {:approved-shadows {'app.styles.focus-rings/primary-shadow #{"#516BFF"}}}
+                                (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline)))
+        "upper-case color in config")
+    (is (= use-primary (hint-of {:approved-shadows {'app.styles.focus-rings/primary-shadow #{"rgb(81, 107, 255)"}}}
+                                (visible-ring ":box-shadow \"0 0 0 2px rgb(81,107,255)\" " outline)))
+        "rgb written with other spacing"))
+  (is (nil? (hint-of config (visible-ring ":box-shadow \"0 0 0 2px red\" " outline)))
+      "no hint for other value")
+  (is (nil? (hint-of {:approved-shadows {'app.styles.focus-rings/primary-shadow #{"#fff"}}}
+                     (visible-ring ":box-shadow \"0 0 0 2px #fffabc\" " outline)))
+      "longer color")
+  (is (= {:focus-ring-raw-shadow ["a"]
           :focus-ring-missing-outline ["a"]}
          (flagged (run (visible-ring ":box-shadow \"0 0 0 2px #516bff\""))))
-      "color and missing outline"))
+      "replaced color and missing outline"))
 
-(deftest exempt-path-checks-only-outline
-  (let [exempt (assoc config :exempt-paths #{"app/core.cljs"})]
-    (is (= {} (flagged (run exempt (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline))))
-        "hand-built ring in exempt file")
+(deftest preset-namespace-checks-only-outline
+  (let [preset-source (fn [entries]
+                        (str "(ns app.styles.focus-rings (:require [spade.core :refer [defclass]]))\n"
+                             (visible-ring entries)))
+        run-preset #(:results (temp-project/run-group (focus-ring/make-group config) {"app/styles/focus_rings.cljs" %}))]
+    (is (= {} (flagged (run-preset (preset-source (str ":box-shadow \"0 0 0 2px #516bff\" " outline)))))
+        "hand-built ring in preset")
     (is (= {:focus-ring-missing-outline ["a"]}
-           (flagged (run exempt (visible-ring ":box-shadow \"0 0 0 2px #516bff\""))))
-        "outline still required")
-    (is (= {:focus-ring-forbidden-color ["a"]}
-           (flagged (run exempt "app/other.cljs" (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline))))
-        "other file")))
+           (flagged (run-preset (preset-source ":box-shadow \"0 0 0 2px #516bff\""))))
+        "outline still required")))
 
 (deftest empty-keys-turn-off-their-checks
   (let [source (visible-ring ":box-shadow \"0 0 0 2px #516bff\"")]
@@ -285,7 +278,7 @@
       "no handlers")
   (is (empty? (group/summary-lines focus-ring/group {}))
       "no summary lines")
-  (is (= 4 (count (group/summary-lines (focus-ring/make-group {}) {})))
+  (is (= 2 (count (group/summary-lines (focus-ring/make-group {}) {})))
       "summary lines once configured")
   (let [source (str ns-form (visible-ring ":box-shadow \"0 0 0 2px #516bff\""))]
     (is (= {} (flagged (:results (temp-project/run-group focus-ring/group {"app/core.cljs" source}))))
@@ -328,25 +321,19 @@
         "single-colon pseudo-element")))
 
 (deftest garden-vector-is-read-like-str
-  (is (= {} (flagged (run (visible-ring ":box-shadow [highlight " ring "] " outline))))
-      "stacked vector under focus-visible")
-  (is (= {} (flagged (run (focus-class "a" ":&:focus" (str ":box-shadow [" ring "] " outline)))))
-      "approved shadow alone in vector")
-  (is (= {} (flagged (run (focus-class "a" ":&:focus" (str ":box-shadow (str " ring " \" !important\") " outline)))))
-      "approved shadow with important")
+  (doseq [value [(str "[highlight " ring "]") (str "[" ring "]") (str "(str " ring " \" !important\")")]]
+    (is (= {} (flagged (run (focus-class "a" ":&:focus" (str ":box-shadow " value " " outline)))))
+        value))
   (is (= {:focus-ring-raw-shadow ["a"]}
-         (flagged (run (focus-class "a" ":&:focus" (str ":box-shadow [button-theme/ring " ring "] " outline)))))
-      "stacked vector under focus"))
+         (flagged (run (focus-class "a" ":&:focus" (str ":box-shadow [button-theme/ring \"red\"] " outline)))))
+      "vector without approved shadow"))
 
 (deftest str-of-unreadable-part-skips-raw-shadow
   (is (= {} (flagged (run (focus-class "a" ":&:focus" (str ":box-shadow (str (focus-rings/ring :primary)) " outline)))))
       "call inside str")
   (let [source (str "(defclass a [highlight] [:&:focus {:box-shadow (str highlight \" !important\") " outline "}])")]
     (is (= {} (flagged (run source)))
-        "local inside str"))
-  (is (= {:focus-ring-forbidden-color ["a"]}
-         (flagged (run (focus-class "a" ":&:focus" (str ":box-shadow (str (darken \"#516bff\")) " outline)))))
-      "forbidden color inside call"))
+        "local inside str")))
 
 (deftest outline-written-another-way-passes
   (is (= {} (flagged (run (focus-class "a" ":&:focus-visible"
@@ -359,19 +346,6 @@
          (flagged (run (visible-ring ":box-shadow " ring " :outline-offset \"2px\""))))
       "offset alone"))
 
-(deftest forbidden-color-ends-at-hex-digit
-  (let [white (assoc config :forbidden-color-literals #{"#fff"})]
-    (is (= {:focus-ring-raw-shadow ["a"]}
-           (flagged (run white (visible-ring ":box-shadow \"0 0 0 2px #fffabc\" " outline))))
-        "longer color")
-    (is (= {:focus-ring-forbidden-color ["a"]}
-           (flagged (run white (visible-ring ":box-shadow \"0 0 0 2px #FFF\" " outline))))
-        "same color"))
-  (is (= {:focus-ring-forbidden-color ["a"]}
-         (flagged (run (assoc config :forbidden-color-literals #{"rgb(81, 107, 255)"})
-                       (visible-ring ":box-shadow \"0 0 0 2px rgb(81,107,255)\" " outline))))
-      "rgb written with other spacing"))
-
 (deftest pointer-only-focus-is-left-alone
   (is (= {} (flagged (run (focus-class "a" "\"&:focus:not(:focus-visible)\"" ":box-shadow \"0 1px 2px #0003\""))))
       "focus without focus-visible")
@@ -380,16 +354,6 @@
   (is (= {:focus-ring-missing-outline ["a"]}
          (flagged (run (focus-class "a" "\"&:focus-within:not(:focus-visible)\"" (str ":box-shadow " ring)))))
       "focus-within still counts"))
-
-(deftest exempt-paths-match-on-directory-boundary
-  (let [source (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline)]
-    (doseq [path ["./app/core.cljs" "app\\core.cljs"]]
-      (is (= {} (flagged (run (assoc config :exempt-paths #{path}) source)))
-          path))
-    (is (= {:focus-ring-forbidden-color ["a"]} (flagged (run (assoc config :exempt-paths #{"core.cljs"}) source)))
-        "bare file name")
-    (is (= {:focus-ring-forbidden-color ["a"]} (flagged (run (assoc config :exempt-paths #{"p/core.cljs"}) source)))
-        "partial directory name")))
 
 (deftest outline-color-arguments-are-no-width
   (doseq [value ["\"2px solid rgb(0 0 0)\"" "\"2px solid hsl(0 0% 100% / 0)\"" "\"calc( 0px + 2px) solid\""]]

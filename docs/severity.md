@@ -28,7 +28,7 @@ screen-reader user cannot reach, name or tell apart, and a Spade selector that m
 **`deprecations`** — deprecated APIs and idiomatic violations that may break later.
 
 - `deprecated-effects`, `defclass-as-sole-attr`, `defattrs-in-merge`, `mixed-token-groups`
-- `focus-ring-raw-shadow`, `focus-ring-forbidden-token`, `focus-ring-forbidden-color`
+- `focus-ring-raw-shadow`
 
 **`cleanup`** — dead code, style noise, and suspicious references with no runtime impact.
 

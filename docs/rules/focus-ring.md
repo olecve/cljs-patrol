@@ -102,6 +102,14 @@ paints no ring and is left alone. So is a block holding anything besides literal
   [:&:focus-visible {:box-shadow "0 0 0 2px var(--ring-color)"
                      :outline "2px solid transparent"}])
 
+(defclass link-style []
+  [:&:focus-visible {:box-shadow button-theme/shadow-brand-focused
+                     :outline "2px solid transparent"}])
+
+(defclass tab-style []
+  [:&:focus-visible {:box-shadow (str "inset " focus-rings/primary-shadow ", 0 0 0 1px #516BFF")
+                     :outline "2px solid transparent"}])
+
 ;; fix
 (defclass toggle-style []
   [:&:focus-visible {:box-shadow focus-rings/primary-shadow
@@ -114,77 +122,30 @@ paints no ring and is left alone. So is a block holding anything besides literal
 (defclass editor-style [highlight-ring]
   [:&:focus-visible {:box-shadow (str highlight-ring ", " focus-rings/primary-shadow)
                      :outline "2px solid transparent"}])
+
+(defclass card-style [ring]
+  [:&:focus {:box-shadow ring
+             :outline "2px solid transparent"}])
 ```
 
 <details>
 <summary>Details</summary>
 
 A ring built by hand drifts: the next change to the ring's color, width or forced-colors contract updates the preset and
-misses this call site. The `:box-shadow` of a focus block must be one of `:approved-shadows`, written as is, or alone in
-a `(str …)` or a Garden vector. Under a focus state in `:allow-stacking-under`, a `str` or a Garden vector that holds an
-approved shadow beside other parts is accepted too, for a stacked outer and inner ring. Everywhere else a `str`, a
-string, a Garden vector or another var is reported.
+misses this call site. The `:box-shadow` of a focus block must be one of `:approved-shadows`, written as is, or held in
+a `(str …)` or a Garden vector beside other parts, for a stacked outer and inner ring. A string, another var, and a
+`str` or a Garden vector without an approved shadow are reported, a CSS custom property such as `"var(--ring)"` too: the
+preset is what a focus ring should name.
+
+When `:approved-shadows` maps an approved shadow to the raw values it replaces, a value holding one of them is reported
+even inside a stacked ring, and the finding names the shadow to use: `button-theme/shadow-brand-focused` or the color
+`#516BFF` above. A color matches without regard to case, to spaces around parentheses and commas, so `rgb(81, 107, 255)`
+matches `rgb(81,107,255)`, and up to the next hex digit, so `#fff` does not match `#fffabc`.
 
 A local, such as a parameter of the `defclass`, is not something the rule can read and is left alone, and so is a `str`
-or a Garden vector that holds no approved shadow and holds a local or a call other than `str`. A string is always read,
-a CSS custom property such as `"var(--ring)"` too: the preset is what a focus ring should name. A value that a more
-specific rule reports, [a forbidden token](#focus-ring-from-a-forbidden-token) or
-[a forbidden color](#focus-ring-with-a-forbidden-color), is not reported here as well. Files in `:exempt-paths` are not
-checked, the preset's own namespace for one. Off while `:approved-shadows` is empty.
-
-</details>
-
-### Focus ring from a forbidden token
-
-`focus-ring-forbidden-token` · deprecations · config [`:forbidden-tokens`](#focus-ring-options) — A focus ring painted
-from a raw theme token that should go through the preset.
-
-```clojure
-;; flagged
-(defclass link-style []
-  [:&:focus-visible {:box-shadow button-theme/shadow-brand-focused
-                     :outline "2px solid transparent"}])
-
-;; fix
-(defclass link-style []
-  [:&:focus-visible {:box-shadow focus-rings/primary-shadow
-                     :outline "2px solid transparent"}])
-```
-
-<details>
-<summary>Details</summary>
-
-A token anywhere in the `:box-shadow` value counts, inside a `str` or a Garden vector too. `:forbidden-tokens` maps each
-token to the approved shadow that replaces it, and the finding names that shadow. Files in `:exempt-paths` are not
-checked.
-
-</details>
-
-### Focus ring with a forbidden color
-
-`focus-ring-forbidden-color` · deprecations · config [`:forbidden-color-literals`](#focus-ring-options) — A focus ring
-painted with a raw brand color instead of the preset.
-
-```clojure
-;; flagged
-(defclass tab-style []
-  [:&:focus-visible {:box-shadow "0 0 0 2px #516BFF"
-                     :outline "2px solid transparent"}])
-
-;; fix
-(defclass tab-style []
-  [:&:focus-visible {:box-shadow focus-rings/primary-shadow
-                     :outline "2px solid transparent"}])
-```
-
-<details>
-<summary>Details</summary>
-
-A color matches anywhere in a string of the `:box-shadow` value, inside a `str` or a Garden vector too, and inside a
-call within them, without regard to case: `#516BFF` is the same color as `#516bff`. Spaces around parentheses and commas
-do not count either, so `rgb(81, 107, 255)` matches `rgb(81,107,255)`. A color followed by another hex digit is a
-different one, so `#fff` does not match `#fffabc`. A value built by a call alone, such as `(if highlighted? x y)`, is
-not read. Files in `:exempt-paths`, such as the preset that defines the colors, are not checked.
+or a Garden vector that holds a local or a call other than `str`, unless it holds a replaced value. The namespaces of
+the approved shadows, the preset, may build rings by hand and are not checked. A one-off elsewhere goes in the
+[baseline](../baseline.md). Off while `:approved-shadows` is empty.
 
 </details>
 
@@ -193,34 +154,19 @@ not read. Files in `:exempt-paths`, such as the preset that defines the colors, 
 The group reads `:focus-ring` from `.cljs-patrol/config.edn`, and does nothing until it is set:
 
 ```clojure
-{:focus-ring
- {:selectors #{":focus" ":focus-visible" ":focus-within"}
-  :approved-shadows #{app.styles.focus-rings/primary-shadow
-                      app.styles.focus-rings/danger-shadow}
-  :allow-stacking-under #{":focus-visible"}
-  :outline "2px solid transparent"
-  :forbidden-tokens {app.theme.button/shadow-brand-focused app.styles.focus-rings/primary-shadow}
-  :forbidden-color-literals #{"#516bff"}
-  :exempt-paths #{"src/app/styles/focus_rings.cljs"}}}
+{:focus-ring {:approved-shadows #{app.styles.focus-rings/primary-shadow
+                                  app.styles.focus-rings/danger-shadow}}}
 ```
 
+- `:approved-shadows` — the vars whose value is an approved ring, fully qualified. A map from each to the raw tokens and
+  colors it replaces works too, and a finding then names the shadow to use:
+  `{app.styles.focus-rings/primary-shadow #{app.theme.button/shadow-brand-focused "#516bff"}}`. Empty turns off
+  [Focus ring not from the preset](#focus-ring-not-from-the-preset).
+- `:outline` — the outline a focus block with a `box-shadow` must set, such as `"2px solid transparent"`. Left out, any
+  outline that draws holds. `false` turns off [Focus ring without an outline](#focus-ring-without-an-outline).
 - `:selectors` — the focus pseudo-classes. A selector that holds one outside `:not(…)` is a focus selector. Defaults to
   `:focus`, `:focus-visible` and `:focus-within`.
-- `:approved-shadows` — the vars whose value is an approved ring, fully qualified. Empty turns off
-  [Focus ring not from the preset](#focus-ring-not-from-the-preset).
-- `:allow-stacking-under` — the focus states under which a `(str …)` or a Garden vector holding an approved shadow
-  beside other parts is accepted.
-- `:outline` — the outline a focus block with a `box-shadow` must set. Left out, any outline that draws holds. `false`
-  turns off [Focus ring without an outline](#focus-ring-without-an-outline).
-- `:forbidden-tokens` — raw theme tokens, each mapped to the approved shadow that replaces it. A set works too, when
-  there is nothing to suggest.
-- `:forbidden-color-literals` — colors, hex or `rgb(…)`, that no focus `box-shadow` may hold.
-- `:exempt-paths` — files, relative to the project, that may build a ring by hand. Only the outline is checked there. A
-  path matches the end of a file's path on a directory boundary, so `src/app/styles/focus_rings.cljs` holds however the
-  source directory was named on the command line. A bare file name matches only a file at the root, never every file of
-  that name.
 
-Every key may be left out. An empty `:approved-shadows`, `:forbidden-tokens` or `:forbidden-color-literals` turns off
-its check, and `{:focus-ring {}}` checks only the outline. A symbol in the config is matched against what a file's
-aliases and refers resolve a symbol to, so `focus-rings/primary-shadow` matches `app.styles.focus-rings/primary-shadow`
-in a file that requires `[app.styles.focus-rings :as focus-rings]`.
+Every key may be left out: `{:focus-ring {}}` checks only the outline. A symbol in the config is matched against what a
+file's aliases and refers resolve a symbol to, so `focus-rings/primary-shadow` matches
+`app.styles.focus-rings/primary-shadow` in a file that requires `[app.styles.focus-rings :as focus-rings]`.

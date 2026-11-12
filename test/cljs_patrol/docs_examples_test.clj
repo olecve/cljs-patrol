@@ -22,10 +22,8 @@
   "Config the examples run under, for a rule that does nothing until it is configured.
   An example calls `(field-label)`, which resolves to a var of the example's own namespace."
   {:a11y {:label-styles #{'example.core/field-label}}
-   :focus-ring {:approved-shadows #{'app.styles.focus-rings/primary-shadow}
-                :allow-stacking-under #{":focus-visible"}
-                :forbidden-tokens {'app.theme.button/shadow-brand-focused 'app.styles.focus-rings/primary-shadow}
-                :forbidden-color-literals #{"#516bff"}}})
+   :focus-ring {:approved-shadows {'app.styles.focus-rings/primary-shadow #{'app.theme.button/shadow-brand-focused
+                                                                            "#516bff"}}}})
 
 (def ^:private default-requires
   "Aliases an example may use without writing its own ns form."

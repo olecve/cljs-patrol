@@ -99,7 +99,7 @@
 (def ^:private style-block-rules
   "Rules reported once per style block, identified by the declaration plus the selector it sits under."
   #{:css-property-order-outside-in
-    :focus-ring-missing-outline :focus-ring-raw-shadow :focus-ring-forbidden-token :focus-ring-forbidden-color})
+    :focus-ring-missing-outline :focus-ring-raw-shadow})
 
 (defn- relativize-path
   "Strip source-dir prefix from path to produce a portable relative path.
