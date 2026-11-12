@@ -2,7 +2,43 @@
 
 ## Status
 
-Proposed
+Rejected
+
+## Outcome
+
+The Linux measurement did not confirm G1. Keep the Serial GC on all platforms. The sections after this one show the
+proposal as it was before the measurement.
+
+Measurement conditions:
+
+- A Linux ARM64 container, with Oracle GraalVM 21.0.12, on an Apple Silicon laptop.
+- Two native binaries from the same uberjar (v0.0.54). One binary uses the `build.clj` flags (Serial GC). The other
+  binary uses the same flags and `--gc=G1`.
+- The same large codebase as the first test. The command is
+  `--only a11y,tests,react-testing-library-cljs,reagent --baseline --quiet-baseline`.
+- Each row is the median of 3 runs. Serial GC and G1 runs alternate in the same container.
+
+| CPUs   | `--jobs` | Time, Serial GC | Time, G1 | G1 / Serial GC | Peak memory, Serial GC | Peak memory, G1 |
+| ------ | -------- | --------------- | -------- | -------------- | ---------------------- | --------------- |
+| 1 core | 1        | 19.98 s         | 22.65 s  | 1.13           | 285 MB                 | 934 MB          |
+| 1 core | 2        | 19.86 s         | 26.80 s  | 1.35           | 260 MB                 | 1049 MB         |
+| 2 core | 2        | 15.63 s         | 15.65 s  | 1.00           | 228 MB                 | 1066 MB         |
+| 4 core | 4        | 10.35 s         | 10.58 s  | 1.02           | 278 MB                 | 1291 MB         |
+
+- G1 is slower on 1 core, and not faster on 2 or 4 cores. G1 has shorter pauses, but its concurrent threads use more CPU
+  time: 31.0 s against 24.2 s at 4 cores.
+- G1 uses 3.3x to 4.7x more peak memory.
+- The G1 binary is 22% larger: 35.4 MB against 29.0 MB.
+- On Linux, the Serial GC used only 5-7% of the run at `--jobs` 1 and 2, and 14-15% at `--jobs` 4. This is less than the
+  first test on macOS showed.
+- All runs gave the same output.
+
+The CI runners had fewer cores than the Context below expects. A private-repository runner showed `nproc` 2, but `lscpu`
+showed 1 core with 2 threads. On that runner, the gate command took 34.9 s and 34.2 s at `--jobs 1`, and 32.5 s and 31.9
+s at `--jobs 2`. Thus parallel analysis gives little on such runners, and a GC that collects on more threads gives less.
+
+The Linux container has no hyperthreads, so 1 core in the container is not the same as 1 core with 2 threads. G1 lost or
+tied with 1 core and with 2 cores, so a measurement on x86-64 is not necessary for this decision.
 
 ## Context
 
@@ -52,11 +88,11 @@ decision.
 
 ## Revisit when
 
-- The Linux measurement shows that G1 is not faster than the Serial GC. Then keep the Serial GC and write a new ADR to
-  supersede this one.
-- The release changes from Oracle GraalVM to GraalVM Community Edition.
-- Less memory allocation per run makes the GC cost of the Serial GC small.
-- native-image adds G1, or a different GC that collects on more than one thread, on macOS.
+Propose G1 again only if one of these conditions occurs:
+
+- CI runners get 4 or more physical cores, and runs with all groups become the slow part of CI. In the measurement, G1
+  was 5-14% faster for all groups on 2 and 4 cores, from 1 run for each configuration.
+- A new GraalVM release changes the CPU or memory cost of G1 in native images.
 
 ## More Information
 
