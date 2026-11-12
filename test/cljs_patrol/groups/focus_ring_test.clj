@@ -446,3 +446,24 @@
     (is (= {} (flagged (:results (temp-project/run-group (focus-ring/make-group config)
                                                          {"app/styles/focus_rings.cljc" source}))))
         "hand-built ring in cljc preset")))
+
+(deftest replaced-named-color-matches-as-whole-word
+  (doseq [[color value] [["red" "darkred"] ["blue" "blueviolet"] ["red" "red-ish"]]]
+    (is (= {} (flagged (run {:approved-shadows {'app.styles.focus-rings/primary-shadow #{color}}}
+                            (visible-ring ":box-shadow (str " ring " \", 0 0 0 1px " value "\") " outline))))
+        value))
+  (is (= "Use app.styles.focus-rings/primary-shadow."
+         (hint-of {:approved-shadows {'app.styles.focus-rings/primary-shadow #{"red"}}}
+                  (visible-ring ":box-shadow (str " ring " \", 0 0 0 1px RED\") " outline)))
+      "same named color"))
+
+(deftest approved-shadow-config-edges
+  (is (some? (focus-ring/make-group {:approved-shadows {'app.styles.focus-rings/primary-shadow nil}}))
+      "nil replaced values")
+  (doseq [value ["app.x/foo$bar" "app.x/a&b" "app.x/foo'"]]
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (focus-ring/make-group {:approved-shadows {'app.styles.focus-rings/primary-shadow #{value}}}))
+        value))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"got \{app.styles.focus-rings/primary-shadow 1\}"
+                        (focus-ring/make-group {:approved-shadows {'app.styles.focus-rings/primary-shadow 1}}))
+      "message prints map as written"))

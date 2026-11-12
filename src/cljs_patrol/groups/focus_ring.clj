@@ -415,19 +415,24 @@
   (re-pattern (str (Pattern/quote state) "(?![\\w-])")))
 
 (defn- color-pattern
-  "Match a color, in any case, not followed by another hex digit, so `#fff` does not match inside `#fffabc`."
+  "Match a color, in any case, as a whole: `#fff` does not match inside `#fffabc`, nor `red` inside `darkred`."
   [color]
-  (re-pattern (str "(?i)" (Pattern/quote (compact-color-text color)) "(?![0-9a-f])")))
+  (let [text (compact-color-text color)]
+    (re-pattern (str "(?i)(?<![\\w#-])" (Pattern/quote text) (if (str/starts-with? text "#") "(?![0-9a-f])" "(?![\\w-])")))))
 
 (defn- invalid-config [message value]
-  (throw (ex-info (str ":focus-ring :approved-shadows " message ", got " (pr-str value))
+  (throw (ex-info (str ":focus-ring :approved-shadows " message ", got "
+                       (binding [*print-namespace-maps* false] (pr-str value)))
                   {:approved-shadows value})))
 
 (defn- replaced-value?
-  "True for a raw token, a fully qualified symbol, or a color, a string that does not read as a symbol."
+  "True for a raw token, a fully qualified symbol, or a color, a string that does not read as a symbol.
+
+  A color holds a `/` only between its arguments, inside parentheses: one with a `/` and no
+  parenthesis is a symbol written as a string."
   [value]
   (or (qualified-symbol? value)
-      (and (string? value) (not (re-matches #"[\w.*+!?<>=-]+/[\w.*+!?<>=-]+" value)))))
+      (and (string? value) (not (and (str/includes? value "/") (not (str/includes? value "(")))))))
 
 (defn- read-approved-shadows
   "Read `:approved-shadows` as [shadows replaced], refusing any other shape.
@@ -440,7 +445,7 @@
       (invalid-config "must be a collection of fully qualified symbols, or a map from them" approved))
     (when (map? approved)
       (doseq [values (vals approved)]
-        (when-not (and (coll? values) (every? replaced-value? values))
+        (when-not (or (nil? values) (and (coll? values) (every? replaced-value? values)))
           (invalid-config "must map each shadow to a collection of fully qualified symbols and colors" approved))))
     [(set shadows)
      (when (map? approved)
