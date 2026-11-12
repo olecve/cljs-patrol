@@ -37,7 +37,8 @@
 
 (def ^:private re-frame-calls
   "Calls whose vector arguments are event or subscription vectors, not Hiccup."
-  #{"dispatch" "dispatch-sync" "dispatch-n" "subscribe"})
+  #{"dispatch" "dispatch-sync" "dispatch-n" "subscribe"
+    "reg-event-db" "reg-event-fx" "reg-event-ctx" "reg-sub" "reg-sub-raw"})
 
 (def ^:private event-effect-keys
   "Effect keys whose value is an event vector, or a vector of them."
@@ -46,20 +47,17 @@
 (defn- re-frame-vector?
   "True when a vector is a re-frame event or subscription, though its id names an HTML element.
 
-  An argument of `dispatch`, `subscribe` or a `reg-*` call, the value of a `:dispatch`-like
-  effect key, an item of a `:dispatch-n` value, and the event of an `[:dispatch …]` fx tuple."
+  An argument of `dispatch`, `subscribe` or a `reg-event-*` or `reg-sub` call, `#(…)`
+  included, and a vector after a `:dispatch`-like effect key, in an effect map or an fx tuple,
+  or an item of one after `:dispatch-n`."
   [loc]
   (let [parent (z/up loc)
-        effect-value? (fn [vector-loc]
-                        (let [up (z/up vector-loc)]
-                          (and (= :map (some-> up z/tag))
-                               (contains? event-effect-keys (some-> vector-loc z/left literal)))))]
-    (case (some-> parent z/tag)
-      :list (let [head (parser/sym-name (z/down parent))]
-              (boolean (and head (or (contains? re-frame-calls head) (str/starts-with? head "reg-")))))
-      :map (effect-value? loc)
-      :vector (or (contains? event-effect-keys (some-> parent z/down literal))
-                  (effect-value? parent))
+        tag (some-> parent z/tag)
+        after-effect-key? #(contains? event-effect-keys (some-> % z/left literal))]
+    (case tag
+      (:list :fn) (contains? re-frame-calls (parser/sym-name (z/down parent)))
+      (:map :vector) (or (after-effect-key? loc)
+                         (and (= :vector tag) (after-effect-key? parent)))
       false)))
 
 (defn- forbidden-for?
@@ -134,15 +132,18 @@
                   {:forbid-props value})))
 
 (defn- element-name?
-  "True for a tag keyword as `parse-tag` gives it, plain, or a fully qualified component symbol."
+  "True for an HTML or SVG tag keyword, plain, or a fully qualified component symbol.
+
+  Any other keyword names nothing the rule reads, a typo such as `:buton` or a custom element,
+  so an entry naming it would never match."
   [value]
-  (or (and (simple-keyword? value) (not (re-find #"[.#]" (name value))))
+  (or (and (simple-keyword? value) (hiccup/html-tag? value))
       (qualified-symbol? value)))
 
 (defn- read-elements [entry k]
   (when-some [elements (get entry k)]
     (when-not (and (coll? elements) (not (map? elements)) (every? element-name? elements))
-      (invalid-config (str k " must be a collection of plain tag keywords and fully qualified component symbols") entry))
+      (invalid-config (str k " must be a collection of HTML tag keywords and fully qualified component symbols") entry))
     (set elements)))
 
 (defn- read-entry

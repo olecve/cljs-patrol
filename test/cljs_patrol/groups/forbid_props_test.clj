@@ -76,13 +76,20 @@
                   "(rf/reg-sub :x :<- [:button {:aria-disabled true}] identity)"
                   "(rf/reg-event-fx :x (fn [] {:dispatch [:button {:aria-disabled true}]}))"
                   "(rf/reg-event-fx :x (fn [] {:dispatch-n [[:button {:aria-disabled true}]]}))"
-                  "(rf/reg-event-fx :x (fn [] {:fx [[:dispatch [:button {:aria-disabled true}]]]}))"]]
+                  "(rf/reg-event-fx :x (fn [] {:fx [[:dispatch [:button {:aria-disabled true}]]]}))"
+                  "(rf/reg-event-fx :x (fn [] {:fx [[:dispatch-n [[:button {:aria-disabled true}]]]]}))"
+                  "(defn v [] [:div {:on-click #(rf/dispatch [:button {:aria-disabled true}])}])"
+                  "(defn v [] [:div {:on-click #(rf/dispatch-sync [:button {:aria-disabled true}])}])"]]
     (is (= [] (flagged source))
         source))
   (is (= finding (flagged "(defn v [] [:div {:on-click #(rf/dispatch [:save])} [:button {:aria-disabled true}]])"))
       "element beside dispatch")
   (is (= finding (flagged "(defn v [] [tooltip {:content [:button {:aria-disabled true}]}])"))
-      "element as map value under other key"))
+      "element as map value under other key")
+  (is (= finding (flagged "(defn v [] (reg-row [:button {:aria-disabled true}]))"))
+      "argument of call not from re-frame")
+  (is (= finding (flagged "(rf/reg-sub :x (fn [db] [:button {:aria-disabled true}]))"))
+      "element returned from subscription body"))
 
 (deftest local-shadowing-referred-component-is-left-alone
   (let [entries [(assoc aria-disabled :disallowed-for #{'app.ui.button/icon-button})]]
@@ -142,6 +149,10 @@
                      :disallowed-for #{:button.primary}}]
                    [{:prop :x
                      :disallowed-for #{:ns/button}}]
+                   [{:prop :x
+                     :disallowed-for #{:buton}}]
+                   [{:prop :x
+                     :allowed-for #{:my-element}}]
                    [:x
                     {:prop :x
                      :disallowed-for #{:button}}]]]
