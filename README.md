@@ -52,6 +52,8 @@ Analysis is split into independent rule groups. By default all groups run.
   Hiccup, a fragment's `{}` that keeps nothing from being read as props, a fragment around a single element, and a `let`
   binding holding a component written inline
 - **[`typography`](docs/rules/typography.md)** — mixed Figma typography token groups in a single style
+- **[`focus-ring`](docs/rules/focus-ring.md)** — focus rings in Spade styles that lose the forced-colors outline or skip
+  the design system's preset; off until configured
 - **[`a11y`](docs/rules/a11y.md)** — accessibility in Hiccup: missing alt text and accessible names, controls a keyboard
   cannot reach, nested controls, labels that label nothing
 - **[`tests`](docs/rules/tests.md)** — conventions on test code: test names, assertion messages, conditional assertions,
@@ -197,6 +199,7 @@ Every setting can live in `.cljs-patrol/config.edn`, where it persists for the p
  :tests {:paths ["test"]}
  :layout {:split-map-after-symbol true}
  :idioms {:min-calls 3}
+ :focus-ring {:approved-shadows #{my.ui.styles.focus-rings/primary-shadow}}
  :experimental-clj true}
 ```
 
@@ -206,6 +209,7 @@ A CLI flag overrides the matching setting. See [Severity tiers](docs/severity.md
 [Label styles](docs/rules/a11y.md#label-styles) for `:a11y`,
 [Test id elements](docs/rules/react-testing-library-cljs.md#test-id-elements) for `:react-testing-library-cljs`,
 [Test paths](docs/rules/tests.md#test-paths) for `:tests`, [Layout options](docs/rules/layout.md#layout-options) for
-`:layout`, [Idioms options](docs/rules/idioms.md#idioms-options) for `:idioms`, and
+`:layout`, [Focus ring options](docs/rules/focus-ring.md#focus-ring-options) for `:focus-ring`,
+[Idioms options](docs/rules/idioms.md#idioms-options) for `:idioms`, and
 [Reading .clj files](docs/rules.md#experimental-reading-clj-files) for `:experimental-clj`. A flag written
 `--no-experimental-clj` turns that last one off for one run.

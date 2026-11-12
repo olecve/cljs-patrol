@@ -9,6 +9,7 @@ Every rule, one page per rule group. For the one-line summary of each group, see
 - **[`spade`](rules/spade.md)**
 - **[`reagent`](rules/reagent.md)**
 - **[`typography`](rules/typography.md)**
+- **[`focus-ring`](rules/focus-ring.md)**
 - **[`a11y`](rules/a11y.md)**
 - **[`tests`](rules/tests.md)**
 - **[`react-testing-library-cljs`](rules/react-testing-library-cljs.md)**
