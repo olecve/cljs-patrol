@@ -411,3 +411,38 @@
   (is (= {:focus-ring-missing-outline ["a"]}
          (flagged (run (str "(defclass a [] [:&:focus-within [\"&:not(:focus-visible)\" {:box-shadow " ring "}]])"))))
       "nested focus-within"))
+
+(deftest malformed-approved-shadows-are-refused
+  (doseq [approved [#{"app.styles.focus-rings/primary-shadow"}
+                    #{'primary-shadow}
+                    'app.styles.focus-rings/primary-shadow
+                    {"app.styles.focus-rings/primary-shadow" #{"#516bff"}}]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #":focus-ring :approved-shadows must be a collection"
+                          (focus-ring/make-group {:approved-shadows approved}))
+        (pr-str approved)))
+  (doseq [values ['app.theme.button/shadow-brand-focused
+                  "#516bff"
+                  #{"app.theme.button/shadow-brand-focused"}
+                  #{'shadow-brand-focused}
+                  {:a 1}]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #":focus-ring :approved-shadows must map each shadow"
+                          (focus-ring/make-group {:approved-shadows {'app.styles.focus-rings/primary-shadow values}}))
+        (pr-str values)))
+  (doseq [approved [nil [] ['app.styles.focus-rings/primary-shadow]
+                    {'app.styles.focus-rings/primary-shadow #{"rgb(0 0 0 / 0.5)" "#516bff"}}]]
+    (is (some? (focus-ring/make-group {:approved-shadows approved}))
+        (pr-str approved))))
+
+(deftest shared-replaced-value-names-first-shadow
+  (let [shared {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{'app.theme.button/shadow-brand-focused "#516bff"}
+                                   'app.styles.focus-rings/alpha-shadow #{'app.theme.button/shadow-brand-focused "#516bff"}}}]
+    (doseq [value ["button-theme/shadow-brand-focused" "\"0 0 0 2px #516bff\""]]
+      (is (= "Use app.styles.focus-rings/alpha-shadow." (hint-of shared (visible-ring ":box-shadow " value " " outline)))
+          value))))
+
+(deftest preset-in-cljc-checks-only-outline
+  (let [source (str "(ns app.styles.focus-rings (:require [spade.core :refer [defclass]]))\n"
+                    (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline))]
+    (is (= {} (flagged (:results (temp-project/run-group (focus-ring/make-group config)
+                                                         {"app/styles/focus_rings.cljc" source}))))
+        "hand-built ring in cljc preset")))

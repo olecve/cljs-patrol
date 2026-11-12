@@ -151,22 +151,26 @@ the approved shadows, the preset, may build rings by hand and are not checked. A
 
 ## Focus ring options
 
-The group reads `:focus-ring` from `.cljs-patrol/config.edn`, and does nothing until it is set:
+The group reads `:focus-ring` from `.cljs-patrol/config.edn`, and does nothing until it is set. The examples on this
+page run under this config:
 
 ```clojure
-{:focus-ring {:approved-shadows #{app.styles.focus-rings/primary-shadow
-                                  app.styles.focus-rings/danger-shadow}}}
+{:focus-ring {:approved-shadows {app.styles.focus-rings/primary-shadow #{app.theme.button/shadow-brand-focused
+                                                                         "#516bff"}}}}
 ```
 
-- `:approved-shadows` — the vars whose value is an approved ring, fully qualified. A map from each to the raw tokens and
-  colors it replaces works too, and a finding then names the shadow to use:
-  `{app.styles.focus-rings/primary-shadow #{app.theme.button/shadow-brand-focused "#516bff"}}`. Empty turns off
+- `:approved-shadows` — the vars whose value is an approved ring, fully qualified, each mapped to the raw tokens and
+  colors it replaces. A finding on a value that holds one of them names the shadow to use, and reports it even inside a
+  stacked ring. When two shadows list the same value, the first by name is named. A set works too, when there is nothing
+  to replace: `#{app.styles.focus-rings/primary-shadow}`. Empty turns off
   [Focus ring not from the preset](#focus-ring-not-from-the-preset).
 - `:outline` — the outline a focus block with a `box-shadow` must set, such as `"2px solid transparent"`. Left out, any
   outline that draws holds. `false` turns off [Focus ring without an outline](#focus-ring-without-an-outline).
 - `:selectors` — the focus pseudo-classes. A selector that holds one outside `:not(…)` is a focus selector. Defaults to
   `:focus`, `:focus-visible` and `:focus-within`.
 
-Every key may be left out: `{:focus-ring {}}` checks only the outline. A symbol in the config is matched against what a
-file's aliases and refers resolve a symbol to, so `focus-rings/primary-shadow` matches
+Every key may be left out: `{:focus-ring {}}` checks only the outline. An `:approved-shadows` of another shape, such as
+an unqualified symbol, a string where a symbol belongs, or a single value where a collection belongs, stops the run with
+a message that names it, rather than checking against a config that does not say what was meant. A symbol in the config
+is matched against what a file's aliases and refers resolve a symbol to, so `focus-rings/primary-shadow` matches
 `app.styles.focus-rings/primary-shadow` in a file that requires `[app.styles.focus-rings :as focus-rings]`.

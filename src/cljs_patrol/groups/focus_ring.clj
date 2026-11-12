@@ -419,18 +419,47 @@
   [color]
   (re-pattern (str "(?i)" (Pattern/quote (compact-color-text color)) "(?![0-9a-f])")))
 
+(defn- invalid-config [message value]
+  (throw (ex-info (str ":focus-ring :approved-shadows " message ", got " (pr-str value))
+                  {:approved-shadows value})))
+
+(defn- replaced-value?
+  "True for a raw token, a fully qualified symbol, or a color, a string that does not read as a symbol."
+  [value]
+  (or (qualified-symbol? value)
+      (and (string? value) (not (re-matches #"[\w.*+!?<>=-]+/[\w.*+!?<>=-]+" value)))))
+
+(defn- read-approved-shadows
+  "Read `:approved-shadows` as [shadows replaced], refusing any other shape.
+
+  Replaced pairs are [value shadow], sorted by shadow, so a value that two shadows list names
+  the same one on every run."
+  [approved]
+  (let [shadows (if (map? approved) (keys approved) approved)]
+    (when-not (and (or (nil? approved) (coll? approved)) (every? qualified-symbol? shadows))
+      (invalid-config "must be a collection of fully qualified symbols, or a map from them" approved))
+    (when (map? approved)
+      (doseq [values (vals approved)]
+        (when-not (and (coll? values) (every? replaced-value? values))
+          (invalid-config "must map each shadow to a collection of fully qualified symbols and colors" approved))))
+    [(set shadows)
+     (when (map? approved)
+       (for [[shadow values] (sort-by (comp str key) approved)
+             value values]
+         [value shadow]))]))
+
 (defn- normalize-config [config]
   (when (map? config)
     (let [selectors (set (or (seq (:selectors config)) default-selectors))
-          approved (:approved-shadows config)
-          replaced (when (map? approved)
-                     (for [[shadow values] approved
-                           value values]
-                       [value shadow]))]
+          [shadows replaced] (read-approved-shadows (:approved-shadows config))]
       {:patterns (mapv (juxt identity state-pattern) selectors)
-       :approved-shadows (set (if (map? approved) (keys approved) approved))
-       :preset-namespaces (into #{} (keep namespace) (if (map? approved) (keys approved) approved))
-       :replaced-symbols (into {} (filter (comp symbol? first)) replaced)
+       :approved-shadows shadows
+       :preset-namespaces (into #{} (map namespace) shadows)
+       :replaced-symbols (reduce (fn [found [value shadow]]
+                                   (cond-> found
+                                     (and (symbol? value) (not (contains? found value))) (assoc value shadow)))
+                                 {}
+                                 replaced)
        :replaced-colors (into [] (keep (fn [[value shadow]] (when (string? value) [(color-pattern value) shadow]))) replaced)
        :outline (:outline config)})))
 
