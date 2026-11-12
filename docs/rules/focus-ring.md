@@ -68,13 +68,16 @@ style or a zero width outside parentheses, so the `0` of `rgb(0 0 0)` is no widt
 outline in the system color, whatever color it was written with. With `:outline` configured, the outline must be that
 value instead, compared without regard to case, spacing or `!important`, so a codebase can keep one outline everywhere.
 
-The outline may sit in the block's literal maps or in a map around it that applies while the element has focus: the
-declaration's base map, a focus block, or a block with no pseudo-class, such as `[:.btn …]`. A `:hover` block around it
-does not count. For a ring on `::after` or `::before`, the element's own block in the same declaration counts too,
-`[:&:focus-visible {:outline …}]` beside `["&:focus-visible::after" {:box-shadow …}]`, because forced-colors mode paints
-the element's outline. A ring on the pseudo-elements of several elements needs the outline on every one of them. The
-block and the element hold each on its own, so an `:outline :none` on the element does not undo the outline on its
-`::after`.
+The outline may sit in the block's literal maps or in a map around it that styles the same element. A block whose
+selectors all start with `&` is the element around it in a narrower state, or one of its pseudo-elements, so every map
+around it counts: the declaration's base map and its `[:& …]` blocks, and blocks such as `[:&:hover …]`,
+`["&:not(:disabled)" …]` or `[:.btn …]` that it sits in. A descendant, such as `[:input:focus …]`, is another element:
+only the focus blocks around it count, whose outline marks the element that holds focus. For a ring on `::after` or
+`::before`, the element's own block in the same declaration counts too, `[:&:focus-visible {:outline …}]` beside
+`["&:focus-visible::after" {:box-shadow …}]`, because forced-colors mode paints the element's outline. The
+pseudo-element matches in any case, and in a selector list written as one string. A ring on the pseudo-elements of
+several elements needs the outline on every one of them. The block and the element hold each on its own, so an
+`:outline :none` on the element does not undo the outline on its `::after`.
 
 A value the rule cannot read, a symbol or a call, is taken as set, and so is an outline written as its longhands,
 `:outline-width`, `:outline-style` or `:outline-color`, which the rule does not read further. So `:outline-style "none"`

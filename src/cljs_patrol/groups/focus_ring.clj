@@ -117,14 +117,21 @@
      :vectors (filter #(= :vector (z/tag %)) body)
      :opaque? (boolean (some #(not (contains? #{:map :vector} (z/tag %))) body))}))
 
+(defn- selector-list
+  "Split selector texts on commas, so `\"a::after, b::after\"` is read as the two selectors it holds."
+  [texts]
+  (mapcat #(str/split (str/trim %) #"\s*,\s*") texts))
+
 (defn- blocks
   "Return every selector block under `locs`, each with the focus states of its own selectors and those above it.
 
   Only vectors written in the declaration are read: a block a call produces is not something
-  this can see. A block's `:outer-maps` are the literal maps around it that apply while it has
-  focus, where its outline may already be set: those of the declaration's base, of focus blocks,
-  and of blocks with no pseudo-class at all. A selector holding `:not(:focus-visible)` styles
-  focus from a pointer, so that no ring shows, and takes `:focus` out of the states it inherits too."
+  this can see. A block's `:outer-maps` are the literal maps around it that apply to its element
+  while its ring shows, where its outline may already be set. A block whose selectors all start
+  with `&` is the element around it in a narrower state, or one of its pseudo-elements, so every
+  map around it counts. A descendant, `[:input:focus …]`, is another element, and only the maps
+  of the focus blocks around it count. A selector holding `:not(:focus-visible)` styles focus
+  from a pointer, so that no ring shows, and takes `:focus` out of the states it inherits too."
   [locs patterns outer]
   (mapcat (fn [loc]
             (when (= :vector (z/tag loc))
@@ -135,19 +142,21 @@
                     states (cond-> (into (:states outer #{}) own-states)
                              pointer-only? (disj ":focus"))
                     path (conj (:path outer []) texts)
+                    same-element? (and (seq texts) (every? #(str/starts-with? % "&") (selector-list texts)))
+                    outer-maps (if same-element? (:element-maps outer []) (:focus-maps outer []))
                     block {:loc loc
                            :selector (str/join " " (concat (:selectors outer) (map parser/raw head)))
                            :path path
                            :states states
                            :maps maps
                            :opaque? (or opaque? (:opaque? outer false))
-                           :outer-maps (:maps outer [])}
+                           :outer-maps outer-maps}
                     inner {:selectors (concat (:selectors outer) (map parser/raw head))
                            :path path
                            :states states
                            :opaque? (:opaque? block)
-                           :maps (cond-> (:outer-maps block)
-                                   (or (seq states) (not-any? #(str/includes? % ":") texts)) (into maps))}]
+                           :element-maps (concat outer-maps maps)
+                           :focus-maps (if (seq states) (concat outer-maps maps) (:focus-maps outer []))}]
                 (when (or (seq maps) (seq vectors) opaque?)
                   (cons block (blocks vectors patterns inner))))))
           locs))
@@ -334,12 +343,27 @@
   level above. Any other is looked up among the blocks beside this one, in any block whose
   selectors hold it."
   [path by-path by-parent]
-  (for [selector (peek path)
-        :let [base (str/replace selector #"::?(after|before)$" "")]
+  (for [selector (selector-list (peek path))
+        :let [base (str/replace selector #"(?i)::?(after|before)$" "")]
         :when (not= base selector)]
     (if (contains? #{"&" ""} base)
       (get by-path (pop path))
-      (filter #(some #{base} (peek (:path %))) (get by-parent (pop path))))))
+      (filter #(some #{base} (-> % :path peek selector-list)) (get by-parent (pop path))))))
+
+(defn- base-maps
+  "Return the maps a declaration's element always carries.
+
+  Its own literal maps, and those of the blocks whose selectors include `&`."
+  [body]
+  (mapcat (fn [loc]
+            (case (z/tag loc)
+              :map [loc]
+              :vector (let [{:keys [head maps]} (block-parts loc)
+                            selectors (selector-list (map selector-text head))]
+                        (when (some #{"&"} selectors)
+                          maps))
+              nil))
+          body))
 
 (defn- with-element-groups
   "Give each pseudo-element block the blocks of the elements it decorates, where its outline may be set.
@@ -360,7 +384,7 @@
           (let [decl-kw (keyword ns-name decl-name)
                 exempt? (exempt-path? file (:exempt-paths config))
                 body (parser/right-siblings name-loc)
-                findings (->> (blocks body (:patterns config) {:maps (filter #(= :map (z/tag %)) body)})
+                findings (->> (blocks body (:patterns config) {:element-maps (base-maps body)})
                               with-element-groups
                               (mapcat #(block-findings % config ns-info decl-kw file exempt?))
                               vec)]

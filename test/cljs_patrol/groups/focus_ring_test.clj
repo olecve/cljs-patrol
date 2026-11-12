@@ -92,12 +92,25 @@
   (is (= {} (flagged (run (str "(defclass a [] [:&:focus-visible {" outline "} {:box-shadow " ring "}])"))))
       "two maps in one block"))
 
-(deftest outline-in-enclosing-focus-block-passes
+(deftest outline-in-enclosing-block-passes
   (is (= {} (flagged (run (str "(defclass a [] [:&:focus-visible {" outline "} [:&::after {:box-shadow " ring "}]])"))))
       "outline on enclosing focus block")
+  (is (= {} (flagged (run (str "(defclass a [] [:&:focus-visible {" outline "} [:.icon {:box-shadow " ring "}]])"))))
+      "outline on focus block around descendant")
+  (doseq [selector [":&:hover" ":&:enabled" "\"&:not(:disabled)\"" "\"&:is(.a, .b)\""]]
+    (is (= {} (flagged (run (str "(defclass a [] [" selector " {" outline "} [:&:focus-visible {:box-shadow " ring "}]])"))))
+        selector)))
+
+(deftest outline-on-another-element-is-flagged
   (is (= {:focus-ring-missing-outline ["a"]}
-         (flagged (run (str "(defclass a [] [:&:hover {" outline "} [:&:focus-visible {:box-shadow " ring "}]])"))))
-      "outline on enclosing hover block"))
+         (flagged (run (str "(defclass a [] [:.btn {" outline "} [:input:focus {:box-shadow " ring "}]])"))))
+      "outline on ancestor without focus")
+  (is (= {:focus-ring-missing-outline ["a"]}
+         (flagged (run (str "(defclass a [] {" outline "} [:input:focus {:box-shadow " ring "}])"))))
+      "outline in base map, ring on descendant")
+  (is (= {:focus-ring-missing-outline ["a"]}
+         (flagged (run (str "(defclass a [] [:&:hover [:.icon {" outline "}] [:&:focus-visible {:box-shadow " ring "}]])"))))
+      "outline on sibling descendant"))
 
 (deftest block-built-by-call-skips-outline
   (is (= {} (flagged (run (str "(defclass a [] [:&:focus-visible (merge base) {:box-shadow " ring "}])"))))
@@ -391,9 +404,26 @@
       "outline in base map")
   (is (= {} (flagged (run (str "(defclass a [] [:.btn {" outline "} [:&:focus-visible {:box-shadow " ring "}]])"))))
       "outline on block with no state")
+  (is (= {} (flagged (run (str "(defclass a [] [:& {" outline "}] [:&:focus-visible {:box-shadow " ring "}])"))))
+      "outline in ampersand block")
+  (is (= {} (flagged (run (str "(defclass a [] [:& {" outline "}] [:&:focus-visible::after {:box-shadow " ring "}])"))))
+      "outline in ampersand block, ring on pseudo-element")
+  (is (= {} (flagged (run (str "(defclass a [] [:&.active {" outline "} [:&:focus-visible {:box-shadow " ring "}]])"))))
+      "outline on class qualifier")
+  (is (= {} (flagged (run (str "(defclass a [] [:& :.x {" outline "}] [:&:focus-visible {:box-shadow " ring "}])"))))
+      "ampersand in selector list")
   (is (= {:focus-ring-missing-outline ["a"]}
-         (flagged (run (str "(defclass a [] [:.btn:hover {" outline "} [:&:focus-visible {:box-shadow " ring "}]])"))))
-      "outline on hover block"))
+         (flagged (run (str "(defclass a [] [:.x {" outline "}] [:&:focus-visible {:box-shadow " ring "}])"))))
+      "block of descendant only"))
+
+(deftest element-block-is-found-however-spelled
+  (doseq [[element ring-selector] [["\"&:focus-visible\"" ":&:focus-visible::after"]
+                                   [":&:focus-visible" "\"&:focus-visible::AFTER\""]
+                                   [":.btn:focus-visible" ":.btn:focus-visible::after"]
+                                   [":&:focus-visible :&:focus-within"
+                                    "\"&:focus-visible::after, &:focus-within::after\""]]]
+    (is (= {} (flagged (run (str "(defclass a [] [" element " {" outline "}] [" ring-selector " {:box-shadow " ring "}])"))))
+        ring-selector)))
 
 (deftest configured-outline-ignores-spacing-in-color
   (is (= {} (flagged (run (assoc config :outline "2px solid rgba(0,0,0,0)")
