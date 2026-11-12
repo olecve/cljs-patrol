@@ -23,7 +23,7 @@ screen-reader user cannot reach, name or tell apart, and a Spade selector that m
 - `discarded-hiccup`
 - `pseudo-in-main-map`, `consecutive-self-selectors`, `spade-ampersand-not-at-start`,
   `spade-keyword-combinator-selector`
-- `focus-ring-missing-companion`
+- `focus-ring-missing-outline`
 
 **`deprecations`** — deprecated APIs and idiomatic violations that may break later.
 

@@ -24,7 +24,6 @@
   {:a11y {:label-styles #{'example.core/field-label}}
    :focus-ring {:approved-shadows #{'app.styles.focus-rings/primary-shadow}
                 :allow-stacking-under #{":focus-visible"}
-                :required-companion {:outline "2px solid transparent"}
                 :forbidden-tokens {'app.theme.button/shadow-brand-focused 'app.styles.focus-rings/primary-shadow}
                 :forbidden-color-literals #{"#516bff"}}})
 

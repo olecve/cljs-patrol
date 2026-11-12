@@ -199,8 +199,7 @@ Every setting can live in `.cljs-patrol/config.edn`, where it persists for the p
  :tests {:paths ["test"]}
  :layout {:split-map-after-symbol true}
  :idioms {:min-calls 3}
- :focus-ring {:approved-shadows #{my.ui.styles.focus-rings/primary-shadow}
-              :required-companion {:outline "2px solid transparent"}}
+ :focus-ring {:approved-shadows #{my.ui.styles.focus-rings/primary-shadow}}
  :experimental-clj true}
 ```
 

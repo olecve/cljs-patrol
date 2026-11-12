@@ -22,10 +22,6 @@
   "Values of `:box-shadow` that paint no ring, so no outline needs to go with them."
   #{"none" "unset" "initial" "inherit" "revert" "revert-layer"})
 
-(def ^:private custom-property-reference
-  "A value that is only a CSS custom property, set somewhere this cannot see, so it is read like a local."
-  #"\s*var\(--[\w-]+\)\s*(!important)?\s*")
-
 (def ^:private snippet-max-length 120)
 
 (defn- source-snippet [loc]
@@ -38,13 +34,23 @@
   (when (= :token (z/tag loc))
     (try (z/sexpr loc) (catch Exception _ nil))))
 
+(defn- without-important
+  "Drop a trailing `!important`, which changes how a value cascades and not what it paints."
+  [text]
+  (str/trim (str/replace text #"(?i)\s*!important\s*$" "")))
+
 (defn- css-text
-  "Return the text Garden writes for a literal value, or nil for a value that is not one."
+  "Return the text Garden writes for a literal value, `!important` left out, or nil for a value that is not one."
   [value]
   (cond
-    (string? value) (str/trim (str/replace value #"\s+" " "))
+    (string? value) (without-important (str/replace value #"\s+" " "))
     (keyword? value) (name value)
     (number? value) (str value)))
+
+(defn- compact-color-text
+  "Drop the spaces around parentheses, commas and slashes, so `rgb(81, 107, 255)` and `rgb(81,107,255)` compare equal."
+  [text]
+  (str/replace text #"\s*([(),/])\s*" "$1"))
 
 (defn- without-negations
   "Remove every `:not(…)` from a selector, the parentheses balanced, so a state it excludes is not read as one it selects."
@@ -116,25 +122,31 @@
 
   Only vectors written in the declaration are read: a block a call produces is not something
   this can see. A block's `:outer-maps` are the literal maps of the focus blocks around it,
-  where its outline may already be set."
+  where its outline may already be set. A selector holding `:not(:focus-visible)` styles focus
+  from a pointer, so that no ring shows, and takes `:focus` out of the states it inherits too."
   [locs patterns outer]
   (mapcat (fn [loc]
             (when (= :vector (z/tag loc))
               (let [{:keys [head maps vectors opaque?]} (block-parts loc)
-                    texts (map selector-text head)
-                    own-states (into #{} (mapcat #(when % (focus-states % patterns))) texts)
-                    states (into (:states outer #{}) own-states)
+                    texts (mapv selector-text head)
+                    own-states (into #{} (mapcat #(focus-states % patterns)) texts)
+                    pointer-only? (some #(str/includes? % ":not(:focus-visible)") texts)
+                    states (cond-> (into (:states outer #{}) own-states)
+                             pointer-only? (disj ":focus"))
+                    path (conj (:path outer []) texts)
                     block {:loc loc
                            :selector (str/join " " (concat (:selectors outer) (map parser/raw head)))
+                           :path path
                            :states states
                            :maps maps
                            :opaque? (or opaque? (:opaque? outer false))
                            :outer-maps (:maps outer [])}
                     inner {:selectors (concat (:selectors outer) (map parser/raw head))
+                           :path path
                            :states states
                            :opaque? (:opaque? block)
                            :maps (cond-> (:outer-maps block) (seq states) (into maps))}]
-                (when (or (seq maps) (seq vectors))
+                (when (or (seq maps) (seq vectors) opaque?)
                   (cons block (blocks vectors patterns inner))))))
           locs))
 
@@ -145,6 +157,27 @@
     [loc]
     (mapcat value-tokens (parser/child-locs loc))))
 
+(defn- str-call? [loc]
+  (and (= :list (z/tag loc))
+       (= "str" (parser/sym-name (z/down loc)))))
+
+(defn- unreadable-part?
+  "True when a part of a composed value may hold anything: a call other than `str`, or a local."
+  [loc ns-info]
+  (case (z/tag loc)
+    :token (let [value (literal loc)]
+             (and (symbol? value) (nil? (resolve-symbol value ns-info))))
+    :list (or (not (str-call? loc))
+              (boolean (some #(unreadable-part? % ns-info) (rest (parser/child-locs loc)))))
+    (boolean (some #(unreadable-part? % ns-info) (parser/child-locs loc)))))
+
+(defn- composed-value
+  "Classify a `str` or a Garden vector by its parts: the tokens to search, and whether a part may hold anything."
+  [kind parts ns-info]
+  {:kind kind
+   :tokens (mapcat value-tokens parts)
+   :unreadable? (boolean (some #(unreadable-part? % ns-info) parts))})
+
 (defn- shadow-value
   "Classify a `:box-shadow` value: a reset, a var, a string, a `str` or a Garden vector built in place.
 
@@ -153,8 +186,7 @@
   (case (z/tag value-loc)
     :token (let [value (literal value-loc)]
              (cond
-               (and (string? value) (contains? reset-values (str/lower-case (str/trim value)))) {:kind :reset}
-               (and (string? value) (re-matches custom-property-reference value)) {:kind :local}
+               (and (string? value) (contains? reset-values (str/lower-case (without-important value)))) {:kind :reset}
                (string? value) {:kind :string
                                 :tokens [value-loc]}
                (symbol? value) (if-let [resolved (resolve-symbol value ns-info)]
@@ -162,11 +194,9 @@
                                   :symbol resolved
                                   :tokens [value-loc]}
                                  {:kind :local})))
-    :list (when (= "str" (parser/sym-name (z/down value-loc)))
-            {:kind :str
-             :tokens (->> value-loc parser/child-locs rest (mapcat value-tokens))})
-    :vector {:kind :composed
-             :tokens (value-tokens value-loc)}
+    :list (when (str-call? value-loc)
+            (composed-value :str (rest (parser/child-locs value-loc)) ns-info))
+    :vector (composed-value :composed (parser/child-locs value-loc) ns-info)
     nil))
 
 (defn- entry-value
@@ -188,45 +218,75 @@
              :col col}
       hint (assoc :hint hint))))
 
-(defn- companion-finding
-  "Return a missing-companion finding when the block sets a shadow without every companion property at its configured value."
-  [block key-loc required decl-kw file]
-  (when-not (:opaque? block)
-    (let [maps (concat (:outer-maps block) (:maps block))
-          problems (keep (fn [[property expected]]
-                           (let [[_ _ value-loc] (entry-value maps (name property))
-                                 actual (some-> value-loc literal css-text)]
-                             (cond
-                               (nil? value-loc) property
-                               (and (= :token (z/tag value-loc)) (some? actual) (not= actual (css-text expected))) property)))
-                         required)]
-      (when (seq problems)
-        (finding :focus-ring-missing-companion block key-loc decl-kw file
-                 (str "Set " (str/join " and " (map (fn [property]
-                                                      (str property " " (pr-str (get required property))))
-                                                    problems))
-                      " beside :box-shadow."))))))
+(def ^:private outline-longhands #{"outline-width" "outline-style" "outline-color"})
+
+(defn- drawn-outline-text?
+  "True when an `outline` value draws a line: no `none` or `hidden` style, and no zero width."
+  [text]
+  (let [parts (str/split (str/lower-case text) #"\s+")]
+    (not-any? #(or (contains? #{"none" "hidden"} %)
+                   (re-matches #"[+-]?0*\.?0+[a-z%]*" %))
+              parts)))
+
+(def ^:private default-outline "2px solid transparent")
+
+(defn- outline-text
+  "Normalize an outline for comparison: lower case, one space between parts, `!important` left out."
+  [text]
+  (str/lower-case (css-text text)))
+
+(defn- outline-holds?
+  "True when `maps`, read in the order the cascade applies them, end on the required outline, or one this cannot read.
+
+  With no `expected` value, any outline that draws holds."
+  [maps expected]
+  (let [entries (mapcat map-entries maps)
+        [_ _ value-loc] (last (filter #(= "outline" (first %)) entries))
+        text (some-> value-loc literal css-text)]
+    (cond
+      (some #(contains? outline-longhands (first %)) entries) true
+      (nil? value-loc) false
+      (nil? text) true
+      expected (= (outline-text text) (outline-text expected))
+      :else (drawn-outline-text? text))))
+
+(defn- outline-finding
+  "Return a missing-outline finding when no block that may carry the ring's outline sets it.
+
+  The block itself counts with the focus blocks around it, and a pseudo-element's ring counts
+  the blocks of the element it decorates, each on its own: forced-colors mode paints the
+  outline of either."
+  [block key-loc expected decl-kw file]
+  (let [sources (cons block (:siblings block))]
+    (when-not (or (some :opaque? sources)
+                  (some #(outline-holds? (concat (:outer-maps %) (:maps %)) expected) sources))
+      (finding :focus-ring-missing-outline block key-loc decl-kw file
+               (str "Set :outline " (pr-str (or expected default-outline)) " beside :box-shadow.")))))
 
 (defn- source-findings
   "Return the findings about where a block's `:box-shadow` value comes from."
-  [block key-loc shadow {:keys [approved-shadows allow-stacking-under forbidden-tokens forbidden-color-literals]} ns-info decl-kw
+  [block key-loc shadow {:keys [approved-shadows allow-stacking-under forbidden-tokens forbidden-color-patterns]} ns-info decl-kw
    file]
   (let [token-values (map literal (:tokens shadow))
         symbols (keep #(resolve-symbol % ns-info) token-values)
-        strings (map str/lower-case (filter string? token-values))
+        strings (map compact-color-text (filter string? token-values))
         forbidden-token (first (filter #(contains? forbidden-tokens %) symbols))
-        forbidden-color (first (filter (fn [color] (some #(str/includes? % color) strings)) forbidden-color-literals))
-        approved? (case (:kind shadow)
+        forbidden-color (first (filter (fn [pattern] (some #(re-find pattern %) strings)) forbidden-color-patterns))
+        holds-approved? (boolean (some #(contains? approved-shadows %) symbols))
+        parts (remove #(and (string? %) (str/blank? (without-important %))) token-values)
+        accepted? (case (:kind shadow)
                     :var (contains? approved-shadows (:symbol shadow))
-                    :str (and (seq (filter #(contains? allow-stacking-under %) (:states block)))
-                              (boolean (some #(contains? approved-shadows %) symbols)))
+                    (:str :composed) (if holds-approved?
+                                       (or (= 1 (count parts))
+                                           (boolean (some #(contains? allow-stacking-under %) (:states block))))
+                                       (:unreadable? shadow))
                     false)]
     (cond-> []
       forbidden-token (conj (finding :focus-ring-forbidden-token block key-loc decl-kw file
                                      (when-let [approved (get forbidden-tokens forbidden-token)]
                                        (str "Use " approved "."))))
       forbidden-color (conj (finding :focus-ring-forbidden-color block key-loc decl-kw file nil))
-      (and (not forbidden-token) (not forbidden-color) (seq approved-shadows) (not approved?))
+      (and (not forbidden-token) (not forbidden-color) (seq approved-shadows) (not accepted?))
       (conj (finding :focus-ring-raw-shadow block key-loc decl-kw file nil)))))
 
 (defn- block-findings [block config ns-info decl-kw file exempt?]
@@ -234,16 +294,52 @@
     (when-let [[_ key-loc value-loc] (entry-value (:maps block) "box-shadow")]
       (when-let [shadow (shadow-value value-loc ns-info)]
         (when-not (= :reset (:kind shadow))
-          (let [companion (companion-finding block key-loc (:required-companion config) decl-kw file)]
-            (cond-> (if companion [companion] [])
+          (let [outline (when-not (false? (:outline config))
+                          (outline-finding block key-loc (:outline config) decl-kw file))]
+            (cond-> (if outline [outline] [])
               (and (not exempt?) (not= :local (:kind shadow)))
               (into (source-findings block key-loc shadow config ns-info decl-kw file)))))))))
 
+(defn- normalize-path [path]
+  (-> (str path)
+      (str/replace "\\" "/")
+      (str/replace #"^(\./)+" "")))
+
 (defn- exempt-path?
-  "True when `file` is one of the configured paths, written relative to the project."
+  "True when `file` is one of the configured paths, written relative to the project.
+
+  A configured path matches the end of the file's path on a directory boundary, so it holds
+  whether discovery wrote the path relative or absolute. A bare file name matches only a file
+  at the root, or it would exempt every file of that name."
   [file exempt-paths]
-  (let [path (str/replace (str file) "\\" "/")]
-    (boolean (some #(or (= path %) (str/ends-with? path (str "/" %))) exempt-paths))))
+  (let [path (normalize-path file)]
+    (boolean (some #(or (= path %)
+                        (and (str/includes? % "/") (str/ends-with? path (str "/" %))))
+                   exempt-paths))))
+
+(defn- pseudo-element-base
+  "Return the path of the element a pseudo-element block decorates, or nil when its selectors name no `::after` or `::before`.
+
+  Each selector of the last level loses its pseudo-element. A level left with only `&`, as in a
+  nested `[:&::after …]`, is the element above it, so the path ends one level up."
+  [path]
+  (let [level (peek path)
+        base (mapv #(str/replace % #"::?(after|before)$" "") level)]
+    (when (not= base level)
+      (if (every? #{"&" ""} base)
+        (pop path)
+        (conj (pop path) base)))))
+
+(defn- with-siblings
+  "Give each pseudo-element block the blocks of the element it decorates, where its outline may be set.
+
+  Forced-colors mode paints the element's outline, so a ring on `&:focus-visible::after` keeps
+  showing when a sibling `&:focus-visible` block sets the outline."
+  [all-blocks]
+  (let [by-path (group-by :path all-blocks)]
+    (map (fn [block]
+           (assoc block :siblings (some->> (pseudo-element-base (:path block)) (get by-path))))
+         all-blocks)))
 
 (defn- handle-list [config]
   (fn [loc {:keys [ns-name]
@@ -254,6 +350,7 @@
           (let [decl-kw (keyword ns-name decl-name)
                 exempt? (exempt-path? file (:exempt-paths config))
                 findings (->> (blocks (parser/right-siblings name-loc) (:patterns config) {})
+                              with-siblings
                               (mapcat #(block-findings % config ns-info decl-kw file exempt?))
                               vec)]
             (when (seq findings)
@@ -262,14 +359,14 @@
                :dynamics []})))))))
 
 (def ^:private rules
-  [:focus-ring-missing-companion :focus-ring-raw-shadow :focus-ring-forbidden-token :focus-ring-forbidden-color])
+  [:focus-ring-missing-outline :focus-ring-raw-shadow :focus-ring-forbidden-token :focus-ring-forbidden-color])
 
 (defn- analyze* [{:keys [declarations]}]
   (let [by-type (group-by :type declarations)]
     (into {} (map (fn [rule] [rule (vec (get by-type rule))])) rules)))
 
 (defn- summary-lines* [result]
-  [["Focus ring without the forced-colors companion:" (count (:focus-ring-missing-companion result))]
+  [["Focus ring without an outline:" (count (:focus-ring-missing-outline result))]
    ["Focus ring not from the preset:" (count (:focus-ring-raw-shadow result))]
    ["Focus ring from a forbidden token:" (count (:focus-ring-forbidden-token result))]
    ["Focus ring with a forbidden color:" (count (:focus-ring-forbidden-color result))]])
@@ -283,9 +380,9 @@
   (summary-lines [_ result] (when config (summary-lines* result)))
   (failed? [_ result] (boolean (some #(seq (get result %)) rules)))
   (suggestions [_]
-    {:focus-ring-missing-companion
-     (str "A focus style paints a ring with box-shadow, which forced-colors mode drops. Set the configured "
-          "companion, such as a transparent outline, in the same block so the ring still shows there.")
+    {:focus-ring-missing-outline
+     (str "A focus style paints a ring with box-shadow, which forced-colors mode drops. Set a transparent "
+          "outline in the same block, which forced-colors mode paints, so the ring still shows there.")
      :focus-ring-raw-shadow
      "A focus style builds its box-shadow by hand. Use one of the approved focus-ring shadows from the preset."
      :focus-ring-forbidden-token
@@ -293,12 +390,12 @@
      :focus-ring-forbidden-color
      "A focus style paints its box-shadow with a raw brand color. Use one of the approved focus-ring shadows."})
   (docs-anchors [_]
-    {:focus-ring-missing-companion "focus-ring-without-the-forced-colors-companion"
+    {:focus-ring-missing-outline "focus-ring-without-an-outline"
      :focus-ring-raw-shadow "focus-ring-not-from-the-preset"
      :focus-ring-forbidden-token "focus-ring-from-a-forbidden-token"
      :focus-ring-forbidden-color "focus-ring-with-a-forbidden-color"})
   (rule->tier [_]
-    {:focus-ring-missing-companion :bugs
+    {:focus-ring-missing-outline :bugs
      :focus-ring-raw-shadow :deprecations
      :focus-ring-forbidden-token :deprecations
      :focus-ring-forbidden-color :deprecations})
@@ -309,6 +406,11 @@
   [state]
   (re-pattern (str (Pattern/quote state) "(?![\\w-])")))
 
+(defn- color-pattern
+  "Match a color, in any case, not followed by another hex digit, so `#fff` does not match inside `#fffabc`."
+  [color]
+  (re-pattern (str "(?i)" (Pattern/quote (compact-color-text color)) "(?![0-9a-f])")))
+
 (defn- normalize-config [config]
   (when (map? config)
     (let [selectors (set (or (seq (:selectors config)) default-selectors))
@@ -316,12 +418,12 @@
       {:patterns (mapv (juxt identity state-pattern) selectors)
        :approved-shadows (set (:approved-shadows config))
        :allow-stacking-under (set (:allow-stacking-under config))
-       :required-companion (into {} (:required-companion config))
+       :outline (:outline config)
        :forbidden-tokens (if (map? forbidden-tokens)
                            forbidden-tokens
                            (zipmap forbidden-tokens (repeat nil)))
-       :forbidden-color-literals (->> config :forbidden-color-literals (map str/lower-case) set)
-       :exempt-paths (set (:exempt-paths config))})))
+       :forbidden-color-patterns (mapv color-pattern (:forbidden-color-literals config))
+       :exempt-paths (->> config :exempt-paths (map normalize-path) set)})))
 
 (defn make-group
   "Return a focus-ring RuleGroup configured with the given map.
@@ -329,16 +431,16 @@
   Off until set. Supported keys:
     :selectors #{\":focus\" …} — focus pseudo-classes; a selector holding one, outside
       `:not(…)`, is a focus selector. Defaults to `:focus`, `:focus-visible`, `:focus-within`.
-    :approved-shadows #{full-qualified-symbol …} — vars whose value is an approved ring.
+    :approved-shadows #{fully-qualified-symbol …} — vars whose value is an approved ring.
     :allow-stacking-under #{\":focus-visible\" …} — focus states under which a `(str …)`
-      holding an approved shadow is accepted.
-    :required-companion {:outline \"2px solid transparent\"} — properties a focus block
-      with a shadow must also set.
-    :forbidden-tokens {full-qualified-symbol approved-symbol} — raw tokens, each mapped to
+      or a Garden vector holding an approved shadow beside other parts is accepted.
+    :outline \"2px solid transparent\" — the outline a focus block with a shadow must set.
+      Unset, any outline that draws holds; false turns the check off.
+    :forbidden-tokens {fully-qualified-symbol approved-symbol} — raw tokens, each mapped to
       the approved var to suggest, or a set when there is none to suggest.
     :forbidden-color-literals #{\"#516bff\" …} — colors no focus shadow may hold.
     :exempt-paths #{\"src/app/styles/focus_rings.cljs\" …} — files that may build a ring
-      by hand; the companion is still required there."
+      by hand; the outline is still required there."
   ([] (make-group nil))
   ([config] (->FocusRingGroup (normalize-config config))))
 

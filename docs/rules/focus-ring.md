@@ -10,10 +10,10 @@ see [Focus ring options](#focus-ring-options). The examples below run under the 
 
 ## Rules
 
-### Focus ring without the forced-colors companion
+### Focus ring without an outline
 
-`focus-ring-missing-companion` · bugs · config [`:required-companion`](#focus-ring-options) — A focus ring painted with
-`box-shadow` and no transparent outline, so it disappears in forced-colors mode.
+`focus-ring-missing-outline` · bugs · config [`:outline`](#focus-ring-options) — A focus ring painted with `box-shadow`
+and no outline, so it disappears in forced-colors mode.
 
 ```clojure
 ;; flagged
@@ -41,6 +41,13 @@ see [Focus ring options](#focus-ring-options). The examples below run under the 
 (defclass chip-style []
   [:&:focus-visible {:outline "2px solid transparent"}
    [:&::after {:box-shadow focus-rings/primary-shadow}]])
+
+(defclass tile-style []
+  [:&:focus-visible {:outline "1px solid transparent"}]
+  ["&:focus-visible::after" {:box-shadow focus-rings/primary-shadow}])
+
+(defclass option-style []
+  ["&:focus:not(:focus-visible)" {:box-shadow "0 1px 2px rgba(0, 0, 0, 0.2)"}])
 ```
 
 <details>
@@ -52,14 +59,26 @@ transparent outline costs nothing in the normal mode, and forced-colors mode pai
 
 The rule reads every selector block of a `defclass`, `defattrs` or `defglobal` whose selector, or a selector above it,
 holds a configured focus pseudo-class outside `:not(…)`: `:&:focus-visible`, `".ProseMirror:focus-visible"` and
-`":&:focus-within:not(:has(button:focus))"` all count, `"&:not(:focus-visible)"` does not. When the block sets
-`:box-shadow`, every property of `:required-companion` must be set to its configured value, in one of the block's
-literal maps or in a focus block around it. A missing property and a wrong literal value, such as `:outline :none`, are
-both reported. A value the rule cannot read, a symbol or a call, is taken as set.
+`":&:focus-within:not(:has(button:focus))"` all count, `"&:not(:focus-visible)"` does not. Neither does a `:focus` that
+a selector holding `:not(:focus-visible)` narrows, written as one selector or nested under `[:&:focus …]`: it styles
+focus from a pointer, so that no ring shows.
 
-A reset (`:box-shadow :none`, or `"none"`, `"unset"` and the other CSS-wide keywords) paints no ring and is left alone.
-So is a block holding anything besides literal maps and nested blocks, such as `(merge …)`, which may set the outline,
-and a `:box-shadow` built by a call other than `str`, such as `(if highlighted? x y)`.
+When the block sets `:box-shadow`, it must also set an outline that draws: any value but one with a `none` or `hidden`
+style or a zero width. Forced-colors mode paints any such outline in the system color, whatever color it was written
+with. With `:outline` configured, the outline must be that value instead, compared without regard to case, spacing or
+`!important`, so a codebase can keep one outline everywhere.
+
+The outline may sit in the block's literal maps or in a focus block around it. For a ring on `::after` or `::before`,
+the element's own block in the same declaration counts too, `[:&:focus-visible {:outline …}]` beside
+`["&:focus-visible::after" {:box-shadow …}]`, because forced-colors mode paints the element's outline. Each of these
+holds on its own, so an `:outline :none` on the element does not undo the outline on its `::after`. A value the rule
+cannot read, a symbol or a call, is taken as set, and so is an outline written as its longhands, `:outline-width`,
+`:outline-style` or `:outline-color`.
+
+A reset (`:box-shadow :none`, or `"none"`, `"unset"` and the other CSS-wide keywords, with or without `!important`)
+paints no ring and is left alone. So is a block holding anything besides literal maps and nested blocks, such as
+`(merge …)`, which may set the outline, and a `:box-shadow` built by a call other than `str`, such as
+`(if highlighted? x y)`.
 
 </details>
 
@@ -92,16 +111,17 @@ and a `:box-shadow` built by a call other than `str`, such as `(if highlighted? 
 <summary>Details</summary>
 
 A ring built by hand drifts: the next change to the ring's color, width or forced-colors contract updates the preset and
-misses this call site. The `:box-shadow` of a focus block must be one of `:approved-shadows`, written as is. Under a
-focus state in `:allow-stacking-under`, a `(str …)` that holds an approved shadow is accepted too, for a stacked outer
-and inner ring. Everywhere else a `str`, a string, a Garden vector or another var is reported.
+misses this call site. The `:box-shadow` of a focus block must be one of `:approved-shadows`, written as is, or alone in
+a `(str …)` or a Garden vector. Under a focus state in `:allow-stacking-under`, a `str` or a Garden vector that holds an
+approved shadow beside other parts is accepted too, for a stacked outer and inner ring. Everywhere else a `str`, a
+string, a Garden vector or another var is reported.
 
-A local, such as a parameter of the `defclass`, is not something the rule can read and is left alone. So is a string
-that is only a CSS custom property, `"var(--ring)"`, whose value is set somewhere else. One with a fallback,
-`"var(--ring, 0 0 0 2px #516bff)"`, is read as any other string. A value that a more specific rule reports,
-[a forbidden token](#focus-ring-from-a-forbidden-token) or [a forbidden color](#focus-ring-with-a-forbidden-color), is
-not reported here as well. Files in `:exempt-paths` are not checked, the preset's own namespace for one. Off while
-`:approved-shadows` is empty.
+A local, such as a parameter of the `defclass`, is not something the rule can read and is left alone, and so is a `str`
+or a Garden vector that holds no approved shadow and holds a local or a call other than `str`. A string is always read,
+a CSS custom property such as `"var(--ring)"` too: the preset is what a focus ring should name. A value that a more
+specific rule reports, [a forbidden token](#focus-ring-from-a-forbidden-token) or
+[a forbidden color](#focus-ring-with-a-forbidden-color), is not reported here as well. Files in `:exempt-paths` are not
+checked, the preset's own namespace for one. Off while `:approved-shadows` is empty.
 
 </details>
 
@@ -151,9 +171,11 @@ painted with a raw brand color instead of the preset.
 <details>
 <summary>Details</summary>
 
-A color matches anywhere in a string of the `:box-shadow` value, inside a `str` or a Garden vector too, without regard
-to case: `#516BFF` is the same color as `#516bff`. Files in `:exempt-paths`, such as the preset that defines the colors,
-are not checked.
+A color matches anywhere in a string of the `:box-shadow` value, inside a `str` or a Garden vector too, and inside a
+call within them, without regard to case: `#516BFF` is the same color as `#516bff`. Spaces around parentheses and commas
+do not count either, so `rgb(81, 107, 255)` matches `rgb(81,107,255)`. A color followed by another hex digit is a
+different one, so `#fff` does not match `#fffabc`. A value built by a call alone, such as `(if highlighted? x y)`, is
+not read. Files in `:exempt-paths`, such as the preset that defines the colors, are not checked.
 
 </details>
 
@@ -167,7 +189,7 @@ The group reads `:focus-ring` from `.cljs-patrol/config.edn`, and does nothing u
   :approved-shadows #{app.styles.focus-rings/primary-shadow
                       app.styles.focus-rings/danger-shadow}
   :allow-stacking-under #{":focus-visible"}
-  :required-companion {:outline "2px solid transparent"}
+  :outline "2px solid transparent"
   :forbidden-tokens {app.theme.button/shadow-brand-focused app.styles.focus-rings/primary-shadow}
   :forbidden-color-literals #{"#516bff"}
   :exempt-paths #{"src/app/styles/focus_rings.cljs"}}}
@@ -177,14 +199,19 @@ The group reads `:focus-ring` from `.cljs-patrol/config.edn`, and does nothing u
   `:focus`, `:focus-visible` and `:focus-within`.
 - `:approved-shadows` — the vars whose value is an approved ring, fully qualified. Empty turns off
   [Focus ring not from the preset](#focus-ring-not-from-the-preset).
-- `:allow-stacking-under` — the focus states under which a `(str …)` holding an approved shadow is accepted.
-- `:required-companion` — the properties a focus block with a `box-shadow` must also set, and their values. Empty turns
-  off [Focus ring without the forced-colors companion](#focus-ring-without-the-forced-colors-companion).
+- `:allow-stacking-under` — the focus states under which a `(str …)` or a Garden vector holding an approved shadow
+  beside other parts is accepted.
+- `:outline` — the outline a focus block with a `box-shadow` must set. Left out, any outline that draws holds. `false`
+  turns off [Focus ring without an outline](#focus-ring-without-an-outline).
 - `:forbidden-tokens` — raw theme tokens, each mapped to the approved shadow that replaces it. A set works too, when
   there is nothing to suggest.
 - `:forbidden-color-literals` — colors, hex or `rgb(…)`, that no focus `box-shadow` may hold.
-- `:exempt-paths` — files, relative to the project, that may build a ring by hand. Only the companion is checked there.
+- `:exempt-paths` — files, relative to the project, that may build a ring by hand. Only the outline is checked there. A
+  path matches the end of a file's path on a directory boundary, so `src/app/styles/focus_rings.cljs` holds however the
+  source directory was named on the command line. A bare file name matches only a file at the root, never every file of
+  that name.
 
-Every key but `:selectors` may be empty, and an empty key turns off its part of the check. A symbol in the config is
-matched against what a file's aliases and refers resolve a symbol to, so `focus-rings/primary-shadow` matches
-`app.styles.focus-rings/primary-shadow` in a file that requires `[app.styles.focus-rings :as focus-rings]`.
+Every key may be left out. An empty `:approved-shadows`, `:forbidden-tokens` or `:forbidden-color-literals` turns off
+its check, and `{:focus-ring {}}` checks only the outline. A symbol in the config is matched against what a file's
+aliases and refers resolve a symbol to, so `focus-rings/primary-shadow` matches `app.styles.focus-rings/primary-shadow`
+in a file that requires `[app.styles.focus-rings :as focus-rings]`.
