@@ -5,10 +5,10 @@ Which rules block CI and which only report, and how to choose per tier or per ru
 [← back to the README](../README.md)
 
 Without `--fail-on`, what fails depends on the run. A plain run fails when a group's own default check trips:
-`re-frame`, `spade`, `typography`, `focus-ring` and `a11y` block on most of their findings, unused registrations and
-styles included, while `reagent`, `docstrings`, `tests`, `css-order`, `layout` and `idioms` only report. With
-`--baseline`, every new finding fails, whatever its tier. `--fail-on` replaces both with the rules you name. Every issue
-is still reported regardless; only the exit code is gated.
+`re-frame`, `spade`, `typography`, `focus-ring`, `forbid-props` and `a11y` block on most of their findings, unused
+registrations and styles included, while `reagent`, `docstrings`, `tests`, `css-order`, `layout` and `idioms` only
+report. With `--baseline`, every new finding fails, whatever its tier. `--fail-on` replaces both with the rules you
+name. Every issue is still reported regardless; only the exit code is gated.
 
 ## Tiers
 
@@ -29,6 +29,7 @@ screen-reader user cannot reach, name or tell apart, and a Spade selector that m
 
 - `deprecated-effects`, `defclass-as-sole-attr`, `defattrs-in-merge`, `mixed-token-groups`
 - `focus-ring-raw-shadow`
+- `forbidden-prop`
 
 **`cleanup`** — dead code, style noise, and suspicious references with no runtime impact.
 

@@ -38,7 +38,8 @@
     :form-after-split-map :split-map-after-sibling :nested-call-chain
     :cond-else-nil :negated-test :into-empty :plus-minus-one :negated-equality
     :get-by-presence-check :literal-constant-assertion :unconditional-cond-threading
-    :test-id-query-on-role :inline-component :commented-out-code :restating-comment :vec-of-map-filter})
+    :test-id-query-on-role :inline-component :commented-out-code :restating-comment :vec-of-map-filter
+    :forbidden-prop})
 
 (def ^:private keyword-keyed-rules
   "Rules where the issue is uniquely identified by its keyword."

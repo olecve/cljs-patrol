@@ -23,7 +23,10 @@
   An example calls `(field-label)`, which resolves to a var of the example's own namespace."
   {:a11y {:label-styles #{'example.core/field-label}}
    :focus-ring {:approved-shadows {'app.styles.focus-rings/primary-shadow #{'app.theme.button/shadow-brand-focused
-                                                                            "#516bff"}}}})
+                                                                            "#516bff"}}}
+   :forbid-props [{:prop :aria-disabled
+                   :disallowed-for #{:button 'app.ui.button/button}
+                   :message "Use :disabled."}]})
 
 (def ^:private default-requires
   "Aliases an example may use without writing its own ns form."
@@ -33,7 +36,8 @@
        " [clojure.test :refer [deftest is testing]]"
        " [react-testing-library-cljs.screen :as s]"
        " [app.styles.focus-rings :as focus-rings]"
-       " [app.theme.button :as button-theme])"))
+       " [app.theme.button :as button-theme]"
+       " [app.ui.button :as button])"))
 
 (defn- chunks
   "Split code into chunks of top-level forms, a blank line between two forms ending a chunk.

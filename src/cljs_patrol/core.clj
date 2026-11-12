@@ -15,6 +15,7 @@
    [cljs-patrol.groups.css-order.orders :as orders]
    [cljs-patrol.groups.docstrings :as docstrings]
    [cljs-patrol.groups.focus-ring :as focus-ring]
+   [cljs-patrol.groups.forbid-props :as forbid-props]
    [cljs-patrol.groups.idioms :as idioms]
    [cljs-patrol.groups.layout :as layout]
    [cljs-patrol.groups.re-frame :as re-frame]
@@ -45,6 +46,7 @@
    reagent/group
    typography/group
    (focus-ring/make-group (get config :focus-ring))
+   (forbid-props/make-group (get config :forbid-props))
    (a11y/make-group (get config :a11y))
    (docstrings/make-group (get config :docstrings) clj?)
    (css-order/make-group (get config :css-order))
