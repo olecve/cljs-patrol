@@ -65,15 +65,15 @@ element or component. The finding gives the entry's message.
 The rule reads every Hiccup vector whose head is an HTML tag, such as `:button` or `:button.primary`, or a component the
 file's aliases and refers resolve, such as `button/button` for `app.ui.button/button`. A keyword that names no HTML
 element, as in a Malli schema, is not an element. Neither is a re-frame event or subscription vector whose id happens to
-name one: an argument of `dispatch`, `subscribe`, `reg-event-*` or `reg-sub`, in a `(…)` or a `#(…)`, or a vector after
-a `:dispatch`-like key in an effect map or an fx tuple. An event vector built elsewhere and passed in by name,
-`(let [e [:select {…}]] (rf/dispatch e))`, is read as Hiccup, and such a rare case goes in the baseline. A local
-component is unknown, one that shadows a referred component included, and so is a component rendered through
-`[:> Comp …]` interop, which no entry can name.
+name one: an argument of `dispatch`, `subscribe`, `reg-event-*` or `reg-sub`, in a `(…)` or a `#(…)`, a vector after a
+`:dispatch`-like key in an effect map or an fx tuple, and an fx tuple itself, `[:track {…}]` in `{:fx [[:track {…}]]}`.
+An event vector built elsewhere and passed in by name, `(let [e [:select {…}]] (rf/dispatch e))`, is read as Hiccup, and
+such a rare case goes in the baseline. A local component is unknown, one that shadows a referred component included, and
+so is a component rendered through `[:> Comp …]` interop, which no entry can name.
 
 The tags the rule knows are the HTML and SVG elements, except `:map`, `:search`, `:filter`, `:image` and `:desc`. Each
-of those is also an everyday Malli schema, db path or event id, `[:search :query]`, so a config naming one is refused
-rather than reading data vectors as elements.
+of those is also an everyday Malli schema, db path or event id, `[:search :query]`, so every group reads them as data,
+and a config naming one is refused rather than never matching.
 
 A prop counts when the element's props are a literal map, or a symbol bound to one, and the prop's value reaches the
 element. Reagent drops a prop whose value is `false` or `nil`, so `{:aria-disabled false}` is left alone, and so is a

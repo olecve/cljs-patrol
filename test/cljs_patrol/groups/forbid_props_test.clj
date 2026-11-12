@@ -79,6 +79,7 @@
                   "(rf/reg-event-fx :x (fn [] {:fx [[:dispatch [:button {:aria-disabled true}]]]}))"
                   "(rf/reg-event-fx :x (fn [] {:fx [[:dispatch-n [[:button {:aria-disabled true}]]]]}))"
                   "(defn v [] [:div {:on-click #(rf/dispatch [:button {:aria-disabled true}])}])"
+                  "(rf/reg-event-fx :x (fn [] {:fx [[:button {:aria-disabled true}]]}))"
                   "(defn v [] [:div {:on-click #(rf/dispatch-sync [:button {:aria-disabled true}])}])"]]
     (is (= [] (flagged source))
         source))

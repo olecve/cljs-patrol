@@ -48,8 +48,8 @@
   "True when a vector is a re-frame event or subscription, though its id names an HTML element.
 
   An argument of `dispatch`, `subscribe` or a `reg-event-*` or `reg-sub` call, `#(…)`
-  included, and a vector after a `:dispatch`-like effect key, in an effect map or an fx tuple,
-  or an item of one after `:dispatch-n`."
+  included, a vector after a `:dispatch`-like effect key, in an effect map or an fx tuple, or an
+  item of one after `:dispatch-n`, and every fx tuple, `[:track {…}]` in `{:fx [[:track {…}]]}`."
   [loc]
   (let [parent (z/up loc)
         tag (some-> parent z/tag)
@@ -57,7 +57,9 @@
     (case tag
       (:list :fn) (contains? re-frame-calls (parser/sym-name (z/down parent)))
       (:map :vector) (or (after-effect-key? loc)
-                         (and (= :vector tag) (after-effect-key? parent)))
+                         (and (= :vector tag)
+                              (or (after-effect-key? parent)
+                                  (= :fx (some-> parent z/left literal)))))
       false)))
 
 (defn- forbidden-for?
