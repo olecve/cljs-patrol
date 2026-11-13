@@ -404,28 +404,28 @@
                        (assoc defs defined value))))
                  defs)))))
 
-(defn- def-index
-  "Find the `def`s of the file being read, kept in [[parser/file-state]] for that file alone.
+(defn- file-scan
+  "Find what `scan` makes of the file of loc, kept in [[parser/file-state]] under `k` for that file alone.
 
   A file's vectors ask about its vars over and over, so this turns a scan per question
   into a scan per file: the difference between linear and quadratic on a namespace with
   a thousand `def`s. Keyed by identity of the file's first top-level form, so a tree this
   never saw rebuilds it."
-  []
-  (parser/file-state ::def-index {:cached-root nil
-                                  :defs {}}))
-
-(defn- top-level-defs [loc]
+  [loc k scan]
   (let [first-form (first-top-level-form loc)
         root (some-> first-form z/node)
-        state (def-index)
-        {:keys [cached-root defs]} @state]
-    (if (and root (identical? root cached-root))
-      defs
-      (let [scanned (scan-top-level-defs first-form)]
+        state (parser/file-state k {:cached-root nil
+                                    :scanned nil})
+        {:keys [cached-root scanned]} @state]
+    (if (identical? root cached-root)
+      scanned
+      (let [rescanned (scan first-form)]
         (reset! state {:cached-root root
-                       :defs scanned})
-        scanned))))
+                       :scanned rescanned})
+        rescanned))))
+
+(defn- top-level-defs [loc]
+  (file-scan loc ::def-index scan-top-level-defs))
 
 (defn- top-level-def-value
   "Return the value a `def` in the same file binds symbol-name to, or nil.
@@ -770,3 +770,86 @@
   Hiccup — rules that assume Hiccup should skip them."
   [loc]
   (contains? (enclosing-forms loc) :ns))
+
+(def ^:private dom-attr-prefixes ["aria-" "data-" "on"])
+
+(def ^:private dom-attr-keys
+  #{:class :className :id :style :for :html-for :htmlFor :title :role :hidden :key :ref :tab-index :tabIndex})
+
+(defn names-a-dom-attr?
+  "True when a literal props map carries something only markup would carry.
+  A Malli entry's properties — `{:optional true}` — carry none of it."
+  [attrs]
+  (boolean (some (fn [k]
+                   (or (contains? dom-attr-keys k)
+                       (some #(str/starts-with? (name k) %) dom-attr-prefixes)))
+                 (keys attrs))))
+
+(def ^:private component-root-heads
+  "Heads that render the component written after them, so the props map comes one child later."
+  #{:> :f> :r>})
+
+(defn- markup-head [loc]
+  (let [tag (some-> loc parser/raw parse-tag)]
+    (when (or (html-tag? tag) (contains? component-root-heads tag))
+      tag)))
+
+(defn- string-loc? [loc]
+  (str/starts-with? (parser/raw loc) "\""))
+
+(defn- dom-props? [loc]
+  (and (= :map (z/tag loc))
+       (names-a-dom-attr? (literal-map loc))))
+
+(defn- written-elements [vector-loc]
+  (->> (parser/child-locs vector-loc)
+       (remove #(= :uneval (z/tag %)))
+       (map unwrap-meta)))
+
+(defn clear-markup?
+  "Tell whether the vector at loc shows a sign that only markup shows.
+
+  A head that names an element, `:<>`, `:>`, `:f>` or `:r>` needs a string child, a
+  props map that names a DOM attribute, or a nested vector with a sign of its own. A
+  vector head needs one element with a sign, so a list of elements is markup. A Malli
+  entry, a db path, a keyword list and a Garden rule show no sign, and neither does a
+  child that is a call: `[:div (t :hello)]` is not clearly markup."
+  [loc]
+  (let [vector-loc (unwrap-meta loc)
+        [head & children] (when (= :vector (z/tag vector-loc))
+                            (written-elements vector-loc))
+        tag (markup-head head)]
+    (boolean
+     (cond
+       (= :vector (z/tag head)) (some clear-markup? (cons head children))
+       tag (or (some string-loc? children)
+               (dom-props? (nth children (if (contains? component-root-heads tag) 1 0) nil))
+               (some clear-markup? children))))))
+
+(def ^:private style-rule-heads #{"defclass" "defattrs"})
+
+(defn- bare-symbols [loc]
+  (loop [current (z/subzip loc)
+         found #{}]
+    (if (z/end? current)
+      found
+      (recur (z/next current)
+             (if-let [symbol-name (unqualified-symbol-name current)]
+               (conj found symbol-name)
+               found)))))
+
+(defn- scan-style-rule-symbols [first-form]
+  (->> (iterate z/right first-form)
+       (take-while some?)
+       (filter #(and (= :list (z/tag %))
+                     (contains? style-rule-heads (some-> % z/down parser/sym-name))))
+       (into #{} (mapcat bare-symbols))))
+
+(defn named-by-style-rule?
+  "Tell whether a `defclass` or `defattrs` in the same file names the var def-loc defines.
+
+  Such a `def` holds Garden rules for the class, which share the shape of markup but
+  never render."
+  [def-loc]
+  (contains? (file-scan def-loc ::style-rule-symbols scan-style-rule-symbols)
+             (defined-name def-loc)))

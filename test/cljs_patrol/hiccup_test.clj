@@ -2,6 +2,7 @@
   (:require
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
+   [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
    [rewrite-clj.zip :as z]))
 
@@ -484,3 +485,145 @@
       "answers for head ns form shadows")
   (is (= ["(x/do [:a])" "[:c]"] (result-strings {} "(if p (x/do [:a]) [:c])"))
       "keeps unresolved branch whole"))
+
+(deftest names-a-dom-attr?-reads-keys-and-prefixes
+  (is (hiccup/names-a-dom-attr? {:class "a"})
+      "known key")
+  (is (hiccup/names-a-dom-attr? {:aria-label "a"})
+      "aria prefix")
+  (is (hiccup/names-a-dom-attr? {:onClick 1})
+      "on prefix without dash")
+  (is (not (hiccup/names-a-dom-attr? {:optional true}))
+      "malli properties")
+  (is (not (hiccup/names-a-dom-attr? nil))
+      "no attrs"))
+
+(defn- clear-markup-source? [source]
+  (hiccup/clear-markup? (z/of-string source)))
+
+(deftest clear-markup?-reads-each-sign-alone
+  (is (clear-markup-source? "[:div \"a\"]")
+      "string child")
+  (is (clear-markup-source? "[:p \"a\n  b\"]")
+      "multi-line string child")
+  (is (clear-markup-source? "[:div {:class \"a\"}]")
+      "props map with dom attribute")
+  (is (clear-markup-source? "[:span {:data-id 1}]")
+      "props map with dom attribute prefix")
+  (is (clear-markup-source? "[:ul [:li \"a\"]]")
+      "nested vector with sign")
+  (is (clear-markup-source? "[:div [:div [:span {:id \"x\"}]]]")
+      "sign two levels down")
+  (is (clear-markup-source? "[:div.card#main \"a\"]")
+      "tag with class and id"))
+
+(deftest clear-markup?-reads-root-heads
+  (is (clear-markup-source? "[:<> [:li \"a\"] [:li \"b\"]]")
+      "fragment root")
+  (is (clear-markup-source? "[:> Button {:on-click f}]")
+      "interop root with props after component")
+  (is (clear-markup-source? "[:f> field {:id \"x\"}]")
+      "functional component root")
+  (is (clear-markup-source? "[:r> Tooltip \"a\"]")
+      "raw component root with string")
+  (is (not (clear-markup-source? "[:> {:class \"a\"} Button]"))
+      "map in component slot of interop root")
+  (is (not (clear-markup-source? "[:div label {:class \"a\"}]"))
+      "map after first child of element"))
+
+(deftest clear-markup?-reads-lists-of-elements
+  (is (clear-markup-source? "[[:li \"a\"] [:li \"b\"]]")
+      "list of elements")
+  (is (clear-markup-source? "[[:rect \"Step\"] [:line \"Line\"]]")
+      "list of pairs")
+  (is (clear-markup-source? "[[:settings :style] [:li \"b\"]]")
+      "sign after first element")
+  (is (clear-markup-source? "[[:li \"a\"] [:settings :style]]")
+      "sign in first element only")
+  (is (not (clear-markup-source? "[[:settings :style] [:theme :color]]"))
+      "list of db paths"))
+
+(deftest clear-markup?-leaves-data-look-alikes
+  (is (not (clear-markup-source? "[:settings :style]"))
+      "db path")
+  (is (not (clear-markup-source? "[:line :rect :circle]"))
+      "keyword list")
+  (is (not (clear-markup-source? "[:map [:label {:optional true} [:maybe :string]]]"))
+      "malli schema")
+  (is (not (clear-markup-source? "[:label {:optional true} [:maybe :string]]"))
+      "malli entry with html tag name")
+  (is (not (clear-markup-source? "[:label [:id :string]]"))
+      "malli entry whose type reads as dom attribute pair")
+  (is (not (clear-markup-source? "[:div.paragraph [:br {:margin-top \"5px\"}]]"))
+      "garden rule")
+  (is (not (clear-markup-source? "[:div {:margin-top \"5px\" :color \"red\"}]"))
+      "props map with css keys only")
+  (is (not (clear-markup-source? "[:div {(key-of x) \"a\"}]"))
+      "props map with computed key")
+  (is (not (clear-markup-source? "[:enum \"a\" \"b\"]"))
+      "string children under non-tag head")
+  (is (not (clear-markup-source? "[:div (t :hello)]"))
+      "calls only")
+  (is (not (clear-markup-source? "[:div label]"))
+      "symbol only")
+  (is (false? (clear-markup-source? "[:div]"))
+      "tag alone")
+  (is (not (clear-markup-source? "[]"))
+      "empty vector")
+  (is (not (clear-markup-source? "(:div \"a\")"))
+      "list")
+  (is (not (clear-markup-source? "[\"a\" \"b\"]"))
+      "string head")
+  (is (not (clear-markup-source? "[:my/div \"a\"]"))
+      "qualified keyword head"))
+
+(deftest clear-markup?-reads-through-metadata-and-discards
+  (is (clear-markup-source? "^:private [:div \"a\"]")
+      "metadata on vector")
+  (is (clear-markup-source? "[:ul ^{:key 1} [:li \"a\"]]")
+      "metadata on child")
+  (is (clear-markup-source? "[:div ^:x {:class \"a\"}]")
+      "metadata on props map")
+  (is (clear-markup-source? "[^{:key 1} [:li \"a\"]]")
+      "metadata on list head")
+  (is (clear-markup-source? "[#_:span :div \"a\"]")
+      "discarded head")
+  (is (clear-markup-source? "[:div #_label {:class \"a\"}]")
+      "discarded form before props")
+  (is (not (clear-markup-source? "[:div #_\"a\"]"))
+      "discarded string")
+  (is (not (clear-markup-source? "[:ul #_[:li \"a\"]]"))
+      "discarded nested vector")
+  (is (not (clear-markup-source? "[#_[:li \"a\"] [:settings :style]]"))
+      "discarded list element"))
+
+(defn- def-loc [source def-name]
+  (z/find (z/of-string source) z/next #(str/starts-with? (z/string %) (str "(def " def-name " "))))
+
+(defn- named-def? [source def-name]
+  (hiccup/named-by-style-rule? (def-loc source def-name)))
+
+(deftest named-by-style-rule?-reads-defclass-and-defattrs
+  (is (named-def? "(def rules [:div [:br {:margin 0}]]) (defclass c [] rules)" "rules")
+      "defclass body")
+  (is (named-def? "(def rules [:div]) (s/defattrs c [] [:a rules])" "rules")
+      "aliased defattrs nested symbol")
+  (is (named-def? "(defattrs c [] rules) (def ^:private rules [:div])" "^:private rules")
+      "defattrs before def with metadata")
+  (is (not (named-def? "(def rules [:div]) (defclass c [] other)" "rules"))
+      "other symbol")
+  (is (not (named-def? "(def rules [:div]) (defglobal g rules)" "rules"))
+      "defglobal")
+  (is (not (named-def? "(def rules [:div]) (defn c [] rules)" "rules"))
+      "defn")
+  (is (not (named-def? "(def rules [:div]) [defclass rules]" "rules"))
+      "vector starting with defclass")
+  (is (not (named-def? "(def rules [:div]) (defclass c [] styles/rules)" "rules"))
+      "qualified symbol"))
+
+(deftest named-by-style-rule?-scans-each-file-once
+  (binding [parser/*file-memo* (java.util.HashMap.)]
+    (is (named-def? "(def rules [:div]) (defclass c [] rules)" "rules")
+        "first tree names def")
+    (is (not (named-def? "(def rules [:div])" "rules"))
+        "other tree rescans")))
