@@ -6,6 +6,7 @@
   quoted vectors, etc.). Callers can then decide whether to silently skip
   or flag; this ns never makes that policy call."
   (:require
+   [cljs-patrol.groups.css-order.orders :as orders]
    [cljs-patrol.heads :as heads]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
@@ -771,85 +772,160 @@
   [loc]
   (contains? (enclosing-forms loc) :ns))
 
-(def ^:private dom-attr-prefixes ["aria-" "data-" "on"])
+(def ^:private element-attributes-in-css-tables
+  "Names a property-order table ranks that code writes as element attributes far more often than as style keys.
+  `src` is the `@font-face` descriptor and the others are SVG geometry, so `[:img {:src …}]` stays markup."
+  #{"src" "d" "r" "cx" "cy" "rx" "ry"})
 
-(def ^:private dom-attr-keys
-  #{:class :className :id :style :for :html-for :htmlFor :title :role :hidden :key :ref :tab-index :tabIndex})
+(def ^:private css-properties
+  (delay (apply disj
+                (into #{} (mapcat #(keys (orders/ranks %))) orders/names)
+                element-attributes-in-css-tables)))
 
-(defn names-a-dom-attr?
-  "True when a literal props map carries something only markup would carry.
-  A Malli entry's properties — `{:optional true}` — carry none of it."
-  [attrs]
-  (boolean (some (fn [k]
-                   (or (contains? dom-attr-keys k)
-                       (some #(str/starts-with? (name k) %) dom-attr-prefixes)))
-                 (keys attrs))))
+(def ^:private malli-property-keys
+  #{:optional :description :default :title :min :max :closed :registry :doc})
+
+(def ^:private malli-property-namespaces
+  #{"gen" "error" "json-schema" "decode" "encode" "swagger" "openapi"})
+
+(defn- styling-or-schema-key?
+  "Tell whether a props key is one a CSS rule or a Malli entry also writes.
+  Only a keyword or a string key can say markup, so any other key settles nothing."
+  [key-loc]
+  (let [k (z/sexpr key-loc)]
+    (cond
+      (keyword? k) (or (contains? malli-property-keys k)
+                       (contains? malli-property-namespaces (namespace k))
+                       (contains? @css-properties (name k)))
+      (string? k) (contains? @css-properties k)
+      :else true)))
 
 (def ^:private component-root-heads
   "Heads that render the component written after them, so the props map comes one child later."
   #{:> :f> :r>})
 
-(defn- markup-head [loc]
-  (let [tag (some-> loc parser/raw parse-tag)]
-    (when (or (html-tag? tag) (contains? component-root-heads tag))
-      tag)))
-
-(defn- string-loc? [loc]
-  (str/starts-with? (parser/raw loc) "\""))
-
-(defn- dom-props? [loc]
-  (and (= :map (z/tag loc))
-       (names-a-dom-attr? (literal-map loc))))
-
-(defn- written-elements [vector-loc]
-  (->> (parser/child-locs vector-loc)
+(defn- written-elements [loc]
+  (->> (parser/child-locs loc)
        (remove #(= :uneval (z/tag %)))
        (map unwrap-meta)))
+
+(defn- reader-macro-named? [loc names]
+  (and (= :reader-macro (z/tag loc))
+       (contains? names (parser/raw (z/down loc)))))
+
+(defn- markup-props? [loc]
+  (let [map-loc (if (reader-macro-named? loc #{"js"}) (z/right (z/down loc)) loc)]
+    (and (= :map (z/tag map-loc))
+         (some (complement styling-or-schema-key?)
+               (take-nth 2 (written-elements map-loc))))))
+
+(defn- text-loc? [loc]
+  (case (z/tag loc)
+    :multi-line true
+    :token (let [value (z/sexpr loc)]
+             (or (string? value) (number? value)))
+    false))
+
+(defn- conditional-branches [loc]
+  (let [[marker forms] (parser/child-locs loc)
+        values (written-elements forms)]
+    (if (= "?@" (parser/raw marker))
+      (mapcat written-elements values)
+      values)))
+
+(defn- yielded-forms
+  "Find the forms loc can yield: through `result-locs`, the body of a `for`, and each reader-conditional branch."
+  [loc]
+  (mapcat (fn [result]
+            (cond
+              (and (= :list (z/tag result)) (= "for" (parser/sym-name (z/down result))))
+              (some-> (nth (written-elements result) 2 nil) yielded-forms)
+
+              (reader-macro-named? result #{"?" "?@"})
+              (mapcat yielded-forms (conditional-branches result))
+
+              :else [result]))
+          (result-locs loc)))
+
+(declare clear-markup?)
+
+(defn- shows-markup-sign? [elements]
+  (or (some text-loc? elements)
+      (markup-props? (first elements))
+      (some #(some clear-markup? (yielded-forms %)) elements)))
 
 (defn clear-markup?
   "Tell whether the vector at loc shows a sign that only markup shows.
 
-  A head that names an element, `:<>`, `:>`, `:f>` or `:r>` needs a string child, a
-  props map that names a DOM attribute, or a nested vector with a sign of its own. A
-  vector head needs one element with a sign, so a list of elements is markup. A Malli
-  entry, a db path, a keyword list and a Garden rule show no sign, and neither does a
-  child that is a call: `[:div (t :hello)]` is not clearly markup."
+  A head that names an element, a symbol head, `:<>`, `:>`, `:f>` or `:r>` needs a sign:
+  a string or a number child, a props map with a key that is no CSS property and no Malli
+  property key, or a child that yields a vector with a sign of its own. A vector head
+  needs one element with a sign, so a list of elements is markup. A `#_` form is no
+  element, and metadata is looked through. A db path, a keyword list, a Malli schema and
+  a Garden rule show no sign, and neither does `[:div (t :hello)]`, whose child is a call."
   [loc]
   (let [vector-loc (unwrap-meta loc)
         [head & children] (when (= :vector (z/tag vector-loc))
                             (written-elements vector-loc))
-        tag (markup-head head)]
+        tag (some-> head parser/raw parse-tag)]
     (boolean
      (cond
        (= :vector (z/tag head)) (some clear-markup? (cons head children))
-       tag (or (some string-loc? children)
-               (dom-props? (nth children (if (contains? component-root-heads tag) 1 0) nil))
-               (some clear-markup? children))))))
+       (contains? component-root-heads tag) (shows-markup-sign? (rest children))
+       (or (html-tag? tag) (parser/sym-name head)) (shows-markup-sign? children)))))
 
-(def ^:private style-rule-heads #{"defclass" "defattrs"})
+(defn- binds-at?
+  "Tell whether list-loc binds the name a symbol below its `child` writes.
+  The symbol binds in a parameter list, or on the left of a binding pair, where `inner` is
+  the element of the binding vector that holds it."
+  [list-loc child inner]
+  (let [head-name (some-> list-loc z/down parser/sym-name)
+        bindings (some-> list-loc z/down z/right)]
+    (or (and (fn-like-head? head-name)
+             (some #(same-node? % child) (filter parameter-list? (parameter-vectors list-loc))))
+        (and (contains? map-binding-heads head-name)
+             (some (fn [[index element]] (and (even? index) (same-node? element inner)))
+                   (map-indexed vector (written-elements bindings)))))))
 
-(defn- bare-symbols [loc]
-  (loop [current (z/subzip loc)
+(defn- binding-name? [loc]
+  (loop [inner nil
+         child loc
+         parent (z/up loc)]
+    (cond
+      (nil? parent) false
+      (binds-at? parent child inner) true
+      :else (recur child parent (z/up parent)))))
+
+(defn- value-use?
+  "Tell whether a symbol token names a var as a value: no call head, no binding, and no local in its way."
+  [loc symbol-name]
+  (not (or (and (= :list (z/tag (z/up loc))) (nil? (z/left loc)))
+           (binding-name? loc)
+           (some? (lexically-bound-value loc symbol-name)))))
+
+(defn- style-decl-values [style-loc]
+  (loop [current (z/subzip style-loc)
          found #{}]
     (if (z/end? current)
       found
       (recur (z/next current)
-             (if-let [symbol-name (unqualified-symbol-name current)]
-               (conj found symbol-name)
-               found)))))
+             (let [symbol-name (unqualified-symbol-name current)]
+               (cond-> found
+                 (and symbol-name (value-use? current symbol-name)) (conj symbol-name)))))))
 
-(defn- scan-style-rule-symbols [first-form]
+(defn- scan-style-decl-values [first-form]
   (->> (iterate z/right first-form)
        (take-while some?)
        (filter #(and (= :list (z/tag %))
-                     (contains? style-rule-heads (some-> % z/down parser/sym-name))))
-       (into #{} (mapcat bare-symbols))))
+                     (contains? style-decl-forms (some-> % z/down parser/sym-name))))
+       (into #{} (mapcat style-decl-values))))
 
-(defn named-by-style-rule?
-  "Tell whether a `defclass` or `defattrs` in the same file names the var def-loc defines.
+(defn clear-markup-def?
+  "Tell whether the value of a `def` or `defonce` at def-loc is clearly markup.
 
-  Such a `def` holds Garden rules for the class, which share the shape of markup but
-  never render."
+  A `def` whose name a style-declaration macro in the same file uses as a value is a
+  Garden rule, and never clearly markup, whatever its value shows."
   [def-loc]
-  (contains? (file-scan def-loc ::style-rule-symbols scan-style-rule-symbols)
-             (defined-name def-loc)))
+  (and (clear-markup? (z/rightmost (z/down def-loc)))
+       (not (contains? (file-scan def-loc ::style-decl-values scan-style-decl-values)
+                       (defined-name def-loc)))))

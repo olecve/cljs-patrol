@@ -1352,6 +1352,20 @@
        (not (and computed-reference?
                  (some #(and (not= id %) (str/includes? id %)) (keys literals))))))
 
+(def ^:private dom-attr-prefixes ["aria-" "data-" "on-" "on"])
+
+(def ^:private dom-attr-keys
+  #{:class :className :id :style :for :html-for :htmlFor :title :role :hidden :key :ref :tab-index :tabIndex})
+
+(defn- names-a-dom-attr?
+  "True when a literal props map carries something only markup would carry.
+  A Malli entry's properties — `{:optional true}` — carry none of it."
+  [attrs]
+  (boolean (some (fn [k]
+                   (or (contains? dom-attr-keys k)
+                       (some #(str/starts-with? (name k) %) dom-attr-prefixes)))
+                 (keys attrs))))
+
 (defn- renders-something?
   "True when the label's body holds anything only markup holds.
   A string written out or a nested vector is markup; a lone symbol is what a Malli entry
@@ -1368,7 +1382,7 @@
   call counts too, but only over a non-empty body — `[:label (my-schema)]` is an entry
   whose schema is computed, and it renders nothing."
   [{:keys [kind attrs]} loc]
-  (or (and (= :map kind) (some? attrs) (hiccup/names-a-dom-attr? attrs))
+  (or (and (= :map kind) (some? attrs) (names-a-dom-attr? attrs))
       (and (contains? #{:dynamic :dynamic-map} kind) (seq (body-locs loc)))
       (renders-something? loc)))
 
