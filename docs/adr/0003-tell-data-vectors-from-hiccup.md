@@ -83,19 +83,25 @@ The parts of the decision:
    - A props map with a key that is not a CSS property and not a Malli property key. Unknown keys count as markup, so
      `[:img {:src "logo.png"}]` and `[:svg {:viewBox "0 0 16 16"}]` are markup. The props map is the element after the
      head, or after the component for `:>`, `:f>` and `:r>`. A `#js` map counts, and `#_` forms inside the map are
-     skipped. The CSS properties are the ones in the `css-order` property tables. The Malli property keys are
-     `:optional`, `:description`, `:default`, `:title`, `:min`, `:max`, `:closed`, `:registry` and `:doc`, and the keys
-     in the `gen`, `error`, `json-schema`, `decode`, `encode`, `swagger` and `openapi` namespaces.
-   - A child vector that is clearly markup, written as a child or as what a `when`, `if`, `cond`, `case`, `for`, `let`
-     or reader conditional child yields.
+     skipped. A key that is no keyword or string, such as a symbol or a call, shows no sign. The CSS properties are the
+     ones in the `css-order` property tables, without the names that are also element attributes: `src`, which the
+     tables list as a `@font-face` descriptor, and the SVG geometry `d`, `r`, `cx`, `cy`, `rx` and `ry`. The Malli
+     property keys are `:optional`, `:description`, `:default`, `:title`, `:min`, `:max`, `:closed`, `:registry` and
+     `:doc`, and the keys in the `gen`, `error`, `json-schema`, `decode`, `encode`, `swagger` and `openapi` namespaces.
+   - A child vector that is clearly markup, written as a child or as what a child form yields: the forms that
+     `hiccup/result-locs` reads, such as `when`, `if`, `cond`, `case`, `let`, `when-let`, `do` and `binding`, the body
+     of a `for`, and each branch of a `#?` or `#?@` reader conditional. Only a yielded vector counts, so a string
+     spliced by `#?@(:cljs ["a"])` shows no sign.
 
    A `#_` form is no element, and metadata on a vector is looked through. A nested tag with only CSS property maps, such
    as a Garden rule `[:div.paragraph [:br {:margin-top "5px"}]]`, shows no sign.
 
    A `def` is a Garden rule, and never clearly markup, when a style-declaration macro in the same file uses its name as
    a value. The macros are the ones in `hiccup/style-decl-forms`: `defclass`, `defattrs`, `defglobal`, `defkeyframes`
-   and the others. A parameter, a binding or a call head of the same name is no use. One predicate answers both
-   questions for a `def`, so the data `def` rule cannot use one without the other.
+   and the others. A parameter, a binding or a call head of the same name is no use. A vector of symbols reads as a
+   parameter list, so a style macro that takes a vector of symbols as a value does not mark the `def`, and the `def`
+   stays markup. One predicate answers both questions for a `def`, so the data `def` rule cannot use one without the
+   other.
 
 2. **The data `def` rule.** For `a11y`, `forbid-props`, `reagent` and `react-testing-library-cljs`, the value of a
    top-level `def` is data, with the vectors nested in it, when the value is a vector with a keyword head or a vector
@@ -235,6 +241,9 @@ groups that read Hiccup.
   example `[:div (t :hello)]`, with only calls as children, or `[:input {:min 0 :max 10}]` and
   `[:span {:title "Help"}]`, whose props keys are all Malli property keys.
 - A data vector with a props map of keys that are neither CSS properties nor Malli property keys stays Hiccup, as today.
+- An SVG element whose props keys are all CSS properties, such as `[:rect {:width 1 :height 1 :fill "red"}]`, shows no
+  sign, because `width`, `height`, `fill` and `stroke` are CSS properties too. It is markup only when it has another
+  sign.
 - A schema outside a vector `def`, such as a call `def` `(mu/closed-schema [:map …])` or a schema in a function body, is
   still read as Hiccup. The fallback covers its `[:label …]` case. A Malli property that `names-a-dom-attr?` reads as a
   DOM attribute, such as `:title`, still makes the entry markup for `label-not-associated` outside a vector `def`.
