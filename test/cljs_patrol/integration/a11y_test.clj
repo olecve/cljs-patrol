@@ -1570,11 +1570,28 @@
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])]
     (is (= #{"bad-bound-whole-shell"
              "bad-conj-child-shell"
+             "bad-shell-after-sibling-child"
+             "bad-shell-also-rendered"
+             "bad-shell-filled-only-in-dead-code"
+             "bad-shell-filled-only-in-other-namespace"
+             "bad-shell-shadowed-by-local"
+             "bad-shell-passed-as-value"
+             "bad-shell-filled-with-icon-by-into"
+             "bad-shell-filled-with-icon-by-conj"
+             "bad-shell-rebuilt-without-child"
+             "bad-multi-arity-shell"
+             "bad-button-holding-a-local-component"
+             "bad-button-holding-an-icon-prop"
              "bad-button-holding-an-icon-component"
              "bad-button-holding-a-referred-icon"
-             "bad-unreturned-button"}
+             "bad-unreturned-button"
+             "bad-shell-in-for-binding"
+             "bad-shell-in-let-body"
+             "bad-shell-rebuilt-inside-other-element"
+             "bad-shell-rebuilt-only-in-bindings"
+             "bad-shell-applied"}
            (fn-names-in data-vectors-file (:empty-interactive-element (first group-results))))
-        "shell caller fills is left alone, rendered one and icon-only button are flagged")))
+        "shell every live caller fills is left alone, any other empty control is flagged")))
 
 (def ^:private field-wrappers-file (str fixture-dir "/field_wrappers.cljs"))
 

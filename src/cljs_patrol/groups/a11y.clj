@@ -244,16 +244,6 @@
        (let [alt (literal-sexpr (get attrs :alt))]
          (and (string? alt) (seq alt)))))
 
-(defn- local-component?
-  "True when loc is a vector rendering a component bound locally, such as a render function passed in as a prop.
-
-  It may render anything, text included, so it is no icon an empty control holds."
-  [loc]
-  (and (= :vector (z/tag loc))
-       (let [head (z/down loc)
-             value (when (= :token (some-> head z/tag)) (literal-sexpr head))]
-         (and (simple-symbol? value) (heads/locally-bound? loc (name value))))))
-
 (defn- visible-content?
   "True when loc carries visible text or dynamically-computed content.
   A nested Hiccup vector is treated as opaque icon markup unless it
@@ -262,8 +252,6 @@
   [loc]
   (cond
     (literal-string-loc? loc) true
-
-    (local-component? loc) true
 
     (= :vector (z/tag loc))
     (let [{:keys [slot attrs]} (hiccup/attrs-info loc)
@@ -858,48 +846,6 @@
   (loop [current loc]
     (if-let [parent (z/up current)] (recur parent) current)))
 
-(def ^:private shell-consumers
-  "Calls that take a Hiccup vector as data to add children to, rather than render it."
-  #{"into" "conj"})
-
-(defn- returning-defn-name
-  "Return the name of the `defn` whose result can be loc, or nil."
-  [loc]
-  (let [top (parser/top-level-loc loc)]
-    (when (and (= :list (z/tag top))
-               (contains? #{"defn" "defn-"} (some-> top z/down parser/sym-name)))
-      (let [body-end (z/rightmost (z/down top))]
-        (when (some #(identical? (z/node %) (z/node loc)) (hiccup/result-locs body-end))
-          (some-> (parser/declared-name-loc top) parser/sym-name))))))
-
-(defn- used-as-data?
-  "True when a call of `fn-name` in the file is destructured as a vector or given to `into` or `conj` first."
-  [root fn-name]
-  (loop [current root]
-    (cond
-      (z/end? current) false
-
-      (and (= :list (z/tag current))
-           (= fn-name (some-> current z/down parser/sym-name))
-           (let [parent (z/up current)]
-             (case (some-> parent z/tag)
-               :vector (= :vector (some-> current z/left z/tag))
-               :list (and (contains? shell-consumers (some-> parent z/down parser/sym-name))
-                          (identical? (z/node (z/down parent)) (z/node (z/left current))))
-               false)))
-      true
-
-      :else (recur (z/next current)))))
-
-(defn- element-shell?
-  "True when an element is a shell a function returns for its caller to fill, not markup it renders.
-
-  `(let [[tag attrs] (chip-element props)] [tag attrs label])` reads the vector as data: the
-  caller adds the children, so the shell is empty on purpose."
-  [loc]
-  (boolean (when-let [fn-name (returning-defn-name loc)]
-             (used-as-data? (file-root loc) fn-name))))
-
 (defn- normalized-source [loc]
   (parser/normalize-form (parser/raw loc)))
 
@@ -1145,6 +1091,120 @@
   [loc]
   (boolean (some #(and (= :list (z/tag %)) (= "comment" (some-> % z/down parser/sym-name)))
                  (take-while some? (rest (iterate z/up loc))))))
+
+(def ^:private shell-consumers
+  "Core calls that take a Hiccup vector as data to add children to, rather than render it."
+  #{'cljs.core/into 'cljs.core/conj})
+
+(def ^:private destructuring-heads
+  "Forms whose binding vector can destructure a shell into its tag and props."
+  #{"let" "when-let" "if-let" "when-some" "if-some" "with-let"})
+
+(defn- returning-defn-name
+  "Return the name of the single-arity `defn` whose result can be loc, or nil."
+  [loc]
+  (let [top (parser/top-level-loc loc)]
+    (when (and (= :list (z/tag top))
+               (contains? #{"defn" "defn-"} (some-> top z/down parser/sym-name)))
+      (let [body-end (z/rightmost (z/down top))]
+        (when (some #(identical? (z/node %) (z/node loc)) (hiccup/result-locs body-end))
+          (some-> (parser/declared-name-loc top) parser/sym-name))))))
+
+(defn- code-child-locs
+  "Return the locs of loc's children, the `#_` forms dropped."
+  [loc]
+  (remove #(= :uneval (z/tag %)) (parser/child-locs loc)))
+
+(defn- subtree-locs
+  "Return loc and every loc inside it, the `#_` forms dropped."
+  [loc]
+  (->> loc code-child-locs (mapcat subtree-locs) (cons loc)))
+
+(defn- may-hold-text?
+  "True when a child added to a shell may hold text: anything but a vector, which may be icon markup."
+  [loc]
+  (not= :vector (some-> loc hiccup/unwrap-meta z/tag)))
+
+(defn- filled-by-consumer?
+  "True when `call` is the shell that an `into` or `conj` call adds a child to that may hold text.
+
+  The children `into` adds are the items of its next argument, or anything when that is no
+  vector written out."
+  [call ns-info]
+  (let [consumer (z/up call)
+        [_ target & added] (code-child-locs consumer)]
+    (and (identical? (z/node target) (z/node call))
+         (condp = (heads/resolve-head consumer ns-info shell-consumers)
+           'cljs.core/into (boolean (some #(or (not= :vector (z/tag %)) (some may-hold-text? (code-child-locs %)))
+                                          added))
+           'cljs.core/conj (boolean (some may-hold-text? added))
+           false))))
+
+(defn- destructured-and-filled?
+  "True when `call` is the value of a vector binding in a `let`-like form, and its body adds a child to the shell.
+
+  `(let [[tag attrs] (chip-element props)] [tag attrs label])` binds the shell's tag and
+  props, and renders them with a child of their own."
+  [call]
+  (let [bindings (z/up call)
+        binding-form (some-> bindings z/up)
+        elements (some-> bindings code-child-locs vec)
+        index (first (keep-indexed #(when (identical? (z/node %2) (z/node call)) %1) elements))
+        target (some->> index dec (get elements))
+        tag-name (some-> target code-child-locs first parser/raw)]
+    (boolean (and (= :vector (some-> bindings z/tag))
+                  (= :list (some-> binding-form z/tag))
+                  (contains? destructuring-heads (some-> binding-form z/down parser/sym-name))
+                  (identical? (z/node bindings) (some-> binding-form code-child-locs second z/node))
+                  (some? tag-name)
+                  (some #(and (= :vector (z/tag %))
+                              (= tag-name (some-> % z/down parser/raw))
+                              (<= 3 (count (code-child-locs %))))
+                        (->> binding-form code-child-locs (drop 2) (mapcat subtree-locs)))))))
+
+(defn- live-use?
+  "True when the token at loc names `fn-name` in code a page can run, as this file's function.
+
+  A use in a `(comment …)`, a `#_` form or a quote never runs. The name the `defn` declares,
+  and a local that shadows it, are no use of the function."
+  [loc fn-name]
+  (and (= :token (z/tag loc))
+       (= fn-name (parser/raw loc))
+       (not (contains? #{"defn" "defn-"} (some-> loc z/left parser/sym-name)))
+       (not (hiccup/inside-unrendered-form? loc))
+       (not (inside-comment-form? loc))
+       (not (heads/locally-bound? loc fn-name))))
+
+(defn- filled-shell-name?
+  "True when every live use of `fn-name` in the file is a call whose shell the caller fills.
+
+  A use counts when it heads a call that a `let`-like form destructures and renders with a
+  child, or a call that an `into` or `conj` call adds a child to that may hold text. Any
+  other use, a rendered call or the name passed as a value, may render the shell empty."
+  [root fn-name ns-info]
+  (let [uses (filter #(live-use? % fn-name) (take-while (complement z/end?) (iterate z/next root)))]
+    (boolean (and (seq uses)
+                  (every? (fn [use]
+                            (let [call (z/up use)]
+                              (and (= :list (some-> call z/tag))
+                                   (nil? (z/left use))
+                                   (or (destructured-and-filled? call) (filled-by-consumer? call ns-info)))))
+                          uses)))))
+
+(defn- element-shell?
+  "True when an element is a shell a function returns for its callers to fill, not markup it renders.
+
+  Each live call of the function must fill it: `(let [[tag attrs] (chip-element props)]
+  [tag attrs label])`, `(into (link-shell href) [label])` or `(conj (link-shell href) label)`.
+  The answer for each function is kept for the file."
+  [loc ns-info]
+  (boolean (when-let [fn-name (returning-defn-name loc)]
+             (let [state (parser/file-state ::filled-shell-names {})]
+               (if (contains? @state fn-name)
+                 (get @state fn-name)
+                 (let [answer (filled-shell-name? (file-root loc) fn-name ns-info)]
+                   (swap! state assoc fn-name answer)
+                   answer))))))
 
 (defn- focusable-separator
   "Return {:unnamed? …} for a separator a user can focus, or nil.
@@ -1769,7 +1829,7 @@
                        (on-click-on-non-interactive? info tag)
                        (conj (assoc base :type :on-click-on-non-interactive))
 
-                       (and (empty-interactive? info tag loc) (not (element-shell? loc)))
+                       (and (empty-interactive? info tag loc) (not (element-shell? loc ns-info)))
                        (conj (assoc base :type :empty-interactive-element))
 
                        (missing-accessible-name? info tag loc inside-label)
