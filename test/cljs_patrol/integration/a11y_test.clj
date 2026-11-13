@@ -1575,15 +1575,28 @@
 (deftest missing-accessible-name-label-component-fixture-test
   (is (= #{"bad-select-in-field-without-label"
            "bad-select-in-field-with-nil-label"
+           "bad-select-in-field-without-props"
+           "bad-select-after-keyword-argument"
+           "bad-textarea-inside-div-in-field"
+           "bad-second-control-in-field"
+           "bad-select-in-other-prop-of-field"
            "bad-dialog-in-labelled-field"}
          (field-wrapper-findings {'blogapp.ui/field #{:label}}))
       "flags exactly the bad- cases")
   (is (= #{"ok-select-in-labelled-field"
-           "ok-textarea-deep-in-referred-field"
+           "ok-textarea-in-referred-field"
            "ok-field-with-computed-label"
            "ok-field-with-opaque-props"
+           "ok-field-with-computed-key"
+           "ok-select-through-component"
+           "ok-select-in-conditional-control"
            "bad-select-in-field-without-label"
            "bad-select-in-field-with-nil-label"
+           "bad-select-in-field-without-props"
+           "bad-select-after-keyword-argument"
+           "bad-textarea-inside-div-in-field"
+           "bad-second-control-in-field"
+           "bad-select-in-other-prop-of-field"
            "bad-dialog-in-labelled-field"}
          (field-wrapper-findings nil))
       "no label components configured leaves every field unlabelled")
