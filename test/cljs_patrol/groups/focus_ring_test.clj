@@ -433,49 +433,50 @@
     (is (some? (focus-ring/make-group {:approved-shadows approved}))
         (pr-str approved))))
 
-(deftest shared-replaced-value-names-every-shadow
+(deftest raw-values-of-several-shadows-list-every-shadow
   (let [shared {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{'app.theme.button/shadow-brand-focused "#516bff"}
                                    'app.styles.focus-rings/alpha-shadow #{'app.theme.button/shadow-brand-focused "#516bff"}}}]
     (doseq [value ["button-theme/shadow-brand-focused" "\"0 0 0 2px #516bff\""]]
-      (is (= "Use app.styles.focus-rings/alpha-shadow or app.styles.focus-rings/zeta-shadow."
+      (is (= "Use one or more of: app.styles.focus-rings/alpha-shadow, app.styles.focus-rings/zeta-shadow."
              (hint-of shared (visible-ring ":box-shadow " value " " outline)))
           value)))
-  (is (= "Use app.styles.focus-rings/alpha-shadow, app.styles.focus-rings/beta-shadow or app.styles.focus-rings/zeta-shadow."
-         (hint-of {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{"#516bff"}
+  (is (= "Use one or more of: app.styles.focus-rings/alpha-shadow, app.styles.focus-rings/beta-shadow, app.styles.focus-rings/zeta-shadow."
+         (hint-of {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{"#f6251e"}
                                       'app.styles.focus-rings/alpha-shadow #{"#516bff"}
                                       'app.styles.focus-rings/beta-shadow #{"#516bff"}}}
+                  (visible-ring ":box-shadow \"0 0 0 2px #516bff, 0 0 0 4px #f6251e\" " outline)))
+      "shared value and own value list all three")
+  (is (= "Use one or more of: app.styles.focus-rings/alpha-shadow, app.styles.focus-rings/zeta-shadow."
+         (hint-of {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{'app.theme.button/shadow-brand-focused}
+                                      'app.styles.focus-rings/alpha-shadow #{"#516bff"}}}
+                  (visible-ring ":box-shadow (str button-theme/shadow-brand-focused \", 0 0 0 2px #516bff\") " outline)))
+      "token and color of two shadows list both")
+  (is (= "Use one or more of: app.styles.focus-rings/alpha-shadow, app.styles.focus-rings/beta-shadow."
+         (hint-of {:approved-shadows {'app.styles.focus-rings/alpha-shadow #{"#516bff"}
+                                      'app.styles.focus-rings/beta-shadow #{"rgb(81, 107, 255)" "#516BFF"}}}
                   (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline)))
-      "three shadows sharing value")
+      "same color written two ways lists each shadow once")
+  (is (= "Use one or more of: app.styles.a/zeta-shadow, app.styles.b/alpha-shadow."
+         (hint-of {:approved-shadows {'app.styles.b/alpha-shadow #{"#516bff"}
+                                      'app.styles.a/zeta-shadow #{"#516bff"}}}
+                  (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline)))
+      "names sort by fully qualified name"))
+
+(deftest raw-values-of-one-shadow-name-it-once
   (is (= "Use app.styles.focus-rings/alpha-shadow."
          (hint-of {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{"#f6251e"}
                                       'app.styles.focus-rings/alpha-shadow #{"#516bff"}}}
                   (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline)))
       "unshared value names its own shadow only")
-  (is (= "Use app.styles.focus-rings/alpha-shadow and app.styles.focus-rings/zeta-shadow."
-         (hint-of {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{"#f6251e"}
-                                      'app.styles.focus-rings/alpha-shadow #{"#516bff"}}}
-                  (visible-ring ":box-shadow \"0 0 0 2px #516bff, 0 0 0 4px #f6251e\" " outline)))
-      "values of two shadows need both")
-  (is (= "Use app.styles.focus-rings/alpha-shadow and app.styles.focus-rings/zeta-shadow."
-         (hint-of {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{'app.theme.button/shadow-brand-focused}
-                                      'app.styles.focus-rings/alpha-shadow #{"#516bff"}}}
-                  (visible-ring ":box-shadow (str button-theme/shadow-brand-focused \", 0 0 0 2px #516bff\") " outline)))
-      "token and color of two shadows need both")
-  (is (= "Use app.styles.focus-rings/alpha-shadow or app.styles.focus-rings/beta-shadow, and app.styles.focus-rings/zeta-shadow."
-         (hint-of {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{"#f6251e"}
-                                      'app.styles.focus-rings/alpha-shadow #{"#516bff"}
-                                      'app.styles.focus-rings/beta-shadow #{"#516bff"}}}
-                  (visible-ring ":box-shadow \"0 0 0 2px #516bff, 0 0 0 4px #f6251e\" " outline)))
-      "shared value and own value need one of pair and other")
-  (is (= "Use app.styles.a/zeta-shadow or app.styles.b/alpha-shadow."
-         (hint-of {:approved-shadows {'app.styles.b/alpha-shadow #{"#516bff"}
-                                      'app.styles.a/zeta-shadow #{"#516bff"}}}
-                  (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline)))
-      "names sort by fully qualified name")
   (is (= "Use app.styles.focus-rings/primary-shadow."
          (hint-of config
                   (visible-ring ":box-shadow (str button-theme/shadow-brand-focused \", 0 0 0 2px #516bff\") " outline)))
-      "token and color of one shadow name it once"))
+      "token and color of one shadow")
+  (is (= "Use app.styles.focus-rings/alpha-shadow."
+         (hint-of {:approved-shadows {'app.styles.focus-rings/alpha-shadow ['app.theme.button/shadow-brand-focused
+                                                                            'app.theme.button/shadow-brand-focused]}}
+                  (visible-ring ":box-shadow button-theme/shadow-brand-focused " outline)))
+      "value listed twice under one shadow"))
 
 (deftest preset-in-cljc-checks-only-outline
   (let [source (str "(ns app.styles.focus-rings (:require [spade.core :refer [defclass]]))\n"

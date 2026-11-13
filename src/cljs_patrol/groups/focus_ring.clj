@@ -275,38 +275,23 @@
                (str "Set :outline " (pr-str (or expected default-outline)) " beside :box-shadow.")))))
 
 (defn- replacement
-  "Return the shadows each raw token or color in the value stands in for, or nil.
-
-  Each entry holds the shadows that list one raw value, sorted by fully qualified name. The
-  entries are sorted the same way, so the hint reads the same on every run."
-  [symbols strings {:keys [replaced-values replaced-colors]}]
-  (->> (concat (keep replaced-values symbols)
+  "Return the approved shadows the raw tokens and colors in the value stand in for, sorted and each once, or nil."
+  [symbols strings {:keys [replaced-symbols replaced-colors]}]
+  (->> (concat (mapcat replaced-symbols symbols)
                (keep (fn [[pattern approved]] (when (some #(re-find pattern %) strings) approved)) replaced-colors))
-       (map #(vec (sort-by str %)))
        distinct
-       (sort-by #(str/join " " %))
+       (sort-by str)
        seq))
 
-(defn- join-words
-  "Join words as \"a\", \"a <word> b\" or \"a, b <word> c\"."
-  [words word]
-  (if (next words)
-    (str (str/join ", " (butlast words)) " " word " " (last words))
-    (first words)))
-
 (defn- use-hint
-  "Name the shadows to use, one group for each raw value the ring holds.
+  "Name the shadows to use: \"Use a.\", or \"Use one or more of: a, b.\" when the raw values belong to several.
 
-  The shadows that list one value are alternatives, joined with \"or\". The ring needs a
-  shadow for each value, so the groups join with \"and\", after a comma when a group holds
-  an \"or\": \"Use a or b, and c.\""
-  [groups]
-  (let [alternatives (map #(join-words (map str %) "or") groups)]
-    (str "Use "
-         (if (and (next groups) (some next groups))
-           (str (str/join ", " (butlast alternatives)) ", and " (last alternatives))
-           (join-words alternatives "and"))
-         ".")))
+  A raw value that several shadows list may stand for one of them or for each, so the hint
+  lists them all and leaves the choice to the author."
+  [shadows]
+  (if (next shadows)
+    (str "Use one or more of: " (str/join ", " shadows) ".")
+    (str "Use " (first shadows) ".")))
 
 (defn- raw-shadow-finding
   "Return a raw-shadow finding when a block's `:box-shadow` is not one of the approved shadows.
@@ -420,7 +405,7 @@
      (str "A focus style paints a ring with box-shadow, which forced-colors mode drops. Set an outline that "
           "draws, such as 2px solid transparent, on this block or the focus block around it.")
      :focus-ring-raw-shadow
-     "A focus style builds its box-shadow by hand. Use one of the approved focus-ring shadows from the preset."})
+     "A focus style builds its box-shadow by hand. Use one or more of the approved focus-ring shadows from the preset."})
   (docs-anchors [_]
     {:focus-ring-missing-outline "focus-ring-without-an-outline"
      :focus-ring-raw-shadow "focus-ring-not-from-the-preset"})
@@ -472,21 +457,17 @@
              value values]
          [value shadow]))]))
 
-(defn- shadows-by-value
-  "Group replaced pairs as a map from each value to its shadows."
-  [replaced]
-  (update-vals (group-by first replaced) #(mapv second %)))
-
 (defn- normalize-config [config]
   (when (map? config)
     (let [selectors (set (or (seq (:selectors config)) default-selectors))
           [shadows replaced] (read-approved-shadows (:approved-shadows config))
-          by-value (shadows-by-value replaced)]
+          {color-pairs true
+           symbol-pairs false} (group-by (comp string? first) replaced)]
       {:patterns (mapv (juxt identity state-pattern) selectors)
        :approved-shadows shadows
        :preset-namespaces (into #{} (map namespace) shadows)
-       :replaced-values by-value
-       :replaced-colors (into [] (keep (fn [[value shadows]] (when (string? value) [(color-pattern value) shadows]))) by-value)
+       :replaced-symbols (reduce (fn [found [value shadow]] (update found value (fnil conj []) shadow)) {} symbol-pairs)
+       :replaced-colors (mapv (fn [[value shadow]] [(color-pattern value) shadow]) color-pairs)
        :outline (:outline config)})))
 
 (defn make-group
