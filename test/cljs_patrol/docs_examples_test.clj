@@ -21,8 +21,7 @@
 (def ^:private docs-config
   "Config the examples run under, for a rule that does nothing until it is configured.
   An example calls `(field-label)`, which resolves to a var of the example's own namespace."
-  {:a11y {:label-components {'app.ui.field/field :label}
-          :label-styles #{'example.core/field-label}}
+  {:a11y {:label-styles #{'example.core/field-label}}
    :focus-ring {:approved-shadows {'app.styles.focus-rings/primary-shadow #{'app.theme.button/shadow-brand-focused
                                                                             "#516bff"}}}
    :forbid-props [{:prop :aria-disabled
