@@ -73,22 +73,36 @@ The parts of the decision:
 1. **A test tells clear data.** The test leans toward Hiccup: a vector it reads as data loses today's findings, so it
    reads a vector as data only in the shapes that a data model has and markup does not. A vector is clearly data when
    one of these holds:
-   - Its head is a Malli type keyword that is not in `hiccup/html-tags`. The types are the keyword types of
-     `malli.core/base-schemas`, `type-schemas`, `sequence-schemas` and `comparator-schemas`, such as `:map`, `:=>`,
-     `:enum`, `:or` and `:maybe`. `:>` is not one, because it is also Reagent interop.
+   - It is a Malli schema all through. Its head is a data type keyword, and its other elements are an optional
+     properties map, then children. Each value of the properties map that is a vector is itself clearly data. In a
+     `:map`, `:multi`, `:catn`, `:altn`, `:orn` or `:andn` schema, each child is an entry `[key properties? schema]`:
+     the key is a literal, the properties map is optional, and the schema is a Malli schema. In any other schema, each
+     child is a Malli schema. A Malli schema is a keyword, a symbol, a string, a number, a boolean, a regular
+     expression, a call, or a vector that is a Malli schema all through.
    - It has two or more elements, and every element is a keyword, such as the db path `[:settings :style]` or the
-     keyword list `[:line :rect :circle]`.
+     keyword list `[:line :rect :circle]`. Inside a list, such a vector counts only when its head is not in
+     `hiccup/html-tags`, because `[[:th :name] [:th :email]]` renders two table cells.
    - Its head is a vector, and every element is clearly data, such as a list of schemas.
 
-   A `#_` form is no element, and metadata on a vector is looked through. Any other vector is not clearly data, and
-   stays Hiccup: an HTML element, a custom element, a component, a fragment, a list of elements, a Garden rule, a pair
-   such as `[:title "asc"]`, and a path that holds a number or a string.
+   The data type keywords are the keyword types of `malli.core/base-schemas`, `type-schemas`, `sequence-schemas` and
+   `comparator-schemas`, without the ones that Hiccup or Garden also use: the tags in `hiccup/html-tags`, which today
+   take out `:symbol`, the Reagent interop `:>`, and the Garden selectors `:*` and `:+`. The set is computed from those
+   lists, so it follows `hiccup/html-tags`. `:malli.core/schema` counts only when it is written out. An aliased
+   `::m/schema` is not resolved.
+
+   A `#_` form is no element, and metadata on a vector, at any depth, is looked through. Any other vector is not clearly
+   data, and stays Hiccup: an HTML element, such as an image map `[:map {:name "nav"} [:a {:href "/"} …]]`, a custom
+   element, a component, a fragment, a list of elements, a Garden rule, a pair such as `[:title "asc"]`, a path that
+   holds a number or a string, and a schema with Hiccup in a schema position or in a property value.
 
 2. **The data `def` rule.** For `a11y`, `forbid-props`, `reagent` and `react-testing-library-cljs`, the value of a
    top-level `def` is data, with the vectors nested in it, when the value is a vector with a keyword head or a vector
    head, and it is clearly data.
-   - A `def` is `def` or `defonce`, with or without metadata on the name or a docstring. Its value is the last form. A
-     value with metadata, a map, a call, a symbol-headed vector or a reader conditional is read as today.
+   - A `def` is a `def` or `defonce` form whose parent is the file itself, with or without metadata on the name or a
+     docstring. A `def` inside a reader conditional or another form is read as today. Its value is the last form, with
+     `#_` forms dropped. One helper reads the value for this rule and for the lookup of a symbol's `def`, so both see
+     the same value. A value with its own metadata, a map, a call, a symbol-headed vector or a reader conditional is
+     read as today.
    - A `fn`, `fn*` or `#(…)` removes the data `def` rule from the forms under it, so a route view stays Hiccup. So does
      the argument of `reagent.core/as-element`, resolved through aliases.
    - Other groups, such as `layout`, read all `def` values as today.
@@ -233,6 +247,10 @@ groups that read Hiccup.
   heads. The guards of each rule still apply to them.
 - A Hiccup vector of keywords only, such as `(def greeting [:p :hello])`, is read as data, and the rules lose its
   findings. Such a vector has no props and no element children, so few rules report it.
+- A schema with a part that is not Malli all through stays Hiccup, as today. For example a schema with Hiccup in a
+  property value, or with a vector in a schema position whose head is no data type keyword. The guards of each rule
+  still apply to it.
+- A Garden rule headed by `:*` or `:+` stays Hiccup, as today, so a nested element in it keeps its findings.
 - A schema outside a vector `def`, such as a call `def` `(mu/closed-schema [:map …])` or a schema in a function body, is
   still read as Hiccup. The fallback covers its `[:label …]` case. A Malli property that `names-a-dom-attr?` reads as a
   DOM attribute, such as `:title`, still makes the entry markup for `label-not-associated` outside a vector `def`.
@@ -245,15 +263,17 @@ Before the status changes to `Accepted`:
 
 - Run the scan again with a prototype. Every finding that goes away must be a false positive.
 - The fixtures must show each shape of clear data: a Malli schema with each kind of root, such as `:map`, `:=>` and
-  `:enum`, a db path, a keyword list, a list of schemas, and a value with metadata or a `#_` form.
-- The fixtures must show the vectors that stay Hiccup: an HTML element, a custom element over other markup, `:<>` with
-  empty props, a component with no arguments, props named by a symbol, a list of elements, a Garden rule, a pair such as
-  `[:title "asc"]`, a path with a number, a single keyword such as `[:br]`, and a Malli type keyword that is also an
-  HTML tag.
+  `:enum`, entries with and without properties, a property value that is a schema, a db path, a keyword list, a list of
+  schemas, and a value with metadata, inner metadata or a `#_` form.
+- The fixtures must show the vectors that stay Hiccup: an HTML element, an image map `[:map {:name …} [:a …]]`, a schema
+  with `[:img …]` in a schema position or in a property value, a custom element over other markup, `:<>` with empty
+  props, a component with no arguments, props named by a symbol, a list of elements, a list of keyword-only elements
+  with tag heads, a Garden rule, a Garden rule headed by `:*`, a pair such as `[:title "asc"]`, a path with a number, a
+  single keyword such as `[:br]`, a Malli type keyword that is also an HTML tag, and an aliased `::m/schema` head.
+- The fixtures must show the values that are read as today: a call, a symbol-headed vector, a reader conditional, a
+  value with its own metadata, and a `def` inside a reader conditional.
 - The fixtures must show that a map `def` with toast Hiccup, a route table with a `:view` function, an action table with
   a `:render-item` function and an `as-element` argument inside a data `def` stay Hiccup.
-
-## Implementation
 
 ## Implementation
 
@@ -261,7 +281,7 @@ Do these steps in separate pull requests:
 
 1. Remove the Malli entry schema skip from [pull request #143](https://github.com/olecve/cljs-patrol/pull/143). Keep its
    other fixes: element shells and local components.
-2. Add the test for clear data, with its fixtures.
+2. Add the test for clear data, for a vector and for a `def`, with its fixtures.
 3. Add the data `def` rule in `hiccup/enclosing-forms`, as a new kind `:data-def`. A `fn`, `fn*`, `#(…)` or `as-element`
    call removes `:data-def` from the forms under it. `a11y`, `forbid-props` and `reagent` get the kind through
    `inside-non-hiccup-form?`. `react-testing-library-cljs` checks `:data-def` itself, because it calls only
