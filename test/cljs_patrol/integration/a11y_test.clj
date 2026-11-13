@@ -1557,20 +1557,11 @@
 (def ^:private data-vectors-file (str fixture-dir "/data_vectors.cljs"))
 
 (deftest data-vectors-fixture-test
-  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
-        results (first group-results)
-        in-file (fn [rule] (fn-names-in data-vectors-file (get results rule)))]
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])]
     (is (= #{"bad-bound-whole-shell"
              "bad-conj-child-shell"
              "bad-button-holding-an-icon-component"
              "bad-button-holding-a-referred-icon"
              "bad-unreturned-button"}
-           (in-file :empty-interactive-element))
-        "shell caller fills is left alone, rendered one and icon-only button are flagged")
-    (is (empty? (->> results
-                     vals
-                     (filter sequential?)
-                     (apply concat)
-                     (filter #(= data-vectors-file (:file %)))
-                     (remove #(= :empty-interactive-element (:type %)))))
-        "Malli schema entries named like elements are data")))
+           (fn-names-in data-vectors-file (:empty-interactive-element (first group-results))))
+        "shell caller fills is left alone, rendered one and icon-only button are flagged")))

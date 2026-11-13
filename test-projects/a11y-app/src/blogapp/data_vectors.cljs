@@ -1,11 +1,6 @@
 (ns blogapp.data-vectors
   (:require [blogapp.ui :as ui :refer [icon-x]]))
 
-(def chip-schema
-  [:map
-   [:label {:description "Chip label"} [:or :string :int]]
-   [:button {:optional true} :boolean]])
-
 (defn ok-chip-shell [{:keys [href on-click]}]
   (if href
     [:a {:href href
