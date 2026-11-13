@@ -65,23 +65,28 @@ tell alone that it is data. For a `def`, its content must tell.
 
 ## Decision
 
-Read a vector `def` as data when its content shows no sign of markup. Keep a Malli type check in `label-not-associated`
-as a fallback for schemas outside vector `def`s.
+Read a vector `def` as data only when its content is clearly data. Keep a Malli type check in `label-not-associated` as
+a fallback for schemas outside vector `def`s.
 
 The parts of the decision:
 
-1. **A test tells clear markup.** A vector is clearly markup when one of these holds:
-   - Its head is an HTML tag keyword, `:<>`, `:>`, `:f>` or `:r>`, and it has a string child, a props map in which
-     `names-a-dom-attr?` finds a DOM attribute, or a nested vector that is clearly markup.
-   - Its head is a vector, and one of its children is clearly markup. A list of Hiccup elements, such as
-     `[[:li "a"] [:li "b"]]`, is thus markup.
+1. **A test tells clear data.** The test leans toward Hiccup: a vector it reads as data loses today's findings, so it
+   reads a vector as data only in the shapes that a data model has and markup does not. A vector is clearly data when
+   one of these holds:
+   - Its head is a Malli type keyword that is not in `hiccup/html-tags`. The types are the keyword types of
+     `malli.core/base-schemas`, `type-schemas`, `sequence-schemas` and `comparator-schemas`, such as `:map`, `:=>`,
+     `:enum`, `:or` and `:maybe`. `:>` is not one, because it is also Reagent interop.
+   - It has two or more elements, and every element is a keyword, such as the db path `[:settings :style]` or the
+     keyword list `[:line :rect :circle]`.
+   - Its head is a vector, and every element is clearly data, such as a list of schemas.
 
-   A nested tag with only CSS property maps, such as a Garden rule, is not a sign. A `def` that a `defclass` or
-   `defattrs` names is never clearly markup.
+   A `#_` form is no element, and metadata on a vector is looked through. Any other vector is not clearly data, and
+   stays Hiccup: an HTML element, a custom element, a component, a fragment, a list of elements, a Garden rule, a pair
+   such as `[:title "asc"]`, and a path that holds a number or a string.
 
 2. **The data `def` rule.** For `a11y`, `forbid-props`, `reagent` and `react-testing-library-cljs`, the value of a
    top-level `def` is data, with the vectors nested in it, when the value is a vector with a keyword head or a vector
-   head, and it is not clearly markup.
+   head, and it is clearly data.
    - A `def` is `def` or `defonce`, with or without metadata on the name or a docstring. Its value is the last form. A
      value with metadata, a map, a call, a symbol-headed vector or a reader conditional is read as today.
    - A `fn`, `fn*` or `#(…)` removes the data `def` rule from the forms under it, so a route view stays Hiccup. So does
@@ -96,21 +101,38 @@ The parts of the decision:
 
 ## Options
 
-### A vector `def` without clear markup is data (chosen, with the label-check fallback)
+### A clearly data vector `def` is data (chosen, with the label-check fallback)
 
-The test for clear markup and the data `def` rule above, with the label-check fallback.
+The test for clear data and the data `def` rule above, with the label-check fallback.
 
-- Good, because one rule covers Malli schemas, db paths and keyword lists, in the groups that read Hiccup.
-- Good, because a `def` that holds Hiccup stays valid code and stays checked.
-- Good, because in a prototype on the scan, the test found every Hiccup `def`. The recursive nested sign keeps Garden
-  rules out.
-- Good, because it needs no references across files and no change to the code under check.
-- Bad, because a `def` with markup that the test does not see, such as `[:div (t :hello)]`, loses its findings without a
-  sign.
-- Bad, because a data pair with a string child, such as `(def default-sort [:title "asc"])`, stays Hiccup.
-- Bad, because test fixtures and color lists have map or string heads, so they stay Hiccup.
+- Good, because it covers Malli schemas, db paths and keyword lists, which the scan found to be almost all data `def`s.
+- Good, because any vector it does not know stays Hiccup, as today. A new HTML attribute, a custom element or a new way
+  to write Hiccup cannot turn markup into data.
+- Good, because the test is small: one list of Malli types and a check of keywords. It needs no list of CSS properties
+  or HTML attributes.
+- Good, because a `def` that holds Hiccup stays valid code and stays checked, and it needs no change to the code under
+  check.
+- Bad, because data in other shapes stays Hiccup: a pair with a string, such as `(def default-sort [:title "asc"])`, a
+  path with a number or a string, a list of colors, and test fixtures with map heads.
+- Bad, because a Hiccup vector of keywords only, such as `[:p :hello]`, which Reagent renders as the text "hello",
+  becomes data.
 - Bad, because the data `def` rule does not cover schemas outside vector `def`s. Only the fallback covers their
   `[:label …]` case.
+
+### A vector `def` without clear markup is data (rejected)
+
+A test for clear markup, and every vector `def` that it does not read as markup is data. A vector is markup when it has
+a markup head and a sign: a string or number child, a props map with a key that is neither a CSS property nor a Malli
+property key, or a nested vector that is markup.
+
+- Good, because it covers data in more shapes than the chosen test, such as pairs and lists of colors.
+- Bad, because each miss loses findings without a sign, and each review found new kinds of real Hiccup that it missed.
+  It read these as data, though the rules report them today: a custom element or an excluded tag over other markup, as
+  `[:my-dialog [:button {:aria-hidden true :tab-index 0} "x"]]`, props named by a symbol, as `[:img logo-attrs]`, HTML
+  attributes that share a CSS name, as `[:img {:width 1 :height 1}]`, an empty props map, as `[:<> {} …]`, and
+  components with no arguments, as `[:button [icons/close]]`.
+- Bad, because it needs a list of CSS properties with exceptions for element attributes, and a list of Malli property
+  keys.
 
 ### Hiccup only in functions, enforced by a rule (rejected)
 
@@ -121,7 +143,7 @@ vector `def` could be data.
 - Good, because it is close to JSX, where markup is syntax and eslint-plugin-react never has to guess.
 - Bad, because a `def` is a valid place for Hiccup, as a `defn` and a `defc` are. The rule makes users change valid code
   to help the linter.
-- Bad, because it adds no safety: the test for clear markup already keeps a Hiccup `def` checked.
+- Bad, because it adds no safety: a Hiccup `def` is not clearly data, so the groups already keep checking it.
 - Bad, because each Hiccup `def` gets a finding, which goes to the baseline or needs a change.
 
 ### Data `def`s, with Hiccup when the file renders the name (rejected)
@@ -160,7 +182,7 @@ A rule that requires schema `def`s to be named `*-schema` or `=>*`.
 
 - Good, because it makes the intent clear to a reader.
 - Good, because a rule could skip schema `def`s by name.
-- Bad, because the classification does not need it, because a schema is not clearly markup.
+- Bad, because the classification does not need it: the test reads a schema by its Malli type head.
 - Bad, because it makes users rename many `def`s. A team that wants it can add it later as a style rule.
 
 ### Malli types in the label check alone (rejected, kept as the fallback)
@@ -206,17 +228,14 @@ groups that read Hiccup.
 ## Consequences
 
 - A `def` that holds Hiccup needs no change, and the groups keep checking it.
-- A data `def` with a string child and a tag head, such as `(def default-sort [:title "asc"])` or
-  `(def default-shape [:rect "Step"])`, is clearly markup. The groups keep reading it as Hiccup, as today. The scan has
-  none at the top level.
-- A list of pairs, such as `(def shapes [[:rect "Step"] [:line "Line"]])`, is clearly markup by the vector-head sign.
-  The groups keep reading it as Hiccup, as today.
-- A vector `def` with markup that the test does not see as clear, for example `[:div (t :hello)]` with only calls as
-  children, is read as data. The rules lose its findings.
+- A data `def` in a shape that the test does not know stays Hiccup, as today. For example
+  `(def default-sort [:title "asc"])`, `(def item-path [:items 0 :name])`, a list of colors, or test fixtures with map
+  heads. The guards of each rule still apply to them.
+- A Hiccup vector of keywords only, such as `(def greeting [:p :hello])`, is read as data, and the rules lose its
+  findings. Such a vector has no props and no element children, so few rules report it.
 - A schema outside a vector `def`, such as a call `def` `(mu/closed-schema [:map …])` or a schema in a function body, is
   still read as Hiccup. The fallback covers its `[:label …]` case. A Malli property that `names-a-dom-attr?` reads as a
-  DOM attribute, such as `:title`, still makes the entry markup. Thus `[:label {:optional true :title "Label"} :string]`
-  is still reported.
+  DOM attribute, such as `:title`, still makes the entry markup for `label-not-associated` outside a vector `def`.
 - The `layout` group keeps its findings in Malli `def`s.
 - The guards of each rule can stay. The data `def` rule removes the cause for most cases, and the guards cover the rest.
 
@@ -224,12 +243,17 @@ groups that read Hiccup.
 
 Before the status changes to `Accepted`:
 
-- Run the scan again with a prototype. The test for clear markup must find every Hiccup `def`, and every finding that
-  goes away must be a false positive.
-- The fixtures must show each sign of clear markup, `:>` and `:<>` roots, a list of Hiccup elements, a list of pairs,
-  and the look-alikes: a db path, a keyword list, a Malli schema, and a Garden rule in a `def` that a `defclass` uses.
+- Run the scan again with a prototype. Every finding that goes away must be a false positive.
+- The fixtures must show each shape of clear data: a Malli schema with each kind of root, such as `:map`, `:=>` and
+  `:enum`, a db path, a keyword list, a list of schemas, and a value with metadata or a `#_` form.
+- The fixtures must show the vectors that stay Hiccup: an HTML element, a custom element over other markup, `:<>` with
+  empty props, a component with no arguments, props named by a symbol, a list of elements, a Garden rule, a pair such as
+  `[:title "asc"]`, a path with a number, a single keyword such as `[:br]`, and a Malli type keyword that is also an
+  HTML tag.
 - The fixtures must show that a map `def` with toast Hiccup, a route table with a `:view` function, an action table with
   a `:render-item` function and an `as-element` argument inside a data `def` stay Hiccup.
+
+## Implementation
 
 ## Implementation
 
@@ -237,7 +261,7 @@ Do these steps in separate pull requests:
 
 1. Remove the Malli entry schema skip from [pull request #143](https://github.com/olecve/cljs-patrol/pull/143). Keep its
    other fixes: element shells and local components.
-2. Add the test for clear markup, with its fixtures.
+2. Add the test for clear data, with its fixtures.
 3. Add the data `def` rule in `hiccup/enclosing-forms`, as a new kind `:data-def`. A `fn`, `fn*`, `#(…)` or `as-element`
    call removes `:data-def` from the forms under it. `a11y`, `forbid-props` and `reagent` get the kind through
    `inside-non-hiccup-form?`. `react-testing-library-cljs` checks `:data-def` itself, because it calls only
@@ -248,10 +272,9 @@ Do these steps in separate pull requests:
 
 - A user reports a false positive from a Malli schema outside a vector `def`, beyond the `[:label …]` case. Then the
   Malli types, or schema roots, are needed for all groups that read Hiccup.
-- A user reports a missing finding in a vector `def` whose children are calls. Then add calls as a sign, or add a
-  marker.
-- A user reports a finding on data that the test reads as clear markup, such as `[:title "asc"]`. Then the test needs a
-  stronger sign, or a marker for that case.
+- A user reports a false positive in a data `def` that the test does not know, such as `[:title "asc"]`. Then add that
+  shape to the test, if markup never has it, or add a marker.
+- A user reports a missing finding in a vector of keywords only. Then the keyword-list shape needs a narrower form.
 - A rule must read a vector `def` value as Hiccup, for example a rule for icon `def`s. Then that rule needs a way past
   the data `def` rule.
 - cljs-patrol starts to keep `def` references across files for another reason. Then schema roots cost less, and they can
