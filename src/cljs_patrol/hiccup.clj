@@ -366,26 +366,28 @@
 
 (def ^:private top-level-def-heads #{"def" "defonce"})
 
-(defn- defined-name
-  "Return the name a `def` form defines, or nil.
-  Metadata stacks — `(def ^:private ^:const x …)` nests one `:meta` node inside
-  another — so the name is whatever is left once every layer is peeled off."
-  [list-loc]
-  (loop [name-loc (some-> list-loc z/down z/right)]
-    (case (some-> name-loc z/tag)
-      :meta (recur (some-> name-loc z/down z/rightmost))
-      :token (parser/raw name-loc)
-      nil)))
-
 (defn- written-elements [loc]
   (remove #(= :uneval (z/tag %)) (parser/child-locs loc)))
 
+(defn- defined-name
+  "Find the symbol name a `def` form defines, or nil.
+  `#_` forms are dropped before the name slot is read. Metadata stacks, as in
+  `(def ^:private ^:const x …)`, so every metadata layer is peeled off the name."
+  [list-loc]
+  (loop [name-loc (second (written-elements list-loc))]
+    (case (some-> name-loc z/tag)
+      :meta (recur (some-> name-loc z/down z/rightmost))
+      :token (when (symbol? (z/sexpr name-loc))
+               (parser/raw name-loc))
+      nil)))
+
 (defn- def-value
   "Find the value a `def` form binds: its last form once `#_` forms are dropped.
-  A `def` with no name or no value binds nothing, so this gives nil for it."
+  A `def` with no symbol in its name slot or no value binds nothing, so this gives nil for it."
   [def-loc]
   (let [[_ _ & more] (written-elements def-loc)]
-    (last more)))
+    (when (defined-name def-loc)
+      (last more))))
 
 (defn- top-level-def? [loc]
   (and (= :forms (some-> loc z/up z/tag))
@@ -397,9 +399,7 @@
                (if-let [parent (z/up current)]
                  (recur parent)
                  current))]
-    (if (= :forms (z/tag root))
-      (z/down root)
-      (z/leftmost root))))
+    (z/down root)))
 
 (defn- scan-top-level-defs
   "Return `{name → value-loc}` for every `def` in the file.
@@ -412,10 +412,8 @@
       defs
       (recur (z/right form)
              (or (when (top-level-def? form)
-                   (let [value (def-value form)
-                         defined (defined-name form)]
-                     (when (and defined value)
-                       (assoc defs defined value))))
+                   (when-let [value (def-value form)]
+                     (assoc defs (defined-name form) value)))
                  defs)))))
 
 (defn- def-index
@@ -807,7 +805,7 @@
 
 (def ^:private entry-schema-types #{:map :multi :catn :altn :orn :andn})
 
-(def ^:private literal-value-types #{:enum := :not= :< :<= :>=})
+(def ^:private literal-value-types #{:enum := :not= :< :<= :>= :re :ref})
 
 (declare clear-data?)
 
@@ -832,16 +830,21 @@
 
 (declare malli-schema?)
 
-(defn- literal-value? [loc]
+(defn- literal-of?
+  "True when loc is a token or string whose value passes one of the type predicates."
+  [predicates loc]
   (and (contains? #{:token :multi-line} (z/tag loc))
        (let [literal (z/sexpr loc)]
-         (or (keyword? literal) (symbol? literal) (string? literal) (number? literal) (boolean? literal)))))
+         (some #(% literal) predicates))))
+
+(defn- literal-value? [loc]
+  (or (= :regex (z/tag loc))
+      (literal-of? [keyword? symbol? string? number? boolean?] loc)))
 
 (defn- malli-entry? [loc]
   (let [[entry-key & more] (vector-elements loc)
         [properties [schema & extra]] (split-properties more)]
-    (and (= :token (z/tag entry-key))
-         (not (symbol? (z/sexpr entry-key)))
+    (and (literal-of? [keyword? string? number?] entry-key)
          (clear-properties? properties)
          (malli-schema? schema)
          (nil? extra))))
@@ -861,7 +864,8 @@
   (let [value (unwrap-meta loc)]
     (case (z/tag value)
       :vector (malli-vector? (written-elements value))
-      (:list :regex) true
+      :list (clear-value? value)
+      :regex true
       :token (let [literal (z/sexpr value)]
                (or (keyword? literal) (symbol? literal)))
       false)))
