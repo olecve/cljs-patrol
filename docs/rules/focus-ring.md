@@ -161,8 +161,9 @@ page run under this config:
 
 - `:approved-shadows` — the vars whose value is an approved ring, fully qualified, each mapped to the raw tokens and
   colors it replaces. A finding on a value that holds one of them names the shadow to use, and reports it even inside a
-  stacked ring. When two shadows list the same value, the first by name is named. A set works too, when there is nothing
-  to replace: `#{app.styles.focus-rings/primary-shadow}`. Empty turns off
+  stacked ring. The finding names each shadow whose raw values the ring holds, in name order. A value that several
+  shadows list names all of them, such as an outer ring and an inset ring built from one color. A set works too, when
+  there is nothing to replace: `#{app.styles.focus-rings/primary-shadow}`. Empty turns off
   [Focus ring not from the preset](#focus-ring-not-from-the-preset).
 - `:outline` — the outline a focus block with a `box-shadow` must set, such as `"2px solid transparent"`. Left out, any
   outline that draws holds. `false` turns off [Focus ring without an outline](#focus-ring-without-an-outline).

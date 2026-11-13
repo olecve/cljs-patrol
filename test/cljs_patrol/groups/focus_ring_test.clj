@@ -433,12 +433,33 @@
     (is (some? (focus-ring/make-group {:approved-shadows approved}))
         (pr-str approved))))
 
-(deftest shared-replaced-value-names-first-shadow
+(deftest shared-replaced-value-names-every-shadow
   (let [shared {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{'app.theme.button/shadow-brand-focused "#516bff"}
                                    'app.styles.focus-rings/alpha-shadow #{'app.theme.button/shadow-brand-focused "#516bff"}}}]
     (doseq [value ["button-theme/shadow-brand-focused" "\"0 0 0 2px #516bff\""]]
-      (is (= "Use app.styles.focus-rings/alpha-shadow." (hint-of shared (visible-ring ":box-shadow " value " " outline)))
-          value))))
+      (is (= "Use app.styles.focus-rings/alpha-shadow or app.styles.focus-rings/zeta-shadow."
+             (hint-of shared (visible-ring ":box-shadow " value " " outline)))
+          value)))
+  (is (= "Use app.styles.focus-rings/alpha-shadow, app.styles.focus-rings/beta-shadow or app.styles.focus-rings/zeta-shadow."
+         (hint-of {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{"#516bff"}
+                                      'app.styles.focus-rings/alpha-shadow #{"#516bff"}
+                                      'app.styles.focus-rings/beta-shadow #{"#516bff"}}}
+                  (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline)))
+      "three shadows sharing value")
+  (is (= "Use app.styles.focus-rings/alpha-shadow."
+         (hint-of {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{"#f6251e"}
+                                      'app.styles.focus-rings/alpha-shadow #{"#516bff"}}}
+                  (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline)))
+      "unshared value names its own shadow only")
+  (is (= "Use app.styles.focus-rings/alpha-shadow or app.styles.focus-rings/zeta-shadow."
+         (hint-of {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{"#f6251e"}
+                                      'app.styles.focus-rings/alpha-shadow #{"#516bff"}}}
+                  (visible-ring ":box-shadow \"0 0 0 2px #516bff, 0 0 0 4px #f6251e\" " outline)))
+      "values of two shadows name both")
+  (is (= "Use app.styles.focus-rings/primary-shadow."
+         (hint-of config
+                  (visible-ring ":box-shadow (str button-theme/shadow-brand-focused \", 0 0 0 2px #516bff\") " outline)))
+      "token and color of one shadow name it once"))
 
 (deftest preset-in-cljc-checks-only-outline
   (let [source (str "(ns app.styles.focus-rings (:require [spade.core :refer [defclass]]))\n"
