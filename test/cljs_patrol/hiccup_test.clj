@@ -319,6 +319,10 @@
     (is (= #{:alt} (-> (img-attrs-info "(def props {:alt \"cat\"}) (def props) (defn v [] [:img props])") :attrs keys set))
         "re-def without value keeps earlier value"))
 
+  (testing "a form other than def binds nothing"
+    (is (not= :map (:kind (img-attrs-info "(defn props [] {:alt \"cat\"}) (defn v [] [:img props])")))
+        "defn returning map"))
+
   (testing "a construction over a defined base is readable end to end"
     (let [info (img-attrs-info "(def base {:src \"a\"}) (defn v [] [:img (assoc base :alt \"cat\")])")]
       (is (= :map (:kind info))
@@ -506,6 +510,8 @@
       "enum root with scalar schemas")
   (is (clear-data-source? "[:re #\"x\"]")
       "regex child")
+  (is (clear-data-source? "[:vector item-schema]")
+      "symbol child")
   (is (clear-data-source? "[:vector (m/schema :int)]")
       "call child")
   (is (clear-data-source? "[:multi {:dispatch :type} [:a [:map [:x :int]]] [::m/default :any]]")
@@ -522,19 +528,46 @@
       "map without children")
   (is (clear-data-source? "[:malli.core/schema :int]")
       "written-out malli.core schema")
-  (doseq [type [":and" ":not" ":map-of" ":vector" ":sequential" ":seqable" ":every" ":set" ":enum" ":maybe" ":tuple"
+  (doseq [type [":and" ":or" ":not" ":map-of" ":vector" ":sequential" ":seqable" ":every" ":set" ":maybe" ":tuple"
                 ":re" ":fn" ":ref" ":=>" ":->" ":function" ":schema" ":malli.core/schema" ":any" ":some" ":nil"
                 ":string" ":int" ":float" ":double" ":boolean" ":keyword" ":qualified-keyword" ":qualified-symbol"
-                ":uuid" ":?" ":repeat" ":cat" ":alt" ":>=" ":<" ":<=" ":=" ":not="]]
-    (is (clear-data-source? (str "[" type " \"x\"]"))
-        (str "data type " type))))
+                ":uuid" ":?" ":repeat" ":cat" ":alt"]]
+    (is (clear-data-source? (str "[" type " :int]"))
+        (str "data type " type))
+    (is (not (clear-data-source? (str "[" type " \"x\"]")))
+        (str "string child of " type)))
+  (doseq [type [":enum" ":=" ":not=" ":<" ":<=" ":>="]]
+    (is (clear-data-source? (str "[" type " \"x\" 1 true :a]"))
+        (str "literal values of " type))
+    (is (not (clear-data-source? (str "[" type " (f)]")))
+        (str "call child of " type))))
 
 (deftest clear-data?-reads-entry-schemas
   (doseq [type [":map" ":multi" ":catn" ":altn" ":orn" ":andn"]]
-    (is (clear-data-source? (str "[" type " [:a \"x\"]]"))
+    (is (clear-data-source? (str "[" type " [:a :int]]"))
         (str "entry of " type))
-    (is (not (clear-data-source? (str "[" type " \"x\"]")))
-        (str "schema in place of entry of " type))))
+    (is (not (clear-data-source? (str "[" type " (m/schema :int)]")))
+        (str "schema in place of entry of " type))
+    (is (not (clear-data-source? (str "[" type " [:a \"x\"]]")))
+        (str "literal in entry schema of " type))
+    (is (not (clear-data-source? (str "[" type " [:a {:optional true} 1]]")))
+        (str "literal in entry schema with properties of " type))))
+
+(deftest clear-data?-reads-property-values
+  (is (clear-data-source? "[:vector {:a {:b [:enum :x]} :c #{[:settings :style]} :d ([:map]) :e #?(:cljs [:int :a])} :int]")
+      "clear data nested in map, set, list and reader conditional")
+  (is (not (clear-data-source? "[:vector {:a {:b [:img {:src \"a.png\"}]}} :int]"))
+      "element nested in map")
+  (is (not (clear-data-source? "[:vector {:a #{[:img {:src \"a.png\"}]}} :int]"))
+      "element nested in set")
+  (is (not (clear-data-source? "[:vector {:a (f [:img {:src \"a.png\"}])} :int]"))
+      "element nested in list")
+  (is (not (clear-data-source? "[:vector {:a #?(:cljs [:img {:src \"a.png\"}])} :int]"))
+      "element nested in reader conditional")
+  (is (not (clear-data-source? "[:vector {:a ^:x {:b [:img {:src \"a.png\"}]}} :int]"))
+      "element nested in map with metadata")
+  (is (clear-data-source? "[:vector {:a ^{:doc [:div \"x\"]} [:enum :b]} :int]")
+      "metadata of property value looked through"))
 
 (deftest clear-data?-reads-keyword-vectors
   (is (clear-data-source? "[:settings :style]")
@@ -579,6 +612,8 @@
       "html element")
   (is (not (clear-data-source? "[:map {:name \"nav\"} [:a {:href \"/\"} [:img {:src \"a.png\"}]]]"))
       "image map")
+  (is (not (clear-data-source? "[:map {:name \"nav\"} [:a {:href \"/\"} \"Home\"]]"))
+      "image map with text link")
   (is (not (clear-data-source? "[:vector [:img {:src \"a.png\"}]]"))
       "element in schema position")
   (is (not (clear-data-source? "[:map [:a [:img {:src \"a.png\"}]]]"))
@@ -601,6 +636,8 @@
       "list of elements")
   (is (not (clear-data-source? "[[:th :name] [:th :email]]"))
       "list of keyword-only elements with tag heads")
+  (is (not (clear-data-source? "[[:th.cell :name] [:th#id.cell :email]]"))
+      "list of keyword-only elements with class shorthand")
   (is (not (clear-data-source? "[[:settings :a] [[:th :name]]]"))
       "nested list of keyword-only element")
   (is (not (clear-data-source? "[[:enum :a] [:li \"b\"]]"))
@@ -628,11 +665,17 @@
   (is (not (clear-data-source? "[:vector [^:x :map :int]]"))
       "keyword head with metadata"))
 
+(deftest clear-data?-reads-svg-set-as-data
+  (is (clear-data-source? "[:set {:attributeName \"fill\" :to \"red\"}]")
+      "svg set element"))
+
 (deftest clear-data?-leaves-schemas-with-other-parts
   (is (not (clear-data-source? "[:enum nil]"))
       "nil child")
   (is (not (clear-data-source? "[:enum \\a]"))
       "character child")
+  (is (not (clear-data-source? "[:enum ^:x a]"))
+      "literal with metadata")
   (is (not (clear-data-source? "[:vector #(f %)]"))
       "function literal child")
   (is (not (clear-data-source? "[:map :a [:b :int]]"))
@@ -695,6 +738,8 @@
       "reader conditional value")
   (is (not (clear-data-def-source? "(def path)"))
       "no value")
+  (is (not (clear-data-def-source? "(def)"))
+      "no name")
   (is (not (clear-data-def-source? "(def path #_[:settings :style])"))
       "only discarded value"))
 
