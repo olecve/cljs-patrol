@@ -370,36 +370,44 @@
   (remove #(= :uneval (z/tag %)) (parser/child-locs loc)))
 
 (defn- defined-name
-  "Find the symbol name a `def` form defines, or nil.
-  `#_` forms are dropped before the name slot is read. Metadata stacks, as in
-  `(def ^:private ^:const x …)`, so every metadata layer is peeled off the name."
-  [list-loc]
-  (loop [name-loc (second (written-elements list-loc))]
-    (case (some-> name-loc z/tag)
-      :meta (recur (some-> name-loc z/down z/rightmost))
-      :token (when (symbol? (z/sexpr name-loc))
-               (parser/raw name-loc))
-      nil)))
+  "Find the symbol name in the name slot of a `def` form, or nil.
 
-(defn- def-value
-  "Find the value a `def` form binds: its last form once `#_` forms are dropped.
-  A `def` with no symbol in its name slot or no value binds nothing, so this gives nil for it."
+  Metadata stacks, as in `(def ^:private ^:const x …)`. Every metadata layer is peeled off the name."
+  [name-loc]
+  (case (some-> name-loc z/tag)
+    :meta (recur (some-> name-loc z/down z/rightmost))
+    :token (when (symbol? (z/sexpr name-loc))
+             (parser/raw name-loc))
+    nil))
+
+(defn- def-binding
+  "Find the name and the value a `def` form binds, as `[name value-loc]`, or nil.
+
+  `#_` forms are dropped before the slots are read, so the value is the last written form. A `def` with no
+  symbol in its name slot or no value binds nothing."
   [def-loc]
-  (let [[_ _ & more] (written-elements def-loc)]
-    (when (defined-name def-loc)
-      (last more))))
+  (let [[_ name-loc & more] (written-elements def-loc)
+        defined (defined-name name-loc)
+        value (last more)]
+    (when (and defined value)
+      [defined value])))
 
-(defn- top-level-def? [loc]
-  (and (= :forms (some-> loc z/up z/tag))
-       (= :list (z/tag loc))
-       (contains? top-level-def-heads (some-> loc z/down parser/raw))))
+(defn- top-level-def?
+  "True when loc is a `def` or `defonce` list that is a top-level form of the tree."
+  [loc]
+  (let [parent (z/up loc)]
+    (and (or (nil? parent) (= :forms (z/tag parent)))
+         (= :list (z/tag loc))
+         (contains? top-level-def-heads (some-> loc z/down parser/raw)))))
 
 (defn- first-top-level-form [loc]
   (let [root (loop [current loc]
                (if-let [parent (z/up current)]
                  (recur parent)
                  current))]
-    (z/down root)))
+    (if (= :forms (z/tag root))
+      (z/down root)
+      (z/leftmost root))))
 
 (defn- scan-top-level-defs
   "Return `{name → value-loc}` for every `def` in the file.
@@ -412,8 +420,8 @@
       defs
       (recur (z/right form)
              (or (when (top-level-def? form)
-                   (when-let [value (def-value form)]
-                     (assoc defs (defined-name form) value)))
+                   (when-let [[defined value] (def-binding form)]
+                     (assoc defs defined value)))
                  defs)))))
 
 (defn- def-index
@@ -807,21 +815,36 @@
 
 (def ^:private literal-value-types #{:enum := :not= :< :<= :>= :re :ref})
 
-(declare clear-data?)
+(declare clear-data-element?
+         unwrap-clear-meta)
+
+(defn- clear-value?
+  "True when every vector in the form at loc is clearly data.
+
+  With inside-list? set, a vector of keywords counts only when its head is no HTML tag."
+  [inside-list? loc]
+  (let [value (unwrap-clear-meta loc)]
+    (case (z/tag value)
+      nil false
+      :vector (clear-data-element? inside-list? value)
+      (every? #(clear-value? inside-list? %) (written-elements value)))))
+
+(defn- unwrap-clear-meta
+  "Find the value under the metadata of loc, or nil when a vector in that metadata is not clearly data."
+  [loc]
+  (if (= :meta (z/tag loc))
+    (let [[metadata value] (written-elements loc)]
+      (when (clear-value? false metadata)
+        (recur value)))
+    loc))
 
 (defn- vector-elements [loc]
-  (let [value (unwrap-meta loc)]
+  (let [value (unwrap-clear-meta loc)]
     (when (= :vector (z/tag value))
       (written-elements value))))
 
-(defn- clear-value? [loc]
-  (let [value (unwrap-meta loc)]
-    (if (= :vector (z/tag value))
-      (clear-data? value)
-      (every? clear-value? (written-elements value)))))
-
 (defn- clear-properties? [loc]
-  (every? clear-value? (take-nth 2 (rest (written-elements loc)))))
+  (every? #(clear-value? false %) (written-elements loc)))
 
 (defn- split-properties [elements]
   (if (= :map (z/tag (first elements)))
@@ -861,10 +884,10 @@
                  children))))
 
 (defn- malli-schema? [loc]
-  (let [value (unwrap-meta loc)]
+  (let [value (unwrap-clear-meta loc)]
     (case (z/tag value)
       :vector (malli-vector? (written-elements value))
-      :list (clear-value? value)
+      :list (clear-value? true value)
       :regex true
       :token (let [literal (z/sexpr value)]
                (or (keyword? literal) (symbol? literal)))
@@ -885,9 +908,10 @@
 
   A vector is clearly data when it is a Malli schema all through, when it has two or more
   elements and each is a keyword, or when its head is a vector and each element is clearly
-  data. Inside such a list, a vector of keywords counts only when its head, read without class and id
-  shorthand, is no HTML tag.
-  A `#_` form is no element, and metadata on a vector is looked through."
+  data. Inside such a list, or inside a call in a schema position, a vector of keywords counts
+  only when its head, read without class and id shorthand, is no HTML tag. Every key and value
+  of a properties map is clearly data too. A `#_` form is no element, and metadata on a vector
+  is looked through, but every vector in that metadata must be clearly data."
   [loc]
   (boolean (clear-data-element? false loc)))
 
@@ -896,6 +920,6 @@
   A value with metadata of its own is not clearly data."
   [def-loc]
   (and (top-level-def? def-loc)
-       (let [value (def-value def-loc)]
-         (and (= :vector (some-> value z/tag))
+       (let [[_ value] (def-binding def-loc)]
+         (and (= :vector (z/tag value))
               (clear-data? value)))))
