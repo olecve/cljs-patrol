@@ -791,29 +791,25 @@
   [loc]
   (contains? (enclosing-forms loc) :ns))
 
-(def ^:private malli-keyword-types
-  "Keyword types of the `malli.core` base, type, sequence and comparator schemas at Malli 0.20.3."
-  #{;; base-schemas
-    :and :andn :or :orn :not :map :map-of :vector :sequential :seqable :every :set :enum :maybe
-    :tuple :multi :re :fn :ref :=> :-> :function :schema :malli.core/schema
-    ;; type-schemas
-    :any :some :nil :string :int :float :double :boolean :keyword :symbol :qualified-keyword
-    :qualified-symbol :uuid
-    ;; sequence-schemas
-    :+ :* :? :repeat :cat :alt :catn :altn
-    ;; comparator-schemas
-    :> :>= :< :<= := :not=})
+(def ^:private malli-child-kinds
+  "Malli keyword types, each with the kind of its children.
+
+  The types are the keyword types of the `malli.core` base, type, sequence and comparator schemas at Malli 0.20.3. An
+  `:entry` child is `[key properties? schema]`, a `:literal` child is a literal value, and a `:schema` child is a
+  Malli schema."
+  (merge (zipmap [:map :multi :catn :altn :orn :andn] (repeat :entry))
+         (zipmap [:enum := :not= :< :<= :>= :re :ref] (repeat :literal))
+         (zipmap [:and :or :not :map-of :vector :sequential :seqable :every :set :maybe :tuple :fn :=> :-> :function
+                  :schema :malli.core/schema :any :some :nil :string :int :float :double :boolean :keyword :symbol
+                  :qualified-keyword :qualified-symbol :uuid :+ :* :? :repeat :cat :alt :>]
+                 (repeat :schema))))
 
 (def ^:private data-types
   "Malli keyword types that make a vector head read as data.
 
   The tags in [[html-tags]], the Reagent interop `:>` and the Garden selectors `:*` and `:+` are left out. `:map`
   and `:set` stay, though they also name the HTML `<map>` and the SVG `<set>` elements, which [[html-tags]] leaves out."
-  (set/difference malli-keyword-types html-tags #{:> :* :+}))
-
-(def ^:private entry-schema-types #{:map :multi :catn :altn :orn :andn})
-
-(def ^:private literal-value-types #{:enum := :not= :< :<= :>= :re :ref})
+  (set/difference (set (keys malli-child-kinds)) html-tags #{:> :* :+}))
 
 (declare clear-data-element?
          unwrap-clear-meta)
@@ -844,7 +840,7 @@
       (written-elements value))))
 
 (defn- clear-properties? [loc]
-  (every? #(clear-value? false %) (written-elements loc)))
+  (or (nil? loc) (clear-value? false loc)))
 
 (defn- split-properties [elements]
   (if (= :map (z/tag (first elements)))
@@ -877,10 +873,10 @@
         type (when (parser/kw-node? head) (z/sexpr head))]
     (and (contains? data-types type)
          (clear-properties? properties)
-         (every? (cond
-                   (contains? entry-schema-types type) malli-entry?
-                   (contains? literal-value-types type) literal-value?
-                   :else malli-schema?)
+         (every? (case (malli-child-kinds type)
+                   :entry malli-entry?
+                   :literal literal-value?
+                   :schema malli-schema?)
                  children))))
 
 (defn- malli-schema? [loc]

@@ -3,6 +3,7 @@
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.test :refer [deftest is testing]]
+   [malli.core :as m]
    [rewrite-clj.zip :as z]))
 
 (deftest parse-tag-test
@@ -503,6 +504,11 @@
       "answers for head ns form shadows")
   (is (= ["(x/do [:a])" "[:c]"] (result-strings {} "(if p (x/do [:a]) [:c])"))
       "keeps unresolved branch whole"))
+
+(deftest malli-child-kinds-match-malli-keyword-types
+  (is (= (->> (m/default-schemas) keys (filter keyword?) set)
+         (set (keys @#'hiccup/malli-child-kinds)))
+      "keyword types of malli.core default schemas"))
 
 (defn- clear-data-source? [source] (hiccup/clear-data? (z/of-string source)))
 
