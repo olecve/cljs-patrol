@@ -83,8 +83,9 @@ The parts of the decision:
      regular expression, a call in which every vector is clearly data, or a vector that is a Malli schema all through. A
      string, a number or a boolean is a literal value, not a schema, so `[:a {:href "/"} "Home"]` is no entry.
    - It has two or more elements, and every element is a keyword, such as the db path `[:settings :style]` or the
-     keyword list `[:line :rect :circle]`. Inside a list, such a vector counts only when its head, read without class
-     and id shorthand, is not in `hiccup/html-tags`, because `[[:th :name] [:th.cell :email]]` renders two table cells.
+     keyword list `[:line :rect :circle]`. Inside a list, or inside a call in a schema position, such a vector counts
+     only when its head, read without class and id shorthand, is not in `hiccup/html-tags`, because
+     `[[:th :name] [:th.cell :email]]` renders two table cells.
    - Its head is a vector, and every element is clearly data, such as a list of schemas.
 
    The data type keywords are the keyword types of `malli.core/base-schemas`, `type-schemas`, `sequence-schemas` and
@@ -94,9 +95,10 @@ The parts of the decision:
    and the SVG `<set>` elements, which `hiccup/html-tags` leaves out. `:malli.core/schema` counts only when it is
    written out. An aliased `::m/schema` is not resolved.
 
-   A `#_` form is no element, and metadata on a vector, at any depth, is looked through. Any other vector is not clearly
-   data, and stays Hiccup: an HTML element, such as an image map `[:map {:name "nav"} [:a {:href "/"} "Home"]]`, a
-   custom element, a component, a fragment, a list of elements, a Garden rule, a pair such as `[:title "asc"]`, a path
+   A `#_` form is no element, and metadata on a vector, at any depth, is looked through. Every vector in such a metadata
+   map, and every key and value of a properties map at any depth, must be clearly data too. Any other vector is not
+   clearly data, and stays Hiccup: an HTML element, such as an image map `[:map {:name "nav"} [:a {:href "/"} "Home"]]`,
+   a custom element, a component, a fragment, a list of elements, a Garden rule, a pair such as `[:title "asc"]`, a path
    that holds a number or a string, and a schema with Hiccup in a schema position or in a property value.
 
 2. **The data `def` rule.** For `a11y`, `forbid-props`, `reagent` and `react-testing-library-cljs`, the value of a
@@ -261,8 +263,12 @@ groups that read Hiccup.
   keyword labels such as `(tr :home)`, or `[:set {:attributeName "fill" :to "red"}]`. Both elements are rare.
 - Keyword-only vectors with tag heads inside a set, a map or a call in a property value, such as
   `[:vector {:a #{[:th :name] [:th :email]}} :int]`, are read as data. Such code is unusual.
+- A list of keyword-only vectors whose heads are custom elements or tags that `hiccup/html-tags` leaves out, such as
+  `[[:my-cell :name] [:my-cell :email]]`, is read as data, because such a head looks like a db path keyword. The rules
+  lose its findings.
 - The data `def` rule and the lookup of a symbol's `def` read a `def` the same way, with `#_` forms dropped. So a `def`
-  with a trailing `#_` form now resolves to its value, and a re-`def` whose only value is a `#_` form no longer hides an
+  with a trailing `#_` form now resolves to its value, a `def` with a `#_` form before its name, such as
+  `(def #_old props {…})`, now resolves at all, and a re-`def` whose only value is a `#_` form no longer hides an
   earlier `def` of the same name. A finding on the value, such as `img-alt-missing`, can appear where today's lookup
   reads the `#_` form and finds nothing.
 - A schema outside a vector `def`, such as a call `def` `(mu/closed-schema [:map …])` or a schema in a function body, is
