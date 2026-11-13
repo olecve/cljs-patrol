@@ -250,6 +250,13 @@
 (defn meta-private-fill [on-click]
   (into (ok-meta-private-shell on-click) ["Save"]))
 
+(defn ^{:private true} ok-map-meta-private-shell [on-click]
+  [:button {:on-click on-click
+            :type "button"}])
+
+(defn map-meta-private-fill [on-click]
+  (into (ok-map-meta-private-shell on-click) ["Save"]))
+
 (defn- bad-shell-rebuilt-with-icon [on-click]
   [:button {:on-click on-click
             :type "button"}])

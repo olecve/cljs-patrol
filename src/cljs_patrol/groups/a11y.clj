@@ -1207,9 +1207,9 @@
                           uses)))))
 
 (defn- element-shell?
-  "True when an element is a shell a function returns for its callers to fill, not markup it renders.
+  "True when an element is a shell a private function returns for its callers to fill, not markup it renders.
 
-  Each live call of the function must fill it: `(let [[tag attrs] (chip-element props)]
+  Each live call of the function in the file must fill it: `(let [[tag attrs] (chip-element props)]
   [tag attrs label])`, `(into (link-shell href) [label])` or `(conj (link-shell href) label)`.
   The answer for each function is kept for the file."
   [loc ns-info]
