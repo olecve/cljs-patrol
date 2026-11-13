@@ -1382,6 +1382,16 @@
   (is (empty? (ids-project-fn-names "cljc/idsapp/form.cljs" (run-ids-project ["cljc"])))
       "file opening on reader conditional is read again on second run"))
 
+(deftest missing-accessible-name-unreferenced-id-label-component-test
+  (let [findings (fn [config]
+                   (->> (core/run-all [(str ids-project "/app")] [(a11y/make-group config)])
+                        (mapcat #(-> % :group-results first :missing-accessible-name))
+                        (ids-project-fn-names "app/idsapp/field_ids.cljs")))]
+    (is (= #{"textarea-in-labelled-field"} (findings {}))
+        "id in field wrapper no label points at is reported without config")
+    (is (empty? (findings {:label-components {'blogapp.ui/field :label}}))
+        "label component points its label at id it gives control")))
+
 (deftest missing-accessible-name-unreferenced-id-computed-reference-test
   (is (= #{"bad-id-no-literal-contains"}
          (ids-project-fn-names "computed/idsapp/field.cljs" (run-ids-project ["computed"])))
@@ -1553,3 +1563,44 @@
         "label in previous row names only its own field"))
   (is (empty? (field-caption-findings nil))
       "no label styles configured flags nothing"))
+
+(def ^:private field-wrappers-file (str fixture-dir "/field_wrappers.cljs"))
+
+(defn- field-wrapper-findings [label-components]
+  (let [{:keys [group-results]} (core/run fixture-dir
+                                          [(a11y/make-group {:component-aliases {'blogapp.ui/select :combobox}
+                                                             :label-components label-components})])]
+    (fn-names-in field-wrappers-file (:missing-accessible-name (first group-results)))))
+
+(deftest missing-accessible-name-label-component-fixture-test
+  (is (= #{"bad-select-in-field-without-label"
+           "bad-select-in-field-with-nil-label"
+           "bad-dialog-in-labelled-field"}
+         (field-wrapper-findings {'blogapp.ui/field #{:label}}))
+      "flags exactly the bad- cases")
+  (is (= #{"ok-select-in-labelled-field"
+           "ok-textarea-deep-in-referred-field"
+           "ok-field-with-computed-label"
+           "ok-field-with-opaque-props"
+           "bad-select-in-field-without-label"
+           "bad-select-in-field-with-nil-label"
+           "bad-dialog-in-labelled-field"}
+         (field-wrapper-findings nil))
+      "no label components configured leaves every field unlabelled")
+  (is (= (field-wrapper-findings {'blogapp.ui/field #{:label}})
+         (field-wrapper-findings {'blogapp.ui/field :label}))
+      "one keyword reads as set of one prop"))
+
+(deftest make-group-label-components-test
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":label-components must be a map"
+                        (a11y/make-group {:label-components #{'blogapp.ui/field}}))
+      "set of components is refused")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"key must be a fully qualified symbol"
+                        (a11y/make-group {:label-components {'field :label}}))
+      "unqualified component is refused")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must name a keyword or a collection of keywords"
+                        (a11y/make-group {:label-components {'blogapp.ui/field "label"}}))
+      "string prop is refused")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must name a keyword or a collection of keywords"
+                        (a11y/make-group {:label-components {'blogapp.ui/field #{}}}))
+      "empty prop set is refused"))
