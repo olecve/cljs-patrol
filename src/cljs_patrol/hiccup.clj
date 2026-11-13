@@ -6,10 +6,10 @@
   quoted vectors, etc.). Callers can then decide whether to silently skip
   or flag; this ns never makes that policy call."
   (:require
-   [cljs-patrol.groups.css-order.orders :as orders]
    [cljs-patrol.heads :as heads]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
+   [rewrite-clj.node :as n]
    [rewrite-clj.zip :as z])
   (:import
    (java.util
@@ -405,28 +405,28 @@
                        (assoc defs defined value))))
                  defs)))))
 
-(defn- file-scan
-  "Find what `scan` makes of the file of loc, kept in [[parser/file-state]] under `k` for that file alone.
+(defn- def-index
+  "Find the `def`s of the file being read, kept in [[parser/file-state]] for that file alone.
 
   A file's vectors ask about its vars over and over, so this turns a scan per question
   into a scan per file: the difference between linear and quadratic on a namespace with
   a thousand `def`s. Keyed by identity of the file's first top-level form, so a tree this
   never saw rebuilds it."
-  [loc k scan]
-  (let [first-form (first-top-level-form loc)
-        root (some-> first-form z/node)
-        state (parser/file-state k {:cached-root nil
-                                    :scanned nil})
-        {:keys [cached-root scanned]} @state]
-    (if (identical? root cached-root)
-      scanned
-      (let [rescanned (scan first-form)]
-        (reset! state {:cached-root root
-                       :scanned rescanned})
-        rescanned))))
+  []
+  (parser/file-state ::def-index {:cached-root nil
+                                  :defs {}}))
 
 (defn- top-level-defs [loc]
-  (file-scan loc ::def-index scan-top-level-defs))
+  (let [first-form (first-top-level-form loc)
+        root (some-> first-form z/node)
+        state (def-index)
+        {:keys [cached-root defs]} @state]
+    (if (and root (identical? root cached-root))
+      defs
+      (let [scanned (scan-top-level-defs first-form)]
+        (reset! state {:cached-root root
+                       :defs scanned})
+        scanned))))
 
 (defn- top-level-def-value
   "Return the value a `def` in the same file binds symbol-name to, or nil.
@@ -772,160 +772,53 @@
   [loc]
   (contains? (enclosing-forms loc) :ns))
 
-(def ^:private element-attributes-in-css-tables
-  "Names a property-order table ranks that code writes as element attributes far more often than as style keys.
-  `src` is the `@font-face` descriptor and the others are SVG geometry, so `[:img {:src …}]` stays markup."
-  #{"src" "d" "r" "cx" "cy" "rx" "ry"})
+(def ^:private malli-types
+  "Keyword types of the `malli.core` base, type, sequence and comparator schemas at Malli 0.20.3.
+  `:symbol` is left out, because it is also an SVG tag in [[html-tags]], and `:>`, because it
+  is also Reagent interop."
+  #{;; base-schemas
+    :and :andn :or :orn :not :map :map-of :vector :sequential :seqable :every :set :enum :maybe
+    :tuple :multi :re :fn :ref :=> :-> :function :schema :malli.core/schema
+    ;; type-schemas
+    :any :some :nil :string :int :float :double :boolean :keyword :qualified-keyword
+    :qualified-symbol :uuid
+    ;; sequence-schemas
+    :+ :* :? :repeat :cat :alt :catn :altn
+    ;; comparator-schemas
+    :>= :< :<= := :not=})
 
-(def ^:private css-properties
-  (delay (apply disj
-                (into #{} (mapcat #(keys (orders/ranks %))) orders/names)
-                element-attributes-in-css-tables)))
-
-(def ^:private malli-property-keys
-  #{:optional :description :default :title :min :max :closed :registry :doc})
-
-(def ^:private malli-property-namespaces
-  #{"gen" "error" "json-schema" "decode" "encode" "swagger" "openapi"})
-
-(defn- styling-or-schema-key?
-  "Tell whether a props key is one a CSS rule or a Malli entry also writes.
-  Only a keyword or a string key can say markup, so any other key settles nothing."
-  [key-loc]
-  (let [k (z/sexpr key-loc)]
-    (cond
-      (keyword? k) (or (contains? malli-property-keys k)
-                       (contains? malli-property-namespaces (namespace k))
-                       (contains? @css-properties (name k)))
-      (string? k) (contains? @css-properties k)
-      :else true)))
-
-(def ^:private component-root-heads
-  "Heads that render the component written after them, so the props map comes one child later."
-  #{:> :f> :r>})
+(defn- keyword-loc? [loc]
+  (some-> loc z/node n/keyword-node?))
 
 (defn- written-elements [loc]
-  (->> (parser/child-locs loc)
-       (remove #(= :uneval (z/tag %)))
-       (map unwrap-meta)))
+  (remove #(= :uneval (z/tag %)) (parser/child-locs loc)))
 
-(defn- reader-macro-named? [loc names]
-  (and (= :reader-macro (z/tag loc))
-       (contains? names (parser/raw (z/down loc)))))
+(defn clear-data?
+  "Tell whether the vector at loc has a shape that a data model has and markup does not.
 
-(defn- markup-props? [loc]
-  (let [map-loc (if (reader-macro-named? loc #{"js"}) (z/right (z/down loc)) loc)]
-    (and (= :map (z/tag map-loc))
-         (some (complement styling-or-schema-key?)
-               (take-nth 2 (written-elements map-loc))))))
-
-(defn- text-loc? [loc]
-  (case (z/tag loc)
-    :multi-line true
-    :token (let [value (z/sexpr loc)]
-             (or (string? value) (number? value)))
-    false))
-
-(defn- conditional-branches [loc]
-  (let [[marker forms] (parser/child-locs loc)
-        values (written-elements forms)]
-    (if (= "?@" (parser/raw marker))
-      (mapcat written-elements values)
-      values)))
-
-(defn- yielded-forms
-  "Find the forms loc can yield: through `result-locs`, the body of a `for`, and each reader-conditional branch."
-  [loc]
-  (mapcat (fn [result]
-            (cond
-              (and (= :list (z/tag result)) (= "for" (parser/sym-name (z/down result))))
-              (some-> (nth (written-elements result) 2 nil) yielded-forms)
-
-              (reader-macro-named? result #{"?" "?@"})
-              (mapcat yielded-forms (conditional-branches result))
-
-              :else [result]))
-          (result-locs loc)))
-
-(declare clear-markup?)
-
-(defn- shows-markup-sign? [elements]
-  (or (some text-loc? elements)
-      (markup-props? (first elements))
-      (some #(some clear-markup? (yielded-forms %)) elements)))
-
-(defn clear-markup?
-  "Tell whether the vector at loc shows a sign that only markup shows.
-
-  A head that names an element, a symbol head, `:<>`, `:>`, `:f>` or `:r>` needs a sign:
-  a string or a number child, a props map with a key that is no CSS property and no Malli
-  property key, or a child that yields a vector with a sign of its own. A vector head
-  needs one element with a sign, so a list of elements is markup. A `#_` form is no
-  element, and metadata is looked through. A db path, a keyword list, a Malli schema and
-  a Garden rule show no sign, and neither does `[:div (t :hello)]`, whose child is a call."
+  A vector is clearly data when its head is a Malli type keyword that is no HTML tag, when
+  it has two or more elements and each is a keyword, or when its head is a vector and each
+  element is clearly data. A `#_` form is no element, and metadata is looked through."
   [loc]
   (let [vector-loc (unwrap-meta loc)
-        [head & children] (when (= :vector (z/tag vector-loc))
-                            (written-elements vector-loc))
-        tag (some-> head parser/raw parse-tag)]
+        elements (when (= :vector (z/tag vector-loc))
+                   (written-elements vector-loc))
+        head (first elements)]
     (boolean
      (cond
-       (= :vector (z/tag head)) (some clear-markup? (cons head children))
-       (contains? component-root-heads tag) (shows-markup-sign? (rest children))
-       (or (html-tag? tag) (parser/sym-name head)) (shows-markup-sign? children)))))
+       (keyword-loc? head) (or (contains? malli-types (z/sexpr head))
+                               (and (next elements) (every? keyword-loc? elements)))
+       (= :vector (some-> head unwrap-meta z/tag)) (every? clear-data? elements)))))
 
-(defn- binds-at?
-  "Tell whether list-loc binds the name a symbol below its `child` writes.
-  The symbol binds in a parameter list, or on the left of a binding pair, where `inner` is
-  the element of the binding vector that holds it."
-  [list-loc child inner]
-  (let [head-name (some-> list-loc z/down parser/sym-name)
-        bindings (some-> list-loc z/down z/right)]
-    (or (and (fn-like-head? head-name)
-             (some #(same-node? % child) (filter parameter-list? (parameter-vectors list-loc))))
-        (and (contains? map-binding-heads head-name)
-             (some (fn [[index element]] (and (even? index) (same-node? element inner)))
-                   (map-indexed vector (written-elements bindings)))))))
+(defn clear-data-def?
+  "Tell whether the top-level `def` or `defonce` at def-loc binds a vector that is clearly data.
 
-(defn- binding-name? [loc]
-  (loop [inner nil
-         child loc
-         parent (z/up loc)]
-    (cond
-      (nil? parent) false
-      (binds-at? parent child inner) true
-      :else (recur child parent (z/up parent)))))
-
-(defn- value-use?
-  "Tell whether a symbol token names a var as a value: no call head, no binding, and no local in its way."
-  [loc symbol-name]
-  (not (or (and (= :list (z/tag (z/up loc))) (nil? (z/left loc)))
-           (binding-name? loc)
-           (some? (lexically-bound-value loc symbol-name)))))
-
-(defn- style-decl-values [style-loc]
-  (loop [current (z/subzip style-loc)
-         found #{}]
-    (if (z/end? current)
-      found
-      (recur (z/next current)
-             (let [symbol-name (unqualified-symbol-name current)]
-               (cond-> found
-                 (and symbol-name (value-use? current symbol-name)) (conj symbol-name)))))))
-
-(defn- scan-style-decl-values [first-form]
-  (->> (iterate z/right first-form)
-       (take-while some?)
-       (filter #(and (= :list (z/tag %))
-                     (contains? style-decl-forms (some-> % z/down parser/sym-name))))
-       (into #{} (mapcat style-decl-values))))
-
-(defn clear-markup-def?
-  "Tell whether the value of a `def` or `defonce` at def-loc is clearly markup.
-
-  A `def` whose name a style-declaration macro in the same file uses as a value is a
-  Garden rule, and never clearly markup, whatever its value shows."
+  The value is the last form once `#_` forms are dropped, past a docstring and metadata on
+  the name. A value with metadata of its own is not clearly data."
   [def-loc]
-  (and (clear-markup? (z/rightmost (z/down def-loc)))
-       (not (contains? (file-scan def-loc ::style-decl-values scan-style-decl-values)
-                       (defined-name def-loc)))))
+  (let [value (last (written-elements def-loc))]
+    (and (= :forms (some-> def-loc z/up z/tag))
+         (= :list (z/tag def-loc))
+         (contains? top-level-def-heads (some-> def-loc z/down parser/raw))
+         (= :vector (z/tag value))
+         (clear-data? value))))
