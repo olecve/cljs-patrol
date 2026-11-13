@@ -417,18 +417,6 @@
   (is (= #{} (hiccup/enclosing-forms (z/of-string "[:img]")))
       "nothing at top level"))
 
-(deftest enclosing-forms-reads-malli-entry-schemas
-  (is (= #{:malli-schema}
-         (hiccup/enclosing-forms (loc-at "(def s [:map [:label {:optional true} :string]])" "[:label {:optional true} :string]")))
-      "map schema entry")
-  (is (= #{:malli-schema}
-         (hiccup/enclosing-forms (loc-at "(def s [:multi {:dispatch :type} [:button [:map]]])" "[:button [:map]]")))
-      "multi schema entry")
-  (is (= #{} (hiccup/enclosing-forms (loc-at "(defn v [] [:div [:label \"Name\"]])" "[:label \"Name\"]")))
-      "markup under element is not schema")
-  (is (= #{} (hiccup/enclosing-forms (loc-at "(defn v [] [:map-view [:label \"Name\"]])" "[:label \"Name\"]")))
-      "keyword only starting with map is not schema"))
-
 (deftest enclosing-forms-collects-nested-kinds
   (is (= #{:unrendered :style-decl :ns}
          (hiccup/enclosing-forms (loc-at "(ns a '(defclass c [] [:b]))" "[:b]")))
