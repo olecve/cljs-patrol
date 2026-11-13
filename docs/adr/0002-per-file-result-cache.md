@@ -159,6 +159,39 @@ entries of each other at each run. It also deletes the run keys of the other sou
 - Bad, because it adds dependencies to the native binary.
 - Bad, because it has the same keyword problem.
 
+### A fact store as the cache (deferred)
+
+Keep the file results as facts in an embedded Datalog database, and let a changed file remove its facts and add new
+ones. The candidates are Clojure libraries that speak EDN. Datalevin stores the facts on disk in LMDB, and a warm run
+queries them in place without a read of all entries. Datascript keeps the facts in memory, so it needs a write and a
+read of the whole store, like the EDN cache. Asami is a graph store with Datalog-like queries, in memory or on disk.
+
+- Good, because with an on-disk store a warm run does not read the whole cache, and the read of the cache is the main
+  cost of a warm run.
+- Good, because a rule that needs references across files, such as the schema roots in
+  [ADR 0003](0003-tell-data-vectors-from-hiccup.md), can query them instead of building its own index.
+- Good, because a developer can query the facts to explore a codebase, for example to find each vector `def` with a
+  `:label` head.
+- Bad, because an on-disk store adds native dependencies to the native binary, for example LMDB for Datalevin.
+- Bad, because an on-disk store is a binary file for one platform, where an EDN file works on all platforms.
+- Bad, because the cross-file `analyze` step of each group reads joined data today. To use the queries, the groups must
+  change.
+- Bad, because the run key and the entry key stay necessary, so it does not remove the risk of a stale cache.
+
+It is deferred until a rule needs references across files. Then a prototype can compare it with the EDN cache.
+
+### A full syntax graph in a graph database (rejected)
+
+Load the full syntax tree of all files, with all attributes, into a property graph database, and let the rules query the
+graph. Neo4j runs embedded only inside a JVM application, as a large library. Kùzu embeds like SQLite, but it is a C++
+library that the native binary must bundle, and its repository was archived in 2025.
+
+- Good, because one store holds everything that a rule or a search can ask.
+- Bad, because the full tree is many times larger than the file results, which are already approximately 4x the source.
+- Bad, because the rules walk rewrite-clj zippers. All groups must change to query the graph.
+- Bad, because the graph databases that embed are JVM-only or native libraries, and none speaks EDN. The Datalog stores
+  above fit the facts of a Clojure codebase better.
+
 ### A cache for each file and each group (rejected)
 
 Rejected because it is not possible: the groups share handlers in one walk.
@@ -224,6 +257,8 @@ tests must show these facts:
   cache must stop for that group.
 - cljs-patrol adds a new input that changes the file result, for example a new config file or a new flag. Then the run
   key must include it.
+- A rule needs references across files, such as the schema roots in [ADR 0003](0003-tell-data-vectors-from-hiccup.md).
+  Then prototype the fact store, and compare its warm run and its native binary with the EDN cache.
 - A rule reads a value that is not in the run key or the entry key, for example a file outside the source directory or
   an environment variable. In other tools, almost all known stale-cache bugs came from an input that was not in the key.
 
@@ -244,3 +279,9 @@ tests must show these facts:
   (https://github.com/rubocop/rubocop/pull/7496)
 - GraalVM native-image security services:
   https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/JCASecurityServices/
+- Datalevin: https://github.com/datalevin/datalevin/blob/1.2.10/README.md and its native build notes,
+  https://github.com/datalevin/datalevin/blob/1.2.10/doc/install.md
+- Datascript: https://github.com/tonsky/datascript/tree/1.8.1
+- Asami: https://github.com/quoll/asami/tree/v2.3.4
+- Neo4j embedded: https://neo4j.com/docs/java-reference/current/java-embedded/
+- Kùzu, archived: https://github.com/kuzudb/kuzu
