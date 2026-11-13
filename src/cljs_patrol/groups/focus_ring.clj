@@ -274,11 +274,11 @@
       (finding :focus-ring-missing-outline block key-loc decl-kw file
                (str "Set :outline " (pr-str (or expected default-outline)) " beside :box-shadow.")))))
 
-(defn- replacement
+(defn- candidates
   "Return the approved shadows the raw tokens and colors in the value stand in for, sorted and each once, or nil."
   [symbols strings {:keys [replaced-symbols replaced-colors]}]
   (->> (concat (mapcat replaced-symbols symbols)
-               (keep (fn [[pattern approved]] (when (some #(re-find pattern %) strings) approved)) replaced-colors))
+               (keep (fn [[pattern shadow]] (when (some #(re-find pattern %) strings) shadow)) replaced-colors))
        distinct
        (sort-by str)
        seq))
@@ -286,8 +286,10 @@
 (defn- use-hint
   "Name the shadows to use: \"Use a.\", or \"Use one or more of: a, b.\" when the raw values belong to several.
 
-  A raw value that several shadows list may stand for one of them or for each, so the hint
-  lists them all and leaves the choice to the author."
+  The raw values belong to several shadows when one value is listed under several of them, or
+  when the ring holds values of different shadows. Either way the rule cannot tell which part
+  of the ring each shadow stands for, so the hint lists them all and leaves the choice to the
+  author."
   [shadows]
   (if (next shadows)
     (str "Use one or more of: " (str/join ", " shadows) ".")
@@ -304,14 +306,14 @@
   (let [token-values (map literal (:tokens shadow))
         symbols (keep #(resolve-symbol % ns-info) token-values)
         strings (map compact-color-text (filter string? token-values))
-        approved (replacement symbols strings config)
-        accepted? (and (nil? approved)
+        shadows (candidates symbols strings config)
+        accepted? (and (nil? shadows)
                        (case (:kind shadow)
                          :var (contains? approved-shadows (:symbol shadow))
                          (:str :composed) (or (boolean (some approved-shadows symbols)) (:unreadable? shadow))
                          false))]
     (when-not accepted?
-      (finding :focus-ring-raw-shadow block key-loc decl-kw file (some-> approved use-hint)))))
+      (finding :focus-ring-raw-shadow block key-loc decl-kw file (some-> shadows use-hint)))))
 
 (defn- block-findings [block config ns-info decl-kw file preset?]
   (when (seq (:states block))

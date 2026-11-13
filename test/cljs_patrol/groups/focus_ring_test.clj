@@ -440,7 +440,8 @@
       (is (= "Use one or more of: app.styles.focus-rings/alpha-shadow, app.styles.focus-rings/zeta-shadow."
              (hint-of shared (visible-ring ":box-shadow " value " " outline)))
           value)))
-  (is (= "Use one or more of: app.styles.focus-rings/alpha-shadow, app.styles.focus-rings/beta-shadow, app.styles.focus-rings/zeta-shadow."
+  (is (= (str "Use one or more of: app.styles.focus-rings/alpha-shadow, app.styles.focus-rings/beta-shadow, "
+              "app.styles.focus-rings/zeta-shadow.")
          (hint-of {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{"#f6251e"}
                                       'app.styles.focus-rings/alpha-shadow #{"#516bff"}
                                       'app.styles.focus-rings/beta-shadow #{"#516bff"}}}
@@ -454,8 +455,8 @@
   (is (= "Use one or more of: app.styles.focus-rings/alpha-shadow, app.styles.focus-rings/beta-shadow."
          (hint-of {:approved-shadows {'app.styles.focus-rings/alpha-shadow #{"#516bff"}
                                       'app.styles.focus-rings/beta-shadow #{"rgb(81, 107, 255)" "#516BFF"}}}
-                  (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline)))
-      "same color written two ways lists each shadow once")
+                  (visible-ring ":box-shadow \"0 0 0 2px #516bff, 0 0 0 4px rgb(81,107,255)\" " outline)))
+      "both spellings of one color list each shadow once")
   (is (= "Use one or more of: app.styles.a/zeta-shadow, app.styles.b/alpha-shadow."
          (hint-of {:approved-shadows {'app.styles.b/alpha-shadow #{"#516bff"}
                                       'app.styles.a/zeta-shadow #{"#516bff"}}}

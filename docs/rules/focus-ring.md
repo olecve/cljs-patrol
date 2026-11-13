@@ -138,10 +138,10 @@ a `(str …)` or a Garden vector beside other parts, for a stacked outer and inn
 preset is what a focus ring should name.
 
 When `:approved-shadows` maps an approved shadow to the raw values it replaces, a value holding one of them is reported
-even inside a stacked ring, and the finding names the shadows to use: `button-theme/shadow-brand-focused` or the color
-`#516BFF` above names `focus-rings/primary-shadow`. A color matches without regard to case, to spaces around parentheses
-and commas, so `rgb(81, 107, 255)` matches `rgb(81,107,255)`, and only as a whole, so `#fff` does not match `#fffabc`,
-nor `red` match `darkred`.
+even inside a stacked ring. The finding names the shadows to use by their fully qualified names. For
+`button-theme/shadow-brand-focused` or the color `#516BFF` above, it names `app.styles.focus-rings/primary-shadow`. A
+color matches without regard to case, to spaces around parentheses and commas, so `rgb(81, 107, 255)` matches
+`rgb(81,107,255)`, and only as a whole, so `#fff` does not match `#fffabc`, nor `red` match `darkred`.
 
 A local, such as a parameter of the `defclass`, is not something the rule can read and is left alone, and so is a `str`
 or a Garden vector that holds a local or a call other than `str`, unless it holds a replaced value. The namespaces of
