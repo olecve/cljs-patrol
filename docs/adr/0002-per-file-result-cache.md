@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Proposed, 2026-11-12
 
 ## Context
 
@@ -18,8 +18,9 @@ A run of cljs-patrol has these phases:
 `--timings` shows that step 2 uses approximately 98% of a run. Steps 3 and 4 use approximately 2%.
 
 In CI, most runs change only a small number of files. But each run reads and walks all files again. Parallel analysis
-(merge commit `cd79eeb551`) does not help much on CI runners that have 1 physical core (see ADR 0001). Thus the
-remaining large speed-up is to not analyze the files that did not change.
+(merge commit `cd79eeb551`) does not help much on CI runners that have 1 physical core (see
+[ADR 0001](0001-native-image-garbage-collector.md)). Thus the remaining large speed-up is to not analyze the files that
+did not change.
 
 A research study on a large codebase found these facts:
 
@@ -104,27 +105,63 @@ The design does not need extra rules for these cases, because each one only give
 - a CI cache from another branch, because the key includes the content
 - the system clock, because the cache does not use file times to find changes
 
-Options considered:
+[Options](#options) compares this choice with the other options.
 
-- **Opt-in `--cache-dir DIR` (chosen).** CI must name a directory for `actions/cache`. An opt-in flag also writes no
-  files into a project without a request. ESLint, Prettier and Stylelint also use an opt-in `--cache`.
-- **A cache that is on by default**, for example in `.cljs-patrol/cache`, like clj-kondo, Ruff, RuboCop and mypy. It
-  lost because a stale or wrong cache gives wrong findings without a sign, and cljs-patrol must never do that. The
-  opt-in flag can change to a default after the cache works well for some time.
-- **Pass markers only**, like Ruff, Stylelint and Prettier, which store only "this file had no findings". It is not
-  possible, because the cross-file `analyze` step needs the declarations and usages of each file.
-- **File time and size to find changes** (the ESLint `metadata` strategy, which is the ESLint default). It lost because
-  a fresh CI checkout sets new times on all files. Then all files are misses.
-- **One cache file for all results**, like ESLint and Prettier. It lost because each run writes the full file again, one
-  corrupt write loses all entries, the workers must take turns to write, and the read was slower in the study.
-- **Shards that hold many entries.** It lost because a change to one file writes a full shard again. With a codebase of
-  this size, fewer cache files give no gain.
-- **Delete all other run keys at each run.** It lost because two configurations that share one cache directory, for
-  example the CI groups and all groups, delete the entries of each other at each run. It also deletes the run keys of
-  the other source directories of the same run.
-- **Transit instead of EDN.** It lost because it adds dependencies to the native binary, it has the same keyword
-  problem, and its read was only approximately 15% faster in a native binary.
-- **A cache for each file and each group.** It is not possible, because the groups share handlers in one walk.
+## Options
+
+### Opt-in `--cache-dir DIR` (chosen)
+
+- Good, because CI must name a directory for `actions/cache`, and the flag names it.
+- Good, because an opt-in flag writes no files into a project without a request.
+- Good, because ESLint, Prettier and Stylelint also use an opt-in `--cache`.
+
+### A cache that is on by default (rejected)
+
+For example in `.cljs-patrol/cache`, like clj-kondo, Ruff, RuboCop and mypy.
+
+- Good, because all runs get the speed-up with no setup.
+- Bad, because a stale or wrong cache gives wrong findings without a sign, and cljs-patrol must never do that.
+
+The opt-in flag can change to a default after the cache works well for some time.
+
+### Pass markers only (rejected)
+
+Like Ruff, Stylelint and Prettier, which store only "this file had no findings".
+
+Rejected because it is not possible: the cross-file `analyze` step needs the declarations and usages of each file.
+
+### File time and size to find changes (rejected)
+
+The ESLint `metadata` strategy, which is the ESLint default.
+
+Rejected because a fresh CI checkout sets new times on all files. Then all files are misses.
+
+### One cache file for all results (rejected)
+
+Like ESLint and Prettier.
+
+Rejected because each run writes the full file again, one corrupt write loses all entries, the workers must take turns
+to write, and the read was slower in the study.
+
+### Shards that hold many entries (rejected)
+
+Rejected because a change to one file writes a full shard again. With a codebase of this size, fewer cache files give no
+gain.
+
+### Delete all other run keys at each run (rejected)
+
+Rejected because two configurations that share one cache directory, for example the CI groups and all groups, delete the
+entries of each other at each run. It also deletes the run keys of the other source directories of the same run.
+
+### Transit instead of EDN (rejected)
+
+- Good, because its read was approximately 15% faster in a native binary.
+- Bad, because it adds dependencies to the native binary.
+- Bad, because it has the same keyword problem.
+
+### A cache for each file and each group (rejected)
+
+Rejected because it is not possible: the groups share handlers in one walk.
 
 ## Consequences
 
@@ -147,17 +184,6 @@ Options considered:
   different cache directory.
 - A CI setup needs an `actions/cache` step with a key such as `<version>-<config hash>-<commit>` and the restore key
   `<version>-<config hash>-`. Then a run gets the latest older cache.
-- The tests must show these facts:
-  - A cold run and a warm run give the same stdout, stderr and exit code.
-  - Each value in each file result is equal to its EDN write and read. This includes aliases from string requires with
-    `@` or `/`.
-  - No metadata in a file result changes the findings, because EDN does not keep metadata.
-  - A changed file is analyzed again.
-  - A file that changes during the run does not make a wrong entry.
-  - A change of config, flags or version gives misses.
-  - A truncated or invalid entry gives a fresh analysis.
-  - Two runs with different config in one cache directory both get hits.
-  - The output with `--jobs 1` and `--jobs 4` is the same.
 
 ## Implementation
 
@@ -173,6 +199,22 @@ Do these steps in separate pull requests:
    the cold and warm integration tests.
 4. Measure a cold run and a warm run on a large codebase with the native binary. Update this ADR with the results.
 5. Add the `actions/cache` step to the CI of a project that uses cljs-patrol.
+
+## Confirmation
+
+Before the status changes to `Accepted`, the measurement in Implementation step 4 must show the warm-run gain, and the
+tests must show these facts:
+
+- A cold run and a warm run give the same stdout, stderr and exit code.
+- Each value in each file result is equal to its EDN write and read. This includes aliases from string requires with `@`
+  or `/`.
+- No metadata in a file result changes the findings, because EDN does not keep metadata.
+- A changed file is analyzed again.
+- A file that changes during the run does not make a wrong entry.
+- A change of config, flags or version gives misses.
+- A truncated or invalid entry gives a fresh analysis.
+- Two runs with different config in one cache directory both get hits.
+- The output with `--jobs 1` and `--jobs 4` is the same.
 
 ## Revisit when
 

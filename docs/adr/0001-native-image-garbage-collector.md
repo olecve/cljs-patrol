@@ -2,12 +2,12 @@
 
 ## Status
 
-Rejected
+Rejected, 2026-11-12 (proposed 2026-11-12)
 
 ## Outcome
 
-The Linux measurement did not confirm G1. Keep the Serial GC on all platforms. The sections after this one show the
-proposal as it was before the measurement.
+2026-11-12. The Linux measurement did not confirm G1. Keep the Serial GC on all platforms. The sections after this one
+show the proposal as it was before the measurement.
 
 Measurement conditions:
 
@@ -63,28 +63,47 @@ CI pipelines usually download the Linux binary and run it on runners with 2 or 4
 Build the `linux-x86_64` native binary with `--gc=G1`, if a measurement on Linux confirms that G1 is faster. Keep the
 `macos-aarch64` binary on the Serial GC.
 
-Options considered:
-
-- **Keep the Serial GC on all platforms.** This option keeps one GC on all platforms and needs no build change. It lost
-  because the Serial GC stops all threads and collects on one thread. This limits the gain from parallel analysis, and
-  the limit is larger on machines with more cores.
-- **Tune the Serial GC.** Different young generation sizes did not decrease the GC cost in the first test.
-- **Use G1 on Linux (chosen).** G1 collects on more than one thread. It also does part of its work while the program
-  runs. Oracle GraalVM supports G1 in native images on Linux only, and CI pipelines run on Linux. The change is one
-  build flag. G1 can also have costs, for example a larger binary or more memory. Nobody measured G1 yet.
-- **Use G1 on all platforms.** This option is not available, because native-image supports G1 on Linux only.
+[Options](#options) compares this choice with the other options.
 
 Less memory allocation per run helps all GCs and all `--jobs` values. It is a different task, not an alternative to this
 decision.
 
+## Options
+
+### Keep the Serial GC on all platforms (rejected)
+
+- Good, because it keeps one GC on all platforms.
+- Good, because it needs no build change.
+- Bad, because the Serial GC stops all threads and collects on one thread. This limits the gain from parallel analysis,
+  and the limit is larger on machines with more cores.
+
+### Tune the Serial GC (rejected)
+
+Rejected because different young generation sizes did not decrease the GC cost in the first test.
+
+### Use G1 on Linux (chosen)
+
+- Good, because G1 collects on more than one thread. It also does part of its work while the program runs.
+- Good, because Oracle GraalVM supports G1 in native images on Linux only, and CI pipelines run on Linux.
+- Good, because the change is one build flag.
+- Bad, because G1 can also have costs, for example a larger binary or more memory.
+- Bad, because nobody measured G1 yet.
+
+### Use G1 on all platforms (rejected)
+
+Rejected because native-image supports G1 on Linux only.
+
 ## Consequences
 
-- Before the status changes to `Accepted`, measure G1 on Linux. Compare a Serial GC build and a G1 build of the same
-  commit on the same project at `--jobs` 1, 2 and 4. Record the time, the binary size and the peak memory.
 - The `native` task in `build.clj` needs a way to add `--gc=G1` for the Linux build only. `native-verify` in
   `.github/workflows/test.yml` must build the binary the same way, so that it checks the binary that the release ships.
 - The two release binaries use different GCs. A memory or time problem can occur on one binary only.
 - The build needs Oracle GraalVM. GraalVM Community Edition has no G1 for native images.
+
+## Confirmation
+
+Before the status changes to `Accepted`, measure G1 on Linux. Compare a Serial GC build and a G1 build of the same
+commit on the same project at `--jobs` 1, 2 and 4. Record the time, the binary size and the peak memory.
 
 ## Revisit when
 
