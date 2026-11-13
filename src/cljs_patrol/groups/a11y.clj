@@ -594,9 +594,10 @@
           (pr-str role) implied declared implied))
 
 (defn- resolve-component-alias
-  "Return the `{:tag … :label-props …}` alias a resolved component symbol is mapped to, or nil.
+  "Return the value a resolved component symbol is mapped to in `component-aliases`, or nil.
 
-  A `some.ns/*` key maps every var in that namespace, so a large icon or widget
+  Given the aliases, the value is a `{:tag … :label-props …}` alias; given the label
+  components, a set of label props. A `some.ns/*` key maps every var in that namespace, so a large icon or widget
   namespace costs one entry rather than one per var. An exact symbol wins over it."
   [head-str ns-info component-aliases]
   (when (seq component-aliases)
@@ -609,6 +610,14 @@
   "Return the native tag mapped to a resolved component symbol, or nil."
   [head-str ns-info component-aliases]
   (:tag (resolve-component-alias head-str ns-info component-aliases)))
+
+(defn- label-prop-value
+  "Return the value of the first of `label-props` that names something, or nil."
+  [attrs label-props]
+  (->> label-props
+       (map #(get attrs %))
+       (filter meaningful-name-value?)
+       first))
 
 (defn- element-info
   "Classify the element's props, reading a wrapper's label props as its accessible name.
@@ -626,10 +635,7 @@
         label-props (some-> loc z/down parser/raw
                             (resolve-component-alias ns-info component-aliases)
                             :label-props)
-        label-value (->> label-props
-                         (map #(get attrs %))
-                         (filter meaningful-name-value?)
-                         first)]
+        label-value (label-prop-value attrs label-props)]
     (cond
       (nil? label-value) info
       (attr-written? attrs :aria-label) (assoc-in info [:attrs :aria-labelledby] label-value)
@@ -920,27 +926,6 @@
          (or (= :label (hiccup/parse-tag head))
              (and (= ":>" head) (= "\"label\"" (some-> loc z/down z/right parser/raw)))))))
 
-(defn- inside-label?
-  "True when a `<label>` vector encloses the element."
-  [loc]
-  (boolean (some label-vector? (take-while some? (rest (iterate z/up loc))))))
-
-(defn- named-by-label?
-  "True when a `<label>` may name the element.
-  One wrapping it may, and so may one anywhere on the page whose `for` points at an id
-  the element carries, written out or in the tag shorthand. An id that cannot be read
-  counts, since the label it is built for cannot be ruled out."
-  [attrs loc]
-  (or (inside-label? loc)
-      (some? (shorthand-id loc))
-      (attr-written? attrs :id)))
-
-(defn- name-required-tag?
-  "True when the element's tag alone requires an accessible name."
-  [tag loc]
-  (and (contains? accessible-name-required-tags tag)
-       (or (not (contains? widget-role-tags tag)) (widget-role-vector? tag loc))))
-
 (defn- cannot-be-props?
   "True when a native element's second child is one Reagent never takes as props.
   Reagent reads a map there as props at runtime, so a symbol, a deref or a call may
@@ -950,6 +935,107 @@
     (:vector :multi-line) true
     :token (not (symbol? (z/sexpr child)))
     false))
+
+(defn- native-vector? [loc]
+  (and (= :vector (some-> loc z/tag))
+       (some? (some-> loc z/down parser/raw hiccup/parse-tag))))
+
+(defn- argument-locs
+  "Return the locs of a vector's children, the `#_` forms dropped."
+  [loc]
+  (remove #(= :uneval (z/tag %)) (parser/child-locs loc)))
+
+(defn- label-component-props
+  "Return the configured label props of the label component a vector renders, or nil."
+  [loc {:keys [ns-info label-components]}]
+  (when (and (seq label-components) (= :vector (z/tag loc)))
+    (some-> loc z/down parser/raw (resolve-component-alias ns-info label-components))))
+
+(defn- map-draws-label?
+  "True when a literal props map may set one of the label props: it sets one, or its keys cannot be read."
+  [attrs label-props]
+  (or (nil? attrs) (some? (label-prop-value attrs label-props))))
+
+(defn- draws-label?
+  "True when a label component may draw its label.
+
+  It draws one only when one of its label props is set. Props the rule cannot read may
+  set one. A string, a keyword, a number or a vector in their place, written there or
+  named by a symbol, is no props map, so it sets none. A `#_` form is no argument, so a
+  props map after one is read as the props."
+  [loc label-props]
+  (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
+    (case kind
+      :map (map-draws-label? attrs label-props)
+      :non-map (let [argument (second (argument-locs loc))
+                     value (or (hiccup/resolved-value argument) argument)]
+                 (if (= :map (z/tag value))
+                   (map-draws-label? (hiccup/literal-map value) label-props)
+                   (not (cannot-be-props? value))))
+      true)))
+
+(def ^:private interop-heads
+  "Heads of a vector that renders a React component, which may pass props on as a component does."
+  #{":>" ":f>" ":r>"})
+
+(defn- id-taker?
+  "True when the vector at loc is a native element, which keeps an id it is given rather than passing it on."
+  [loc]
+  (and (native-vector? loc)
+       (not (contains? interop-heads (some-> loc z/down parser/raw)))))
+
+(defn- control-of-label-component?
+  "True when the label component at `wrapper` may give its label's id to the element at loc.
+
+  The component writes the id into the props of its first child after its props, so
+  that child is its one control. A form there gives it to what the form yields. A native
+  element given the id keeps it, so a control inside it is not named, where a component
+  may pass it on. `child` is the wrapper's child on the way up from loc."
+  [wrapper child loc {:keys [ns-info]}]
+  (and (identical? (z/node child) (some-> (nth (argument-locs wrapper) 2 nil) z/node))
+       (let [result (->> (hiccup/result-locs (hiccup/unwrap-meta child) ns-info)
+                         (map hiccup/unwrap-meta)
+                         (filter #(descendant-of? % loc))
+                         first)]
+         (or (nil? result)
+             (identical? (z/node result) (z/node loc))
+             (not (id-taker? result))))))
+
+(defn- inside-label?
+  "True when a `<label>` vector encloses the element, or a component that draws one gives it the label's id.
+
+  A label component the element is not the control of gives it no id, and neither does
+  any component above it, so from there only a `<label>` vector may still name it."
+  [loc context]
+  (loop [child loc
+         ancestor (z/up loc)
+         blocked? false]
+    (cond
+      (nil? ancestor) false
+      (label-vector? ancestor) true
+      :else (let [label-props (when-not blocked? (label-component-props ancestor context))]
+              (cond
+                (nil? label-props) (recur ancestor (z/up ancestor) blocked?)
+                (not (control-of-label-component? ancestor child loc context)) (recur ancestor (z/up ancestor) true)
+                (draws-label? ancestor label-props) true
+                :else (recur ancestor (z/up ancestor) false))))))
+
+(defn- named-by-label?
+  "True when a `<label>` may name the element.
+  One wrapping it may, and so may one a label component draws for it, as `inside-label`
+  has it, and one anywhere on the page whose `for` points at an id the element carries,
+  written out or in the tag shorthand. An id that cannot be read counts, since the label
+  it is built for cannot be ruled out."
+  [attrs loc inside-label]
+  (or @inside-label
+      (some? (shorthand-id loc))
+      (attr-written? attrs :id)))
+
+(defn- name-required-tag?
+  "True when the element's tag alone requires an accessible name."
+  [tag loc]
+  (and (contains? accessible-name-required-tags tag)
+       (or (not (contains? widget-role-tags tag)) (widget-role-vector? tag loc))))
 
 (defn- props-name-nothing?
   "True when the element's props demonstrably carry no accessible name.
@@ -964,11 +1050,11 @@
     false))
 
 (defn- missing-accessible-name? [{:keys [kind attrs]
-                                  :as info} tag loc]
+                                  :as info} tag loc inside-label]
   (cond
     (name-required-tag? tag loc)
     (and (props-name-nothing? info loc)
-         (not (and (contains? label-named-tags tag) (named-by-label? attrs loc)))
+         (not (and (contains? label-named-tags tag) (named-by-label? attrs loc inside-label)))
          (not (and (= :switch tag) (seq (body-locs loc)))))
 
     (and (= kind :map) attrs (name-required-attrs? attrs))
@@ -982,11 +1068,11 @@
   and only an id written out as one whitespace-free string, in the props or the tag
   shorthand. Either way the element writes one literal containing it."
   [{:keys [attrs]
-    :as info} tag loc]
+    :as info} tag loc inside-label]
   (when (and (name-required-tag? tag loc)
              (contains? label-named-tags tag)
              (props-name-nothing? info loc)
-             (not (inside-label? loc))
+             (not @inside-label)
              (not (and (= :switch tag) (seq (body-locs loc)))))
     (let [shorthand (shorthand-id loc)
           id-written? (attr-written? attrs :id)
@@ -1282,10 +1368,6 @@
              (label-style-call? (-> loc hiccup/attrs-info :attrs :class) context))
          (every? literal-string-loc? body)
          (some #(not (str/blank? (z/sexpr %))) body))))
-
-(defn- native-vector? [loc]
-  (and (= :vector (some-> loc z/tag))
-       (some? (some-> loc z/down parser/raw hiccup/parse-tag))))
 
 (defn- first-body-child? [loc]
   (let [parent (z/up loc)]
@@ -1598,7 +1680,7 @@
     (or (some-> ^IdentityHashMap (:unwrapped-locs @state) (.get (z/node written-loc)))
         written-loc)))
 
-(defn- handle-vector* [written-loc ns-info file {:keys [component-aliases label-styles]}]
+(defn- handle-vector* [written-loc ns-info file {:keys [component-aliases label-components label-styles]}]
   (let [loc (unwrapped-loc written-loc ns-info component-aliases)
         first-child (z/down loc)]
     (when (and first-child
@@ -1606,10 +1688,12 @@
                (not (hiccup/inside-non-hiccup-form? loc)))
       (when-let [tag (vector-tag loc ns-info component-aliases)]
         (let [info (element-info loc ns-info component-aliases)
+              inside-label (delay (inside-label? loc {:label-components label-components
+                                                      :ns-info ns-info}))
               aria-live-conflict (contradicting-aria-live info)
               repeated-name (repeated-accessible-name info tag loc ns-info component-aliases)
               nested-control (nested-interactive-loc info loc tag ns-info component-aliases)
-              unreferenced-id (unreferenced-id-candidate info tag loc)
+              unreferenced-id (unreferenced-id-candidate info tag loc inside-label)
               separator (focusable-separator info tag loc)
               hidden-self? (aria-hidden-focusable? info tag)
               hidden-descendant (when-not hidden-self?
@@ -1633,7 +1717,7 @@
                        (empty-interactive? info tag loc)
                        (conj (assoc base :type :empty-interactive-element))
 
-                       (missing-accessible-name? info tag loc)
+                       (missing-accessible-name? info tag loc inside-label)
                        (conj (assoc base :type :missing-accessible-name))
 
                        separator
@@ -1751,13 +1835,14 @@
       (seq label-not-associated)
       (seq aria-label-beside-visible-label)))
 
-(defrecord A11yGroup [component-aliases label-styles]
+(defrecord A11yGroup [component-aliases label-components label-styles]
   group/RuleGroup
   (group-id [_] :a11y)
   (group-name [_] "A11y")
   (parse-handlers [_]
     {:handle-vector (fn [loc ns-info file]
                       (handle-vector* loc ns-info file {:component-aliases component-aliases
+                                                        :label-components label-components
                                                         :label-styles label-styles}))
      :handle-list (fn [loc _ns-info _file]
                     (file-literals loc))})
@@ -1885,6 +1970,30 @@
                          (pr-str label-styles))
                     {:label-styles label-styles}))))
 
+(defn- normalize-label-components
+  "Read the label components as a map from a fully qualified symbol to a set of prop keywords, refusing any other shape."
+  [label-components]
+  (if-not (or (nil? label-components) (map? label-components))
+    (throw (ex-info (str ":a11y :label-components must be a map from a fully qualified symbol to its label props, got "
+                         (pr-str label-components))
+                    {:label-components label-components}))
+    (reduce-kv (fn [components component label-props]
+                 (when-not (qualified-symbol? component)
+                   (throw (ex-info (str ":a11y :label-components key must be a fully qualified symbol, got "
+                                        (pr-str component))
+                                   {:key component})))
+                 (assoc components component (cond
+                                               (keyword? label-props) #{label-props}
+                                               (and (coll? label-props) (seq label-props) (every? keyword? label-props))
+                                               (set label-props)
+                                               :else (throw (ex-info (str ":a11y :label-components " component
+                                                                          " must name a keyword or a collection of"
+                                                                          " keywords, got " (pr-str label-props))
+                                                                     {:key component
+                                                                      :label-props label-props})))))
+               {}
+               label-components)))
+
 (defn make-group
   "Return an a11y RuleGroup configured with the given map (see `A11yGroup`).
   Supported keys:
@@ -1894,10 +2003,16 @@
       \"@scope/package/Comp\", for a name no symbol can spell. The value may
       instead be {:tag native-tag-keyword :label-props #{prop …}}, naming the
       props the wrapper wires to an accessible name of its own.
+    :label-components {full-qualified-symbol prop-or-props} — field wrappers that
+      draw a `<label>` and give its id to their first child after the props, their
+      control, when one of the props is set. The props are one keyword or a
+      non-empty collection of them. A `some.ns/*` key lists every var there.
     :label-styles #{full-qualified-symbol …} — style functions that mark
       text as a field's visible label. Off until set."
   ([] (make-group nil))
-  ([{:keys [component-aliases label-styles]}]
-   (->A11yGroup (normalize-aliases component-aliases) (normalize-label-styles label-styles))))
+  ([{:keys [component-aliases label-components label-styles]}]
+   (->A11yGroup (normalize-aliases component-aliases)
+                (normalize-label-components label-components)
+                (normalize-label-styles label-styles))))
 
 (def group (make-group))
