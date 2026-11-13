@@ -1272,7 +1272,7 @@
   [file findings]
   (let [defn-rows (->> (str/split-lines (slurp file))
                        (keep-indexed (fn [index line]
-                                       (when-let [[_ fn-name] (re-find #"^\(defn (\S+)" line)]
+                                       (when-let [[_ fn-name] (re-find #"^\(defn-? (?:\^\S+ )*(\S+)" line)]
                                          [(inc index) fn-name]))))]
     (->> findings
          (filter #(= file (:file %)))
@@ -1589,7 +1589,10 @@
              "bad-shell-in-let-body"
              "bad-shell-rebuilt-inside-other-element"
              "bad-shell-rebuilt-only-in-bindings"
-             "bad-shell-applied"}
+             "bad-shell-applied"
+             "bad-public-shell"
+             "bad-shell-rebuilt-with-icon"
+             "bad-shell-rebuilt-empty-in-one-branch"}
            (fn-names-in data-vectors-file (:empty-interactive-element (first group-results))))
         "shell every live caller fills is left alone, any other empty control is flagged")))
 

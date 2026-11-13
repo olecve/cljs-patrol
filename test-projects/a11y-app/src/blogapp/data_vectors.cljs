@@ -2,7 +2,7 @@
   (:require [blogapp.other :as other]
             [blogapp.ui :as ui :refer [icon-x]]))
 
-(defn ok-chip-shell [{:keys [href on-click]}]
+(defn- ok-chip-shell [{:keys [href on-click]}]
   (if href
     [:a {:href href
          :on-click on-click}]
@@ -13,27 +13,27 @@
   (let [[tag attrs] (ok-chip-shell props)]
     [tag attrs label]))
 
-(defn ok-into-shell [on-click]
+(defn- ok-into-shell [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
 (defn into-button [on-click label]
   (into (ok-into-shell on-click) [label]))
 
-(defn ok-conj-shell [href]
+(defn- ok-conj-shell [href]
   [:a {:href href}])
 
 (defn conj-link [href label]
   (conj (ok-conj-shell href) label))
 
-(defn ok-into-unread-children-shell [on-click]
+(defn- ok-into-unread-children-shell [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
 (defn into-children [on-click children]
   (into (ok-into-unread-children-shell on-click) children))
 
-(defn ok-shell-rendered-only-in-dead-code [on-click]
+(defn- ok-shell-rendered-only-in-dead-code [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
@@ -44,7 +44,16 @@
 (comment
   [:div (ok-shell-rendered-only-in-dead-code identity)])
 
-(defn ok-shell-with-local-namesake [on-click]
+(defn- ok-shell-rebuilt-inside-wrapper [on-click]
+  [:button {:on-click on-click
+            :type "button"}])
+
+(defn wrapped-fill [on-click label]
+  (let [[tag attrs] (ok-shell-rebuilt-inside-wrapper on-click)]
+    [:div {:class "row"}
+     [tag attrs label]]))
+
+(defn- ok-shell-with-local-namesake [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
@@ -54,7 +63,7 @@
    (let [ok-shell-with-local-namesake (fn [] [:span label])]
      (ok-shell-with-local-namesake))])
 
-(defn bad-bound-whole-shell [on-click]
+(defn- bad-bound-whole-shell [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
@@ -62,14 +71,14 @@
   (let [shell (bad-bound-whole-shell on-click)]
     shell))
 
-(defn bad-conj-child-shell [on-click]
+(defn- bad-conj-child-shell [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
 (defn toolbar [on-click]
   (conj [:div] (bad-conj-child-shell on-click)))
 
-(defn bad-shell-after-sibling-child [on-click]
+(defn- bad-shell-after-sibling-child [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
@@ -78,7 +87,7 @@
    [:span "Name"]
    (bad-shell-after-sibling-child on-click)])
 
-(defn bad-shell-also-rendered [props]
+(defn- bad-shell-also-rendered [props]
   [:button {:on-click (:on-click props)
             :type "button"}])
 
@@ -88,7 +97,7 @@
      [tag attrs label])
    (bad-shell-also-rendered props)])
 
-(defn bad-shell-filled-only-in-dead-code [on-click]
+(defn- bad-shell-filled-only-in-dead-code [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
@@ -98,7 +107,7 @@
 (comment
   (into (bad-shell-filled-only-in-dead-code identity) ["Save"]))
 
-(defn bad-shell-filled-only-in-other-namespace [on-click]
+(defn- bad-shell-filled-only-in-other-namespace [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
@@ -106,7 +115,7 @@
   (let [[tag attrs] (other/bad-shell-filled-only-in-other-namespace props)]
     [tag attrs label]))
 
-(defn bad-shell-shadowed-by-local [on-click]
+(defn- bad-shell-shadowed-by-local [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
@@ -114,28 +123,28 @@
   (let [bad-shell-shadowed-by-local (fn [] [:span])]
     (into (bad-shell-shadowed-by-local) [label])))
 
-(defn bad-shell-passed-as-value [on-click]
+(defn- bad-shell-passed-as-value [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
 (defn shells [handlers]
   (map bad-shell-passed-as-value handlers))
 
-(defn bad-shell-filled-with-icon-by-into [on-click]
+(defn- bad-shell-filled-with-icon-by-into [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
 (defn close-button [on-click]
   (into (bad-shell-filled-with-icon-by-into on-click) [[icon-x {}]]))
 
-(defn bad-shell-filled-with-icon-by-conj [on-click]
+(defn- bad-shell-filled-with-icon-by-conj [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
 (defn close-button-conj [on-click]
   (conj (bad-shell-filled-with-icon-by-conj on-click) [icon-x {}]))
 
-(defn bad-shell-rebuilt-without-child [on-click]
+(defn- bad-shell-rebuilt-without-child [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
@@ -143,7 +152,7 @@
   (let [[tag attrs] (bad-shell-rebuilt-without-child on-click)]
     [tag attrs]))
 
-(defn bad-multi-arity-shell
+(defn- bad-multi-arity-shell
   ([on-click]
    [:button {:on-click on-click
              :type "button"}])
@@ -177,7 +186,7 @@
             :type "button"}
    [icon-x {}]])
 
-(defn bad-unreturned-button [log on-click]
+(defn- bad-unreturned-button [log on-click]
   (swap! log conj [:button {:on-click on-click
                             :type "button"}])
   [:a {:href "/"}])
@@ -185,7 +194,7 @@
 (defn unreturned-link [log on-click label]
   (into (bad-unreturned-button log on-click) [label]))
 
-(defn bad-shell-in-for-binding [props]
+(defn- bad-shell-in-for-binding [props]
   [:button {:on-click (:on-click props)
             :type "button"}])
 
@@ -193,7 +202,7 @@
   (for [[tag attrs] (bad-shell-in-for-binding props)]
     [tag attrs label]))
 
-(defn bad-shell-in-let-body [props]
+(defn- bad-shell-in-let-body [props]
   [:button {:on-click (:on-click props)
             :type "button"}])
 
@@ -201,7 +210,7 @@
   (let [spacing gap]
     [[:span {:class spacing} label] (bad-shell-in-let-body props)]))
 
-(defn bad-shell-rebuilt-inside-other-element [on-click]
+(defn- bad-shell-rebuilt-inside-other-element [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
@@ -209,7 +218,7 @@
   (let [[tag attrs] (bad-shell-rebuilt-inside-other-element on-click)]
     [:div {:class "wrapper"} [tag attrs]]))
 
-(defn bad-shell-rebuilt-only-in-bindings [on-click]
+(defn- bad-shell-rebuilt-only-in-bindings [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
@@ -219,10 +228,42 @@
     (prn labelled)
     [tag attrs]))
 
-(defn bad-shell-applied [on-click]
+(defn- bad-shell-applied [on-click]
   [:button {:on-click on-click
             :type "button"}])
 
 (defn applied [args label]
   (let [[tag attrs] (apply bad-shell-applied args)]
     [tag attrs label]))
+
+(defn bad-public-shell [on-click]
+  [:button {:on-click on-click
+            :type "button"}])
+
+(defn public-fill [on-click]
+  (into (bad-public-shell on-click) ["Save"]))
+
+(defn ^:private ok-meta-private-shell [on-click]
+  [:button {:on-click on-click
+            :type "button"}])
+
+(defn meta-private-fill [on-click]
+  (into (ok-meta-private-shell on-click) ["Save"]))
+
+(defn- bad-shell-rebuilt-with-icon [on-click]
+  [:button {:on-click on-click
+            :type "button"}])
+
+(defn icon-rebuild [on-click]
+  (let [[tag attrs] (bad-shell-rebuilt-with-icon on-click)]
+    [tag attrs [icon-x {}]]))
+
+(defn- bad-shell-rebuilt-empty-in-one-branch [on-click]
+  [:button {:on-click on-click
+            :type "button"}])
+
+(defn branch-rebuild [on-click label]
+  (let [[tag attrs] (bad-shell-rebuilt-empty-in-one-branch on-click)]
+    (if label
+      [tag attrs label]
+      [tag attrs])))

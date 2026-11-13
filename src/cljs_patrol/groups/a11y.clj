@@ -1100,12 +1100,22 @@
   "Forms whose binding vector can destructure a shell into its tag and props."
   #{"let" "when-let" "if-let" "when-some" "if-some" "with-let"})
 
+(defn- private-defn?
+  "True when the list at loc is a `defn-`, or a `defn` whose name carries `:private` metadata."
+  [loc]
+  (case (some-> loc z/down parser/sym-name)
+    "defn-" true
+    "defn" (true? (:private (meta (try (z/sexpr (some-> loc z/down z/right)) (catch Exception _ nil)))))
+    false))
+
 (defn- returning-defn-name
-  "Return the name of the single-arity `defn` whose result can be loc, or nil."
+  "Return the name of the single-arity private `defn` whose result can be loc, or nil.
+
+  Only a private function is read, since no other file can call it."
   [loc]
   (let [top (parser/top-level-loc loc)]
     (when (and (= :list (z/tag top))
-               (contains? #{"defn" "defn-"} (some-> top z/down parser/sym-name)))
+               (private-defn? top))
       (let [body-end (z/rightmost (z/down top))]
         (when (some #(identical? (z/node %) (z/node loc)) (hiccup/result-locs body-end))
           (some-> (parser/declared-name-loc top) parser/sym-name))))))
@@ -1144,23 +1154,28 @@
   "True when `call` is the value of a vector binding in a `let`-like form, and its body adds a child to the shell.
 
   `(let [[tag attrs] (chip-element props)] [tag attrs label])` binds the shell's tag and
-  props, and renders them with a child of their own."
+  props, and renders them with a child of their own. Every vector in the body headed by the
+  tag must add a child that may hold text, so no branch renders the shell empty or with an
+  icon only."
   [call]
   (let [bindings (z/up call)
         binding-form (some-> bindings z/up)
         elements (some-> bindings code-child-locs vec)
         index (first (keep-indexed #(when (identical? (z/node %2) (z/node call)) %1) elements))
         target (some->> index dec (get elements))
-        tag-name (some-> target code-child-locs first parser/raw)]
+        tag-name (some-> target code-child-locs first parser/raw)
+        rebuilds (when tag-name
+                   (->> binding-form
+                        code-child-locs
+                        (drop 2)
+                        (mapcat subtree-locs)
+                        (filter #(and (= :vector (z/tag %)) (= tag-name (some-> % z/down parser/raw))))))]
     (boolean (and (= :vector (some-> bindings z/tag))
                   (= :list (some-> binding-form z/tag))
                   (contains? destructuring-heads (some-> binding-form z/down parser/sym-name))
                   (identical? (z/node bindings) (some-> binding-form code-child-locs second z/node))
-                  (some? tag-name)
-                  (some #(and (= :vector (z/tag %))
-                              (= tag-name (some-> % z/down parser/raw))
-                              (<= 3 (count (code-child-locs %))))
-                        (->> binding-form code-child-locs (drop 2) (mapcat subtree-locs)))))))
+                  (seq rebuilds)
+                  (every? #(some may-hold-text? (drop 2 (code-child-locs %))) rebuilds)))))
 
 (defn- live-use?
   "True when the token at loc names `fn-name` in code a page can run, as this file's function.
@@ -1170,7 +1185,7 @@
   [loc fn-name]
   (and (= :token (z/tag loc))
        (= fn-name (parser/raw loc))
-       (not (contains? #{"defn" "defn-"} (some-> loc z/left parser/sym-name)))
+       (not (identical? (z/node loc) (some-> loc parser/top-level-loc parser/declared-name-loc z/node)))
        (not (hiccup/inside-unrendered-form? loc))
        (not (inside-comment-form? loc))
        (not (heads/locally-bound? loc fn-name))))
