@@ -275,23 +275,37 @@
                (str "Set :outline " (pr-str (or expected default-outline)) " beside :box-shadow.")))))
 
 (defn- replacement
-  "Return the approved shadows the raw tokens and colors in the value stand in for, in name order, or nil."
-  [symbols strings {:keys [replaced-symbols replaced-colors]}]
-  (->> (concat (keep replaced-symbols symbols)
+  "Return the shadows each raw token or color in the value stands in for, or nil.
+
+  Each entry holds the shadows that list one raw value, sorted by fully qualified name. The
+  entries are sorted the same way, so the hint reads the same on every run."
+  [symbols strings {:keys [replaced-values replaced-colors]}]
+  (->> (concat (keep replaced-values symbols)
                (keep (fn [[pattern approved]] (when (some #(re-find pattern %) strings) approved)) replaced-colors))
-       (apply concat)
+       (map #(vec (sort-by str %)))
        distinct
-       (sort-by str)
+       (sort-by #(str/join " " %))
        seq))
 
+(defn- join-words
+  "Join words as \"a\", \"a <word> b\" or \"a, b <word> c\"."
+  [words word]
+  (if (next words)
+    (str (str/join ", " (butlast words)) " " word " " (last words))
+    (first words)))
+
 (defn- use-hint
-  "Name the shadows to use, as \"Use a.\", \"Use a or b.\" or \"Use a, b or c.\"."
-  [shadows]
-  (let [names (map str shadows)]
+  "Name the shadows to use, one group for each raw value the ring holds.
+
+  The shadows that list one value are alternatives, joined with \"or\". The ring needs a
+  shadow for each value, so the groups join with \"and\", after a comma when a group holds
+  an \"or\": \"Use a or b, and c.\""
+  [groups]
+  (let [alternatives (map #(join-words (map str %) "or") groups)]
     (str "Use "
-         (if (next names)
-           (str (str/join ", " (butlast names)) " or " (last names))
-           (first names))
+         (if (and (next groups) (some next groups))
+           (str (str/join ", " (butlast alternatives)) ", and " (last alternatives))
+           (join-words alternatives "and"))
          ".")))
 
 (defn- raw-shadow-finding
@@ -471,7 +485,7 @@
       {:patterns (mapv (juxt identity state-pattern) selectors)
        :approved-shadows shadows
        :preset-namespaces (into #{} (map namespace) shadows)
-       :replaced-symbols by-value
+       :replaced-values by-value
        :replaced-colors (into [] (keep (fn [[value shadows]] (when (string? value) [(color-pattern value) shadows]))) by-value)
        :outline (:outline config)})))
 

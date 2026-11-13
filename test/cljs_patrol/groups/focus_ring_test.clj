@@ -451,11 +451,27 @@
                                       'app.styles.focus-rings/alpha-shadow #{"#516bff"}}}
                   (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline)))
       "unshared value names its own shadow only")
-  (is (= "Use app.styles.focus-rings/alpha-shadow or app.styles.focus-rings/zeta-shadow."
+  (is (= "Use app.styles.focus-rings/alpha-shadow and app.styles.focus-rings/zeta-shadow."
          (hint-of {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{"#f6251e"}
                                       'app.styles.focus-rings/alpha-shadow #{"#516bff"}}}
                   (visible-ring ":box-shadow \"0 0 0 2px #516bff, 0 0 0 4px #f6251e\" " outline)))
-      "values of two shadows name both")
+      "values of two shadows need both")
+  (is (= "Use app.styles.focus-rings/alpha-shadow and app.styles.focus-rings/zeta-shadow."
+         (hint-of {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{'app.theme.button/shadow-brand-focused}
+                                      'app.styles.focus-rings/alpha-shadow #{"#516bff"}}}
+                  (visible-ring ":box-shadow (str button-theme/shadow-brand-focused \", 0 0 0 2px #516bff\") " outline)))
+      "token and color of two shadows need both")
+  (is (= "Use app.styles.focus-rings/alpha-shadow or app.styles.focus-rings/beta-shadow, and app.styles.focus-rings/zeta-shadow."
+         (hint-of {:approved-shadows {'app.styles.focus-rings/zeta-shadow #{"#f6251e"}
+                                      'app.styles.focus-rings/alpha-shadow #{"#516bff"}
+                                      'app.styles.focus-rings/beta-shadow #{"#516bff"}}}
+                  (visible-ring ":box-shadow \"0 0 0 2px #516bff, 0 0 0 4px #f6251e\" " outline)))
+      "shared value and own value need one of pair and other")
+  (is (= "Use app.styles.a/zeta-shadow or app.styles.b/alpha-shadow."
+         (hint-of {:approved-shadows {'app.styles.b/alpha-shadow #{"#516bff"}
+                                      'app.styles.a/zeta-shadow #{"#516bff"}}}
+                  (visible-ring ":box-shadow \"0 0 0 2px #516bff\" " outline)))
+      "names sort by fully qualified name")
   (is (= "Use app.styles.focus-rings/primary-shadow."
          (hint-of config
                   (visible-ring ":box-shadow (str button-theme/shadow-brand-focused \", 0 0 0 2px #516bff\") " outline)))
