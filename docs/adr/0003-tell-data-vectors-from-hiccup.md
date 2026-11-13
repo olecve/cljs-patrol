@@ -76,11 +76,12 @@ The parts of the decision:
    - It is a Malli schema all through. Its head is a data type keyword, and its other elements are an optional
      properties map, then children. Every vector anywhere inside a value of the properties map, also inside a nested
      map, set, list or reader conditional, is itself clearly data. In a `:map`, `:multi`, `:catn`, `:altn`, `:orn` or
-     `:andn` schema, each child is an entry `[key properties? schema]`: the key is a literal, the properties map is
-     optional, and the schema is a Malli schema. In an `:enum`, `:=`, `:not=`, `:<`, `:<=` or `:>=` schema, each child
-     is a literal value. In any other schema, each child is a Malli schema. A Malli schema is a keyword, a symbol, a
-     regular expression, a call, or a vector that is a Malli schema all through. A string, a number or a boolean is a
-     literal value, not a schema, so `[:a {:href "/"} "Home"]` is no entry.
+     `:andn` schema, each child is an entry `[key properties? schema]`: the key is a keyword, a string or a number, the
+     properties map is optional, and the schema is a Malli schema. In an `:enum`, `:=`, `:not=`, `:<`, `:<=`, `:>=`,
+     `:re` or `:ref` schema, each child is a literal value: a keyword, a symbol, a string, a number, a boolean or a
+     regular expression. In any other schema, each child is a Malli schema. A Malli schema is a keyword, a symbol, a
+     regular expression, a call in which every vector is clearly data, or a vector that is a Malli schema all through. A
+     string, a number or a boolean is a literal value, not a schema, so `[:a {:href "/"} "Home"]` is no entry.
    - It has two or more elements, and every element is a keyword, such as the db path `[:settings :style]` or the
      keyword list `[:line :rect :circle]`. Inside a list, such a vector counts only when its head, read without class
      and id shorthand, is not in `hiccup/html-tags`, because `[[:th :name] [:th.cell :email]]` renders two table cells.
@@ -246,8 +247,9 @@ groups that read Hiccup.
 
 - A `def` that holds Hiccup needs no change, and the groups keep checking it.
 - A data `def` in a shape that the test does not know stays Hiccup, as today. For example
-  `(def default-sort [:title "asc"])`, `(def item-path [:items 0 :name])`, a list of colors, or test fixtures with map
-  heads. The guards of each rule still apply to them.
+  `(def default-sort [:title "asc"])`, `(def item-path [:items 0 :name])`, a list of colors, test fixtures with map
+  heads, a schema with a function, such as `[:fn #(pos? %)]`, and a schema with a function in its properties, such as
+  `{:error/fn (fn [_ _] "…")}`, whose parameter vector is no clear data. The guards of each rule still apply to them.
 - A Hiccup vector of keywords only, such as `(def greeting [:p :hello])`, is read as data, and the rules lose its
   findings. Such a vector has no props and no element children, so few rules report it.
 - A schema with a part that is not Malli all through stays Hiccup, as today. For example a schema with Hiccup in a
@@ -255,11 +257,14 @@ groups that read Hiccup.
   still apply to it.
 - A Garden rule headed by `:*` or `:+` stays Hiccup, as today, so a nested element in it keeps its findings.
 - An HTML image map or an SVG `<set>` element that also reads as a Malli schema all through is read as data, and the
-  rules lose its findings. For example `[:map {:name "nav"} [:a {:href url} label]]`, whose links have symbol labels, or
-  `[:set {:attributeName "fill" :to "red"}]`. Both elements are rare.
-- The data `def` rule and the lookup of a symbol's `def` read a value the same way, so a `def` with a trailing `#_` form
-  now resolves to its value. A finding on that value, such as `img-alt-missing`, can appear where today's lookup reads
-  the `#_` form and finds nothing.
+  rules lose its findings. For example `[:map {:name "nav"} [:a {:href url} label]]`, whose links have symbol, call or
+  keyword labels such as `(tr :home)`, or `[:set {:attributeName "fill" :to "red"}]`. Both elements are rare.
+- Keyword-only vectors with tag heads inside a set, a map or a call in a property value, such as
+  `[:vector {:a #{[:th :name] [:th :email]}} :int]`, are read as data. Such code is unusual.
+- The data `def` rule and the lookup of a symbol's `def` read a `def` the same way, with `#_` forms dropped. So a `def`
+  with a trailing `#_` form now resolves to its value, and a re-`def` whose only value is a `#_` form no longer hides an
+  earlier `def` of the same name. A finding on the value, such as `img-alt-missing`, can appear where today's lookup
+  reads the `#_` form and finds nothing.
 - A schema outside a vector `def`, such as a call `def` `(mu/closed-schema [:map …])` or a schema in a function body, is
   still read as Hiccup. The fallback covers its `[:label …]` case. A Malli property that `names-a-dom-attr?` reads as a
   DOM attribute, such as `:title`, still makes the entry markup for `label-not-associated` outside a vector `def`.
