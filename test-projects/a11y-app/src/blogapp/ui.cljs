@@ -27,3 +27,7 @@
 (defn toggle [attrs] attrs)
 
 (defn icon-button [attrs & children] attrs)
+
+(defn field [attrs & children] attrs)
+
+(defn icon-x [attrs] attrs)

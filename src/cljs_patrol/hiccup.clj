@@ -703,15 +703,24 @@
                    (not (yields-hiccup? second-child)))
           second-child))))
 
+(def ^:private malli-entry-schemas
+  "Malli schemas whose children are entries named by a keyword, as `[:map [:label {…} :string]]`.
+
+  An entry whose key happens to name an HTML element, `:label` or `:button`, is data, and so
+  is every vector inside the schema."
+  #{":map" ":map-of" ":multi" ":catn" ":altn" ":orn"})
+
 (defn- form-kind
-  "Return what loc's own form keeps from rendering: `:unrendered`, `:style-decl`, `:ns`, or nil."
+  "Return what loc's own form keeps from rendering: `:unrendered`, `:style-decl`, `:ns`, `:malli-schema`, or nil."
   [loc]
   (cond
     (unrendered-form? loc) :unrendered
     (= :list (z/tag loc)) (let [head (some-> loc z/down parser/sym-name)]
                             (cond
                               (contains? style-decl-forms head) :style-decl
-                              (= "ns" head) :ns))))
+                              (= "ns" head) :ns))
+    (= :vector (z/tag loc)) (when (contains? malli-entry-schemas (some-> loc z/down parser/raw))
+                              :malli-schema)))
 
 (defn- enclosing-forms-memo
   "Return the table of enclosing forms by node for the file being analyzed, or nil outside one."
@@ -723,9 +732,9 @@
           table))))
 
 (defn enclosing-forms
-  "Return the set of the kinds of form that enclose loc at any depth: `:unrendered`, `:style-decl`, `:ns`.
+  "Return the set of the kinds of form that enclose loc at any depth: `:unrendered`, `:style-decl`, `:ns`, `:malli-schema`.
 
-  One walk up to the root answers all three. While [[parser/analyze-file]] reads a file,
+  One walk up to the root answers all four. While [[parser/analyze-file]] reads a file,
   every ancestor the walk passes keeps its answer, so the next vector in the same form
   stops at the first ancestor already asked about."
   [loc]
@@ -744,7 +753,7 @@
         (recur (cons current below) (z/up current))))))
 
 (defn inside-non-hiccup-form?
-  "True when a quoting, discarding, style-declaration or `ns` form encloses loc."
+  "True when a quoting, discarding, style-declaration, `ns` or Malli entry schema form encloses loc."
   [loc]
   (boolean (seq (enclosing-forms loc))))
 

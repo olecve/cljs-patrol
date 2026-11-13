@@ -6,6 +6,7 @@
   skipped to keep the false-positive rate low."
   (:require
    [cljs-patrol.group :as group]
+   [cljs-patrol.heads :as heads]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
@@ -243,6 +244,16 @@
        (let [alt (literal-sexpr (get attrs :alt))]
          (and (string? alt) (seq alt)))))
 
+(defn- local-component?
+  "True when loc is a vector rendering a component bound locally, such as a render function passed in as a prop.
+
+  It may render anything, text included, so it is no icon an empty control holds."
+  [loc]
+  (and (= :vector (z/tag loc))
+       (let [head (z/down loc)
+             value (when (= :token (some-> head z/tag)) (literal-sexpr head))]
+         (and (simple-symbol? value) (heads/locally-bound? loc (name value))))))
+
 (defn- visible-content?
   "True when loc carries visible text or dynamically-computed content.
   A nested Hiccup vector is treated as opaque icon markup unless it
@@ -251,6 +262,8 @@
   [loc]
   (cond
     (literal-string-loc? loc) true
+
+    (local-component? loc) true
 
     (= :vector (z/tag loc))
     (let [{:keys [slot attrs]} (hiccup/attrs-info loc)
@@ -839,6 +852,48 @@
   (loop [current loc]
     (if-let [parent (z/up current)] (recur parent) current)))
 
+(def ^:private shell-consumers
+  "Calls that take a Hiccup vector as data to add children to, rather than render it."
+  #{"into" "conj"})
+
+(defn- returning-defn-name
+  "Return the name of the `defn` whose result can be loc, or nil."
+  [loc]
+  (let [top (parser/top-level-loc loc)]
+    (when (and (= :list (z/tag top))
+               (contains? #{"defn" "defn-"} (some-> top z/down parser/sym-name)))
+      (let [body-end (z/rightmost (z/down top))]
+        (when (some #(identical? (z/node %) (z/node loc)) (hiccup/result-locs body-end))
+          (some-> (parser/declared-name-loc top) parser/sym-name))))))
+
+(defn- used-as-data?
+  "True when a call of `fn-name` in the file is destructured as a vector or given to `into` or `conj` first."
+  [root fn-name]
+  (loop [current root]
+    (cond
+      (z/end? current) false
+
+      (and (= :list (z/tag current))
+           (= fn-name (some-> current z/down parser/sym-name))
+           (let [parent (z/up current)]
+             (case (some-> parent z/tag)
+               :vector (= :vector (some-> current z/left z/tag))
+               :list (and (contains? shell-consumers (some-> parent z/down parser/sym-name))
+                          (identical? (z/node (z/down parent)) (z/node (z/left current))))
+               false)))
+      true
+
+      :else (recur (z/next current)))))
+
+(defn- element-shell?
+  "True when an element is a shell a function returns for its caller to fill, not markup it renders.
+
+  `(let [[tag attrs] (chip-element props)] [tag attrs label])` reads the vector as data: the
+  caller adds the children, so the shell is empty on purpose."
+  [loc]
+  (boolean (when-let [fn-name (returning-defn-name loc)]
+             (used-as-data? (file-root loc) fn-name))))
+
 (defn- normalized-source [loc]
   (parser/normalize-form (parser/raw loc)))
 
@@ -920,18 +975,34 @@
          (or (= :label (hiccup/parse-tag head))
              (and (= ":>" head) (= "\"label\"" (some-> loc z/down z/right parser/raw)))))))
 
+(defn- label-component-vector?
+  "True when a vector renders a component that draws a `<label>` for the control inside it.
+
+  The component draws one only when one of its configured label props is set. Props it
+  cannot read, or an argument other than a props map, may set one."
+  [loc {:keys [ns-info label-components]}]
+  (and (seq label-components)
+       (= :vector (z/tag loc))
+       (let [label-props (some-> loc z/down parser/raw (parser/resolve-full-symbol ns-info) label-components)
+             {:keys [kind attrs]} (when label-props (hiccup/attrs-info loc))]
+         (case kind
+           nil false
+           :map (or (nil? attrs) (boolean (some #(meaningful-name-value? (get attrs %)) label-props)))
+           true))))
+
 (defn- inside-label?
-  "True when a `<label>` vector encloses the element."
-  [loc]
-  (boolean (some label-vector? (take-while some? (rest (iterate z/up loc))))))
+  "True when a `<label>` vector, or a component that draws one for its control, encloses the element."
+  [loc context]
+  (boolean (some #(or (label-vector? %) (label-component-vector? % context))
+                 (take-while some? (rest (iterate z/up loc))))))
 
 (defn- named-by-label?
   "True when a `<label>` may name the element.
   One wrapping it may, and so may one anywhere on the page whose `for` points at an id
   the element carries, written out or in the tag shorthand. An id that cannot be read
   counts, since the label it is built for cannot be ruled out."
-  [attrs loc]
-  (or (inside-label? loc)
+  [attrs loc context]
+  (or (inside-label? loc context)
       (some? (shorthand-id loc))
       (attr-written? attrs :id)))
 
@@ -964,11 +1035,11 @@
     false))
 
 (defn- missing-accessible-name? [{:keys [kind attrs]
-                                  :as info} tag loc]
+                                  :as info} tag loc context]
   (cond
     (name-required-tag? tag loc)
     (and (props-name-nothing? info loc)
-         (not (and (contains? label-named-tags tag) (named-by-label? attrs loc)))
+         (not (and (contains? label-named-tags tag) (named-by-label? attrs loc context)))
          (not (and (= :switch tag) (seq (body-locs loc)))))
 
     (and (= kind :map) attrs (name-required-attrs? attrs))
@@ -982,11 +1053,11 @@
   and only an id written out as one whitespace-free string, in the props or the tag
   shorthand. Either way the element writes one literal containing it."
   [{:keys [attrs]
-    :as info} tag loc]
+    :as info} tag loc context]
   (when (and (name-required-tag? tag loc)
              (contains? label-named-tags tag)
              (props-name-nothing? info loc)
-             (not (inside-label? loc))
+             (not (inside-label? loc context))
              (not (and (= :switch tag) (seq (body-locs loc)))))
     (let [shorthand (shorthand-id loc)
           id-written? (attr-written? attrs :id)
@@ -1598,7 +1669,7 @@
     (or (some-> ^IdentityHashMap (:unwrapped-locs @state) (.get (z/node written-loc)))
         written-loc)))
 
-(defn- handle-vector* [written-loc ns-info file {:keys [component-aliases label-styles]}]
+(defn- handle-vector* [written-loc ns-info file {:keys [component-aliases label-components label-styles]}]
   (let [loc (unwrapped-loc written-loc ns-info component-aliases)
         first-child (z/down loc)]
     (when (and first-child
@@ -1606,10 +1677,12 @@
                (not (hiccup/inside-non-hiccup-form? loc)))
       (when-let [tag (vector-tag loc ns-info component-aliases)]
         (let [info (element-info loc ns-info component-aliases)
+              label-context {:label-components label-components
+                             :ns-info ns-info}
               aria-live-conflict (contradicting-aria-live info)
               repeated-name (repeated-accessible-name info tag loc ns-info component-aliases)
               nested-control (nested-interactive-loc info loc tag ns-info component-aliases)
-              unreferenced-id (unreferenced-id-candidate info tag loc)
+              unreferenced-id (unreferenced-id-candidate info tag loc label-context)
               separator (focusable-separator info tag loc)
               hidden-self? (aria-hidden-focusable? info tag)
               hidden-descendant (when-not hidden-self?
@@ -1630,10 +1703,10 @@
                        (on-click-on-non-interactive? info tag)
                        (conj (assoc base :type :on-click-on-non-interactive))
 
-                       (empty-interactive? info tag loc)
+                       (and (empty-interactive? info tag loc) (not (element-shell? loc)))
                        (conj (assoc base :type :empty-interactive-element))
 
-                       (missing-accessible-name? info tag loc)
+                       (missing-accessible-name? info tag loc label-context)
                        (conj (assoc base :type :missing-accessible-name))
 
                        separator
@@ -1751,13 +1824,14 @@
       (seq label-not-associated)
       (seq aria-label-beside-visible-label)))
 
-(defrecord A11yGroup [component-aliases label-styles]
+(defrecord A11yGroup [component-aliases label-components label-styles]
   group/RuleGroup
   (group-id [_] :a11y)
   (group-name [_] "A11y")
   (parse-handlers [_]
     {:handle-vector (fn [loc ns-info file]
                       (handle-vector* loc ns-info file {:component-aliases component-aliases
+                                                        :label-components label-components
                                                         :label-styles label-styles}))
      :handle-list (fn [loc _ns-info _file]
                     (file-literals loc))})
@@ -1885,6 +1959,30 @@
                          (pr-str label-styles))
                     {:label-styles label-styles}))))
 
+(defn- normalize-label-components
+  "Read the label components as a map from a fully qualified symbol to a set of prop keywords, refusing any other shape."
+  [label-components]
+  (if-not (or (nil? label-components) (map? label-components))
+    (throw (ex-info (str ":a11y :label-components must be a map from a fully qualified symbol to its label props, got "
+                         (pr-str label-components))
+                    {:label-components label-components}))
+    (reduce-kv (fn [components component label-props]
+                 (when-not (qualified-symbol? component)
+                   (throw (ex-info (str ":a11y :label-components key must be a fully qualified symbol, got "
+                                        (pr-str component))
+                                   {:key component})))
+                 (assoc components component (cond
+                                               (keyword? label-props) #{label-props}
+                                               (and (coll? label-props) (seq label-props) (every? keyword? label-props))
+                                               (set label-props)
+                                               :else (throw (ex-info (str ":a11y :label-components " component
+                                                                          " must name a keyword or a collection of"
+                                                                          " keywords, got " (pr-str label-props))
+                                                                     {:key component
+                                                                      :label-props label-props})))))
+               {}
+               label-components)))
+
 (defn make-group
   "Return an a11y RuleGroup configured with the given map (see `A11yGroup`).
   Supported keys:
@@ -1894,10 +1992,14 @@
       \"@scope/package/Comp\", for a name no symbol can spell. The value may
       instead be {:tag native-tag-keyword :label-props #{prop …}}, naming the
       props the wrapper wires to an accessible name of its own.
+    :label-components {full-qualified-symbol #{prop …}} — field wrappers that
+      draw a `<label>` for the control inside them when one of the props is set.
     :label-styles #{full-qualified-symbol …} — style functions that mark
       text as a field's visible label. Off until set."
   ([] (make-group nil))
-  ([{:keys [component-aliases label-styles]}]
-   (->A11yGroup (normalize-aliases component-aliases) (normalize-label-styles label-styles))))
+  ([{:keys [component-aliases label-components label-styles]}]
+   (->A11yGroup (normalize-aliases component-aliases)
+                (normalize-label-components label-components)
+                (normalize-label-styles label-styles))))
 
 (def group (make-group))
