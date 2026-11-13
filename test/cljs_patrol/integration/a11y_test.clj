@@ -1382,6 +1382,16 @@
   (is (empty? (ids-project-fn-names "cljc/idsapp/form.cljs" (run-ids-project ["cljc"])))
       "file opening on reader conditional is read again on second run"))
 
+(deftest missing-accessible-name-unreferenced-id-label-component-test
+  (let [findings (fn [config]
+                   (->> (core/run-all [(str ids-project "/app")] [(a11y/make-group config)])
+                        (mapcat #(-> % :group-results first :missing-accessible-name))
+                        (ids-project-fn-names "app/idsapp/field_ids.cljs")))]
+    (is (= #{"textarea-in-labelled-field"} (findings {}))
+        "id in field wrapper no label points at is reported without config")
+    (is (empty? (findings {:label-components {'blogapp.ui/field :label}}))
+        "label component points its label at id it gives control")))
+
 (deftest missing-accessible-name-unreferenced-id-computed-reference-test
   (is (= #{"bad-id-no-literal-contains"}
          (ids-project-fn-names "computed/idsapp/field.cljs" (run-ids-project ["computed"])))
@@ -1565,3 +1575,73 @@
              "bad-unreturned-button"}
            (fn-names-in data-vectors-file (:empty-interactive-element (first group-results))))
         "shell caller fills is left alone, rendered one and icon-only button are flagged")))
+
+(def ^:private field-wrappers-file (str fixture-dir "/field_wrappers.cljs"))
+
+(defn- field-wrapper-findings [label-components]
+  (let [{:keys [group-results]} (core/run fixture-dir
+                                          [(a11y/make-group {:component-aliases {'blogapp.ui/select :combobox}
+                                                             :label-components label-components})])]
+    (fn-names-in field-wrappers-file (:missing-accessible-name (first group-results)))))
+
+(deftest missing-accessible-name-label-component-fixture-test
+  (is (= #{"bad-select-in-field-without-label"
+           "bad-select-in-field-with-nil-label"
+           "bad-select-in-field-without-props"
+           "bad-select-after-keyword-argument"
+           "bad-textarea-inside-div-in-field"
+           "bad-second-control-in-field"
+           "bad-select-in-other-prop-of-field"
+           "bad-dialog-in-labelled-field"
+           "bad-div-with-metadata-in-field"
+           "bad-second-control-of-inner-field"
+           "bad-second-control-below-layout"
+           "bad-field-with-bound-hint"
+           "bad-field-with-bound-string"
+           "bad-props-after-discarded-form"
+           "bad-div-in-conditional-control"
+           "bad-div-with-metadata-in-conditional-control"}
+         (field-wrapper-findings {'blogapp.ui/field #{:label}}))
+      "flags exactly the bad- cases")
+  (is (= #{"ok-select-in-labelled-field"
+           "ok-textarea-in-referred-field"
+           "ok-field-with-computed-label"
+           "ok-field-with-opaque-props"
+           "ok-field-with-computed-key"
+           "ok-select-through-component"
+           "ok-select-in-conditional-control"
+           "bad-select-in-field-without-label"
+           "bad-select-in-field-with-nil-label"
+           "bad-select-in-field-without-props"
+           "bad-select-after-keyword-argument"
+           "bad-textarea-inside-div-in-field"
+           "bad-second-control-in-field"
+           "bad-select-in-other-prop-of-field"
+           "bad-dialog-in-labelled-field"
+           "bad-div-with-metadata-in-field"
+           "bad-second-control-of-inner-field"
+           "bad-second-control-below-layout"
+           "bad-field-with-bound-hint"
+           "bad-field-with-bound-string"
+           "ok-control-after-discarded-form"
+           "ok-props-after-discarded-form"
+           "ok-control-with-metadata"
+           "ok-field-with-built-props"
+           "ok-control-through-unlabelled-field"
+           "bad-props-after-discarded-form"
+           "bad-div-in-conditional-control"
+           "bad-div-with-metadata-in-conditional-control"
+           "ok-control-through-interop"
+           "ok-control-bound-in-control-form"}
+         (field-wrapper-findings nil))
+      "no label components configured leaves every field unlabelled")
+  (is (= (field-wrapper-findings {'blogapp.ui/field #{:label}})
+         (field-wrapper-findings {'blogapp.ui/field :label}))
+      "one keyword reads as set of one prop")
+  (is (= (field-wrapper-findings {'blogapp.ui/field #{:label}})
+         (field-wrapper-findings {'blogapp.ui/* #{:label}}))
+      "namespace glob lists every var there")
+  (is (= (field-wrapper-findings {'blogapp.ui/field #{:label}})
+         (field-wrapper-findings {'blogapp.ui/* #{:hint-text}
+                                  'blogapp.ui/field #{:label}}))
+      "exact key wins over namespace glob"))
