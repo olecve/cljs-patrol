@@ -436,7 +436,7 @@
   [loc symbol-name]
   (get (top-level-defs loc) symbol-name))
 
-(defn- resolved-value
+(defn resolved-value
   "Return what a bare symbol names, or nil when nothing here answers for it.
   A local binding answers first, and a same-file `def` only when none does — a local
   that binds the name to something unreadable answers by stopping the search, so a

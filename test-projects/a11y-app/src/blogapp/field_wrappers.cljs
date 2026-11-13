@@ -31,6 +31,34 @@
    (when show?
      [ui/select {}])])
 
+(defn ok-control-after-discarded-form []
+  [ui/field {:label "Role"}
+   #_[:old]
+   [:textarea]])
+
+(defn ok-props-after-discarded-form []
+  [ui/field #_{:old true} {:label "Role"}
+   [:textarea]])
+
+(defn ok-control-with-metadata [k]
+  [ui/field {:label "Role"}
+   ^{:key k} [:textarea]])
+
+(defn ok-field-with-built-props [base]
+  [ui/field (assoc base :class "field")
+   [ui/select {}]])
+
+(defn ok-control-through-unlabelled-field []
+  [ui/field {:label "Outer"}
+   [ui/field {}
+    [:textarea]]])
+
+(defn ok-second-control-inside-native-label []
+  [:label "Notes"
+   [ui/field {}
+    [:span "Required"]
+    [:textarea]]])
+
 (defn bad-select-in-field-without-label []
   [ui/field {:hint-text "Pick one"}
    [ui/select {}]])
@@ -65,3 +93,31 @@
 (defn bad-dialog-in-labelled-field []
   [ui/field {:label "Details"}
    [:dialog {:open true}]])
+
+(defn bad-div-with-metadata-in-field [k]
+  [ui/field {:label "Note"}
+   ^{:key k} [:div
+              [:textarea]]])
+
+(defn bad-second-control-of-inner-field []
+  [ui/field {:label "Outer"}
+   [ui/field {:label "Inner"}
+    [:textarea]
+    [:textarea {:placeholder "Second"}]]])
+
+(defn bad-second-control-below-layout []
+  [ui/field {:label "Group"}
+   [ui/row {}
+    [ui/field {:label "Name"}
+     [:textarea]
+     [ui/select {}]]]])
+
+(defn bad-field-with-bound-hint []
+  (let [hint [:span "Pick one"]]
+    [ui/field hint
+     [:textarea]]))
+
+(defn bad-field-with-bound-string []
+  (let [hint "Pick one"]
+    [ui/field hint
+     [:textarea]]))

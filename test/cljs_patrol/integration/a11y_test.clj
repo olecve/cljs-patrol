@@ -1580,7 +1580,12 @@
            "bad-textarea-inside-div-in-field"
            "bad-second-control-in-field"
            "bad-select-in-other-prop-of-field"
-           "bad-dialog-in-labelled-field"}
+           "bad-dialog-in-labelled-field"
+           "bad-div-with-metadata-in-field"
+           "bad-second-control-of-inner-field"
+           "bad-second-control-below-layout"
+           "bad-field-with-bound-hint"
+           "bad-field-with-bound-string"}
          (field-wrapper-findings {'blogapp.ui/field #{:label}}))
       "flags exactly the bad- cases")
   (is (= #{"ok-select-in-labelled-field"
@@ -1597,12 +1602,25 @@
            "bad-textarea-inside-div-in-field"
            "bad-second-control-in-field"
            "bad-select-in-other-prop-of-field"
-           "bad-dialog-in-labelled-field"}
+           "bad-dialog-in-labelled-field"
+           "bad-div-with-metadata-in-field"
+           "bad-second-control-of-inner-field"
+           "bad-second-control-below-layout"
+           "bad-field-with-bound-hint"
+           "bad-field-with-bound-string"
+           "ok-control-after-discarded-form"
+           "ok-props-after-discarded-form"
+           "ok-control-with-metadata"
+           "ok-field-with-built-props"
+           "ok-control-through-unlabelled-field"}
          (field-wrapper-findings nil))
       "no label components configured leaves every field unlabelled")
   (is (= (field-wrapper-findings {'blogapp.ui/field #{:label}})
          (field-wrapper-findings {'blogapp.ui/field :label}))
-      "one keyword reads as set of one prop"))
+      "one keyword reads as set of one prop")
+  (is (= (field-wrapper-findings {'blogapp.ui/field #{:label}})
+         (field-wrapper-findings {'blogapp.ui/* #{:label}}))
+      "namespace glob lists every var there"))
 
 (deftest make-group-label-components-test
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #":label-components must be a map"

@@ -939,22 +939,30 @@
   (and (= :vector (some-> loc z/tag))
        (some? (some-> loc z/down parser/raw hiccup/parse-tag))))
 
-(defn- label-component-vector?
-  "True when a vector renders a component that draws a `<label>` for its control.
+(defn- argument-locs
+  "Return the locs of a vector's children, the `#_` forms dropped."
+  [loc]
+  (remove #(= :uneval (z/tag %)) (parser/child-locs loc)))
 
-  The component draws one only when one of its configured label props is set. Props it
-  cannot read may set one. A string, a keyword, a number or a vector in their place is
-  no props map, so it sets none."
+(defn- label-component-props
+  "Return the configured label props of the label component a vector renders, or nil."
   [loc {:keys [ns-info label-components]}]
-  (and (seq label-components)
-       (= :vector (z/tag loc))
-       (let [label-props (some-> loc z/down parser/raw (parser/resolve-full-symbol ns-info) label-components)
-             {:keys [kind attrs]} (when label-props (hiccup/attrs-info loc))]
-         (case kind
-           nil false
-           :map (or (nil? attrs) (some? (label-prop-value attrs label-props)))
-           :non-map (not (cannot-be-props? (z/right (z/down loc))))
-           true))))
+  (when (and (seq label-components) (= :vector (z/tag loc)))
+    (some-> loc z/down parser/raw (resolve-component-alias ns-info label-components))))
+
+(defn- draws-label?
+  "True when a label component may draw its label.
+
+  It draws one only when one of its label props is set. Props the rule cannot read may
+  set one. A string, a keyword, a number or a vector in their place, written there or
+  named by a symbol, is no props map, so it sets none."
+  [loc label-props]
+  (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
+    (case kind
+      :map (or (nil? attrs) (some? (label-prop-value attrs label-props)))
+      :non-map (let [argument (second (argument-locs loc))]
+                 (not (cannot-be-props? (or (hiccup/resolved-value argument) argument))))
+      true)))
 
 (defn- control-of-label-component?
   "True when the label component at `wrapper` may give its label's id to the element at loc.
@@ -964,20 +972,30 @@
   itself and passes it to nothing inside it; a component or a form may pass it on.
   `child` is the wrapper's child on the way up from loc."
   [wrapper child loc]
-  (and (identical? (z/node child) (some-> wrapper z/down z/right z/right z/node))
-       (or (identical? (z/node child) (z/node loc))
-           (not (native-vector? child)))))
+  (let [control (hiccup/unwrap-meta child)]
+    (and (identical? (z/node child) (some-> (nth (argument-locs wrapper) 2 nil) z/node))
+         (or (identical? (z/node control) (z/node loc))
+             (not (native-vector? control))))))
 
 (defn- inside-label?
-  "True when a `<label>` vector encloses the element, or a component that draws one gives it the label's id."
+  "True when a `<label>` vector encloses the element, or a component that draws one gives it the label's id.
+
+  A label component the element is not the control of gives it no id, and neither does
+  any component above it, so only a `<label>` vector further up may still name it."
   [loc context]
   (loop [child loc
          ancestor (z/up loc)]
-    (cond
-      (nil? ancestor) false
-      (label-vector? ancestor) true
-      (and (label-component-vector? ancestor context) (control-of-label-component? ancestor child loc)) true
-      :else (recur ancestor (z/up ancestor)))))
+    (if (nil? ancestor)
+      false
+      (let [label-props (label-component-props ancestor context)]
+        (cond
+          (label-vector? ancestor) true
+          (nil? label-props) (recur ancestor (z/up ancestor))
+          (not (control-of-label-component? ancestor child loc)) (boolean (some label-vector?
+                                                                                (take-while some?
+                                                                                            (iterate z/up ancestor))))
+          (draws-label? ancestor label-props) true
+          :else (recur ancestor (z/up ancestor)))))))
 
 (defn- named-by-label?
   "True when a `<label>` may name the element.
@@ -1962,7 +1980,8 @@
       instead be {:tag native-tag-keyword :label-props #{prop …}}, naming the
       props the wrapper wires to an accessible name of its own.
     :label-components {full-qualified-symbol #{prop …}} — field wrappers that
-      draw a `<label>` for the control inside them when one of the props is set.
+      draw a `<label>` and give its id to their first child after the props, their
+      control, when one of the props is set. A `some.ns/*` key lists every var there.
     :label-styles #{full-qualified-symbol …} — style functions that mark
       text as a field's visible label. Off until set."
   ([] (make-group nil))
