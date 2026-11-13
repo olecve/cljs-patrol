@@ -138,9 +138,10 @@ a `(str …)` or a Garden vector beside other parts, for a stacked outer and inn
 preset is what a focus ring should name.
 
 When `:approved-shadows` maps an approved shadow to the raw values it replaces, a value holding one of them is reported
-even inside a stacked ring, and the finding names the shadow to use: `button-theme/shadow-brand-focused` or the color
-`#516BFF` above. A color matches without regard to case, to spaces around parentheses and commas, so `rgb(81, 107, 255)`
-matches `rgb(81,107,255)`, and only as a whole, so `#fff` does not match `#fffabc`, nor `red` match `darkred`.
+even inside a stacked ring. The finding names the shadows to use by their fully qualified names. For
+`button-theme/shadow-brand-focused` or the color `#516BFF` above, it names `app.styles.focus-rings/primary-shadow`. A
+color matches without regard to case, to spaces around parentheses and commas, so `rgb(81, 107, 255)` matches
+`rgb(81,107,255)`, and only as a whole, so `#fff` does not match `#fffabc`, nor `red` match `darkred`.
 
 A local, such as a parameter of the `defclass`, is not something the rule can read and is left alone, and so is a `str`
 or a Garden vector that holds a local or a call other than `str`, unless it holds a replaced value. The namespaces of
@@ -160,9 +161,12 @@ page run under this config:
 ```
 
 - `:approved-shadows` — the vars whose value is an approved ring, fully qualified, each mapped to the raw tokens and
-  colors it replaces. A finding on a value that holds one of them names the shadow to use, and reports it even inside a
-  stacked ring. When two shadows list the same value, the first by name is named. A set works too, when there is nothing
-  to replace: `#{app.styles.focus-rings/primary-shadow}`. Empty turns off
+  colors it replaces. A finding on a value that holds one of them names the shadows to use, and reports it even inside a
+  stacked ring. When the raw values in the ring belong to one shadow, the finding names it: "Use a." When they belong to
+  several, either because one value is listed under several shadows, such as one color for an outer ring and an inset
+  ring, or because the ring holds values of different shadows, the finding lists them all, sorted by fully qualified
+  name: "Use one or more of: a, b." The rule cannot tell which part of the ring each one stands for. A set works too,
+  when there is nothing to replace: `#{app.styles.focus-rings/primary-shadow}`. Empty turns off
   [Focus ring not from the preset](#focus-ring-not-from-the-preset).
 - `:outline` — the outline a focus block with a `box-shadow` must set, such as `"2px solid transparent"`. Left out, any
   outline that draws holds. `false` turns off [Focus ring without an outline](#focus-ring-without-an-outline).

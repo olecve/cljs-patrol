@@ -274,11 +274,26 @@
       (finding :focus-ring-missing-outline block key-loc decl-kw file
                (str "Set :outline " (pr-str (or expected default-outline)) " beside :box-shadow.")))))
 
-(defn- replacement
-  "Return the approved shadow a raw token or color in the value stands in for, or nil."
+(defn- candidates
+  "Return the approved shadows the raw tokens and colors in the value stand in for, sorted and each once, or nil."
   [symbols strings {:keys [replaced-symbols replaced-colors]}]
-  (or (some replaced-symbols symbols)
-      (some (fn [[pattern approved]] (when (some #(re-find pattern %) strings) approved)) replaced-colors)))
+  (->> (concat (mapcat replaced-symbols symbols)
+               (keep (fn [[pattern shadow]] (when (some #(re-find pattern %) strings) shadow)) replaced-colors))
+       distinct
+       (sort-by str)
+       seq))
+
+(defn- use-hint
+  "Name the shadows to use: \"Use a.\", or \"Use one or more of: a, b.\" when the raw values belong to several.
+
+  The raw values belong to several shadows when one value is listed under several of them, or
+  when the ring holds values of different shadows. Either way the rule cannot tell which part
+  of the ring each shadow stands for, so the hint lists them all and leaves the choice to the
+  author."
+  [shadows]
+  (if (next shadows)
+    (str "Use one or more of: " (str/join ", " shadows) ".")
+    (str "Use " (first shadows) ".")))
 
 (defn- raw-shadow-finding
   "Return a raw-shadow finding when a block's `:box-shadow` is not one of the approved shadows.
@@ -291,14 +306,14 @@
   (let [token-values (map literal (:tokens shadow))
         symbols (keep #(resolve-symbol % ns-info) token-values)
         strings (map compact-color-text (filter string? token-values))
-        approved (replacement symbols strings config)
-        accepted? (and (nil? approved)
+        shadows (candidates symbols strings config)
+        accepted? (and (nil? shadows)
                        (case (:kind shadow)
                          :var (contains? approved-shadows (:symbol shadow))
                          (:str :composed) (or (boolean (some approved-shadows symbols)) (:unreadable? shadow))
                          false))]
     (when-not accepted?
-      (finding :focus-ring-raw-shadow block key-loc decl-kw file (some->> approved (format "Use %s."))))))
+      (finding :focus-ring-raw-shadow block key-loc decl-kw file (some-> shadows use-hint)))))
 
 (defn- block-findings [block config ns-info decl-kw file preset?]
   (when (seq (:states block))
@@ -392,7 +407,7 @@
      (str "A focus style paints a ring with box-shadow, which forced-colors mode drops. Set an outline that "
           "draws, such as 2px solid transparent, on this block or the focus block around it.")
      :focus-ring-raw-shadow
-     "A focus style builds its box-shadow by hand. Use one of the approved focus-ring shadows from the preset."})
+     "A focus style builds its box-shadow by hand. Use one or more of the approved focus-ring shadows from the preset."})
   (docs-anchors [_]
     {:focus-ring-missing-outline "focus-ring-without-an-outline"
      :focus-ring-raw-shadow "focus-ring-not-from-the-preset"})
@@ -429,8 +444,7 @@
 (defn- read-approved-shadows
   "Read `:approved-shadows` as [shadows replaced], refusing any other shape.
 
-  Replaced pairs are [value shadow], sorted by shadow, so a value that two shadows list names
-  the same one on every run."
+  Replaced pairs are [value shadow]."
   [approved]
   (let [shadows (if (map? approved) (keys approved) approved)]
     (when-not (and (or (nil? approved) (coll? approved)) (every? qualified-symbol? shadows))
@@ -441,23 +455,21 @@
           (invalid-config "must map each shadow to a collection of fully qualified symbols and colors" approved))))
     [(set shadows)
      (when (map? approved)
-       (for [[shadow values] (sort-by (comp str key) approved)
+       (for [[shadow values] approved
              value values]
          [value shadow]))]))
 
 (defn- normalize-config [config]
   (when (map? config)
     (let [selectors (set (or (seq (:selectors config)) default-selectors))
-          [shadows replaced] (read-approved-shadows (:approved-shadows config))]
+          [shadows replaced] (read-approved-shadows (:approved-shadows config))
+          {color-pairs true
+           symbol-pairs false} (group-by (comp string? first) replaced)]
       {:patterns (mapv (juxt identity state-pattern) selectors)
        :approved-shadows shadows
        :preset-namespaces (into #{} (map namespace) shadows)
-       :replaced-symbols (reduce (fn [found [value shadow]]
-                                   (cond-> found
-                                     (and (symbol? value) (not (contains? found value))) (assoc value shadow)))
-                                 {}
-                                 replaced)
-       :replaced-colors (into [] (keep (fn [[value shadow]] (when (string? value) [(color-pattern value) shadow]))) replaced)
+       :replaced-symbols (reduce (fn [found [value shadow]] (update found value (fnil conj []) shadow)) {} symbol-pairs)
+       :replaced-colors (mapv (fn [[value shadow]] [(color-pattern value) shadow]) color-pairs)
        :outline (:outline config)})))
 
 (defn make-group
