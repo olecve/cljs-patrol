@@ -55,9 +55,20 @@
 
 (defn ok-second-control-inside-native-label []
   [:label "Notes"
-   [ui/field {}
-    [:span "Required"]
+   [:div
+    [ui/field {}
+     [:span "Required"]
+     [:textarea]]]])
+
+(defn ok-control-through-interop [Root]
+  [ui/field {:label "Role"}
+   [:> Root {}
     [:textarea]]])
+
+(defn ok-control-bound-in-control-form []
+  [ui/field {:label "Note"}
+   (let [area [:textarea]]
+     area)])
 
 (defn bad-select-in-field-without-label []
   [ui/field {:hint-text "Pick one"}
@@ -121,3 +132,19 @@
   (let [hint "Pick one"]
     [ui/field hint
      [:textarea]]))
+
+(defn bad-props-after-discarded-form []
+  [ui/field #_{:old true} {:hint "Pick one"}
+   [:textarea]])
+
+(defn bad-div-in-conditional-control [show?]
+  [ui/field {:label "Note"}
+   (when show?
+     [:div
+      [:textarea]])])
+
+(defn bad-div-with-metadata-in-conditional-control [show? k]
+  [ui/field {:label "Note"}
+   (when show?
+     ^{:key k} [:div
+                [:textarea]])])

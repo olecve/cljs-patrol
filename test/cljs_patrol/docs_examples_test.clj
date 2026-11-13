@@ -19,8 +19,9 @@
 (def ^:private assemble-groups #'core/assemble-groups)
 
 (def ^:private docs-config
-  "Config the examples run under, for a rule that does nothing until it is configured.
-  An example calls `(field-label)`, which resolves to a var of the example's own namespace."
+  "Config the examples run under, for a rule that does nothing until it is configured, or an example left alone by it.
+  An example calls `(field-label)`, which resolves to a var of the example's own namespace, and one wraps its
+  control in `app.ui.field/field`, a label component."
   {:a11y {:label-components {'app.ui.field/field :label}
           :label-styles #{'example.core/field-label}}
    :focus-ring {:approved-shadows {'app.styles.focus-rings/primary-shadow #{'app.theme.button/shadow-brand-focused

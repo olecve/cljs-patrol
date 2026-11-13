@@ -231,6 +231,20 @@
   (is (some? (a11y/make-group {:component-aliases {"@scope/pkg/Comp" :button}}))
       "scoped package key is accepted"))
 
+(deftest make-group-label-components-test
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":label-components must be a map"
+                        (a11y/make-group {:label-components #{'my.ui/field}}))
+      "set of components is refused")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"key must be a fully qualified symbol"
+                        (a11y/make-group {:label-components {'field :label}}))
+      "unqualified component is refused")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must name a keyword or a collection of keywords"
+                        (a11y/make-group {:label-components {'my.ui/field "label"}}))
+      "string prop is refused")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must name a keyword or a collection of keywords"
+                        (a11y/make-group {:label-components {'my.ui/field #{}}}))
+      "empty prop set is refused"))
+
 (deftest make-group-label-styles-test
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #":label-styles must be a collection of fully qualified symbols"
                         (a11y/make-group {:label-styles 'my.ui.styles/field-label}))

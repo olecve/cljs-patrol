@@ -1585,7 +1585,10 @@
            "bad-second-control-of-inner-field"
            "bad-second-control-below-layout"
            "bad-field-with-bound-hint"
-           "bad-field-with-bound-string"}
+           "bad-field-with-bound-string"
+           "bad-props-after-discarded-form"
+           "bad-div-in-conditional-control"
+           "bad-div-with-metadata-in-conditional-control"}
          (field-wrapper-findings {'blogapp.ui/field #{:label}}))
       "flags exactly the bad- cases")
   (is (= #{"ok-select-in-labelled-field"
@@ -1612,7 +1615,12 @@
            "ok-props-after-discarded-form"
            "ok-control-with-metadata"
            "ok-field-with-built-props"
-           "ok-control-through-unlabelled-field"}
+           "ok-control-through-unlabelled-field"
+           "bad-props-after-discarded-form"
+           "bad-div-in-conditional-control"
+           "bad-div-with-metadata-in-conditional-control"
+           "ok-control-through-interop"
+           "ok-control-bound-in-control-form"}
          (field-wrapper-findings nil))
       "no label components configured leaves every field unlabelled")
   (is (= (field-wrapper-findings {'blogapp.ui/field #{:label}})
@@ -1620,18 +1628,8 @@
       "one keyword reads as set of one prop")
   (is (= (field-wrapper-findings {'blogapp.ui/field #{:label}})
          (field-wrapper-findings {'blogapp.ui/* #{:label}}))
-      "namespace glob lists every var there"))
-
-(deftest make-group-label-components-test
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":label-components must be a map"
-                        (a11y/make-group {:label-components #{'blogapp.ui/field}}))
-      "set of components is refused")
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"key must be a fully qualified symbol"
-                        (a11y/make-group {:label-components {'field :label}}))
-      "unqualified component is refused")
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must name a keyword or a collection of keywords"
-                        (a11y/make-group {:label-components {'blogapp.ui/field "label"}}))
-      "string prop is refused")
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must name a keyword or a collection of keywords"
-                        (a11y/make-group {:label-components {'blogapp.ui/field #{}}}))
-      "empty prop set is refused"))
+      "namespace glob lists every var there")
+  (is (= (field-wrapper-findings {'blogapp.ui/field #{:label}})
+         (field-wrapper-findings {'blogapp.ui/* #{:hint-text}
+                                  'blogapp.ui/field #{:label}}))
+      "exact key wins over namespace glob"))
