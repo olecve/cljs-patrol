@@ -8,6 +8,7 @@
   (:require
    [cljs-patrol.heads :as heads]
    [cljs-patrol.parser :as parser]
+   [clojure.set :as set]
    [clojure.string :as str]
    [rewrite-clj.node :as n]
    [rewrite-clj.zip :as z])
@@ -377,6 +378,16 @@
       :token (parser/raw name-loc)
       nil)))
 
+(defn- written-elements [loc]
+  (remove #(= :uneval (z/tag %)) (parser/child-locs loc)))
+
+(defn- def-value
+  "Find the value a `def` form binds: its last form once `#_` forms are dropped, or nil when that is the name."
+  [def-loc]
+  (let [value (last (written-elements def-loc))]
+    (when-not (same-node? value (some-> def-loc z/down z/right))
+      value)))
+
 (defn- first-top-level-form [loc]
   (let [root (loop [current loc]
                (if-let [parent (z/up current)]
@@ -398,10 +409,9 @@
       (recur (z/right form)
              (or (when (and (= :list (z/tag form))
                             (contains? top-level-def-heads (some-> form z/down parser/raw)))
-                   (let [name-loc (some-> form z/down z/right)
-                         value (some-> form z/down z/rightmost)
+                   (let [value (def-value form)
                          defined (defined-name form)]
-                     (when (and defined (not (same-node? name-loc value)))
+                     (when (and defined value)
                        (assoc defs defined value))))
                  defs)))))
 
@@ -772,53 +782,99 @@
   [loc]
   (contains? (enclosing-forms loc) :ns))
 
-(def ^:private malli-types
-  "Keyword types of the `malli.core` base, type, sequence and comparator schemas at Malli 0.20.3.
-  `:symbol` is left out, because it is also an SVG tag in [[html-tags]], and `:>`, because it
-  is also Reagent interop."
+(def ^:private malli-keyword-types
+  "Keyword types of the `malli.core` base, type, sequence and comparator schemas at Malli 0.20.3."
   #{;; base-schemas
     :and :andn :or :orn :not :map :map-of :vector :sequential :seqable :every :set :enum :maybe
     :tuple :multi :re :fn :ref :=> :-> :function :schema :malli.core/schema
     ;; type-schemas
-    :any :some :nil :string :int :float :double :boolean :keyword :qualified-keyword
+    :any :some :nil :string :int :float :double :boolean :keyword :symbol :qualified-keyword
     :qualified-symbol :uuid
     ;; sequence-schemas
     :+ :* :? :repeat :cat :alt :catn :altn
     ;; comparator-schemas
-    :>= :< :<= := :not=})
+    :> :>= :< :<= := :not=})
+
+(def ^:private data-types
+  "Malli keyword types that no Hiccup or Garden head also uses.
+  The tags in [[html-tags]], the Reagent interop `:>` and the Garden selectors `:*` and `:+` are left out."
+  (set/difference malli-keyword-types html-tags #{:> :* :+}))
+
+(def ^:private entry-schema-types #{:map :multi :catn :altn :orn :andn})
+
+(declare clear-data?)
 
 (defn- keyword-loc? [loc]
   (some-> loc z/node n/keyword-node?))
 
-(defn- written-elements [loc]
-  (remove #(= :uneval (z/tag %)) (parser/child-locs loc)))
+(defn- vector-elements [loc]
+  (let [value (unwrap-meta loc)]
+    (when (= :vector (z/tag value))
+      (written-elements value))))
+
+(defn- clear-properties? [loc]
+  (every? #(or (nil? (vector-elements %)) (clear-data? %))
+          (take-nth 2 (rest (written-elements loc)))))
+
+(defn- split-properties [elements]
+  (if (= :map (z/tag (first elements)))
+    [(first elements) (rest elements)]
+    [nil elements]))
+
+(declare malli-schema?)
+
+(defn- malli-entry? [loc]
+  (let [[entry-key & more] (vector-elements loc)
+        [properties [schema & extra]] (split-properties more)]
+    (and (= :token (z/tag entry-key))
+         (not (symbol? (z/sexpr entry-key)))
+         (clear-properties? properties)
+         (malli-schema? schema)
+         (nil? extra))))
+
+(defn- malli-vector? [[head & more]]
+  (let [[properties children] (split-properties more)
+        type (when (keyword-loc? head) (z/sexpr head))]
+    (and (contains? data-types type)
+         (clear-properties? properties)
+         (every? (if (contains? entry-schema-types type) malli-entry? malli-schema?) children))))
+
+(defn- malli-schema? [loc]
+  (let [value (unwrap-meta loc)]
+    (case (z/tag value)
+      :vector (malli-vector? (written-elements value))
+      (:list :regex) true
+      (:token :multi-line) (let [literal (z/sexpr value)]
+                             (or (keyword? literal) (symbol? literal) (string? literal) (number? literal) (boolean? literal)))
+      false)))
+
+(defn- clear-data-element? [inside-list? loc]
+  (let [elements (vector-elements loc)
+        head (first elements)]
+    (cond
+      (keyword-loc? head) (or (malli-vector? elements)
+                              (and (next elements)
+                                   (every? keyword-loc? elements)
+                                   (not (and inside-list? (html-tag? (z/sexpr head))))))
+      head (every? #(clear-data-element? true %) elements))))
 
 (defn clear-data?
-  "Tell whether the vector at loc has a shape that a data model has and markup does not.
+  "True when the vector at loc has a shape that a data model has and markup does not.
 
-  A vector is clearly data when its head is a Malli type keyword that is no HTML tag, when
-  it has two or more elements and each is a keyword, or when its head is a vector and each
-  element is clearly data. A `#_` form is no element, and metadata is looked through."
+  A vector is clearly data when it is a Malli schema all through, when it has two or more
+  elements and each is a keyword, or when its head is a vector and each element is clearly
+  data. Inside such a list, a vector of keywords counts only when its head is no HTML tag.
+  A `#_` form is no element, and metadata on a vector is looked through."
   [loc]
-  (let [vector-loc (unwrap-meta loc)
-        elements (when (= :vector (z/tag vector-loc))
-                   (written-elements vector-loc))
-        head (first elements)]
-    (boolean
-     (cond
-       (keyword-loc? head) (or (contains? malli-types (z/sexpr head))
-                               (and (next elements) (every? keyword-loc? elements)))
-       (= :vector (some-> head unwrap-meta z/tag)) (every? clear-data? elements)))))
+  (boolean (clear-data-element? false loc)))
 
 (defn clear-data-def?
-  "Tell whether the top-level `def` or `defonce` at def-loc binds a vector that is clearly data.
-
-  The value is the last form once `#_` forms are dropped, past a docstring and metadata on
-  the name. A value with metadata of its own is not clearly data."
+  "True when def-loc is a top-level `def` or `defonce` whose value is a vector that is clearly data.
+  A value with metadata of its own is not clearly data."
   [def-loc]
-  (let [value (last (written-elements def-loc))]
+  (let [value (def-value def-loc)]
     (and (= :forms (some-> def-loc z/up z/tag))
          (= :list (z/tag def-loc))
          (contains? top-level-def-heads (some-> def-loc z/down parser/raw))
-         (= :vector (z/tag value))
+         (= :vector (some-> value z/tag))
          (clear-data? value))))
