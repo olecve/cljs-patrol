@@ -74,7 +74,7 @@ not clearly data.
 A Hiccup vector of keywords only, such as `(def greeting [:p :hello])`, is read as data, and the rules lose its
 findings. An HTML image map or an SVG `<set>` that is also a Malli schema all through, such as
 `[:map {:name "nav"} [:a {:href url} label]]` or `[:set {:attributeName "fill" :to "red"}]`, is data too. To keep such
-markup checked, write it in a function. No marker opts a `def` out.
+markup checked, put metadata on the value, such as `(def greeting ^:hiccup [:p :hello])`, or write it in a function.
 
 ## Experimental: reading `.clj` files
 

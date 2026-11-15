@@ -33,6 +33,10 @@
 (defn ok-label-around-a-quoted-element []
   [:label '[:span "Name"]])
 
+(defn ok-label-with-literal-props-around-a-quoted-element []
+  [:label {:optional true}
+   '[:span "Name"]])
+
 (defn ok-label-entry-with-vector []
   [:map
    [:label [:vector :string]]])

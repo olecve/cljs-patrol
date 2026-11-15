@@ -6,12 +6,12 @@ Accepted, 2026-11-15 (proposed 2026-11-13)
 
 ## Outcome
 
-2026-11-15. The decision is in place. The sections after this one keep the decision as it was accepted.
+2026-11-15. The decision is in place. The sections after this one are aligned with the code at acceptance.
 
 - Pull request #143 merged without the Malli entry schema skip, so step 1 needed no pull request of its own.
 - Pull requests #146, #147 and #149 added the test for clear data, the data `def` rule and the label-check fallback.
 - A scan of the same large codebase with the new rules removed every `label-not-associated` false positive in Malli
-  `def`s. The real labels stayed reported, and no other finding changed.
+  `def`s. The real labels stayed reported, and no other finding changed in that scan.
 - A final review aligned the code and this record. `nil` became a literal value, a symbol named `as-element` inside a
   `#_` form no longer ends the data `def` rule, and the duplicate helpers that drop `#_` forms became one helper,
   `parser/written-child-locs`.
@@ -285,8 +285,9 @@ groups that read Hiccup.
   `{:error/fn (fn [_ _] "…")}`, whose parameter vector is no clear data.
 - A Hiccup vector of keywords only, such as `(def greeting [:p :hello])`, is read as data, and the rules lose its
   findings. Such a vector has no props and no element children, so few rules report it.
-- No marker opts a `def` out of the data `def` rule. A `def` that the test reads as data, but that holds markup, moves
-  into a function, where the groups read it as Hiccup.
+- A `def` that the test reads as data, but that holds markup, opts out with metadata on its value, such as
+  `(def greeting ^:hiccup [:p :hello])`, because a value with its own metadata is read as today. A function is the other
+  way out. The groups read both as Hiccup.
 - A schema with a part that is not Malli all through stays Hiccup, as today. For example a schema with Hiccup in a
   property value, with a vector in a schema position whose head is no data type keyword, or with a reader conditional in
   the properties slot of an entry, such as `[:id #?(:cljs {…}) uuid?]`.
@@ -350,8 +351,8 @@ Before the status changes to `Accepted`:
 
 Do these steps in separate pull requests:
 
-1. Leave the Malli entry schema skip out of pull request #143. Keep its other fixes: element shells and local
-   components.
+1. Remove the Malli entry schema skip from pull request #143 before it merges. Keep its other fixes: element shells and
+   local components.
 2. Add the test for clear data, for a vector and for a `def`, with its fixtures.
 3. Add the data `def` rule in `hiccup/enclosing-forms`, as a new kind `:data-def`. A `#(…)` or a form that holds a
    symbol named `as-element` removes `:data-def` from the forms under it. `a11y`, `forbid-props` and `reagent` get the

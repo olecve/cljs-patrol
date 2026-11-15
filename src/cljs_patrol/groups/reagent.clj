@@ -332,10 +332,7 @@
   (when (heads/resolve-head loc ns-info binding-heads)
     (let [bindings (some-> loc z/down z/right)]
       (when bindings
-        (->> (z/down bindings)
-             (iterate z/right)
-             (take-while some?)
-             (remove #(= :uneval (z/tag %)))
+        (->> (parser/written-child-locs bindings)
              (partition 2)
              (keep (fn [[name-loc value-loc]]
                      (let [binding-name (parser/sym-name name-loc)
