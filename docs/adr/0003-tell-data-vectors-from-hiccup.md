@@ -119,11 +119,16 @@ The parts of the decision:
    - Other groups, such as `layout`, read all `def` values as today.
 
 3. **The label-check fallback.** In `hiccup-label?`, a nested vector that is a Malli schema all through, as part 1
-   defines it, does not make the label markup. It uses the same data type keywords as part 1, so an HTML or SVG element
-   whose tag is also a Malli type, such as `[:symbol …]`, and a vector with a string child, such as `[:map "Map"]`,
-   still make the label markup. A label whose properties are a call, such as `[:label (field-props) [:maybe :string]]`,
-   is read the same way. A `#_` form is no child, and metadata on a child vector is looked through, so
-   `[:label {:optional true} ^{:key 1} [:span caption]]` is markup.
+   defines it, does not make the label markup. It uses the same data type keywords and child rules as part 1. So an HTML
+   or SVG element whose tag is also a Malli type, such as `[:symbol …]`, still makes the label markup, and so does a
+   vector with a string where a schema or an entry belongs, such as `[:map "Map"]`. A string child of `:enum`, `:=`,
+   `:not=`, `:<`, `:<=`, `:>=`, `:re` or `:ref` is a literal value, so `[:label [:enum "a" "b"]]` is not markup, and
+   neither is an empty `[:label [:map]]`. A `#_` form is no child, and metadata on a child vector is looked through, so
+   `[:label {:optional true} ^{:key 1} [:span caption]]` is markup. A quoted child is a child.
+
+   A label whose properties are a call, such as `[:label (field-props) [:maybe :string]]`, skips its nested Malli schema
+   vectors in the same way. A keyword or a symbol child still makes such a label markup, because
+   `[:label (styles/caption) text]` is a real label. So `[:label (field-props) :string]` stays reported.
 
 [Options](#options) compares this choice with the other options.
 
@@ -284,8 +289,10 @@ groups that read Hiccup.
   earlier `def` of the same name. A finding on the value, such as `img-alt-missing`, can appear where today's lookup
   reads the `#_` form and finds nothing.
 - A schema outside a vector `def`, such as a call `def` `(mu/closed-schema [:map …])` or a schema in a function body, is
-  still read as Hiccup. The fallback covers its `[:label …]` case. A Malli property that `names-a-dom-attr?` reads as a
-  DOM attribute, such as `:title`, still makes the entry markup for `label-not-associated` outside a vector `def`.
+  still read as Hiccup. The fallback covers its `[:label …]` case when the entry's schema is a nested Malli vector, and
+  not when it is a single keyword or symbol after a properties call, such as `[:label (field-props) :string]`. A Malli
+  property that `names-a-dom-attr?` reads as a DOM attribute, such as `:title`, still makes the entry markup for
+  `label-not-associated` outside a vector `def`.
 - A rule that counts vectors across the whole run no longer counts the vectors of a data `def`. So a finding outside any
   data `def` can change, and both directions are correct. A real separator is no longer reported as one of two focusable
   separators when the other one was a Malli entry, such as `[:hr {:tab-index 0} :int]`. A `test-id-query-on-role`
