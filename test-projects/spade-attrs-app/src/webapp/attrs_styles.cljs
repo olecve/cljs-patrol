@@ -54,6 +54,12 @@
 (defclass merged-fix-class [] {:padding "8px"})
 (defclass assoc-fix-class [] {:padding "8px"})
 (defclass discarded-class [] {:padding "8px"})
+(defclass merge-props-class [] {:padding "8px"})
+(defclass live-and-discarded-class [] {:padding "8px"})
+(defclass discarded-other-use-class [] {:padding "8px"})
 
 ;; Shares its name with a defattrs of webapp.redeclared-names, which refers it.
 (defattrs redeclared-attrs [] {:padding "8px"})
+
+;; Shares its name with a defattrs of webapp.conditional-names, declared in a reader conditional.
+(defattrs conditional-attrs [] {:padding "8px"})

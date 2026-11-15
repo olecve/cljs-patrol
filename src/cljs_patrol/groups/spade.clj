@@ -85,6 +85,10 @@
   "Forms that pass each step a value before the arguments the step writes."
   #{"->" "cond->" "some->"})
 
+(def ^:private class-map-merging-heads
+  "Functions that merge a `{:class …}` map with other props, so the map is not the whole props map."
+  #{'reagent.core/merge-props})
+
 (def ^:private map-reading-names
   "The names of the heads that can read a call as a map, whatever namespace they resolve to."
   (into #{"->"} (map name) (concat whole-reading-heads target-reading-heads)))
@@ -144,10 +148,21 @@
         parent (z/up site)]
     (and (contains? #{:list :fn} (some-> parent z/tag))
          (may-read-as-map? parent)
-         (not (inside-discard? site))
-         (or (reads-argument-as-map? parent (cond-> (argument-index site) (threaded-step? parent) inc) ns-info)
-             (and (some? (heads/resolve-head parent ns-info #{'cljs.core/->}))
-                  (step-reads-as-map? (next-written-sibling site) ns-info))))))
+         (let [head-name (parser/sym-name (z/down parent))
+               index (cond-> (argument-index site) (threaded-step? parent) inc)]
+           (or (and (or (zero? index) (contains? #{"merge" "into"} head-name))
+                    (reads-argument-as-map? parent index ns-info))
+               (and (= "->" head-name)
+                    (some? (heads/resolve-head parent ns-info #{'cljs.core/->}))
+                    (step-reads-as-map? (next-written-sibling site) ns-info)))))))
+
+(defn- merged-class-map?
+  "True when the `{:class …}` map at `loc` is an argument of a function that merges it with other props."
+  [loc ns-info]
+  (let [parent (z/up (heads/site loc))]
+    (and (= :list (some-> parent z/tag))
+         (= "merge-props" (parser/sym-name (z/down parent)))
+         (contains? class-map-merging-heads (heads/resolve-head parent ns-info class-map-merging-heads)))))
 
 (defn- declared-style-names
   "Collect the names of the styles that the file of `loc` declares, once per file."
@@ -155,7 +170,14 @@
   (let [state (parser/file-state ::declared-style-names nil)]
     (or @state
         (let [root (last (take-while some? (iterate z/up loc)))
+              lists-in (fn [top-level]
+                         (if (= :reader-macro (z/tag top-level))
+                           (->> (iterate z/next (z/subzip top-level))
+                                (take-while (complement z/end?))
+                                (filter #(= :list (z/tag %))))
+                           [top-level]))
               names (->> (parser/written-child-locs root)
+                         (mapcat lists-in)
                          (filter #(and (= :list (z/tag %))
                                        (contains? blocks/style-decl-fns (parser/sym-name (z/down %)))))
                          (keep #(some-> (parser/declared-name-loc %) parser/sym-name))
@@ -183,7 +205,9 @@
                          (= 1 (count (z/child-sexprs parent)))
                          (class-only-map? parent))
                     (z/up parent))]
-    (and class-map (not (read-as-data? class-map ns-info)))))
+    (and class-map
+         (not (read-as-data? class-map ns-info))
+         (not (merged-class-map? class-map ns-info)))))
 
 (defn- handle-list
   "Detect style declarations and usages from list nodes.
@@ -213,12 +237,15 @@
       operator
       (when-let [resolved (resolve-style-call loc op-raw ns-info)]
         (let [context (cond
+                        (inside-discard? loc)
+                        :discarded
+
                         (and (read-as-data? loc ns-info)
                              (not (heads/locally-bound? loc op-raw)))
                         :as-data
 
                         (class-only-map-call? loc ns-info)
-                        (if (inside-discard? loc) :discarded :class-only-map))]
+                        :class-only-map)]
           {:decls []
            :dynamics []
            :usages [{:kw resolved

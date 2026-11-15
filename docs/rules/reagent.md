@@ -42,6 +42,16 @@ directly.
 (defn old-card [] #_[:div {:class (card-style)}])
 ```
 
+<details>
+<summary>Details</summary>
+
+A use is the whole props map when the call is the only value of `:class` in a map with no other keys, and nothing
+changes or merges that map. `merge`, `into`, `assoc` and the other core functions that
+[`defattrs-as-data`](spade.md#defattrs-as-data) reads change or merge it, and so does `reagent.core/merge-props`. A use
+inside a `#_` form does not count, but the rule needs at least one use outside `#_`.
+
+</details>
+
 ### Redundant `into` around Hiccup
 
 `redundant-into-hiccup` · cleanup — An `into` splicing children that already carry keys.

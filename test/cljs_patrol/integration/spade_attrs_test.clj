@@ -76,7 +76,7 @@
       (is (not (flagged? "merged-class"))))
 
     (testing "flags nothing else"
-      (is (= 24 (count flagged))))))
+      (is (= 25 (count flagged))))))
 
 (deftest defattrs-as-data-fix-test
   (let [[spade-result reagent-result] (:group-results (core/run fixture-dir [spade/group reagent/group]))]
@@ -88,11 +88,20 @@
                   (:defclass-as-sole-attr reagent-result))
         "defclass fix in a class map that is merged or changed")
     (is (not-any? #(= "discarded-class" (name (:kw %))) (:defclass-as-sole-attr reagent-result))
-        "defclass used only inside a discarded form")))
+        "defclass used only inside a discarded form")
+    (is (not-any? #(= "merge-props-class" (name (:kw %))) (:defclass-as-sole-attr reagent-result))
+        "defclass fix in a class map that merge-props merges")
+    (is (every? (set (map (comp name :kw) (:defclass-as-sole-attr reagent-result)))
+                ["live-and-discarded-class" "discarded-other-use-class"])
+        "defclass used whole, also inside a discarded form")))
 
 (deftest defattrs-as-data-prefers-file-declaration-test
   (let [flagged (->> (core/run fixture-dir [spade/group]) :group-results first :defattrs-as-data (map :kw) set)]
     (is (contains? flagged :webapp.redeclared-names/redeclared-attrs)
         "defattrs declared in the file")
     (is (not (contains? flagged :webapp.attrs-styles/redeclared-attrs))
-        "referred defattrs of the same name")))
+        "referred defattrs of the same name")
+    (is (contains? flagged :webapp.conditional-names/conditional-attrs)
+        "defattrs declared in a reader conditional")
+    (is (not (contains? flagged :webapp.attrs-styles/conditional-attrs))
+        "referred defattrs of the same name as one in a reader conditional")))

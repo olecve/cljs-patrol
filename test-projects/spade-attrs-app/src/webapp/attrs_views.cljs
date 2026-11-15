@@ -1,5 +1,6 @@
 (ns webapp.attrs-views
   (:require
+   [reagent.core :as r]
    [webapp.attrs-styles :as styles]))
 
 (defn card [props] [:div props])
@@ -32,7 +33,13 @@
    [:div (merge {:class (styles/merged-fix-class)} props)]
    [:div {:class (styles/assoc-fix-class)}]
    [:div (assoc {:class (styles/assoc-fix-class)} :id id)]
-   #_[:div {:class (styles/discarded-class)}]])
+   #_[:div {:class (styles/discarded-class)}]
+   [:div {:class (styles/merge-props-class)}]
+   [:div (r/merge-props {:class (styles/merge-props-class)} props)]
+   [:div {:class (styles/live-and-discarded-class)}]
+   #_[:div {:class (styles/live-and-discarded-class)}]
+   [:div {:class (styles/discarded-other-use-class)}]
+   #_(str (styles/discarded-other-use-class))])
 
 (defn icon-views []
   [:div
