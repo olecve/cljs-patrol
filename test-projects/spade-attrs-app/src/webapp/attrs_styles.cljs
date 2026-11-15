@@ -53,6 +53,7 @@
 (defattrs discarded-attrs [] {:padding "8px"})
 (defattrs spliced-step-attrs [] {:padding "8px"})
 (defattrs spliced-key-attrs [] {:padding "8px"})
+(defattrs conditional-element-attrs [] {:padding "8px"})
 (defattrs nested-spliced-step-attrs [] {:padding "8px"})
 (defattrs spliced-cond-test-attrs [] {:padding "8px"})
 (defattrs spliced-cond-step-attrs [] {:padding "8px"})

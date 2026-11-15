@@ -80,7 +80,9 @@
 
     (testing "does not flag a call spliced into an argument of a function that reads one position"
       (is (not (flagged? "spliced-key-attrs"))
-          "a `#?@` splice hides the argument position"))
+          "a `#?@` splice hides the argument position")
+      (is (not (flagged? "conditional-element-attrs"))
+          "a `#?` keeps its vector, so the call is an element of it"))
 
     (testing "flags a merge however a `#?@` splices it"
       (is (every? flagged? ["spliced-merge-step-attrs" "spliced-merge-argument-attrs"])

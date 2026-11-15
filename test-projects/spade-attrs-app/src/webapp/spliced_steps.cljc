@@ -10,4 +10,5 @@
    [:div (cond-> props #?@(:cljs [(:hidden (styles/spliced-cond-test-attrs)) (assoc :id 1)]))]
    [:div (-> props #?@(:cljs [(merge (styles/spliced-merge-step-attrs))]))]
    [:div (merge #?@(:cljs [(styles/spliced-merge-argument-attrs)]) props)]
-   [:div (get #?@(:cljs [cache (styles/spliced-key-attrs)]))]])
+   [:div (get #?@(:cljs [cache (styles/spliced-key-attrs)]))]
+   (into [:div] #?(:cljs [(styles/conditional-element-attrs)]))])

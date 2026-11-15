@@ -104,9 +104,12 @@ A function name counts only when it is the `clojure.core` / `cljs.core` function
 through `:refer`. A local of the same name, or a function of another namespace with the same name, does not count. In a
 step of `->`, `some->` or `cond->`, the threaded value is the first argument, so a call there is the second argument:
 `(-> cache (get (card-attrs)))` uses the call as a key, and is left alone. The test of a `cond->` is not a step, so
-`(cond-> props (:hidden (card-attrs)) …)` is reported. A call that a `#?@` splices into a thread-first form or into the
-argument list of `assoc`, `get` or a key lookup is left alone, because the splice hides its position. A call that a
-`#?@` splices into a `merge` or an `into`, or into a step that is one, is reported, because those read every argument.
+`(cond-> props (:hidden (card-attrs)) …)` is reported. A `#?@` splice hides the position of what it holds. So a call is
+left alone when a `#?@` splices it into a thread-first form or into the arguments of a function that reads one position,
+such as `assoc`, `assoc-in`, `update`, `dissoc`, `conj`, `get`, `get-in` or a key lookup. It is left alone too when its
+reading call is a step that a `#?@` splices into a thread-first form, as in
+`(-> cache #?@(:cljs [(get (card-attrs))]))`. A call that a `#?@` splices into a `merge` or an `into`, or into a step
+that is one, is reported, because those read every argument.
 
 These calls are left alone: the whole props map of a tag or a component (`[:div (card-attrs)]`), an argument of any
 other function, and a prop of a component (`{:attrs (card-attrs)}`). The rule cannot read what happens to the map there,
