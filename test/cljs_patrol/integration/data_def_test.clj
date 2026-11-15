@@ -15,6 +15,8 @@
 
 (def ^:private referred-file (str fixture-dir "/referred.cljs"))
 
+(def ^:private mention-fixture-dir "test-projects/data-def-app/src/datadefmention")
+
 (defn- def-names-in
   "Name the fixture definition each finding in a file sits in, by the last def above its row."
   [file findings]
@@ -44,6 +46,12 @@
              "bad-actions"
              "bad-as-element-in-schema"
              "bad-full-as-element-in-schema"
+             "bad-thread-as-element-in-schema"
+             "bad-thread-last-as-element-in-schema"
+             "bad-some-thread-as-element-in-schema"
+             "bad-thread-call-as-element-in-schema"
+             "bad-apply-as-element-in-schema"
+             "bad-partial-as-element-in-schema"
              "bad-fn-literal-in-schema"
              "bad-garden-rule"
              "bad-cells"
@@ -51,7 +59,7 @@
              "bad-path-in-reader-conditional"
              "bad-path-in-function"}
            (def-names-in defs-file img-alt-missing))
-        "Hiccup outside data defs, and under #() or as-element inside one, keeps its findings")
+        "Hiccup outside data defs, and under #() or as-element head, thread step or argument inside one, keeps its findings")
     (is (= #{"bad-referred-as-element-in-schema"}
            (def-names-in referred-file img-alt-missing))
         "referred as-element ends data def too")
@@ -59,6 +67,10 @@
         "both cells of keyword-only list stay Hiccup")
     (is (empty? label-not-associated)
         "Malli label entries in data defs are no labels")))
+
+(deftest data-def-separator-no-longer-counts-toward-run
+  (is (empty? (:missing-accessible-name (result a11y/group)))
+      "Malli entry is no second focusable separator, so lone real separator is left alone"))
 
 (deftest data-def-reagent-fixture-test
   (is (= #{"bad-empty-fragment-props"}
@@ -74,6 +86,20 @@
   (is (= #{"bad-save-button-by-test-id"}
          (->> react-testing-library-cljs/group result :test-id-query-on-role (map :test) set))
       "vector in data def is no element that shares role and name"))
+
+(deftest data-def-entry-hides-no-test-id-query-on-role
+  (is (some #(= "bad-save-button-by-test-id" (:test %))
+            (:test-id-query-on-role (result react-testing-library-cljs/group)))
+      "Malli entry with same role and name and no test id hides no test-id-query-on-role finding"))
+
+(deftest data-def-test-id-mention-counts-with-its-vector
+  (is (= ["bad-save-button-by-test-id"]
+         (->> (core/run mention-fixture-dir [react-testing-library-cljs/group])
+              :group-results
+              first
+              :test-id-query-on-role
+              (map :test)))
+      "test id mention in data def is left out like its vector, so element and mention counts agree"))
 
 (deftest data-def-layout-fixture-test
   (is (= #{"bad-split-label-schema"}

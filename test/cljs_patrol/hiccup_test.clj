@@ -529,7 +529,55 @@
   (is (= #{:data-def} (img-kinds "[b.c :as r]" "[:vector {:a (r/as-element [:img :a])} :int]"))
       "look-alike as-element")
   (is (= #{:data-def} (img-kinds "[reagent.core :refer [as-element]]" "[:vector {as-element [:img :a]} :int]"))
-      "as-element symbol heading map is no call"))
+      "as-element symbol heading map is no call")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (-> [:img :a] r/as-element)} :int]"))
+      "as-element thread step")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (->> [:img :a] r/as-element)} :int]"))
+      "as-element thread-last step")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (some-> [:img :a] r/as-element)} :int]"))
+      "as-element some-> step")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (some->> [:img :a] r/as-element)} :int]"))
+      "as-element some->> step")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (cond-> [:img :a] b r/as-element)} :int]"))
+      "as-element cond-> step")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (cond->> [:img :a] b r/as-element)} :int]"))
+      "as-element cond->> step")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (as-> [:img :a] x (r/as-element x))} :int]"))
+      "as-element as-> step")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (-> [:img :a] (r/as-element))} :int]"))
+      "as-element call thread step")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (->> [:img :a] (r/as-element))} :int]"))
+      "as-element call ->> step")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (some-> [:img :a] (r/as-element))} :int]"))
+      "as-element call some-> step")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (some->> [:img :a] (r/as-element))} :int]"))
+      "as-element call some->> step")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (cond-> [:img :a] b (r/as-element))} :int]"))
+      "as-element call cond-> step")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (cond->> [:img :a] b (r/as-element))} :int]"))
+      "as-element call cond->> step")
+  (is (= #{} (img-kinds "[reagent.core :refer [as-element]]" "[:vector {:a (apply as-element (list [:img :a]))} :int]"))
+      "referred as-element argument of apply")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (partial r/as-element [:img :a])} :int]"))
+      "as-element argument of partial")
+  (is (= #{} (img-kinds "" "[:vector {:a (partial reagent.core/as-element [:img :a])} :int]"))
+      "written-out as-element argument")
+  (is (= #{} (img-kinds "[reagent.core :refer-macros [as-element]]" "[:vector {:a (partial as-element [:img :a])} :int]"))
+      "as-element argument through macro refer")
+  (is (= #{:data-def} (img-kinds "[b.c :as r]" "[:vector {:a (-> [:img :a] r/as-element)} :int]"))
+      "look-alike as-element thread step")
+  (is (= #{:data-def} (img-kinds "[b.c :as r]" "[:vector {:a (-> [:img :a] (r/as-element))} :int]"))
+      "look-alike as-element call thread step")
+  (is (= #{:data-def} (img-kinds "[reagent.core :as r]" "[:vector {:a (f [:img :a] (r/as-element))} :int]"))
+      "as-element call beside vector outside thread")
+  (is (= #{:data-def} (img-kinds "[reagent.core :as r]" "[:vector {:a (-> [:img :a] (f r/as-element))} :int]"))
+      "thread step whose head is no as-element")
+  (is (= #{:data-def} (img-kinds "[reagent.core :as r]" "[:vector {:a (-> [:img :a] {r/as-element 1})} :int]"))
+      "thread step map keyed by as-element is no call")
+  (is (= #{:data-def} (img-kinds "[reagent.core :as r]" "[:vector {-> (r/as-element) :b [:img :a]} :int]"))
+      "map keyed by thread symbol is no thread")
+  (is (= #{:data-def} (img-kinds "[reagent.core :as r]" "[:vector {:a [:tuple {:b [:img :a]} r/as-element]} :int]"))
+      "schema holding as-element symbol is no call"))
 
 (deftest enclosing-forms-reads-ns-form-only-for-as-element-in-data-def
   (let [calls (atom 0)
@@ -541,23 +589,41 @@
     (is (zero? @calls)
         "no ns lookup outside data def or for other calls")))
 
+(deftest enclosing-forms-reads-ns-form-once-per-file
+  (let [calls (atom 0)
+        find-ns-info parser/find-ns-info
+        root (z/of-string (str "(ns a (:require [reagent.core :as r]))\n"
+                               "(def s [:vector {:a (r/as-element [:img :a]) :b (r/as-element [:img :b])} :int])"))
+        find-loc (fn [target] (z/find root z/next #(= target (z/string %))))]
+    (binding [parser/*file-memo* (java.util.HashMap.)]
+      (with-redefs [parser/find-ns-info (fn [loc] (swap! calls inc) (find-ns-info loc))]
+        (is (= [#{} #{}] (mapv #(hiccup/enclosing-forms (find-loc %)) ["[:img :a]" "[:img :b]"]))
+            "both as-element calls cut")))
+    (is (= 1 @calls)
+        "ns form read once")))
+
 (deftest enclosing-forms-tests-each-def-once-per-file
   (let [tested (atom [])
-        clear-data-def? hiccup/clear-data-def?]
+        clear-data? hiccup/clear-data?]
     (binding [parser/*file-memo* (java.util.HashMap.)]
-      (with-redefs [hiccup/clear-data-def? (fn [loc] (swap! tested conj [(z/tag loc) (z/string loc)]) (clear-data-def? loc))]
+      (with-redefs [hiccup/clear-data? (fn [loc] (swap! tested conj (z/string loc)) (clear-data? loc))]
         (let [root (z/of-string "(def schema [:map [:a [:vector :int]] [:b [:enum :x]]])")
               find-loc (fn [target] (z/find root z/next #(= target (z/string %))))]
-          (doseq [target ["[:vector :int]" "[:enum :x]" "[:map [:a [:vector :int]] [:b [:enum :x]]]"
+          (doseq [target ["[:vector :int]" "[:enum :x]" "[:a [:vector :int]]" "[:map [:a [:vector :int]] [:b [:enum :x]]]"
                           "[:map [:a [:vector :int]] [:b [:enum :x]]]"]]
             (is (= #{:data-def} (hiccup/enclosing-forms (find-loc target)))
                 (str target " in data def"))))))
-    (is (= 1 (count (filter #{[:list "(def schema [:map [:a [:vector :int]] [:b [:enum :x]]])"]} @tested)))
-        "def tested once")
-    (is (apply distinct? @tested)
-        "no form tested twice")
-    (is (every? #(= :list (first %)) @tested)
-        "only lists tested")))
+    (is (= ["[:map [:a [:vector :int]] [:b [:enum :x]]]"] @tested)
+        "def value tested once")))
+
+(deftest enclosing-forms-remembers-only-top-level-defs
+  (binding [parser/*file-memo* (java.util.HashMap.)]
+    (let [root (z/of-string "(def s [:vector (m/schema [:enum :a])])\n(defn f [] (g [:img]))")
+          find-loc (fn [target] (z/find root z/next #(= target (z/string %))))]
+      (is (= [#{:data-def} #{}] (mapv #(hiccup/enclosing-forms (find-loc %)) ["[:enum :a]" "[:img]"]))
+          "schema in data def, img in function")
+      (is (= 1 (.size ^java.util.Map (.get ^java.util.Map parser/*file-memo* :cljs-patrol.hiccup/data-defs)))
+          "only top-level def remembered"))))
 
 (defn- result-strings
   ([source] (mapv z/string (hiccup/result-locs (z/of-string source))))

@@ -478,8 +478,9 @@
    :id (normalize-test-id id)
    :file file})
 
-(defn- handle-token
-  "Record a string literal as a mention of a test id it may be, and other test ids that reach the DOM.
+(defn- token-usage
+  "Find what the token at loc records: a mention of a test id it may be, a built test id, or nil.
+
   A lookup's own test id is no mention. A keyword or quoted name a `:data-testid` is set to is
   one, and a name bound to a call records what the call may build; a name bound to a string
   needs nothing more, since the string is a mention where it is written."
@@ -491,26 +492,30 @@
       value
       (when-not (and (= :list (some-> parent z/tag))
                      (identical? (z/node loc) (some-> (test-id-arguments parent ns-info) first z/node)))
-        {:decls []
-         :usages [(mention value file)]
-         :dynamics []})
+        (mention value file))
 
       (and (= :quote (some-> parent z/tag)) (test-id-value? parent))
-      {:decls []
-       :usages [(mention (parser/raw loc) file)]
-       :dynamics []}
+      (mention (parser/raw loc) file)
 
       (test-id-value? loc)
       (let [v (a11y/literal-sexpr loc)]
         (cond
-          (keyword? v) {:decls []
-                        :usages [(mention (name v) file)]
-                        :dynamics []}
+          (keyword? v) (mention (name v) file)
           (symbol? v) (let [bound (hiccup/lexically-bound-value loc (parser/raw loc))]
                         (when (= :list (some-> bound z/tag))
-                          {:decls []
-                           :usages [(built-test-id bound file)]
-                           :dynamics []})))))))
+                          (built-test-id bound file))))))))
+
+(defn- handle-token
+  "Record a string literal as a mention of a test id it may be, and other test ids that reach the DOM.
+
+  A token in the value of a data `def` records nothing, as the vectors there are no elements, so
+  the mentions and the elements of a test id leave the same forms out."
+  [loc ns-info file]
+  (when-let [usage (token-usage loc ns-info file)]
+    (when-not (hiccup/inside-data-def? loc)
+      {:decls []
+       :usages [usage]
+       :dynamics []})))
 
 (defn- handle-vector
   "Record an element written out with a role and a literal name: its literal test id, and whether anything may hide it.

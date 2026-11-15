@@ -44,6 +44,24 @@
 
 (def bad-full-as-element-in-schema [:vector {:render (reagent.core/as-element [:img :src])} :int])
 
+(def bad-thread-as-element-in-schema [:vector {:render (-> [:img :src] r/as-element)} :int])
+
+(def bad-thread-last-as-element-in-schema [:vector {:render (->> [:img :src] r/as-element)} :int])
+
+(def bad-some-thread-as-element-in-schema [:vector {:render (some-> [:img :src] r/as-element)} :int])
+
+(def bad-thread-call-as-element-in-schema [:vector {:render (-> [:img :src] (r/as-element))} :int])
+
+(def bad-apply-as-element-in-schema [:vector {:render (apply r/as-element (list [:img :src]))} :int])
+
+(def bad-partial-as-element-in-schema [:vector {:render (partial r/as-element [:img :src])} :int])
+
+(def ok-thread-look-alike-as-element [:vector {:render (-> [:img :src] other/as-element)} :int])
+
+(def ok-thread-call-look-alike-as-element [:vector {:render (-> [:img :src] (other/as-element))} :int])
+
+(def ok-apply-look-alike-as-element [:vector {:render (apply other/as-element (list [:img :src]))} :int])
+
 (def bad-fn-literal-in-schema [:vector {:render #(do [:img :src])} :int])
 
 (def bad-garden-rule [:div.paragraph [:img {:margin-top "5px"}]])

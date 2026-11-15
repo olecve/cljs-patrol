@@ -38,6 +38,7 @@ data `def` as data, not as markup. Other groups, such as `layout`, read it as be
 
 (def toast {:message "Saved" :description [:img {:src "ok.png"}]})
 
+;; data, with markup under a cut-off: the groups read the [:img :src] as Hiccup
 (def item-schema [:vector {:render #(do [:img :src])} :int])
 ```
 
@@ -59,8 +60,10 @@ Any other vector is markup, as before: an element with a string, a component, a 
 `[:title "asc"]`. So is a value with metadata of its own, a map, a call, and a `def` inside another form or a reader
 conditional.
 
-The forms under a `#(…)` or a `reagent.core/as-element` call in the value are markup again, so the `[:img :src]` of
-`item-schema` keeps its findings. A `fn` cannot be in a data `def`, because its parameter vector is not clearly data.
+The forms under a `#(…)` in the value are markup again, so the `[:img :src]` of `item-schema` keeps its findings. So are
+the forms of a call that uses `reagent.core/as-element` as its head, as a thread step such as
+`(-> [:img :src] r/as-element)`, or as an argument such as `(apply r/as-element …)`. A `fn` cannot be in a data `def`,
+because its parameter vector is not clearly data.
 
 A Hiccup vector of keywords only, such as `(def greeting [:p :hello])`, is read as data, and the rules lose its
 findings. An HTML image map that is also a Malli schema all through, such as
