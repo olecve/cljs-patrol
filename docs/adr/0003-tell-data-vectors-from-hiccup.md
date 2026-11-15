@@ -10,8 +10,8 @@ Accepted, 2026-11-15 (proposed 2026-11-13)
 
 - Pull request #143 merged without the Malli entry schema skip, so step 1 needed no pull request of its own.
 - Pull requests #146, #147 and #149 added the test for clear data, the data `def` rule and the label-check fallback.
-- A scan of the same large codebase with the new rules removed every `label-not-associated` false positive in Malli
-  `def`s. The real labels stayed reported, and no other finding changed in that scan.
+- Before the final review, a scan of the same large codebase with the new rules removed every `label-not-associated`
+  false positive in Malli `def`s. The real labels stayed reported, and no other finding changed in that scan.
 - A final review aligned the code and this record. `nil` became a literal value, a symbol named `as-element` inside a
   `#_` form no longer ends the data `def` rule, and the duplicate helpers that drop `#_` forms became one helper,
   `parser/written-child-locs`.
@@ -146,7 +146,8 @@ The parts of the decision:
    A label whose properties are a call or a map built with `assoc` or `merge`, such as
    `[:label (field-props) [:maybe :string]]`, skips its nested Malli schema vectors in the same way. A keyword, a symbol
    or a quoted child still makes such a label markup, because `[:label (styles/caption) text]` is a real label. So
-   `[:label (field-props) :string]` stays reported.
+   `[:label (field-props) :string]` stays reported. A built map without `:for` may hold any `for` value, so the rule
+   never reports such a label.
 
 [Options](#options) compares this choice with the other options.
 
@@ -301,6 +302,9 @@ groups that read Hiccup.
 - A list of keyword-only vectors whose heads are custom elements or tags that `hiccup/html-tags` leaves out, such as
   `[[:my-cell :name] [:my-cell :email]]`, is read as data, because such a head looks like a db path keyword. The rules
   lose its findings.
+- Keyword-only vectors with tag heads in a properties map or a metadata map, also inside a call, set or map, such as
+  `[:vector {:a #{[:th :name] [:th :email]}} :int]`, are read as data, and the rules lose their findings. Such code is
+  unusual.
 - The data `def` rule and the lookup of a symbol's `def` read a `def` the same way, with `#_` forms dropped. So a `def`
   with a trailing `#_` form now resolves to its value, a `def` with a `#_` form before its name, such as
   `(def #_old props {…})`, now resolves at all, and a re-`def` whose only value is a `#_` form no longer hides an
@@ -320,9 +324,9 @@ groups that read Hiccup.
     the counts stay in step. The vectors of a data `def` are no elements, and the test id values on those vectors,
     written out or built, are no mentions.
   - Every other test id string in a data `def`, such as one in an `:enum` or a `:default`, still counts as a mention.
-- The ids and the `aria-labelledby` references in a data `def` still count for `label-not-associated`, because a form
-  library can render schema properties. So `{:aria-labelledby "name-label"}` in a schema names the label with that id
-  elsewhere in the file, and the rule does not report it.
+- The `aria-labelledby` references in a data `def` still count for `label-not-associated`, because a form library can
+  render schema properties. So `{:aria-labelledby "name-label"}` in a schema names the label with that id elsewhere in
+  the file, and the rule does not report it.
 - The guards of each rule can stay. The data `def` rule removes the cause for most cases, and the guards cover the rest.
 - A new rule that reads Hiccup asks `hiccup/inside-non-hiccup-form?`, or `hiccup/inside-data-def?` when it asks only
   `inside-unrendered-form?`. A local guard can use `hiccup/clear-data?` or `hiccup/malli-schema-vector?`. Its fixtures

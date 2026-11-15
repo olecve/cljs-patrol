@@ -794,8 +794,8 @@
   "Return the set of the kinds of form that enclose loc at any depth: `:unrendered`, `:style-decl`, `:ns`, `:data-def`.
 
   `:data-def` marks the value of a top-level `def` whose value is a vector that [[clear-data?]] accepts, the value
-  itself and every form in it, except the forms under a `#(…)` or a form that holds a symbol named `as-element`. One
-  walk up to the root answers all four. While [[parser/analyze-file]] reads a file, every ancestor the walk passes
+  itself and every form in it, except the forms under a `#(…)` or a form that holds a symbol named `as-element`
+  outside `#_`. One walk up to the root answers all four. While [[parser/analyze-file]] reads a file, every ancestor the walk passes
   keeps its answer, so the next vector in the same form stops at the first ancestor already asked about."
   [loc]
   (let [file-memo parser/*file-memo*
@@ -845,7 +845,7 @@
 
 (defn inside-data-def?
   "True when loc is in the value of a top-level `def` whose value is a vector that [[clear-data?]] accepts.
-  A form under a `#(…)` or a form that holds a symbol named `as-element` in that value is not."
+  A form under a `#(…)` or a form that holds a symbol named `as-element` outside `#_` in that value is not."
   [loc]
   (contains? (enclosing-forms loc) :data-def))
 

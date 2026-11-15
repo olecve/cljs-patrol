@@ -48,7 +48,7 @@ data when one of these holds:
 
 - It is a Malli schema all through: its head is a Malli type keyword, then an optional properties map, then children. An
   entry of a `:map`, `:multi`, `:catn`, `:altn`, `:orn` or `:andn` is `[key properties? schema]`. A child of `:enum`,
-  `:=` and the other comparators is a literal value: a keyword, a symbol, a string, a number, a boolean, `nil` or a
+  `:=` and the other literal types is a literal value: a keyword, a symbol, a string, a number, a boolean, `nil` or a
   regular expression. Every other child is a Malli schema: a keyword, a symbol, a regular expression, a call in which
   every vector is clearly data, or a vector that is a schema all through. Every vector in a key or a value of a
   properties map, at any depth, is clearly data too.
