@@ -5,7 +5,8 @@ that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
 
 [← all rule groups](../rules.md) · [← back to the README](../../README.md)
 
-Run this group alone with `--only reagent`.
+Run this group alone with `--only reagent`. The group reads the value of a [data `def`](../rules.md#data-defs), such as
+a Malli schema, as data, not as markup.
 
 ## Rules
 
@@ -131,7 +132,8 @@ not depend on that, so every empty `{}` is flagged, whatever follows it. A `#_` 
 Left alone:
 
 - a `{}` holding anything, `:key` or otherwise, and a `{}` under metadata
-- a fragment that is quoted, discarded, or sits in a style declaration or the ns form
+- a fragment that is quoted, discarded, or sits in a style declaration, the ns form or a
+  [data `def`](../rules.md#data-defs), such as the Malli entry `[:<> {} :int]`
 
 </details>
 
@@ -193,7 +195,8 @@ Left alone, since the scan cannot vouch that the element can take the fragment's
   `when`, an `if` or an element that holds it; a fragment bound in a `let`; and one that is not the last form of a
   function body
 - a vector that is data rather than Hiccup, such as `[:<> [:path :to :key]]`
-- a fragment that is quoted, discarded, or sits in a style declaration or the ns form
+- a fragment that is quoted, discarded, or sits in a style declaration, the ns form or a
+  [data `def`](../rules.md#data-defs)
 - a fragment under a function head, a `for`, or a `when`, `if`, `let`, `cond` or `case` yielding it, that resolves
   outside core, Reagent's `with-let` and Rum's `defc`, such as `x/defn` or `x/when`, or a local of that name
 
@@ -270,8 +273,9 @@ a `let`, or a `for` or `map` body yields. A loop body counts once however many i
 `case` as its busiest branch, since only one renders. An attrs map, a handler's body and any other call are not read, so
 an event vector a handler dispatches, `[::open {:on-confirm f}]`, is no element. Left alone as well: a data vector such
 as a re-frame path, a binding that destructures, a value that is any other call, and a `let` that is quoted, discarded,
-or sits in a style declaration. `let`, `with-let`, `for`, `map`, and the `when`, `if`, `cond` or `case` a value sits in
-count only as core's and Reagent's, resolved through the ns form, so `x/let`, `x/when` or a local `let` is left alone.
+or sits in a style declaration, the ns form or a [data `def`](../rules.md#data-defs). `let`, `with-let`, `for`, `map`,
+and the `when`, `if`, `cond` or `case` a value sits in count only as core's and Reagent's, resolved through the ns form,
+so `x/let`, `x/when` or a local `let` is left alone.
 
 </details>
 
@@ -324,6 +328,7 @@ form, written bare, referred or through an alias. A look-alike from another libr
 `:- [schema]` return, writes forms of its own before the body and is not read, nor is a bare core name the ns form
 excludes or a local binding shadows. Hiccup is a vector headed by an HTML tag, the fragment or any symbol, taken as a
 component; a data vector such as `[:db :path]` or `[:dispatch x]` is not. A `#_` form is skipped, and quoted code,
-`(comment …)` blocks and Spade declarations are not read.
+`(comment …)` blocks, Spade declarations, the ns form and the value of a [data `def`](../rules.md#data-defs) are not
+read.
 
 </details>

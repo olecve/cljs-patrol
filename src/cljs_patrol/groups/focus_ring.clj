@@ -88,8 +88,7 @@
 (defn- map-entries
   "Return [key-text value-loc] for each entry of a literal map whose key is a keyword or a string."
   [map-loc]
-  (->> (parser/child-locs map-loc)
-       (remove #(= :uneval (z/tag %)))
+  (->> (parser/written-child-locs map-loc)
        (partition 2)
        (keep (fn [[key-loc value-loc]]
                (let [k (literal key-loc)]
@@ -102,7 +101,7 @@
   Only keywords and strings lead as selectors. A symbol or a call there may stand for a map,
   so it makes the block one this cannot read in full, the same as one after the selectors."
   [vector-loc]
-  (let [children (remove #(= :uneval (z/tag %)) (parser/child-locs vector-loc))
+  (let [children (parser/written-child-locs vector-loc)
         [head body] (split-with selector-text children)]
     {:head head
      :maps (filter #(= :map (z/tag %)) body)

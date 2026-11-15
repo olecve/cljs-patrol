@@ -9,6 +9,8 @@ Run this group alone with `--only forbid-props`. It does nothing until `:forbid-
 `.cljs-patrol/config.edn`; see [Forbid props options](#forbid-props-options). The examples below run under the config
 shown there.
 
+The group reads the value of a [data `def`](../rules.md#data-defs), such as a Malli schema, as data, not as markup.
+
 ## Rules
 
 ### Forbidden prop
@@ -57,6 +59,10 @@ element or component. The finding gives the entry's message.
 (defn built-button [attrs label]
   [:button (merge attrs {:aria-disabled true})
    label])
+
+;; a Malli entry in a data def
+(def button-props-schema
+  [:map [:button {:aria-disabled true} :boolean]])
 ```
 
 <details>
@@ -68,8 +74,9 @@ element, as in a Malli schema, is not an element. Neither is a re-frame event or
 name one: an argument of `dispatch`, `subscribe`, `reg-event-*` or `reg-sub`, in a `(…)` or a `#(…)`, a vector after a
 `:dispatch`-like key in an effect map or an fx tuple, and an fx tuple itself, `[:track {…}]` in `{:fx [[:track {…}]]}`.
 An event vector built elsewhere and passed in by name, `(let [e [:select {…}]] (rf/dispatch e))`, is read as Hiccup, and
-such a rare case goes in the baseline. A local component is unknown, one that shadows a referred component included, and
-so is a component rendered through `[:> Comp …]` interop, which no entry can name.
+such a rare case goes in the baseline. A vector in the value of a [data `def`](../rules.md#data-defs) is not an element
+either. A local component is unknown, one that shadows a referred component included, and so is a component rendered
+through `[:> Comp …]` interop, which no entry can name.
 
 The tags the rule knows are the HTML and SVG elements, except `:map`, `:search`, `:filter`, `:image` and `:desc`. Each
 of those is also an everyday Malli schema, db path or event id, `[:search :query]`, so every group reads them as data,

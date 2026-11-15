@@ -478,8 +478,9 @@
    :id (normalize-test-id id)
    :file file})
 
-(defn- handle-token
-  "Record a string literal as a mention of a test id it may be, and other test ids that reach the DOM.
+(defn- token-usage
+  "Find what the token at loc records: a mention of a test id it may be, a built test id, or nil.
+
   A lookup's own test id is no mention. A keyword or quoted name a `:data-testid` is set to is
   one, and a name bound to a call records what the call may build; a name bound to a string
   needs nothing more, since the string is a mention where it is written."
@@ -491,36 +492,52 @@
       value
       (when-not (and (= :list (some-> parent z/tag))
                      (identical? (z/node loc) (some-> (test-id-arguments parent ns-info) first z/node)))
-        {:decls []
-         :usages [(mention value file)]
-         :dynamics []})
+        (mention value file))
 
       (and (= :quote (some-> parent z/tag)) (test-id-value? parent))
-      {:decls []
-       :usages [(mention (parser/raw loc) file)]
-       :dynamics []}
+      (mention (parser/raw loc) file)
 
       (test-id-value? loc)
       (let [v (a11y/literal-sexpr loc)]
         (cond
-          (keyword? v) {:decls []
-                        :usages [(mention (name v) file)]
-                        :dynamics []}
+          (keyword? v) (mention (name v) file)
           (symbol? v) (let [bound (hiccup/lexically-bound-value loc (parser/raw loc))]
                         (when (= :list (some-> bound z/tag))
-                          {:decls []
-                           :usages [(built-test-id bound file)]
-                           :dynamics []})))))))
+                          (built-test-id bound file))))))))
+
+(defn- data-def-attr-test-id?
+  "True when loc is the `:data-testid` value in a map that is a child of a vector in the value of a data `def`.
+
+  In clear data such a map is the properties map of its vector. That vector is no element, so its test id,
+  written out or built, is no mention either. Every other string in a data `def`, such as one in an `:enum`
+  or a `:default`, still is."
+  [loc]
+  (let [attrs (z/up loc)]
+    (and (= ":data-testid" (some-> loc z/left parser/raw))
+         (= :map (some-> attrs z/tag))
+         (= :vector (some-> attrs z/up z/tag))
+         (hiccup/inside-data-def? loc))))
+
+(defn- handle-token
+  "Record a string literal as a mention of a test id it may be, and other test ids that reach the DOM."
+  [loc ns-info file]
+  (when-let [usage (token-usage loc ns-info file)]
+    (when-not (data-def-attr-test-id? (cond-> loc (= :quote (some-> loc z/up z/tag)) z/up))
+      {:decls []
+       :usages [usage]
+       :dynamics []})))
 
 (defn- handle-vector
   "Record an element written out with a role and a literal name: its literal test id, and whether anything may hide it.
+
   A role query finds it by that role and name unless it is hidden, discarded, or only in a
-  `(comment …)` a REPL evaluates."
+  `(comment …)` a REPL evaluates. A vector in the value of a data `def` is data, not an element."
   [test-id-elements loc ns-info file]
   (let [context {:ns-info ns-info
                  :test-id-elements test-id-elements}]
     (when-let [{:keys [role]
-                :as element} (role-and-name context loc)]
+                :as element} (when-not (hiccup/inside-data-def? loc)
+                               (role-and-name context loc))]
       (let [{:keys [tag attrs]} (element-attrs context loc)]
         {:decls []
          :usages [(assoc element
@@ -589,7 +606,8 @@
     (let [finding (or (get-by-presence-finding loc ns-info file)
                       (lookup-helper-finding loc ns-info file))
           usages (keep identity [(test-id-lookup loc ns-info file)
-                                 (when (= ":data-testid" (some-> (z/left loc) parser/raw))
+                                 (when (and (= ":data-testid" (some-> (z/left loc) parser/raw))
+                                            (not (data-def-attr-test-id? loc)))
                                    (built-test-id loc file))])]
       (when (or finding (seq usages))
         {:decls (if finding [finding] [])
