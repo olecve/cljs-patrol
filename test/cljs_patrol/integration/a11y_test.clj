@@ -1423,6 +1423,7 @@
         reported (fn-names-in label-schemas-file (:label-not-associated (first group-results)))]
     (is (= #{"bad-label-around-a-span"
              "bad-label-around-a-strong-with-props"
+             "bad-label-around-a-span-with-metadata"
              "bad-label-with-nil-for"
              "bad-label-around-interop"
              "bad-label-text-beside-a-schema-head"

@@ -22,7 +22,7 @@
   [:map
    [:label {:optional true} [:fn pos?]]])
 
-(defn ok-label-entry-with-reader-conditional-properties []
+(defn ok-label-with-unreadable-properties-from-a-reader-conditional []
   [:map
    [:label #?(:cljs {:optional true}) [:maybe :string]]])
 
@@ -42,13 +42,28 @@
   [:map
    [:label ^:foo [:maybe :string]]])
 
-(defn ok-label-entry-with-built-properties [base]
+(defn ok-label-with-unreadable-properties-built-by-merge [base]
   [:map
    [:label (merge base {:optional true}) [:maybe :string]]])
 
 (defn ok-label-entry-with-called-properties [field-props]
   [:map
    [:label (field-props) [:maybe :string]]])
+
+(defn ok-label-entry-with-called-properties-and-a-discarded-element [field-props]
+  [:map
+   [:label (field-props) #_[:span "x"] [:maybe :string]]])
+
+(defn ok-label-entry-with-called-properties-and-a-discarded-string [field-props]
+  [:map
+   [:label (field-props) #_"x" [:maybe :string]]])
+
+(defn ok-label-entry-with-properties-and-metadata []
+  [:map
+   [:label {:optional true} ^{:key 1} [:maybe :string]]])
+
+(defn ok-label-around-an-image-map-with-symbol-labels-that-reads-as-a-schema [url label]
+  [:label [:map {:name "nav"} [:a {:href url} label]]])
 
 (defn ok-label-around-an-svg-set-that-reads-as-a-schema []
   [:label [:set {:attributeName "fill" :to "red"}]])
@@ -62,6 +77,9 @@
 (defn bad-label-around-a-strong-with-props [caption]
   [:label {:class "field__label"}
    [:strong caption]])
+
+(defn bad-label-around-a-span-with-metadata [caption]
+  [:label {:optional true} ^{:key 1} [:span caption]])
 
 (defn bad-label-with-nil-for [caption]
   [:label {:for nil} [:span caption]])

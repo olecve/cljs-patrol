@@ -1370,11 +1370,12 @@
   "True when the label's body holds anything only markup holds.
 
   A string written out is markup, and so is a nested vector, unless it is a Malli schema all
-  through: `[:label [:maybe :string]]` is an entry. A lone symbol is what a Malli entry puts
-  there, `[:label string?]`, and what a caption is called, so it settles nothing."
+  through: `[:label [:maybe :string]]` is an entry. Metadata on the vector is looked through.
+  A lone symbol is what a Malli entry puts there, `[:label string?]`, and what a caption is
+  called, so it settles nothing."
   [loc]
   (boolean (some #(or (literal-string-loc? %)
-                      (and (= :vector (z/tag %)) (not (hiccup/malli-schema-vector? %))))
+                      (and (= :vector (z/tag (hiccup/unwrap-meta %))) (not (hiccup/malli-schema-vector? %))))
                  (body-locs loc))))
 
 (defn- hiccup-label?
@@ -1384,11 +1385,12 @@
   `[:label {:optional true} string?]` is a schema entry carrying properties. What only markup
   has is a DOM attribute, or a body holding a string or a nested vector that is no Malli
   schema all through. A props call counts too, but only over a body child that is no such
-  schema: `[:label (my-schema)]` is an entry whose schema is computed, and it renders nothing."
+  schema: `[:label (my-schema)]` is an entry whose schema is computed, and it renders nothing.
+  A `#_` form is no child."
   [{:keys [kind attrs]} loc]
   (or (and (= :map kind) (some? attrs) (names-a-dom-attr? attrs))
       (and (contains? #{:dynamic :dynamic-map} kind)
-           (some #(not (hiccup/malli-schema-vector? %)) (body-locs loc)))
+           (some #(not (or (hiccup/unrendered-form? %) (hiccup/malli-schema-vector? %))) (body-locs loc)))
       (renders-something? loc)))
 
 (defn- label-props
