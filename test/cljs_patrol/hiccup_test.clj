@@ -455,15 +455,19 @@
   (let [quoted (loc-at "'[:div [:img]]" "[:img]")
         styled (loc-at "(defattrs c [] [:a {:color :red}])" "[:a {:color :red}]")
         required (loc-at "(ns a (:require [b.c :as d]))" "[b.c :as d]")
-        rendered (loc-at "(defn v [] [:div [:img]])" "[:img]")]
-    (is (= [true false false false] (mapv hiccup/inside-unrendered-form? [quoted styled required rendered]))
+        rendered (loc-at "(defn v [] [:div [:img]])" "[:img]")
+        data (loc-at "(def path [:settings :style])" "[:settings :style]")
+        locs [quoted styled required rendered data]]
+    (is (= [true false false false false] (mapv hiccup/inside-unrendered-form? locs))
         "unrendered only under quote")
-    (is (= [false true false false] (mapv hiccup/inside-style-decl? [quoted styled required rendered]))
+    (is (= [false true false false false] (mapv hiccup/inside-style-decl? locs))
         "style declaration only under defattrs")
-    (is (= [false false true false] (mapv hiccup/inside-ns-form? [quoted styled required rendered]))
+    (is (= [false false true false false] (mapv hiccup/inside-ns-form? locs))
         "ns only under ns")
-    (is (= [true true true false] (mapv hiccup/inside-non-hiccup-form? [quoted styled required rendered]))
-        "non-hiccup under any of three")))
+    (is (= [false false false false true] (mapv hiccup/inside-data-def? locs))
+        "data def only in data def value")
+    (is (= [true true true false true] (mapv hiccup/inside-non-hiccup-form? locs))
+        "non-hiccup under any of four")))
 
 (deftest enclosing-forms-remembers-ancestors-in-file-memo
   (binding [parser/*file-memo* (java.util.HashMap.)]
@@ -480,6 +484,80 @@
         (.put table outer #{:ns})
         (is (= #{:ns} (hiccup/enclosing-forms (find-loc "[:i]")))
             "later ask stops at remembered ancestor")))))
+
+(deftest enclosing-forms-marks-data-def-values
+  (is (= #{:data-def} (hiccup/enclosing-forms (loc-at "(def path [:settings :style])" "[:settings :style]")))
+      "value itself")
+  (is (= #{:data-def}
+         (hiccup/enclosing-forms (loc-at "(def schema [:map [:label {:optional true} [:maybe :string]]])" "[:maybe :string]")))
+      "vector nested in value")
+  (is (= #{:data-def}
+         (hiccup/enclosing-forms (loc-at "(defonce ^:private schema \"Doc.\" [:map [:a :int]])" "[:a :int]")))
+      "defonce with metadata and docstring")
+  (is (= #{:data-def :unrendered}
+         (hiccup/enclosing-forms (loc-at "(def schema [:vector {:a '[:b :c]} :int])" "[:b :c]")))
+      "quoted vector in value keeps both kinds")
+  (is (= #{} (hiccup/enclosing-forms (loc-at "(def text [:div \"x\" [:img]])" "[:img]")))
+      "Hiccup def")
+  (is (= #{} (hiccup/enclosing-forms (loc-at "(def ^{:doc [:a :b]} path [:settings :style])" "[:a :b]")))
+      "vector in name metadata")
+  (is (= #{:unrendered} (hiccup/enclosing-forms (loc-at "(def path [:a :b] #_[:c :d])" "[:c :d]")))
+      "discarded form after value")
+  (is (= #{} (hiccup/enclosing-forms (loc-at "(do (def path [:a :b]))" "[:a :b]")))
+      "def inside other form")
+  (is (= #{} (hiccup/enclosing-forms (loc-at "(def path ^:const [:a :b])" "[:a :b]")))
+      "value with own metadata"))
+
+(defn- img-kinds
+  "Name the kinds of form that enclose the `[:img :a]` in a file with the given ns requires and def value."
+  [requires value]
+  (hiccup/enclosing-forms (loc-at (str "(ns a (:require " requires "))\n(def s " value ")") "[:img :a]")))
+
+(deftest enclosing-forms-ends-data-def-under-cut
+  (is (= #{} (img-kinds "" "[:vector {:render #(do [:img :a])} :int]"))
+      "fn literal")
+  (is (= #{} (img-kinds "" "[:vector {:render (fn [] [:img :a])} :int]"))
+      "fn parameter vector makes def no data def")
+  (is (= #{:data-def} (hiccup/enclosing-forms (loc-at "(def s [:vector {:a #(do [:img :a])} :int])" "#(do [:img :a])")))
+      "fn literal itself stays in data def")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (r/as-element [:img :a])} :int]"))
+      "as-element through alias")
+  (is (= #{} (img-kinds "[reagent.core :refer [as-element]]" "[:vector {:a (as-element [:img :a])} :int]"))
+      "as-element through refer")
+  (is (= #{} (img-kinds "" "[:vector {:a (reagent.core/as-element [:img :a])} :int]"))
+      "as-element written out")
+  (is (= #{:data-def} (img-kinds "[b.c :as r]" "[:vector {:a (r/as-element [:img :a])} :int]"))
+      "look-alike as-element")
+  (is (= #{:data-def} (img-kinds "[reagent.core :refer [as-element]]" "[:vector {as-element [:img :a]} :int]"))
+      "as-element symbol heading map is no call"))
+
+(deftest enclosing-forms-reads-ns-form-only-for-as-element-in-data-def
+  (let [calls (atom 0)
+        find-ns-info parser/find-ns-info]
+    (with-redefs [parser/find-ns-info (fn [loc] (swap! calls inc) (find-ns-info loc))]
+      (hiccup/enclosing-forms (loc-at "(ns a (:require [reagent.core :as r]))\n(defn f [] (r/as-element [:img :a]))"
+                                      "[:img :a]"))
+      (hiccup/enclosing-forms (loc-at "(def s [:vector (m/schema [:enum :a])])" "[:enum :a]")))
+    (is (zero? @calls)
+        "no ns lookup outside data def or for other calls")))
+
+(deftest enclosing-forms-tests-each-def-once-per-file
+  (let [tested (atom [])
+        clear-data-def? hiccup/clear-data-def?]
+    (binding [parser/*file-memo* (java.util.HashMap.)]
+      (with-redefs [hiccup/clear-data-def? (fn [loc] (swap! tested conj [(z/tag loc) (z/string loc)]) (clear-data-def? loc))]
+        (let [root (z/of-string "(def schema [:map [:a [:vector :int]] [:b [:enum :x]]])")
+              find-loc (fn [target] (z/find root z/next #(= target (z/string %))))]
+          (doseq [target ["[:vector :int]" "[:enum :x]" "[:map [:a [:vector :int]] [:b [:enum :x]]]"
+                          "[:map [:a [:vector :int]] [:b [:enum :x]]]"]]
+            (is (= #{:data-def} (hiccup/enclosing-forms (find-loc target)))
+                (str target " in data def"))))))
+    (is (= 1 (count (filter #{[:list "(def schema [:map [:a [:vector :int]] [:b [:enum :x]]])"]} @tested)))
+        "def tested once")
+    (is (apply distinct? @tested)
+        "no form tested twice")
+    (is (every? #(= :list (first %)) @tested)
+        "only lists tested")))
 
 (defn- result-strings
   ([source] (mapv z/string (hiccup/result-locs (z/of-string source))))

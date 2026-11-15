@@ -514,13 +514,15 @@
 
 (defn- handle-vector
   "Record an element written out with a role and a literal name: its literal test id, and whether anything may hide it.
+
   A role query finds it by that role and name unless it is hidden, discarded, or only in a
-  `(comment …)` a REPL evaluates."
+  `(comment …)` a REPL evaluates. A vector in the value of a data `def` is data, not an element."
   [test-id-elements loc ns-info file]
   (let [context {:ns-info ns-info
                  :test-id-elements test-id-elements}]
     (when-let [{:keys [role]
-                :as element} (role-and-name context loc)]
+                :as element} (when-not (hiccup/inside-data-def? loc)
+                               (role-and-name context loc))]
       (let [{:keys [tag attrs]} (element-attrs context loc)]
         {:decls []
          :usages [(assoc element

@@ -5,7 +5,8 @@ that `--fail-on` and the baseline use, and its [tier](../severity.md#tiers).
 
 [← all rule groups](../rules.md) · [← back to the README](../../README.md)
 
-Run this group alone with `--only reagent`.
+Run this group alone with `--only reagent`. The group reads the value of a [data `def`](../rules.md#data-defs), such as
+a Malli schema, as data, not as markup.
 
 ## Rules
 
@@ -131,7 +132,8 @@ not depend on that, so every empty `{}` is flagged, whatever follows it. A `#_` 
 Left alone:
 
 - a `{}` holding anything, `:key` or otherwise, and a `{}` under metadata
-- a fragment that is quoted, discarded, or sits in a style declaration or the ns form
+- a fragment that is quoted, discarded, or sits in a style declaration, the ns form or a
+  [data `def`](../rules.md#data-defs), such as the Malli entry `[:<> {} :int]`
 
 </details>
 
@@ -193,7 +195,8 @@ Left alone, since the scan cannot vouch that the element can take the fragment's
   `when`, an `if` or an element that holds it; a fragment bound in a `let`; and one that is not the last form of a
   function body
 - a vector that is data rather than Hiccup, such as `[:<> [:path :to :key]]`
-- a fragment that is quoted, discarded, or sits in a style declaration or the ns form
+- a fragment that is quoted, discarded, or sits in a style declaration, the ns form or a
+  [data `def`](../rules.md#data-defs)
 - a fragment under a function head, a `for`, or a `when`, `if`, `let`, `cond` or `case` yielding it, that resolves
   outside core, Reagent's `with-let` and Rum's `defc`, such as `x/defn` or `x/when`, or a local of that name
 

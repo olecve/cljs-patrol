@@ -9,7 +9,8 @@ deliberately leaves alone. Each rule carries the key that `--fail-on` and the ba
 
 Run this group alone with `--only react-testing-library-cljs`. A query is recognized by what its name resolves to
 through the namespace's `:require`, so the group reports nothing in code that does not use the library. Its settings
-live under `:react-testing-library-cljs` in `.cljs-patrol/config.edn`; see [Test id elements](#test-id-elements).
+live under `:react-testing-library-cljs` in `.cljs-patrol/config.edn`; see [Test id elements](#test-id-elements). The
+group reads the value of a [data `def`](../rules.md#data-defs), such as a Malli schema, as data, not as markup.
 
 ## Rules
 
@@ -190,7 +191,9 @@ Left alone, since a role query could then miss what the test id finds, or find s
 - an element with no literal name: an icon-only button, text beside a component or a call, an `:aria-label` written as
   an expression, an `:aria-labelledby` (the id it points at may not exist), a `:title` (Testing Library ignores it for
   some roles), and an input named by a `<label>` elsewhere
-- a role and name another element in the run shares without that test id, such as two "Save" buttons
+- a role and name another element in the run shares without that test id, such as two "Save" buttons. A vector in the
+  value of a [data `def`](../rules.md#data-defs), such as the Malli entry `[:button {:aria-label "Save"} :string]`, is
+  no element, so it shares no role and name
 - an element that may be hidden: `:hidden`, `:aria-hidden` or a `:style` written as an expression count, and so does an
   HTML or configured element around it whose attrs the scan cannot read, a name in its attrs slot included
 
