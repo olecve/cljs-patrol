@@ -1386,11 +1386,11 @@
   has is a DOM attribute, or a body holding a string or a nested vector that is no Malli
   schema all through. A props call counts too, but only over a body child that is no such
   schema: `[:label (my-schema)]` is an entry whose schema is computed, and it renders nothing.
-  A `#_` form is no child."
+  A `#_` form is no child, and a quoted form is one."
   [{:keys [kind attrs]} loc]
   (or (and (= :map kind) (some? attrs) (names-a-dom-attr? attrs))
       (and (contains? #{:dynamic :dynamic-map} kind)
-           (some #(not (or (hiccup/unrendered-form? %) (hiccup/malli-schema-vector? %))) (body-locs loc)))
+           (some #(not (or (= :uneval (z/tag %)) (hiccup/malli-schema-vector? %))) (body-locs loc)))
       (renders-something? loc)))
 
 (defn- label-props

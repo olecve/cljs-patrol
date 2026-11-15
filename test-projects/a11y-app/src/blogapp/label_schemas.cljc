@@ -113,3 +113,11 @@
 
 (defn bad-label-around-a-maybe-with-text []
   [:label [:maybe "optional"]])
+
+(defn bad-label-with-called-properties-and-a-quoted-element [field-props]
+  [:label (field-props)
+   '[:span "Name"]])
+
+(defn bad-label-with-called-properties-and-a-quoted-symbol [field-props]
+  [:label (field-props)
+   'caption])

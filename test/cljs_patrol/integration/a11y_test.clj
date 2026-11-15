@@ -1434,7 +1434,9 @@
              "bad-label-around-an-image-map-beside-a-caption"
              "bad-label-around-an-image-map"
              "bad-label-around-a-map-with-text"
-             "bad-label-around-a-maybe-with-text"}
+             "bad-label-around-a-maybe-with-text"
+             "bad-label-with-called-properties-and-a-quoted-element"
+             "bad-label-with-called-properties-and-a-quoted-symbol"}
            reported)
         "Malli schemas all through mark entries in a function body and in a call def; markup stays reported")))
 
