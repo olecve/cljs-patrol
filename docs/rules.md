@@ -48,28 +48,33 @@ data when one of these holds:
 
 - It is a Malli schema all through: its head is a Malli type keyword, then an optional properties map, then children. An
   entry of a `:map`, `:multi`, `:catn`, `:altn`, `:orn` or `:andn` is `[key properties? schema]`. A child of `:enum`,
-  `:=` and the other comparators is a literal value. Every other child is a Malli schema: a keyword, a symbol, a regular
-  expression, a call in which every vector is clearly data, or a vector that is a schema all through. Every vector in a
-  properties map is clearly data too.
+  `:=` and the other literal types is a literal value: a keyword, a symbol, a string, a number, a boolean, `nil` or a
+  regular expression. Every other child is a Malli schema: a keyword, a symbol, a regular expression, a call in which
+  every vector is clearly data, or a vector that is a schema all through. Every vector in a key or a value of a
+  properties map, at any depth, is clearly data too.
 - It has two or more elements, and each element is a keyword, such as the db path `[:settings :style]`.
 - Its head is a vector, and each element is clearly data, such as a list of schemas. In such a list, and inside a call
   in a schema position, a vector of keywords whose head is an HTML tag is markup. So `[[:th :name] [:th :email]]` and
   `(def s [:vector (m/schema [:img :src])])` stay Hiccup.
 
-The Malli type keywords that Hiccup or Garden also use, such as `:symbol`, `:>`, `:*` and `:+`, do not make a schema.
-Any other vector is markup, as before: an element with a string, a component, a Garden rule, or a pair such as
-`[:title "asc"]`. So is a value with metadata of its own, a map, a call, and a `def` inside another form or a reader
-conditional.
+The Malli type keywords that Hiccup or Garden also use, namely `:symbol`, `:>`, `:*` and `:+`, do not make a schema.
+`:map` and `:set` do. An aliased `::m/schema` is not resolved, so it does not make a schema, and `:malli.core/schema`
+written out does. A `#_` form is no element. Metadata on a vector is looked through, and every vector in that metadata
+must be clearly data too. Any other vector is markup, as before: an element with a string, a component, a Garden rule,
+or a pair such as `[:title "asc"]`. So is a value with metadata of its own, a map, a call, and a `def` inside another
+form or a reader conditional.
 
 The forms under a `#(…)` in the value are markup again, so the `[:img :src]` of `item-schema` keeps its findings. So are
 the forms under any form that holds a symbol named `as-element` anywhere inside it, from any namespace: as a head, a
 thread step such as `(-> [:img :src] r/as-element)`, an argument such as `(apply r/as-element …)`, or inside a reader
-conditional or a nested call. The name is not resolved, because a `.cljc` file can require Reagent inside a reader
-conditional. A `fn` cannot be in a data `def`, because its parameter vector is not clearly data.
+conditional or a nested call. A symbol inside a `#_` form does not count. The name is not resolved, because a `.cljc`
+file can require Reagent inside a reader conditional. A `fn` cannot be in a data `def`, because its parameter vector is
+not clearly data.
 
 A Hiccup vector of keywords only, such as `(def greeting [:p :hello])`, is read as data, and the rules lose its
-findings. An HTML image map that is also a Malli schema all through, such as
-`[:map {:name "nav"} [:a {:href url} label]]`, is data too.
+findings. An HTML image map or an SVG `<set>` that is also a Malli schema all through, such as
+`[:map {:name "nav"} [:a {:href url} label]]` or `[:set {:attributeName "fill" :to "red"}]`, is data too. To keep such
+markup checked, put metadata on the value, such as `(def greeting ^:hiccup [:p :hello])`, or write it in a function.
 
 ## Experimental: reading `.clj` files
 

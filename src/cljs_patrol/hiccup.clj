@@ -367,9 +367,6 @@
 
 (def ^:private top-level-def-heads #{"def" "defonce"})
 
-(defn- written-elements [loc]
-  (remove #(= :uneval (z/tag %)) (parser/child-locs loc)))
-
 (defn- defined-name
   "Find the symbol name in the name slot of a `def` form, or nil.
 
@@ -387,7 +384,7 @@
   `#_` forms are dropped before the slots are read, so the value is the last written form. A `def` with no
   symbol in its name slot or no value binds nothing."
   [def-loc]
-  (let [[_ name-loc & more] (written-elements def-loc)
+  (let [[_ name-loc & more] (parser/written-child-locs def-loc)
         defined (defined-name name-loc)
         value (last more)]
     (when (and defined value)
@@ -771,14 +768,17 @@
   (let [value (:value node)]
     (and (symbol? value) (= "as-element" (name value)))))
 
+(defn- written-inner? [node]
+  (and (n/inner? node) (not= :uneval (n/tag node))))
+
 (defn- data-def-cut?
-  "True when loc is a `#(…)` or a form that holds a symbol named `as-element` anywhere inside it.
+  "True when loc is a `#(…)` or a form that holds a symbol named `as-element` anywhere inside it, outside `#_`.
 
   The name is not resolved, as a `.cljc` file can require Reagent inside a reader conditional. A `fn` or
   `fn*` needs no check: its parameter vector is never clearly data, so no data `def` holds one."
   [loc]
   (or (= :fn (z/tag loc))
-      (boolean (some as-element-symbol-node? (tree-seq n/inner? n/children (z/node loc))))))
+      (boolean (some as-element-symbol-node? (tree-seq written-inner? n/children (z/node loc))))))
 
 (defn- children-kinds
   "Return the kinds of form that enclose the children of loc, given the kinds that enclose loc."
@@ -794,8 +794,8 @@
   "Return the set of the kinds of form that enclose loc at any depth: `:unrendered`, `:style-decl`, `:ns`, `:data-def`.
 
   `:data-def` marks the value of a top-level `def` whose value is a vector that [[clear-data?]] accepts, the value
-  itself and every form in it, except the forms under a `#(…)` or a form that holds a symbol named `as-element`. One
-  walk up to the root answers all four. While [[parser/analyze-file]] reads a file, every ancestor the walk passes
+  itself and every form in it, except the forms under a `#(…)` or a form that holds a symbol named `as-element`
+  outside `#_`. One walk up to the root answers all four. While [[parser/analyze-file]] reads a file, every ancestor the walk passes
   keeps its answer, so the next vector in the same form stops at the first ancestor already asked about."
   [loc]
   (let [file-memo parser/*file-memo*
@@ -845,7 +845,7 @@
 
 (defn inside-data-def?
   "True when loc is in the value of a top-level `def` whose value is a vector that [[clear-data?]] accepts.
-  A form under a `#(…)` or a form that holds a symbol named `as-element` in that value is not."
+  A form under a `#(…)` or a form that holds a symbol named `as-element` outside `#_` in that value is not."
   [loc]
   (contains? (enclosing-forms loc) :data-def))
 
@@ -881,13 +881,13 @@
     (case (z/tag value)
       nil false
       :vector (clear-data-element? inside-list? value)
-      (every? #(clear-value? inside-list? %) (written-elements value)))))
+      (every? #(clear-value? inside-list? %) (parser/written-child-locs value)))))
 
 (defn- unwrap-clear-meta
   "Find the value under the metadata of loc, or nil when a vector in that metadata is not clearly data."
   [loc]
   (if (= :meta (z/tag loc))
-    (let [[metadata value] (written-elements loc)]
+    (let [[metadata value] (parser/written-child-locs loc)]
       (when (clear-value? false metadata)
         (recur value)))
     loc))
@@ -895,7 +895,7 @@
 (defn- vector-elements [loc]
   (let [value (unwrap-clear-meta loc)]
     (when (= :vector (z/tag value))
-      (written-elements value))))
+      (parser/written-child-locs value))))
 
 (defn- clear-properties? [loc]
   (or (nil? loc) (clear-value? false loc)))
@@ -916,7 +916,7 @@
 
 (defn- literal-value? [loc]
   (or (= :regex (z/tag loc))
-      (literal-of? [keyword? symbol? string? number? boolean?] loc)))
+      (literal-of? [keyword? symbol? string? number? boolean? nil?] loc)))
 
 (defn- malli-entry? [loc]
   (let [[entry-key & more] (vector-elements loc)
@@ -940,7 +940,7 @@
 (defn- malli-schema? [loc]
   (let [value (unwrap-clear-meta loc)]
     (case (z/tag value)
-      :vector (malli-vector? (written-elements value))
+      :vector (malli-vector? (parser/written-child-locs value))
       :list (clear-value? true value)
       :regex true
       :token (let [literal (z/sexpr value)]

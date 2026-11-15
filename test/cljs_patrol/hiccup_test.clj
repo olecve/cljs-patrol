@@ -553,7 +553,9 @@
   (is (= #{:data-def} (img-kinds "" "[:vector {:a (f :as-element [:img :a])} :int]"))
       "keyword")
   (is (= #{:data-def} (img-kinds "" "[:vector {:a (f \"as-element\" [:img :a])} :int]"))
-      "string"))
+      "string")
+  (is (= #{:data-def} (img-kinds "[reagent.core :as r]" "[:vector {:a (f #_r/as-element [:img :a])} :int]"))
+      "discarded as-element"))
 
 (deftest enclosing-forms-tests-each-def-once-per-file
   (let [tested (atom [])
@@ -616,8 +618,10 @@
       "map entries without properties and keyword, string and number keys")
   (is (clear-data-source? "[:=> [:cat :int] :any]")
       "function root")
-  (is (clear-data-source? "[:enum :a \"b\" \"c\nd\" 1 1.5 true sym #\"x\"]")
+  (is (clear-data-source? "[:enum :a \"b\" \"c\nd\" 1 1.5 true nil sym #\"x\"]")
       "enum root with literal values")
+  (is (clear-data-source? "[:= nil]")
+      "nil literal")
   (is (clear-data-source? "[:vector #\"x\"]")
       "regex schema")
   (is (clear-data-source? "[:vector item-schema]")
@@ -682,6 +686,10 @@
       "element nested in map with metadata")
   (is (clear-data-source? "[:vector {:a (f [:th :name])} :int]")
       "keyword vector with tag head in call in property value")
+  (is (clear-data-source? "[:vector {:a #{[:th :name]}} :int]")
+      "keyword vector with tag head in set in property value")
+  (is (clear-data-source? "[:vector {:a {:b [:th :name]}} :int]")
+      "keyword vector with tag head in map in property value")
   (is (not (clear-data-source? "[:vector {[:img {:src \"a.png\"}] 1} :int]"))
       "element as property key")
   (is (not (clear-data-source? "[:map [:a {[:img {:src \"a.png\"}] 1} :int]]"))
@@ -713,7 +721,9 @@
   (is (clear-data-source? "[^:x [:map] [:enum :a]]")
       "metadata on head vector")
   (is (clear-data-source? "[[[:settings :style]] [[:map]]]")
-      "nested lists"))
+      "nested lists")
+  (is (clear-data-source? "[[:my-cell :name] [:my-cell :email]]")
+      "list of keyword vectors with custom element heads"))
 
 (deftest clear-data?-looks-through-metadata-and-discards
   (is (clear-data-source? "^{:doc \"x\"} [:map]")
@@ -850,8 +860,6 @@
       "svg set element"))
 
 (deftest clear-data?-leaves-schemas-with-other-parts
-  (is (not (clear-data-source? "[:enum nil]"))
-      "nil child")
   (is (not (clear-data-source? "[:enum \\a]"))
       "character child")
   (is (not (clear-data-source? "[:enum ^:x a]"))

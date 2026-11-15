@@ -6,7 +6,7 @@ Each record states one decision, the options that were considered, and the condi
 | ---------------------------------------------- | ----------------------------------------------------------- | -------- | ---------- |
 | [0001](0001-native-image-garbage-collector.md) | Build The Linux Native Binary With The G1 Garbage Collector | Rejected | 2026-11-12 |
 | [0002](0002-per-file-result-cache.md)          | Cache The Analysis Result Of Each File                      | Proposed | 2026-11-12 |
-| [0003](0003-tell-data-vectors-from-hiccup.md)  | Tell Data Vectors From Hiccup                               | Proposed | 2026-11-13 |
+| [0003](0003-tell-data-vectors-from-hiccup.md)  | Tell Data Vectors From Hiccup                               | Accepted | 2026-11-15 |
 
 ## Format
 
@@ -15,7 +15,7 @@ Each record has these sections, in this order. The sections in parentheses are o
 1. **Status.** One line: the status and its date, such as `Proposed, 2026-11-13`. A later status keeps the first date in
    parentheses, such as `Rejected, 2026-11-12 (proposed 2026-11-12)`.
 2. **(Outcome).** A dated addendum after a measurement or a change of status. The sections after it keep the proposal as
-   it was.
+   it was. At acceptance, they can be aligned with the code, and the Outcome says so.
 3. **Context.** The problem, and the facts that a reader can check.
 4. **Decision.** One or two sentences that state the decision first. Then the parts of the decision.
 5. **Options.** One `###` heading for each option, with its label in parentheses: chosen, rejected or deferred. An

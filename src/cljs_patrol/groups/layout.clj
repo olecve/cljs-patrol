@@ -97,10 +97,7 @@
   (boolean (and start (>= i start) (even? (- i start)))))
 
 (defn- children [container-loc]
-  (->> container-loc
-       parser/child-locs
-       (remove #(= :uneval (z/tag %)))
-       vec))
+  (vec (parser/written-child-locs container-loc)))
 
 (def ^:private fn-heads #{"fn" "fn*" "defn" "defn-" "defmacro"})
 

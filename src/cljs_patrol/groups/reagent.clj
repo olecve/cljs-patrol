@@ -170,24 +170,16 @@
      :row row
      :col col}))
 
-(defn- code-locs
-  "Return the locs of `loc`'s children in order, a `#_` form left out."
-  [loc]
-  (->> (z/down loc)
-       (iterate z/right)
-       (take-while some?)
-       (remove #(= :uneval (z/tag %)))))
-
 (defn- empty-fragment-props?
   "True when `loc` is `[:<> {} …]`.
 
   A fragment takes no props but `:key`, so an empty `{}` configures nothing. All it changes
   is which child Reagent reads as props, and code should not depend on that."
   [loc]
-  (let [[head props] (code-locs loc)]
+  (let [[head props] (parser/written-child-locs loc)]
     (and (= ":<>" (some-> head parser/raw))
          (= :map (some-> props z/tag))
-         (empty? (code-locs props)))))
+         (empty? (parser/written-child-locs props)))))
 
 (defn- empty-fragment-props-finding [loc file]
   (let [[row col] (parser/position loc)]
@@ -207,7 +199,7 @@
   (conj body-heads 'cljs.core/for))
 
 (defn- last-code-loc? [loc parent]
-  (identical? (z/node loc) (some-> (last (code-locs parent)) z/node)))
+  (identical? (z/node loc) (some-> (last (parser/written-child-locs parent)) z/node)))
 
 (defn- result-of?
   "True when every value `loc` can yield is one `parent` yields, so `loc` stands in a result position of it.
@@ -233,7 +225,7 @@
       :vector (and (hiccup-head-loc? (z/down parent))
                    (not (data-vector? parent))
                    (rendered-position? parent ns-info))
-      :map (and (->> (code-locs parent)
+      :map (and (->> (parser/written-child-locs parent)
                      (take-while #(not (identical? (z/node loc) (z/node %))))
                      count
                      odd?)
@@ -252,7 +244,7 @@
   would read as the fragment's props, or something that is no element at all. A fragment
   with props carries a key the element would have to take over."
   [loc ns-info]
-  (let [[head & children] (code-locs loc)
+  (let [[head & children] (parser/written-child-locs loc)
         [child] children]
     (boolean
      (and (= ":<>" (some-> head parser/raw))
@@ -340,10 +332,7 @@
   (when (heads/resolve-head loc ns-info binding-heads)
     (let [bindings (some-> loc z/down z/right)]
       (when bindings
-        (->> (z/down bindings)
-             (iterate z/right)
-             (take-while some?)
-             (remove #(= :uneval (z/tag %)))
+        (->> (parser/written-child-locs bindings)
              (partition 2)
              (keep (fn [[name-loc value-loc]]
                      (let [binding-name (parser/sym-name name-loc)
@@ -419,7 +408,7 @@
                  (arity-bodies (some-> loc z/down z/right z/right z/right))
 
                  (contains? body-head->offset head)
-                 [(cond->> (->> loc code-locs rest (drop (body-head->offset head)))
+                 [(cond->> (->> loc parser/written-child-locs rest (drop (body-head->offset head)))
                     (= 'reagent.core/with-let head) (remove finally-form?))])]
     (map #(remove (fn [form] (= :uneval (z/tag form))) %) bodies)))
 
