@@ -30,7 +30,7 @@
     (is (= :bugs (get rule->tier :duplicate-events)))
     (is (= :deprecations (get rule->tier :deprecated-effects)))
     (is (= :deprecations (get rule->tier :defclass-as-sole-attr)))
-    (is (= :deprecations (get rule->tier :defattrs-in-merge)))
+    (is (= :deprecations (get rule->tier :defattrs-as-data)))
     (is (= :deprecations (get rule->tier :mixed-token-groups)))
     (is (= :cleanup (get rule->tier :unused-subs)))
     (is (= :cleanup (get rule->tier :unused-events)))
@@ -70,12 +70,12 @@
     (let [result {:unused-styles [{:kw :app.ui/a
                                    :file "a.cljs"
                                    :row 1}]
-                  :defattrs-in-merge [{:kw :app.ui/b
-                                       :file "b.cljs"
-                                       :row 2}]}
+                  :defattrs-as-data [{:kw :app.ui/b
+                                      :file "b.cljs"
+                                      :row 2}]}
           annotated (severity/annotate-tiers spade/group result)]
       (is (= :cleanup (-> annotated :unused-styles first :tier)))
-      (is (= :deprecations (-> annotated :defattrs-in-merge first :tier)))))
+      (is (= :deprecations (-> annotated :defattrs-as-data first :tier)))))
 
   (testing "reagent rule"
     (let [result {:defclass-as-sole-attr [{:kw :app.ui/a
@@ -123,7 +123,7 @@
            :discarded-hiccup}
          (severity/tier->rules rule->tier :bugs)))
   (is (= #{:deprecated-effects :defclass-as-sole-attr
-           :defattrs-in-merge :mixed-token-groups}
+           :defattrs-as-data :mixed-token-groups}
          (severity/tier->rules rule->tier :deprecations)))
   (is (= #{:unused-subs :unused-events :unused-styles
            :phantom-subs :phantom-events
@@ -229,7 +229,7 @@
                :discarded-hiccup}
              (->> tiered :bugs (map :rule) set)))
       (is (= #{:deprecated-effects :defclass-as-sole-attr
-               :defattrs-in-merge :mixed-token-groups}
+               :defattrs-as-data :mixed-token-groups}
              (->> tiered :deprecations (map :rule) set)))
       (is (= #{:unused-subs :unused-events :unused-styles
                :phantom-subs :phantom-events

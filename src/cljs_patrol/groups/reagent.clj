@@ -482,8 +482,8 @@
         usages-by-kw (group-by :kw style-calls)
         defclass-as-sole-attr (for [decl style-decls
                                     :let [uses (get usages-by-kw (:kw decl))]
-                                    :when (seq uses)
-                                    :when (every? #(= :class-only-map (:context %)) uses)]
+                                    :when (some #(= :class-only-map (:context %)) uses)
+                                    :when (every? #(contains? #{:class-only-map :discarded} (:context %)) uses)]
                                 decl)
         redundant-into (filter #(= :redundant-into-hiccup (:type %)) declarations)
         empty-fragment-props (filter #(= :empty-fragment-props (:type %)) declarations)

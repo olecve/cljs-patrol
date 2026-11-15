@@ -23,7 +23,7 @@ src/cljs_patrol/
 ├── timings.clj         # What --timings records and prints
 ├── groups/             # One namespace per rule group
 │   ├── re_frame.clj    #   subs/events: unused, phantom, duplicate, effects
-│   ├── spade.clj       #   styles: unused, defattrs-in-merge, selector shapes
+│   ├── spade.clj       #   styles: unused, defattrs-as-data, selector shapes
 │   ├── reagent.clj     #   defclass-as-sole-attr, redundant into-hiccup
 │   ├── spade/          #   selector-shape helpers
 │   ├── a11y.clj        #   accessibility on literal Hiccup vectors
