@@ -39,6 +39,10 @@
       (is (every? flagged? ["discard-before-attrs" "discard-step-attrs"])
           "a `#_` form is no argument and no thread step"))
 
+    (testing "flags a lookup in the test of a `cond->`"
+      (is (every? flagged? ["cond-test-keyword-attrs" "cond-test-get-attrs"])
+          "a test is no step, so nothing is threaded into it"))
+
     (testing "flags a defattrs called through a refer"
       (is (flagged? "referred-merge-attrs")))
 
@@ -76,7 +80,7 @@
       (is (not (flagged? "merged-class"))))
 
     (testing "flags nothing else"
-      (is (= 25 (count flagged))))))
+      (is (= 27 (count flagged))))))
 
 (deftest defattrs-as-data-fix-test
   (let [[spade-result reagent-result] (:group-results (core/run fixture-dir [spade/group reagent/group]))]

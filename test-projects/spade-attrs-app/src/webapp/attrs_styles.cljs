@@ -25,6 +25,8 @@
 (defattrs discard-before-attrs [] {:padding "8px"})
 (defattrs discard-step-attrs [] {:padding "8px"})
 (defattrs referred-merge-attrs [] {:padding "8px"})
+(defattrs cond-test-keyword-attrs [] {:padding "8px"})
+(defattrs cond-test-get-attrs [] {:padding "8px"})
 (defattrs icon-attrs [] {:padding "8px"})
 
 ;; Left alone: each call is passed on whole.
@@ -57,6 +59,7 @@
 (defclass merge-props-class [] {:padding "8px"})
 (defclass live-and-discarded-class [] {:padding "8px"})
 (defclass discarded-other-use-class [] {:padding "8px"})
+(defclass meta-key-class [] {:padding "8px"})
 
 ;; Shares its name with a defattrs of webapp.redeclared-names, which refers it.
 (defattrs redeclared-attrs [] {:padding "8px"})

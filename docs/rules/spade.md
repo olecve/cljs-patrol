@@ -103,7 +103,8 @@ A `#_` form is not an argument or a step. A call inside a `#_` form is left alon
 A function name counts only when it is the `clojure.core` / `cljs.core` function, written plain, through an alias, or
 through `:refer`. A local of the same name, or a function of another namespace with the same name, does not count. In a
 step of `->`, `some->` or `cond->`, the threaded value is the first argument, so a call there is the second argument:
-`(-> cache (get (card-attrs)))` uses the call as a key, and is left alone.
+`(-> cache (get (card-attrs)))` uses the call as a key, and is left alone. The test of a `cond->` is not a step, so
+`(cond-> props (:hidden (card-attrs)) …)` is reported.
 
 These calls are left alone: the whole props map of a tag or a component (`[:div (card-attrs)]`), an argument of any
 other function, and a prop of a component (`{:attrs (card-attrs)}`). The rule cannot read what happens to the map there,

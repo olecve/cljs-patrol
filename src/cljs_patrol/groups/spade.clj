@@ -117,9 +117,12 @@
 (defn- threaded-step?
   "True when list `loc` is a step of a thread-first form, so its own first argument is the second one."
   [loc]
-  (let [site (heads/site loc)]
-    (and (contains? thread-first-heads (heads/parent-head site))
-         (pos? (argument-index site)))))
+  (let [site (heads/site loc)
+        head (heads/parent-head site)
+        index (argument-index site)]
+    (and (contains? thread-first-heads head)
+         (pos? index)
+         (or (not= "cond->" head) (even? index)))))
 
 (defn- reads-argument-as-map?
   "True when list `loc` reads its argument at `index` as a map, not as one value it passes on."

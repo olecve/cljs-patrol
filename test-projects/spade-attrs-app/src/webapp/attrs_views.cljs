@@ -25,6 +25,8 @@
    [:div {:class (str "card " (get (styles/class-text-attrs) :class))}]
    [:div (assoc #_props (styles/discard-before-attrs) :id id)]
    [:div {:class (-> (styles/discard-step-attrs) #_str :class)}]
+   [:div (cond-> props (:disabled (styles/cond-test-keyword-attrs)) (assoc :id id))]
+   [:div (cond-> props (get (styles/cond-test-get-attrs) :x) (assoc :id id))]
    (map #(merge (styles/fn-literal-attrs) %) cache)])
 
 (defn class-fix-views [props id]
@@ -39,7 +41,8 @@
    [:div {:class (styles/live-and-discarded-class)}]
    #_[:div {:class (styles/live-and-discarded-class)}]
    [:div {:class (styles/discarded-other-use-class)}]
-   #_(str (styles/discarded-other-use-class))])
+   #_(str (styles/discarded-other-use-class))
+   [:div {:class (styles/meta-key-class) ^:m :a 1}]])
 
 (defn icon-views []
   [:div
