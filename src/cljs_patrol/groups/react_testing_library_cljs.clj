@@ -505,14 +505,24 @@
                         (when (= :list (some-> bound z/tag))
                           (built-test-id bound file))))))))
 
-(defn- handle-token
-  "Record a string literal as a mention of a test id it may be, and other test ids that reach the DOM.
+(defn- data-def-attr-test-id?
+  "True when loc is the `:data-testid` value in a map that is a child of a vector in the value of a data `def`.
 
-  A token in the value of a data `def` records nothing, as the vectors there are no elements, so
-  the mentions and the elements of a test id leave the same forms out."
+  In clear data such a map is the properties map of its vector. That vector is no element, so its test id,
+  written out or built, is no mention either. Every other string in a data `def`, such as one in an `:enum`
+  or a `:default`, still is."
+  [loc]
+  (let [attrs (z/up loc)]
+    (and (= ":data-testid" (some-> loc z/left parser/raw))
+         (= :map (some-> attrs z/tag))
+         (= :vector (some-> attrs z/up z/tag))
+         (hiccup/inside-data-def? loc))))
+
+(defn- handle-token
+  "Record a string literal as a mention of a test id it may be, and other test ids that reach the DOM."
   [loc ns-info file]
   (when-let [usage (token-usage loc ns-info file)]
-    (when-not (hiccup/inside-data-def? loc)
+    (when-not (data-def-attr-test-id? (cond-> loc (= :quote (some-> loc z/up z/tag)) z/up))
       {:decls []
        :usages [usage]
        :dynamics []})))
@@ -596,7 +606,8 @@
     (let [finding (or (get-by-presence-finding loc ns-info file)
                       (lookup-helper-finding loc ns-info file))
           usages (keep identity [(test-id-lookup loc ns-info file)
-                                 (when (= ":data-testid" (some-> (z/left loc) parser/raw))
+                                 (when (and (= ":data-testid" (some-> (z/left loc) parser/raw))
+                                            (not (data-def-attr-test-id? loc)))
                                    (built-test-id loc file))])]
       (when (or finding (seq usages))
         {:decls (if finding [finding] [])

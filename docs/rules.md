@@ -52,8 +52,9 @@ data when one of these holds:
   expression, a call in which every vector is clearly data, or a vector that is a schema all through. Every vector in a
   properties map is clearly data too.
 - It has two or more elements, and each element is a keyword, such as the db path `[:settings :style]`.
-- Its head is a vector, and each element is clearly data, such as a list of schemas. In such a list, a vector of
-  keywords whose head is an HTML tag, as in `[[:th :name] [:th :email]]`, is markup.
+- Its head is a vector, and each element is clearly data, such as a list of schemas. In such a list, and inside a call
+  in a schema position, a vector of keywords whose head is an HTML tag is markup. So `[[:th :name] [:th :email]]` and
+  `(def s [:vector (m/schema [:img :src])])` stay Hiccup.
 
 The Malli type keywords that Hiccup or Garden also use, such as `:symbol`, `:>`, `:*` and `:+`, do not make a schema.
 Any other vector is markup, as before: an element with a string, a component, a Garden rule, or a pair such as
@@ -61,9 +62,10 @@ Any other vector is markup, as before: an element with a string, a component, a 
 conditional.
 
 The forms under a `#(…)` in the value are markup again, so the `[:img :src]` of `item-schema` keeps its findings. So are
-the forms of a call that uses `reagent.core/as-element` as its head, as a thread step such as
-`(-> [:img :src] r/as-element)`, or as an argument such as `(apply r/as-element …)`. A `fn` cannot be in a data `def`,
-because its parameter vector is not clearly data.
+the forms under any form that holds a symbol named `as-element` anywhere inside it, from any namespace: as a head, a
+thread step such as `(-> [:img :src] r/as-element)`, an argument such as `(apply r/as-element …)`, or inside a reader
+conditional or a nested call. The name is not resolved, because a `.cljc` file can require Reagent inside a reader
+conditional. A `fn` cannot be in a data `def`, because its parameter vector is not clearly data.
 
 A Hiccup vector of keywords only, such as `(def greeting [:p :hello])`, is read as data, and the rules lose its
 findings. An HTML image map that is also a Malli schema all through, such as

@@ -24,9 +24,9 @@
   "Describes an image."
   [:map [:img {:optional true} :string]])
 
-(def ok-look-alike-as-element [:vector {:render (other/as-element [:img :src])} :int])
+(def bad-look-alike-as-element-in-schema [:vector {:render (other/as-element [:img :src])} :int])
 
-(def ok-unresolved-as-element [:vector {:render (as-element [:img :src])} :int])
+(def bad-unresolved-as-element-in-schema [:vector {:render (as-element [:img :src])} :int])
 
 (def bad-hiccup-image [:img {:src "a.png"}])
 
@@ -56,11 +56,15 @@
 
 (def bad-partial-as-element-in-schema [:vector {:render (partial r/as-element [:img :src])} :int])
 
-(def ok-thread-look-alike-as-element [:vector {:render (-> [:img :src] other/as-element)} :int])
+(def bad-thread-look-alike-as-element-in-schema [:vector {:render (-> [:img :src] other/as-element)} :int])
 
-(def ok-thread-call-look-alike-as-element [:vector {:render (-> [:img :src] (other/as-element))} :int])
+(def bad-thread-call-look-alike-as-element-in-schema [:vector {:render (-> [:img :src] (other/as-element))} :int])
 
-(def ok-apply-look-alike-as-element [:vector {:render (apply other/as-element (list [:img :src]))} :int])
+(def bad-apply-look-alike-as-element-in-schema [:vector {:render (apply other/as-element (list [:img :src]))} :int])
+
+(def bad-nested-thread-as-element-in-schema [:vector {:render (-> [:img :src] (-> r/as-element))} :int])
+
+(def bad-composed-as-element-in-schema [:vector {:render ((comp r/as-element identity) [:img :src])} :int])
 
 (def bad-fn-literal-in-schema [:vector {:render #(do [:img :src])} :int])
 

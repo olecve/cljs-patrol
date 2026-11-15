@@ -10,6 +10,7 @@
    [cljs-patrol.parser :as parser]
    [clojure.set :as set]
    [clojure.string :as str]
+   [rewrite-clj.node :as n]
    [rewrite-clj.zip :as z])
   (:import
    (java.util
@@ -742,72 +743,42 @@
           (.put file-memo k table)
           table))))
 
-(declare clear-data-def-value)
+(declare clear-data?)
 
 (defn- data-def-value-node
-  "Find the node of the value of def-loc when def-loc is a top-level `def` whose value is clearly data, or nil.
+  "Find the node of the value of def-loc when def-loc is a top-level `def` whose value is a vector that is clearly data.
 
-  With `memo`, the table of the file being analyzed, each top-level `def` is tested once, however
-  many of the forms in it ask. Any other form is no `def` and needs no entry."
+  A value with metadata of its own is not clearly data. With `memo`, the table of the file being analyzed, each
+  top-level `def` is tested once, however many of the forms in it ask. Any other form is no `def` and needs no entry."
   [^Map memo def-loc]
   (when (top-level-def? def-loc)
     (let [node (z/node def-loc)]
       (if (and memo (.containsKey memo node))
         (.get memo node)
-        (let [value (some-> (clear-data-def-value def-loc) z/node)]
-          (when memo (.put memo node value))
-          value)))))
+        (let [[_ value] (def-binding def-loc)
+              value-node (when (and (= :vector (some-> value z/tag))
+                                    (clear-data? value))
+                           (z/node value))]
+          (when memo (.put memo node value-node))
+          value-node)))))
 
 (defn- data-def-value?
   "True when loc is the value of a top-level `def` whose value is clearly data."
   [memo loc]
   (identical? (z/node loc) (some->> (z/up loc) (data-def-value-node memo))))
 
-(def ^:private as-element-thread-heads
-  "Thread forms whose steps take the threaded value, so a step that is an `as-element` call renders it."
-  #{"->" "->>" "some->" "some->>" "cond->" "cond->>" "as->"})
-
-(defn- file-ns-info
-  "Find the ns info of the file that loc is in, read once per file while [[parser/analyze-file]] reads it."
-  [loc]
-  (let [^Map file-memo parser/*file-memo*]
-    (if (and file-memo (.containsKey file-memo ::ns-info))
-      (.get file-memo ::ns-info)
-      (let [ns-info (parser/find-ns-info (first-top-level-form loc))]
-        (when file-memo (.put file-memo ::ns-info ns-info))
-        ns-info))))
-
-(defn- as-element-symbol?
-  "True when loc is a symbol that resolves to `reagent.core/as-element` through the ns form of its file."
-  [loc]
-  (and (= "as-element" (parser/sym-name loc))
-       (let [written (parser/raw loc)
-             ns-info (file-ns-info loc)]
-         (= 'reagent.core/as-element
-            (or (parser/resolve-full-symbol written ns-info)
-                (parser/resolve-full-symbol written {:aliases (:macro-aliases ns-info)
-                                                     :refers (:macro-refers ns-info)})
-                (symbol written))))))
-
-(defn- as-element-call?
-  "True when loc is a list with `reagent.core/as-element` as its head or as an argument."
-  [loc]
-  (and (= :list (z/tag loc))
-       (boolean (some as-element-symbol? (written-elements loc)))))
+(defn- as-element-symbol-node? [node]
+  (let [value (:value node)]
+    (and (symbol? value) (= "as-element" (name value)))))
 
 (defn- data-def-cut?
-  "True when loc is a `#(…)` or a call that renders its forms with `reagent.core/as-element`.
+  "True when loc is a `#(…)` or a form that holds a symbol named `as-element` anywhere inside it.
 
-  Such a call has `as-element` as its head or as an argument, as in `(apply r/as-element …)` or the
-  thread step of `(-> […] r/as-element)`, or it is a thread with a step that is an `as-element` call.
-  A `fn` or `fn*` needs no check: its parameter vector is never clearly data, so no data `def` holds one."
+  The name is not resolved, as a `.cljc` file can require Reagent inside a reader conditional. A `fn` or
+  `fn*` needs no check: its parameter vector is never clearly data, so no data `def` holds one."
   [loc]
   (or (= :fn (z/tag loc))
-      (as-element-call? loc)
-      (and (= :list (z/tag loc))
-           (contains? as-element-thread-heads (some-> loc z/down parser/sym-name))
-           (boolean (some #(and (= :list (z/tag %)) (as-element-symbol? (z/down %)))
-                          (written-elements loc))))))
+      (boolean (some as-element-symbol-node? (tree-seq n/inner? n/children (z/node loc))))))
 
 (defn- children-kinds
   "Return the kinds of form that enclose the children of loc, given the kinds that enclose loc."
@@ -822,11 +793,10 @@
 (defn enclosing-forms
   "Return the set of the kinds of form that enclose loc at any depth: `:unrendered`, `:style-decl`, `:ns`, `:data-def`.
 
-  `:data-def` marks the value of a top-level `def` that [[clear-data-def?]] accepts, the value
-  itself and every form in it, except the forms under a `#(…)` or a `reagent.core/as-element`
-  call. One walk up to the root answers all four. While [[parser/analyze-file]] reads a file,
-  every ancestor the walk passes keeps its answer, so the next vector in the same form stops
-  at the first ancestor already asked about."
+  `:data-def` marks the value of a top-level `def` whose value is a vector that [[clear-data?]] accepts, the value
+  itself and every form in it, except the forms under a `#(…)` or a form that holds a symbol named `as-element`. One
+  walk up to the root answers all four. While [[parser/analyze-file]] reads a file, every ancestor the walk passes
+  keeps its answer, so the next vector in the same form stops at the first ancestor already asked about."
   [loc]
   (let [file-memo parser/*file-memo*
         memo (file-memo-table file-memo ::enclosing-forms)
@@ -874,8 +844,8 @@
   (contains? (enclosing-forms loc) :ns))
 
 (defn inside-data-def?
-  "True when loc is in the value of a top-level `def` that [[clear-data-def?]] accepts.
-  A form under a `#(…)` or a `reagent.core/as-element` call in that value is not."
+  "True when loc is in the value of a top-level `def` whose value is a vector that [[clear-data?]] accepts.
+  A form under a `#(…)` or a form that holds a symbol named `as-element` in that value is not."
   [loc]
   (contains? (enclosing-forms loc) :data-def))
 
@@ -998,20 +968,3 @@
   is looked through, but every vector in that metadata must be clearly data."
   [loc]
   (boolean (clear-data-element? false loc)))
-
-(defn- clear-data-def-value
-  "Find the value of def-loc when def-loc is a top-level `def` or `defonce` whose value is a vector that is clearly data.
-
-  A value with metadata of its own is not clearly data. For any other form, this is nil."
-  [def-loc]
-  (when (top-level-def? def-loc)
-    (let [[_ value] (def-binding def-loc)]
-      (when (and (= :vector (z/tag value))
-                 (clear-data? value))
-        value))))
-
-(defn clear-data-def?
-  "True when def-loc is a top-level `def` or `defonce` whose value is a vector that is clearly data.
-  A value with metadata of its own is not clearly data."
-  [def-loc]
-  (some? (clear-data-def-value def-loc)))

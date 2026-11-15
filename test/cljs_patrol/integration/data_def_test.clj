@@ -15,6 +15,8 @@
 
 (def ^:private referred-file (str fixture-dir "/referred.cljs"))
 
+(def ^:private schema-file (str fixture-dir "/schema.cljc"))
+
 (def ^:private mention-fixture-dir "test-projects/data-def-app/src/datadefmention")
 
 (defn- def-names-in
@@ -52,6 +54,13 @@
              "bad-thread-call-as-element-in-schema"
              "bad-apply-as-element-in-schema"
              "bad-partial-as-element-in-schema"
+             "bad-nested-thread-as-element-in-schema"
+             "bad-composed-as-element-in-schema"
+             "bad-look-alike-as-element-in-schema"
+             "bad-unresolved-as-element-in-schema"
+             "bad-thread-look-alike-as-element-in-schema"
+             "bad-thread-call-look-alike-as-element-in-schema"
+             "bad-apply-look-alike-as-element-in-schema"
              "bad-fn-literal-in-schema"
              "bad-garden-rule"
              "bad-cells"
@@ -59,10 +68,13 @@
              "bad-path-in-reader-conditional"
              "bad-path-in-function"}
            (def-names-in defs-file img-alt-missing))
-        "Hiccup outside data defs, and under #() or as-element head, thread step or argument inside one, keeps its findings")
+        "Hiccup outside data defs, and under #() or form holding symbol named as-element inside one, keeps its findings")
     (is (= #{"bad-referred-as-element-in-schema"}
            (def-names-in referred-file img-alt-missing))
         "referred as-element ends data def too")
+    (is (= #{"bad-cljc-as-element-in-schema" "bad-reader-conditional-thread-step-in-schema"}
+           (def-names-in schema-file img-alt-missing))
+        "as-element required inside reader conditional ends data def")
     (is (= 2 (count (filter #(= #{"bad-cells"} (def-names-in defs-file [%])) img-alt-missing)))
         "both cells of keyword-only list stay Hiccup")
     (is (empty? label-not-associated)
@@ -100,6 +112,17 @@
               :test-id-query-on-role
               (map :test)))
       "test id mention in data def is left out like its vector, so element and mention counts agree"))
+
+(defn- test-id-query-on-role-tests [dir]
+  (->> (core/run dir [react-testing-library-cljs/group]) :group-results first :test-id-query-on-role (map :test)))
+
+(deftest data-def-other-test-id-strings-count-as-mentions
+  (is (empty? (test-id-query-on-role-tests "test-projects/data-def-app/src/datadefstrings"))
+      "enum value and default in data defs are mentions, so their lookups are left alone"))
+
+(deftest data-def-built-test-id-is-left-out-with-its-vector
+  (is (= ["bad-save-button-by-test-id"] (test-id-query-on-role-tests "test-projects/data-def-app/src/datadefbuilt"))
+      "built or quoted test id on data def vector is no mention"))
 
 (deftest data-def-layout-fixture-test
   (is (= #{"bad-split-label-schema"}

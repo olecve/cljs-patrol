@@ -273,8 +273,9 @@ a `let`, or a `for` or `map` body yields. A loop body counts once however many i
 `case` as its busiest branch, since only one renders. An attrs map, a handler's body and any other call are not read, so
 an event vector a handler dispatches, `[::open {:on-confirm f}]`, is no element. Left alone as well: a data vector such
 as a re-frame path, a binding that destructures, a value that is any other call, and a `let` that is quoted, discarded,
-or sits in a style declaration. `let`, `with-let`, `for`, `map`, and the `when`, `if`, `cond` or `case` a value sits in
-count only as core's and Reagent's, resolved through the ns form, so `x/let`, `x/when` or a local `let` is left alone.
+or sits in a style declaration, the ns form or a [data `def`](../rules.md#data-defs). `let`, `with-let`, `for`, `map`,
+and the `when`, `if`, `cond` or `case` a value sits in count only as core's and Reagent's, resolved through the ns form,
+so `x/let`, `x/when` or a local `let` is left alone.
 
 </details>
 
@@ -327,6 +328,7 @@ form, written bare, referred or through an alias. A look-alike from another libr
 `:- [schema]` return, writes forms of its own before the body and is not read, nor is a bare core name the ns form
 excludes or a local binding shadows. Hiccup is a vector headed by an HTML tag, the fragment or any symbol, taken as a
 component; a data vector such as `[:db :path]` or `[:dispatch x]` is not. A `#_` form is skipped, and quoted code,
-`(comment …)` blocks and Spade declarations are not read.
+`(comment …)` blocks, Spade declarations, the ns form and the value of a [data `def`](../rules.md#data-defs) are not
+read.
 
 </details>

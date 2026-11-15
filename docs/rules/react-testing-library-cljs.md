@@ -193,7 +193,9 @@ Left alone, since a role query could then miss what the test id finds, or find s
   some roles), and an input named by a `<label>` elsewhere
 - a role and name another element in the run shares without that test id, such as two "Save" buttons. A vector in the
   value of a [data `def`](../rules.md#data-defs), such as the Malli entry `[:button {:aria-label "Save"} :string]`, is
-  no element, so it shares no role and name
+  no element, so it shares no role and name, and its `:data-testid` value, written out or built, is no mention. Every
+  other test id string in a data `def`, such as one in `[:enum "save-button"]` or in `{:default "open-button"}`, still
+  counts as a mention
 - an element that may be hidden: `:hidden`, `:aria-hidden` or a `:style` written as an expression count, and so does an
   HTML or configured element around it whose attrs the scan cannot read, a name in its attrs slot included
 

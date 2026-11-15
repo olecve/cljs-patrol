@@ -482,6 +482,11 @@
                             "(cljs.core/when x [:i] [:span])"]))
       "reads heads resolving to core, Reagent or Rum"))
 
+(deftest data-def-discarded-hiccup-is-left-alone
+  (is (empty? (discarded-hiccup ["(def s [:vector {:x (do [:my-a :b] :int)} :int])"
+                                 "(def s [:vector {:x (do [:string {:min 1}] :int)} :int])"]))
+      "vectors dropped in data def value are data"))
+
 (deftest unrendered-discarded-hiccup-is-left-alone
   (is (empty? (discarded-hiccup ["'(do [:a] [:b])"
                                  "#_(do [:a] [:b])"
