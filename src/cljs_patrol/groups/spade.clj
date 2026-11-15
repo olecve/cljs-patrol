@@ -109,7 +109,7 @@
        dec))
 
 (defn- next-written-sibling [loc]
-  (first (remove #(= :uneval (z/tag %)) (parser/right-siblings loc))))
+  (->> loc parser/right-siblings (remove #(= :uneval (z/tag %))) first))
 
 (defn- inside-discard? [loc]
   (some #(= :uneval (z/tag %)) (take-while some? (iterate z/up loc))))
