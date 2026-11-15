@@ -110,9 +110,10 @@ The parts of the decision:
      `#_` forms dropped. One helper reads the value for this rule and for the lookup of a symbol's `def`, so both see
      the same value. A value with its own metadata, a map, a call, a symbol-headed vector or a reader conditional is
      read as today.
-   - A `#(…)` removes the data `def` rule from the forms under it. So does the argument of `reagent.core/as-element`,
-     resolved through the aliases and refers of the file's `ns` form. A `fn` or `fn*` needs no cut-off: its parameter
-     vector is no clear data, so a value that holds one is never clearly data, and a route view stays Hiccup.
+   - A `#(…)` removes the data `def` rule from the forms under it. So does a call that uses `reagent.core/as-element`,
+     resolved through the aliases and refers of the file's `ns` form, as its head, as a thread step such as
+     `(-> […] r/as-element)`, or as an argument such as `(apply r/as-element …)`. A `fn` or `fn*` needs no cut-off: its
+     parameter vector is no clear data, so a value that holds one is never clearly data, and a route view stays Hiccup.
    - Other groups, such as `layout`, read all `def` values as today.
 
 3. **The label-check fallback.** In `hiccup-label?`, a nested vector whose head is a Malli core type keyword does not
@@ -276,6 +277,11 @@ groups that read Hiccup.
 - A schema outside a vector `def`, such as a call `def` `(mu/closed-schema [:map …])` or a schema in a function body, is
   still read as Hiccup. The fallback covers its `[:label …]` case. A Malli property that `names-a-dom-attr?` reads as a
   DOM attribute, such as `:title`, still makes the entry markup for `label-not-associated` outside a vector `def`.
+- A rule that counts vectors across the whole run no longer counts the vectors of a data `def`. So a finding outside any
+  data `def` can change, and both directions are correct. A real separator is no longer reported as one of two focusable
+  separators when the other one was a Malli entry, such as `[:hr {:tab-index 0} :int]`. A `test-id-query-on-role`
+  finding can appear when a Malli entry with the same role and name used to hide it. A rule that compares two counts,
+  such as elements and test id mentions, leaves both sides of a data `def` out, so the counts stay in step.
 - The `layout` group keeps its findings in Malli `def`s.
 - The guards of each rule can stay. The data `def` rule removes the cause for most cases, and the guards cover the rest.
 
