@@ -1366,41 +1366,29 @@
                        (some #(str/starts-with? (name k) %) dom-attr-prefixes)))
                  (keys attrs))))
 
-(def ^:private malli-types
-  "Malli keyword types that make a nested vector in a label's body a schema, not markup.
-
-  The Reagent interop `:>` is left out, so `[:label [:> Comp]]` stays markup."
-  (-> hiccup/malli-child-kinds keys set (disj :>)))
-
-(defn- malli-type-vector?
-  "True when the vector at loc is headed by a Malli keyword type, such as `[:maybe :string]`."
-  [loc]
-  (let [head (z/down loc)]
-    (and (parser/kw-node? head)
-         (contains? malli-types (z/sexpr head)))))
-
 (defn- renders-something?
   "True when the label's body holds anything only markup holds.
 
-  A string written out is markup, and so is a nested vector, unless a Malli keyword type heads it:
-  `[:label [:maybe :string]]` is an entry. A lone symbol is what a Malli entry puts there,
-  `[:label string?]`, and what a caption is called, so it settles nothing."
+  A string written out is markup, and so is a nested vector, unless it is a Malli schema all
+  through: `[:label [:maybe :string]]` is an entry. A lone symbol is what a Malli entry puts
+  there, `[:label string?]`, and what a caption is called, so it settles nothing."
   [loc]
   (boolean (some #(or (literal-string-loc? %)
-                      (and (= :vector (z/tag %)) (not (malli-type-vector? %))))
+                      (and (= :vector (z/tag %)) (not (hiccup/malli-schema-vector? %))))
                  (body-locs loc))))
 
 (defn- hiccup-label?
   "True when a `[:label …]` vector is markup rather than a Malli entry.
 
   Both are spelled the same way, so the tag cannot settle it and neither can props alone:
-  `[:label {:optional true} string?]` is a schema entry carrying properties. What only
-  markup has is a DOM attribute, or a body holding a string or a nested vector that no
-  Malli type heads. A props call counts too, but only over a non-empty body — `[:label (my-schema)]` is an entry
-  whose schema is computed, and it renders nothing."
+  `[:label {:optional true} string?]` is a schema entry carrying properties. What only markup
+  has is a DOM attribute, or a body holding a string or a nested vector that is no Malli
+  schema all through. A props call counts too, but only over a body child that is no such
+  schema: `[:label (my-schema)]` is an entry whose schema is computed, and it renders nothing."
   [{:keys [kind attrs]} loc]
   (or (and (= :map kind) (some? attrs) (names-a-dom-attr? attrs))
-      (and (contains? #{:dynamic :dynamic-map} kind) (seq (body-locs loc)))
+      (and (contains? #{:dynamic :dynamic-map} kind)
+           (some #(not (hiccup/malli-schema-vector? %)) (body-locs loc)))
       (renders-something? loc)))
 
 (defn- label-props

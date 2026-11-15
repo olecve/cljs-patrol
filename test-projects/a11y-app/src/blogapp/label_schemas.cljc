@@ -34,8 +34,27 @@
   [:map
    [:label [:set :keyword]]])
 
-(defn ok-label-around-a-vector-with-a-discarded-head [caption]
-  [:label [#_:maybe :span caption]])
+(defn ok-label-entry-with-a-discarded-string []
+  [:map
+   [:label [:maybe #_"Name" :string]]])
+
+(defn ok-label-entry-with-metadata []
+  [:map
+   [:label ^:foo [:maybe :string]]])
+
+(defn ok-label-entry-with-built-properties [base]
+  [:map
+   [:label (merge base {:optional true}) [:maybe :string]]])
+
+(defn ok-label-entry-with-called-properties [field-props]
+  [:map
+   [:label (field-props) [:maybe :string]]])
+
+(defn ok-label-around-an-svg-set-that-reads-as-a-schema []
+  [:label [:set {:attributeName "fill" :to "red"}]])
+
+(defn ok-label-around-a-maybe-with-props-that-reads-as-a-schema [caption]
+  [:label [:maybe {:class "x"} caption]])
 
 (defn bad-label-around-a-span [caption]
   [:label [:span caption]])
@@ -55,3 +74,24 @@
 
 (defn bad-label-with-a-dom-attr-over-a-schema-head []
   [:label {:class "field__label"} [:maybe :string]])
+
+(defn bad-label-around-an-svg-symbol-with-text []
+  [:label [:symbol {:id "s"} [:text "Hi"]]])
+
+(defn bad-label-around-an-svg-symbol-beside-a-caption [caption]
+  [:label [:symbol {:id "x"}] caption])
+
+(defn bad-label-around-an-empty-svg-symbol []
+  [:label [:symbol]])
+
+(defn bad-label-around-an-image-map-beside-a-caption [caption]
+  [:label [:map {:name "nav"} [:area {:href "/"}]] caption])
+
+(defn bad-label-around-an-image-map []
+  [:label [:map {:name "nav"} [:area {:href "/"}]]])
+
+(defn bad-label-around-a-map-with-text []
+  [:label [:map "Map text"]])
+
+(defn bad-label-around-a-maybe-with-text []
+  [:label [:maybe "optional"]])

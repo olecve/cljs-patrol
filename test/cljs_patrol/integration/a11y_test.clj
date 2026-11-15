@@ -1426,9 +1426,16 @@
              "bad-label-with-nil-for"
              "bad-label-around-interop"
              "bad-label-text-beside-a-schema-head"
-             "bad-label-with-a-dom-attr-over-a-schema-head"}
+             "bad-label-with-a-dom-attr-over-a-schema-head"
+             "bad-label-around-an-svg-symbol-with-text"
+             "bad-label-around-an-svg-symbol-beside-a-caption"
+             "bad-label-around-an-empty-svg-symbol"
+             "bad-label-around-an-image-map-beside-a-caption"
+             "bad-label-around-an-image-map"
+             "bad-label-around-a-map-with-text"
+             "bad-label-around-a-maybe-with-text"}
            reported)
-        "Malli type heads mark entries in a function body and in a call def; markup stays reported")))
+        "Malli schemas all through mark entries in a function body and in a call def; markup stays reported")))
 
 (def ^:private label-props-file (str fixture-dir "/label_props.cljs"))
 

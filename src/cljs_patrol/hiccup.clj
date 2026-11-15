@@ -947,6 +947,13 @@
                (or (keyword? literal) (symbol? literal)))
       false)))
 
+(defn malli-schema-vector?
+  "True when the vector at loc is a Malli schema all through, as [[clear-data?]] reads one.
+
+  Metadata on the vector is looked through, and a `#_` form is no element."
+  [loc]
+  (boolean (some-> (vector-elements loc) malli-vector?)))
+
 (defn- clear-data-element? [inside-list? loc]
   (let [elements (vector-elements loc)
         head (first elements)]
