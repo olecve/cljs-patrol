@@ -1,6 +1,7 @@
 (ns cljs-patrol.integration.spade-attrs-test
   (:require
    [cljs-patrol.core :as core]
+   [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
    [clojure.test :refer [deftest is testing]]))
 
@@ -34,6 +35,16 @@
       (is (every? flagged? ["threaded-merge-attrs" "fn-literal-attrs" "reader-conditional-attrs"])
           "a merge reads every argument, threaded or not, in a fn literal or a reader conditional"))
 
+    (testing "flags a call read as data past a `#_` form"
+      (is (every? flagged? ["discard-before-attrs" "discard-step-attrs"])
+          "a `#_` form is no argument and no thread step"))
+
+    (testing "flags a defattrs called through a refer"
+      (is (flagged? "referred-merge-attrs")))
+
+    (testing "flags a defattrs that is also passed whole"
+      (is (flagged? "icon-attrs")))
+
     (testing "reports a defattrs once for several calls read as data"
       (is (= 1 (count (filter #{"repeated-attrs"} flagged)))))
 
@@ -54,8 +65,22 @@
       (is (not-any? flagged? ["local-merge-attrs" "local-assoc-attrs" "util-merge-attrs" "referred-assoc-attrs"])
           "a local, an alias of another namespace, a refer from another namespace"))
 
+    (testing "does not flag a local that shadows the style name"
+      (is (not-any? flagged? ["shadow-param-attrs" "shadow-let-attrs" "shadow-letfn-attrs"])
+          "a parameter, a let binding, a letfn binding"))
+
+    (testing "does not flag a call inside a `#_` form"
+      (is (not (flagged? "discarded-attrs"))))
+
     (testing "does not flag a defclass"
       (is (not (flagged? "merged-class"))))
 
     (testing "flags nothing else"
-      (is (= 19 (count flagged))))))
+      (is (= 23 (count flagged))))))
+
+(deftest defattrs-as-data-fix-test
+  (let [[spade-result reagent-result] (:group-results (core/run fixture-dir [spade/group reagent/group]))]
+    (is (some #(= "icon-attrs" (name (:kw %))) (:defattrs-as-data spade-result))
+        "defattrs used whole and with other props")
+    (is (not-any? #(= "icon-style" (name (:kw %))) (:defclass-as-sole-attr reagent-result))
+        "defclass fix used whole and with other props")))

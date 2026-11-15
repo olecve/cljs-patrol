@@ -2,7 +2,7 @@
   (:require
    [spade.core :refer [defclass defattrs]]))
 
-;; Flagged — each call reads the defattrs result as a map.
+;; Flagged: each call reads the defattrs result as a map.
 (defattrs merge-attrs [] {:padding "8px"})
 (defattrs assoc-attrs [] {:padding "8px"})
 (defattrs assoc-in-attrs [] {:padding "8px"})
@@ -22,8 +22,12 @@
 (defattrs reader-conditional-attrs [] {:padding "8px"})
 (defattrs thread-head-attrs [] {:padding "8px"})
 (defattrs class-text-attrs [] {:padding "8px"})
+(defattrs discard-before-attrs [] {:padding "8px"})
+(defattrs discard-step-attrs [] {:padding "8px"})
+(defattrs referred-merge-attrs [] {:padding "8px"})
+(defattrs icon-attrs [] {:padding "8px"})
 
-;; Left alone — each call is passed on whole.
+;; Left alone: each call is passed on whole.
 (defattrs whole-props-attrs [] {:padding "8px"})
 (defattrs component-props-attrs [] {:padding "8px"})
 (defattrs passed-attrs [] {:padding "8px"})
@@ -42,6 +46,8 @@
 (defattrs local-assoc-attrs [] {:padding "8px"})
 (defattrs util-merge-attrs [] {:padding "8px"})
 (defattrs referred-assoc-attrs [] {:padding "8px"})
+(defattrs discarded-attrs [] {:padding "8px"})
 
-;; Left alone — a defclass is not a defattrs.
+;; Left alone: a defclass is not a defattrs.
 (defclass merged-class [] {:padding "8px"})
+(defclass icon-style [] {:padding "8px"})

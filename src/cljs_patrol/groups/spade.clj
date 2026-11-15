@@ -86,13 +86,18 @@
   #{"->" "cond->" "some->"})
 
 (defn- argument-index
-  "Count the forms before `loc` in its list, the head excluded."
+  "Count the forms before `loc` in its list, the head and the `#_` forms excluded."
   [loc]
-  (->> (iterate z/left loc)
-       rest
-       (take-while some?)
+  (->> (parser/written-child-locs (z/up loc))
+       (take-while #(not (identical? (z/node %) (z/node loc))))
        count
        dec))
+
+(defn- next-written-sibling [loc]
+  (first (remove #(= :uneval (z/tag %)) (parser/right-siblings loc))))
+
+(defn- inside-discard? [loc]
+  (some #(= :uneval (z/tag %)) (take-while some? (iterate z/up loc))))
 
 (defn- threaded-step?
   "True when list `loc` is a step of a thread-first form, so its own first argument is the second one."
@@ -128,14 +133,22 @@
         parent (z/up site)
         index (argument-index site)]
     (and (contains? #{:list :fn} (z/tag parent))
+         (not (inside-discard? site))
          (or (reads-argument-as-map? parent (cond-> index (threaded-step? parent) inc) ns-info)
              (and (some? (heads/resolve-head parent ns-info #{'cljs.core/->}))
-                  (step-reads-as-map? (z/right site) ns-info))))))
+                  (step-reads-as-map? (next-written-sibling site) ns-info))))))
+
+(defn- resolve-style-call
+  "Resolve the head of a call to the keyword of the style it may name, through the ns form's aliases or refers."
+  [op-raw {:keys [ns-name aliases refers]}]
+  (if-let [referred-ns (when-not (str/includes? op-raw "/") (get refers op-raw))]
+    (keyword referred-ns op-raw)
+    (parser/resolve-sym op-raw ns-name aliases)))
 
 (defn- handle-list
   "Detect style declarations and usages from list nodes.
   Handles: defclass/defattrs declarations, and catch-all style function calls."
-  [loc {:keys [ns-name aliases]
+  [loc {:keys [ns-name]
         :as ns-info} file]
   (let [op-token (z/down loc)
         operator (parser/sym-name op-token)
@@ -158,10 +171,11 @@
                :dynamics []}))))
 
       operator
-      (when-let [resolved (parser/resolve-sym op-raw ns-name aliases)]
+      (when-let [resolved (resolve-style-call op-raw ns-info)]
         (let [parent (z/up loc)
               context (cond
-                        (read-as-data? loc ns-info)
+                        (and (not (heads/locally-bound? loc op-raw))
+                             (read-as-data? loc ns-info))
                         :as-data
 
                         (class-only-map? loc)
@@ -232,7 +246,8 @@
      "Nothing calls this defclass or defattrs. Remove it, or call it where the style should apply."
      :defattrs-as-data
      (str "This defattrs is changed or read as a map, so the other attributes are hidden in it. Declare it with "
-          "defclass and pass it as :class in a literal props map.")
+          "defclass and pass it as :class in a literal props map at every call. If no call needs props beside "
+          ":class, pass the defattrs call whole instead.")
      :pseudo-in-main-map
      (str "Spade emits a pseudo-selector key inside a style map as an invalid CSS property and drops the rule. Move it into "
           "its own vector after the map, e.g. [:&:hover {...}].")

@@ -47,7 +47,8 @@ Analysis is split into independent rule groups. By default all groups run.
 
 - **[`re-frame`](docs/rules/re-frame.md)** — unused, phantom and duplicate subscriptions and events, handlers that
   clobber app-db, deprecated effects
-- **[`spade`](docs/rules/spade.md)** — unused styles, and selectors that compile to CSS matching nothing
+- **[`spade`](docs/rules/spade.md)** — unused styles, a `defattrs` whose result is changed or read as a map, and
+  selectors that compile to CSS matching nothing
 - **[`reagent`](docs/rules/reagent.md)** — a `defclass` that should be a `defattrs`, a redundant `into` around keyed
   Hiccup, a fragment's `{}` that keeps nothing from being read as props, a fragment around a single element, and a `let`
   binding holding a component written inline

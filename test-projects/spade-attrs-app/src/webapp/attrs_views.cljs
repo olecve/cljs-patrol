@@ -22,7 +22,17 @@
    [:div (-> props (merge (styles/threaded-merge-attrs)))]
    [:div {:class (-> (get (styles/thread-head-attrs) :class) str)}]
    [:div {:class (str "card " (get (styles/class-text-attrs) :class))}]
+   [:div (assoc #_props (styles/discard-before-attrs) :id id)]
+   [:div {:class (-> (styles/discard-step-attrs) #_str :class)}]
    (map #(merge (styles/fn-literal-attrs) %) cache)])
+
+(defn icon-views []
+  [:div
+   [:span (styles/icon-attrs)]
+   [:span (assoc (styles/icon-attrs) :role "img")]
+   [:span {:class (styles/icon-style)}]
+   [:span {:class (styles/icon-style)
+           :role "img"}]])
 
 (defn repeated-views [props id]
   [:div
@@ -49,4 +59,5 @@
    [:div (-> (styles/map-step-key-attrs) {:compact "c"})]
    [:div (-> (styles/lone-thread-attrs))]
    [:div (merge {:class (styles/merged-class)} props)]
-   [:div (merge (styles/merged-class) props)]])
+   [:div (merge (styles/merged-class) props)]
+   [:div #_(merge (styles/discarded-attrs) props) (styles/discarded-attrs)]])

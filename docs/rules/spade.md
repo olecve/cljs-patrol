@@ -54,6 +54,13 @@ Run this group alone with `--only spade`.
 (defclass card-style []
   {:padding "8px"})
 (defn card [on-select] [:div {:class (card-style) :on-click on-select}])
+
+(defclass row-style []
+  {:display :flex})
+(defn row [id] [:div {:class (row-style) :id id}])
+
+(defn badge [] [:span (badge-attrs)])
+(defn tab [] [:li (tab-attrs)])
 ```
 
 **Left alone:**
@@ -90,6 +97,9 @@ the `defattrs` at its definition, one time for all of its calls. A call is read 
 - in a `->`, and the step after it is one of the forms above, for example `(-> (card-attrs) :class)` or
   `(-> (card-attrs) (assoc :id id))`.
 
+A `#_` form is no argument and no step. A call inside a `#_` form is left alone. A local that shadows the name of the
+`defattrs` is no call of it. A `defattrs` called through an alias or a `:refer` counts.
+
 A function name counts only when it is the `clojure.core` / `cljs.core` function, written plain, through an alias, or
 through `:refer`. A local of the same name, or a function of another namespace with the same name, does not count. In a
 step of `->`, `some->` or `cond->`, the threaded value is the first argument, so a call there is the second argument:
@@ -99,8 +109,11 @@ These calls are left alone: the whole props map of a tag or a component (`[:div 
 other function, and a prop of a component (`{:attrs (card-attrs)}`). The rule cannot read what happens to the map there,
 and the use can be correct. A `defclass` is never reported.
 
-To fix it, declare the style with `defclass` and pass it as `:class` in a literal props map. The mirror rule,
-[`defclass-as-sole-attr`](reagent.md#defclass-as-sole-attr), reports a `defclass` that is only the whole props map.
+To fix it, declare the style with `defclass` and pass it as `:class` in a literal props map at every call, also where
+the call was the whole props map. When no call needs other props beside `:class`, keep the `defattrs` and pass its call
+whole, as `badge` and `tab` show. The mirror rule, [`defclass-as-sole-attr`](reagent.md#defclass-as-sole-attr), reports
+a `defclass` that is only the whole props map. So a style that one call uses whole and another call uses with other
+props is a `defclass`, and neither rule reports it.
 
 </details>
 
