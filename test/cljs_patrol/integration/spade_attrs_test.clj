@@ -73,6 +73,10 @@
       (is (not-any? flagged? ["shadow-param-attrs" "shadow-let-attrs" "shadow-letfn-attrs"])
           "a parameter, a let binding, a letfn binding"))
 
+    (testing "does not flag a call in a step spliced into a thread-first form"
+      (is (not-any? flagged? ["spliced-step-attrs" "spliced-cond-step-attrs"])
+          "a `#?@` splice hides which argument the step takes"))
+
     (testing "does not flag a call inside a `#_` form"
       (is (not (flagged? "discarded-attrs"))))
 

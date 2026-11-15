@@ -42,7 +42,8 @@
    #_[:div {:class (styles/live-and-discarded-class)}]
    [:div {:class (styles/discarded-other-use-class)}]
    #_(str (styles/discarded-other-use-class))
-   [:div {:class (styles/meta-key-class) ^:m :a 1}]])
+   [:div {:class (styles/meta-key-class) ^:m :a 1}]
+   [:div {:class [(styles/meta-vector-class) ^:m :a]}]])
 
 (defn icon-views []
   [:div

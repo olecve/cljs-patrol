@@ -49,6 +49,8 @@
 (defattrs util-merge-attrs [] {:padding "8px"})
 (defattrs referred-assoc-attrs [] {:padding "8px"})
 (defattrs discarded-attrs [] {:padding "8px"})
+(defattrs spliced-step-attrs [] {:padding "8px"})
+(defattrs spliced-cond-step-attrs [] {:padding "8px"})
 
 ;; Left alone: a defclass is not a defattrs.
 (defclass merged-class [] {:padding "8px"})
@@ -60,6 +62,7 @@
 (defclass live-and-discarded-class [] {:padding "8px"})
 (defclass discarded-other-use-class [] {:padding "8px"})
 (defclass meta-key-class [] {:padding "8px"})
+(defclass meta-vector-class [] {:padding "8px"})
 
 ;; Shares its name with a defattrs of webapp.redeclared-names, which refers it.
 (defattrs redeclared-attrs [] {:padding "8px"})

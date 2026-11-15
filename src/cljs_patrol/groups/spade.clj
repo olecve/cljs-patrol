@@ -124,6 +124,19 @@
          (pos? index)
          (or (not= "cond->" head) (even? index)))))
 
+(defn- spliced-into-thread?
+  "True when list `loc` is spliced by a `#?@` into a thread-first form, where its argument positions cannot be read."
+  [loc]
+  (let [spliced (z/up loc)
+        branch (some-> spliced z/up)
+        reader-macro (some-> branch z/up)
+        outer (some-> reader-macro z/up)]
+    (and (= :vector (some-> spliced z/tag))
+         (= :list (some-> branch z/tag))
+         (= :reader-macro (some-> reader-macro z/tag))
+         (= :list (some-> outer z/tag))
+         (contains? thread-first-heads (parser/sym-name (z/down outer))))))
+
 (defn- reads-argument-as-map?
   "True when list `loc` reads its argument at `index` as a map, not as one value it passes on."
   [loc index ns-info]
@@ -151,6 +164,7 @@
         parent (z/up site)]
     (and (contains? #{:list :fn} (some-> parent z/tag))
          (may-read-as-map? parent)
+         (not (spliced-into-thread? (heads/site parent)))
          (let [head-name (parser/sym-name (z/down parent))
                index (cond-> (argument-index site) (threaded-step? parent) inc)]
            (or (and (or (zero? index) (contains? #{"merge" "into"} head-name))
