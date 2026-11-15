@@ -1368,22 +1368,29 @@
 
 (defn- renders-something?
   "True when the label's body holds anything only markup holds.
-  A string written out or a nested vector is markup; a lone symbol is what a Malli entry
-  puts there — `[:label string?]` — and what a caption is called, so it settles nothing."
+
+  A string written out is markup, and so is a nested vector, unless it is a Malli schema all
+  through: `[:label [:maybe :string]]` is an entry. Metadata on the vector is looked through.
+  A lone symbol is what a Malli entry puts there, `[:label string?]`, and what a caption is
+  called, so it settles nothing."
   [loc]
-  (boolean (some #(or (literal-string-loc? %) (= :vector (z/tag %))) (body-locs loc))))
+  (boolean (some #(or (literal-string-loc? %)
+                      (and (= :vector (z/tag (hiccup/unwrap-meta %))) (not (hiccup/malli-schema-vector? %))))
+                 (body-locs loc))))
 
 (defn- hiccup-label?
   "True when a `[:label …]` vector is markup rather than a Malli entry.
 
   Both are spelled the same way, so the tag cannot settle it and neither can props alone:
-  `[:label {:optional true} string?]` is a schema entry carrying properties. What only
-  markup has is a DOM attribute, or a body holding a string or a nested vector. A props
-  call counts too, but only over a non-empty body — `[:label (my-schema)]` is an entry
-  whose schema is computed, and it renders nothing."
+  `[:label {:optional true} string?]` is a schema entry carrying properties. What only markup
+  has is a DOM attribute, or a body holding a string or a nested vector that is no Malli
+  schema all through. A props call counts too, but only over a body child that is no such
+  schema: `[:label (my-schema)]` is an entry whose schema is computed, and it renders nothing.
+  A `#_` form is no child, and a quoted form is one."
   [{:keys [kind attrs]} loc]
   (or (and (= :map kind) (some? attrs) (names-a-dom-attr? attrs))
-      (and (contains? #{:dynamic :dynamic-map} kind) (seq (body-locs loc)))
+      (and (contains? #{:dynamic :dynamic-map} kind)
+           (some #(not (or (= :uneval (z/tag %)) (hiccup/malli-schema-vector? %))) (body-locs loc)))
       (renders-something? loc)))
 
 (defn- label-props

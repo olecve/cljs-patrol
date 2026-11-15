@@ -65,8 +65,8 @@ tell alone that it is data. For a `def`, its content must tell.
 
 ## Decision
 
-Read a vector `def` as data only when its content is clearly data. Keep a Malli type check in `label-not-associated` as
-a fallback for schemas outside vector `def`s.
+Read a vector `def` as data only when its content is clearly data. Keep a Malli schema check in `label-not-associated`
+as a fallback for schemas outside vector `def`s.
 
 The parts of the decision:
 
@@ -118,9 +118,17 @@ The parts of the decision:
      parameter vector is no clear data, so a value that holds one is never clearly data, and a route view stays Hiccup.
    - Other groups, such as `layout`, read all `def` values as today.
 
-3. **The label-check fallback.** In `hiccup-label?`, a nested vector whose head is a Malli core type keyword does not
-   make the label markup. The types are the keyword types of `malli.core/base-schemas`, `type-schemas`,
-   `sequence-schemas` and `comparator-schemas`, without `:>`.
+3. **The label-check fallback.** In `hiccup-label?`, a nested vector that is a Malli schema all through, as part 1
+   defines it, does not make the label markup. It uses the same data type keywords and child rules as part 1. So an HTML
+   or SVG element whose tag is also a Malli type, such as `[:symbol …]`, still makes the label markup, and so does a
+   vector with a string where a schema or an entry belongs, such as `[:map "Map"]`. A string child of `:enum`, `:=`,
+   `:not=`, `:<`, `:<=`, `:>=`, `:re` or `:ref` is a literal value, so `[:label [:enum "a" "b"]]` is not markup, and
+   neither is an empty `[:label [:map]]`. A `#_` form is no child, and metadata on a child vector is looked through, so
+   `[:label {:optional true} ^{:key 1} [:span caption]]` is markup. A quoted child is a child.
+
+   A label whose properties are a call, such as `[:label (field-props) [:maybe :string]]`, skips its nested Malli schema
+   vectors in the same way. A keyword or a symbol child still makes such a label markup, because
+   `[:label (styles/caption) text]` is a real label. So `[:label (field-props) :string]` stays reported.
 
 [Options](#options) compares this choice with the other options.
 
@@ -212,7 +220,7 @@ A rule that requires schema `def`s to be named `*-schema` or `=>*`.
 
 ### Malli types in the label check alone (rejected, kept as the fallback)
 
-In `hiccup-label?`, a nested vector whose head is a Malli type keyword does not make the label markup.
+In `hiccup-label?`, a nested vector that is a Malli schema all through does not make the label markup.
 
 - Good, because it fixes the entry above with a small change, and other groups read as before.
 - Good, because it also covers schemas outside vector `def`s.
@@ -265,7 +273,11 @@ groups that read Hiccup.
 - A Garden rule headed by `:*` or `:+` stays Hiccup, as today, so a nested element in it keeps its findings.
 - An HTML image map or an SVG `<set>` element that also reads as a Malli schema all through is read as data, and the
   rules lose its findings. For example `[:map {:name "nav"} [:a {:href url} label]]`, whose links have symbol, call or
-  keyword labels such as `(tr :home)`, or `[:set {:attributeName "fill" :to "red"}]`. Both elements are rare.
+  keyword labels such as `(tr :home)`, or `[:set {:attributeName "fill" :to "red"}]`. Both elements are rare. The same
+  holds inside a label: `label-not-associated` reads such an element in a `[:label …]` as a schema, and does not report
+  the label.
+- A label child vector with metadata, such as `[:label {:optional true} ^{:key 1} [:span caption]]`, is markup now, so
+  `label-not-associated` can report a label that it did not report before. Such a label is tied to no control.
 - Keyword-only vectors with tag heads inside a set, a map or a call in a property value, such as
   `[:vector {:a #{[:th :name] [:th :email]}} :int]`, are read as data. Such code is unusual.
 - A list of keyword-only vectors whose heads are custom elements or tags that `hiccup/html-tags` leaves out, such as
@@ -277,8 +289,10 @@ groups that read Hiccup.
   earlier `def` of the same name. A finding on the value, such as `img-alt-missing`, can appear where today's lookup
   reads the `#_` form and finds nothing.
 - A schema outside a vector `def`, such as a call `def` `(mu/closed-schema [:map …])` or a schema in a function body, is
-  still read as Hiccup. The fallback covers its `[:label …]` case. A Malli property that `names-a-dom-attr?` reads as a
-  DOM attribute, such as `:title`, still makes the entry markup for `label-not-associated` outside a vector `def`.
+  still read as Hiccup. The fallback covers its `[:label …]` case when the entry's schema is a nested Malli vector, and
+  not when it is a single keyword or symbol after a properties call, such as `[:label (field-props) :string]`. A Malli
+  property that `names-a-dom-attr?` reads as a DOM attribute, such as `:title`, still makes the entry markup for
+  `label-not-associated` outside a vector `def`.
 - A rule that counts vectors across the whole run no longer counts the vectors of a data `def`. So a finding outside any
   data `def` can change, and both directions are correct. A real separator is no longer reported as one of two focusable
   separators when the other one was a Malli entry, such as `[:hr {:tab-index 0} :int]`. A `test-id-query-on-role`
@@ -319,7 +333,7 @@ Do these steps in separate pull requests:
    symbol named `as-element` removes `:data-def` from the forms under it. `a11y`, `forbid-props` and `reagent` get the
    kind through `inside-non-hiccup-form?`, and every `reagent` handler that reads Hiccup asks it.
    `react-testing-library-cljs` checks `:data-def` itself, because it calls only `inside-unrendered-form?`.
-4. Add the Malli types to the label check.
+4. Add the label-check fallback, with the Malli schema test of part 1.
 
 ## Revisit when
 

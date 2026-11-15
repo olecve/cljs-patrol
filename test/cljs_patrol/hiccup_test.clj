@@ -743,6 +743,30 @@
   (is (not (clear-data-source? "[:div #_:a]"))
       "single keyword left after discard"))
 
+(defn- malli-schema-vector-source? [source] (hiccup/malli-schema-vector? (z/of-string source)))
+
+(deftest malli-schema-vector?-reads-only-malli-schemas
+  (is (malli-schema-vector-source? "[:maybe [:or :string :int]]")
+      "nested schema")
+  (is (malli-schema-vector-source? "^:x [:maybe :string]")
+      "metadata on vector")
+  (is (malli-schema-vector-source? "[:maybe #_\"x\" :string]")
+      "discarded child")
+  (is (not (malli-schema-vector-source? "[:settings :style]"))
+      "db path")
+  (is (not (malli-schema-vector-source? "[[:map] [:enum :a]]"))
+      "list of schemas")
+  (is (not (malli-schema-vector-source? "[:symbol {:id \"s\"}]"))
+      "tag that is also a Malli type")
+  (is (not (malli-schema-vector-source? "[:map \"x\"]"))
+      "string child")
+  (is (not (malli-schema-vector-source? "^{:doc [:img {:src \"x\"}]} [:maybe :string]"))
+      "element in metadata")
+  (is (not (malli-schema-vector-source? "(f)"))
+      "call")
+  (is (not (malli-schema-vector-source? "[]"))
+      "empty vector"))
+
 (deftest clear-data?-checks-vectors-in-metadata
   (is (not (clear-data-source? "^{:doc [:img {:src \"x\"}]} [:map]"))
       "element in metadata of root")
