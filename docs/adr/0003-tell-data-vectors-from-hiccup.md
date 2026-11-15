@@ -118,9 +118,11 @@ The parts of the decision:
      parameter vector is no clear data, so a value that holds one is never clearly data, and a route view stays Hiccup.
    - Other groups, such as `layout`, read all `def` values as today.
 
-3. **The label-check fallback.** In `hiccup-label?`, a nested vector whose head is a Malli core type keyword does not
-   make the label markup. The types are the keyword types of `malli.core/base-schemas`, `type-schemas`,
-   `sequence-schemas` and `comparator-schemas`, without `:>`.
+3. **The label-check fallback.** In `hiccup-label?`, a nested vector that is a Malli schema all through, as part 1
+   defines it, does not make the label markup. It uses the same data type keywords as part 1, so an HTML or SVG element
+   whose tag is also a Malli type, such as `[:symbol …]`, and a vector with a string child, such as `[:map "Map"]`,
+   still make the label markup. A label whose properties are a call, such as
+   `[:label (merge base {:optional true}) [:maybe :string]]`, is read the same way.
 
 [Options](#options) compares this choice with the other options.
 
@@ -319,7 +321,7 @@ Do these steps in separate pull requests:
    symbol named `as-element` removes `:data-def` from the forms under it. `a11y`, `forbid-props` and `reagent` get the
    kind through `inside-non-hiccup-form?`, and every `reagent` handler that reads Hiccup asks it.
    `react-testing-library-cljs` checks `:data-def` itself, because it calls only `inside-unrendered-form?`.
-4. Add the Malli types to the label check.
+4. Add the label-check fallback, with the Malli schema test of part 1.
 
 ## Revisit when
 
