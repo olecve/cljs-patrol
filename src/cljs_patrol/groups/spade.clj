@@ -70,7 +70,7 @@
          (= ":class" (parser/raw left))
          parent
          (= :map (z/tag parent))
-         (= 2 (count (z/child-sexprs parent))))))
+         (= 2 (count (heads/code-forms (z/node parent)))))))
 
 (def ^:private whole-reading-heads
   "Core functions that read every argument as a collection."
@@ -202,7 +202,7 @@
 
                     (and parent
                          (= :vector (z/tag parent))
-                         (= 1 (count (z/child-sexprs parent)))
+                         (= 1 (count (heads/code-forms (z/node parent))))
                          (class-only-map? parent))
                     (z/up parent))]
     (and class-map
