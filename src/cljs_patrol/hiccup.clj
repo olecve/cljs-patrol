@@ -791,7 +791,7 @@
   [loc]
   (contains? (enclosing-forms loc) :ns))
 
-(def ^:private malli-child-kinds
+(def malli-child-kinds
   "Malli keyword types, each with the kind of its children.
 
   The types are the keyword types of the `malli.core` base, type, sequence and comparator schemas at Malli 0.20.3. An

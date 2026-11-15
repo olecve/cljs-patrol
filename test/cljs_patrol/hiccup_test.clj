@@ -507,7 +507,7 @@
 
 (deftest malli-child-kinds-match-malli-keyword-types
   (is (= (->> (m/default-schemas) keys (filter keyword?) set)
-         (set (keys @#'hiccup/malli-child-kinds)))
+         (set (keys hiccup/malli-child-kinds)))
       "keyword types of malli.core default schemas"))
 
 (defn- clear-data-source? [source] (hiccup/clear-data? (z/of-string source)))
