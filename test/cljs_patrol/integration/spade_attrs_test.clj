@@ -74,8 +74,17 @@
           "a parameter, a let binding, a letfn binding"))
 
     (testing "does not flag a call in a step spliced into a thread-first form"
-      (is (not-any? flagged? ["spliced-step-attrs" "spliced-cond-step-attrs"])
-          "a `#?@` splice hides which argument the step takes"))
+      (is (not-any? flagged? ["spliced-step-attrs" "spliced-cond-step-attrs" "nested-spliced-step-attrs"
+                              "spliced-cond-test-attrs"])
+          "a `#?@` splice hides which argument the step takes, and whether a form is a test or a step"))
+
+    (testing "does not flag a call spliced into an argument of a function that reads one position"
+      (is (not (flagged? "spliced-key-attrs"))
+          "a `#?@` splice hides the argument position"))
+
+    (testing "flags a merge however a `#?@` splices it"
+      (is (every? flagged? ["spliced-merge-step-attrs" "spliced-merge-argument-attrs"])
+          "a merge reads every argument, so its position does not matter"))
 
     (testing "does not flag a call inside a `#_` form"
       (is (not (flagged? "discarded-attrs"))))
@@ -84,7 +93,7 @@
       (is (not (flagged? "merged-class"))))
 
     (testing "flags nothing else"
-      (is (= 27 (count flagged))))))
+      (is (= 29 (count flagged))))))
 
 (deftest defattrs-as-data-fix-test
   (let [[spade-result reagent-result] (:group-results (core/run fixture-dir [spade/group reagent/group]))]

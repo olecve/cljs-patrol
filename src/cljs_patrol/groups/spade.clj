@@ -124,16 +124,32 @@
          (pos? index)
          (or (not= "cond->" head) (even? index)))))
 
+(defn- splice-reader-macro
+  "Find the `#?@` whose branch is the vector at `loc`, or nil."
+  [loc]
+  (let [branch (some-> loc z/up)
+        reader-macro (some-> branch z/up)]
+    (when (and (= :vector (some-> loc z/tag))
+               (= :list (some-> branch z/tag))
+               (= :reader-macro (some-> reader-macro z/tag))
+               (= "?@" (some-> reader-macro z/down parser/raw)))
+      reader-macro)))
+
+(defn- written-parent
+  "Find the form that `site` is written in, past any `#?@` splices, and whether a splice was crossed."
+  [site]
+  (loop [loc site
+         spliced? false]
+    (let [parent (z/up loc)]
+      (if-let [reader-macro (splice-reader-macro parent)]
+        (recur (heads/site reader-macro) true)
+        [parent spliced?]))))
+
 (defn- spliced-into-thread?
   "True when list `loc` is spliced by a `#?@` into a thread-first form, where its argument positions cannot be read."
   [loc]
-  (let [spliced (z/up loc)
-        branch (some-> spliced z/up)
-        reader-macro (some-> branch z/up)
-        outer (some-> reader-macro z/up)]
-    (and (= :vector (some-> spliced z/tag))
-         (= :list (some-> branch z/tag))
-         (= :reader-macro (some-> reader-macro z/tag))
+  (let [[outer spliced?] (written-parent loc)]
+    (and spliced?
          (= :list (some-> outer z/tag))
          (contains? thread-first-heads (parser/sym-name (z/down outer))))))
 
@@ -161,17 +177,19 @@
   after the call is one of these. A call passed to any other function is passed on whole, and is left alone."
   [loc ns-info]
   (let [site (heads/site loc)
-        parent (z/up site)]
+        [parent spliced?] (written-parent site)]
     (and (contains? #{:list :fn} (some-> parent z/tag))
          (may-read-as-map? parent)
-         (not (spliced-into-thread? (heads/site parent)))
-         (let [head-name (parser/sym-name (z/down parent))
-               index (cond-> (argument-index site) (threaded-step? parent) inc)]
-           (or (and (or (zero? index) (contains? #{"merge" "into"} head-name))
-                    (reads-argument-as-map? parent index ns-info))
-               (and (= "->" head-name)
-                    (some? (heads/resolve-head parent ns-info #{'cljs.core/->}))
-                    (step-reads-as-map? (next-written-sibling site) ns-info)))))))
+         (let [head-name (parser/sym-name (z/down parent))]
+           (or (and (contains? #{"merge" "into"} head-name)
+                    (contains? whole-reading-heads (heads/resolve-head parent ns-info whole-reading-heads)))
+               (and (not spliced?)
+                    (not (spliced-into-thread? (heads/site parent)))
+                    (let [index (cond-> (argument-index site) (threaded-step? parent) inc)]
+                      (or (and (zero? index) (reads-argument-as-map? parent index ns-info))
+                          (and (= "->" head-name)
+                               (some? (heads/resolve-head parent ns-info #{'cljs.core/->}))
+                               (step-reads-as-map? (next-written-sibling site) ns-info))))))))))
 
 (defn- merged-class-map?
   "True when the `{:class …}` map at `loc` is an argument of a function that merges it with other props."

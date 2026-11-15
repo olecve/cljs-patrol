@@ -25,6 +25,8 @@
 (defattrs discard-before-attrs [] {:padding "8px"})
 (defattrs discard-step-attrs [] {:padding "8px"})
 (defattrs referred-merge-attrs [] {:padding "8px"})
+(defattrs spliced-merge-step-attrs [] {:padding "8px"})
+(defattrs spliced-merge-argument-attrs [] {:padding "8px"})
 (defattrs cond-test-keyword-attrs [] {:padding "8px"})
 (defattrs cond-test-get-attrs [] {:padding "8px"})
 (defattrs icon-attrs [] {:padding "8px"})
@@ -50,6 +52,9 @@
 (defattrs referred-assoc-attrs [] {:padding "8px"})
 (defattrs discarded-attrs [] {:padding "8px"})
 (defattrs spliced-step-attrs [] {:padding "8px"})
+(defattrs spliced-key-attrs [] {:padding "8px"})
+(defattrs nested-spliced-step-attrs [] {:padding "8px"})
+(defattrs spliced-cond-test-attrs [] {:padding "8px"})
 (defattrs spliced-cond-step-attrs [] {:padding "8px"})
 
 ;; Left alone: a defclass is not a defattrs.
