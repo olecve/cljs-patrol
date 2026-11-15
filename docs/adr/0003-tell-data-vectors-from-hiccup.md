@@ -110,9 +110,11 @@ The parts of the decision:
      `#_` forms dropped. One helper reads the value for this rule and for the lookup of a symbol's `def`, so both see
      the same value. A value with its own metadata, a map, a call, a symbol-headed vector or a reader conditional is
      read as today.
-   - A `#(…)` removes the data `def` rule from the forms under it. So does a call that uses `reagent.core/as-element`,
-     resolved through the aliases and refers of the file's `ns` form, as its head, as a thread step such as
-     `(-> […] r/as-element)`, or as an argument such as `(apply r/as-element …)`. A `fn` or `fn*` needs no cut-off: its
+   - A `#(…)` removes the data `def` rule from the forms under it. So does any form that holds a symbol named
+     `as-element` anywhere inside it, from any namespace: as a head, a thread step such as `(-> […] r/as-element)`, an
+     argument such as `(apply r/as-element …)`, or inside a reader conditional or a nested call such as
+     `((comp r/as-element identity) […])`. The name is not resolved, because a `.cljc` file can require Reagent inside a
+     reader conditional, and a cut-off that is too wide only keeps findings. A `fn` or `fn*` needs no cut-off: its
      parameter vector is no clear data, so a value that holds one is never clearly data, and a route view stays Hiccup.
    - Other groups, such as `layout`, read all `def` values as today.
 
@@ -281,7 +283,9 @@ groups that read Hiccup.
   data `def` can change, and both directions are correct. A real separator is no longer reported as one of two focusable
   separators when the other one was a Malli entry, such as `[:hr {:tab-index 0} :int]`. A `test-id-query-on-role`
   finding can appear when a Malli entry with the same role and name used to hide it. A rule that compares two counts,
-  such as elements and test id mentions, leaves both sides of a data `def` out, so the counts stay in step.
+  such as elements and test id mentions, leaves both sides of a data `def` out, so the counts stay in step: the vectors
+  of a data `def` are no elements, and the test id values on those vectors, written out or built, are no mentions. Every
+  other test id string in a data `def`, such as one in an `:enum` or a `:default`, still counts as a mention.
 - The `layout` group keeps its findings in Malli `def`s.
 - The guards of each rule can stay. The data `def` rule removes the cause for most cases, and the guards cover the rest.
 
@@ -311,9 +315,9 @@ Do these steps in separate pull requests:
 1. Remove the Malli entry schema skip from [pull request #143](https://github.com/olecve/cljs-patrol/pull/143). Keep its
    other fixes: element shells and local components.
 2. Add the test for clear data, for a vector and for a `def`, with its fixtures.
-3. Add the data `def` rule in `hiccup/enclosing-forms`, as a new kind `:data-def`. A `#(…)` or an `as-element` call
-   removes `:data-def` from the forms under it. The file's `ns` form is read only when an `as-element` call sits inside
-   a data `def`. `a11y`, `forbid-props` and `reagent` get the kind through `inside-non-hiccup-form?`.
+3. Add the data `def` rule in `hiccup/enclosing-forms`, as a new kind `:data-def`. A `#(…)` or a form that holds a
+   symbol named `as-element` removes `:data-def` from the forms under it. `a11y`, `forbid-props` and `reagent` get the
+   kind through `inside-non-hiccup-form?`, and every `reagent` handler that reads Hiccup asks it.
    `react-testing-library-cljs` checks `:data-def` itself, because it calls only `inside-unrendered-form?`.
 4. Add the Malli types to the label check.
 
