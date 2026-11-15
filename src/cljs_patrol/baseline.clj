@@ -52,7 +52,7 @@
 
 (def ^:private var-keyed-rules
   "Rules where the issue is identified by namespace + var name (from a namespaced keyword)."
-  #{:unused-styles :defattrs-in-merge :defclass-as-sole-attr :mixed-token-groups
+  #{:unused-styles :defattrs-as-data :defclass-as-sole-attr :mixed-token-groups
     :docstring-summary :docstring-indentation :docstring-leading-trailing-whitespace
     :docstring-repeats-name})
 

@@ -3,6 +3,7 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.spade.selectors :as selectors]
+   [cljs-patrol.heads :as heads]
    [cljs-patrol.parser :as parser]
    [cljs-patrol.style-blocks :as blocks]
    [clojure.string :as str]
@@ -71,10 +72,71 @@
          (= :map (z/tag parent))
          (= 2 (count (z/child-sexprs parent))))))
 
+(def ^:private whole-reading-heads
+  "Core functions that read every argument as a collection."
+  #{'cljs.core/into 'cljs.core/merge})
+
+(def ^:private target-reading-heads
+  "Core functions that read their first argument as a map, and take the others as keys or values."
+  #{'cljs.core/assoc 'cljs.core/assoc-in 'cljs.core/conj 'cljs.core/dissoc 'cljs.core/get 'cljs.core/get-in
+    'cljs.core/update})
+
+(def ^:private thread-first-heads
+  "Forms that pass each step a value before the arguments the step writes."
+  #{"->" "cond->" "some->"})
+
+(defn- argument-index
+  "Count the forms before `loc` in its list, the head excluded."
+  [loc]
+  (->> (iterate z/left loc)
+       rest
+       (take-while some?)
+       count
+       dec))
+
+(defn- threaded-step?
+  "True when list `loc` is a step of a thread-first form, so its own first argument is the second one."
+  [loc]
+  (let [site (heads/site loc)]
+    (and (contains? thread-first-heads (heads/parent-head site))
+         (pos? (argument-index site)))))
+
+(defn- reads-argument-as-map?
+  "True when list `loc` reads its argument at `index` as a map, not as one value it passes on."
+  [loc index ns-info]
+  (let [head (z/down loc)]
+    (if (parser/kw-node? head)
+      (zero? index)
+      (let [resolved (heads/resolve-head loc ns-info (into whole-reading-heads target-reading-heads))]
+        (or (contains? whole-reading-heads resolved)
+            (and (some? resolved) (zero? index)))))))
+
+(defn- step-reads-as-map?
+  "True when `step`, a step of a `->`, reads the threaded value as a map: a keyword, or a call that does."
+  [step ns-info]
+  (or (parser/kw-node? step)
+      (and (= :list (z/tag step))
+           (reads-argument-as-map? step 0 ns-info))))
+
+(defn- read-as-data?
+  "True when the call at `loc` hands its result to a form that reads it as a map.
+
+  That form is a core function changing or merging it, a key lookup on it, or a `->` whose step
+  after the call is one of these. A call passed to any other function is passed on whole, and is left alone."
+  [loc ns-info]
+  (let [site (heads/site loc)
+        parent (z/up site)
+        index (argument-index site)]
+    (and (contains? #{:list :fn} (z/tag parent))
+         (or (reads-argument-as-map? parent (cond-> index (threaded-step? parent) inc) ns-info)
+             (and (some? (heads/resolve-head parent ns-info #{'cljs.core/->}))
+                  (step-reads-as-map? (z/right site) ns-info))))))
+
 (defn- handle-list
   "Detect style declarations and usages from list nodes.
   Handles: defclass/defattrs declarations, and catch-all style function calls."
-  [loc {:keys [ns-name aliases]} file]
+  [loc {:keys [ns-name aliases]
+        :as ns-info} file]
   (let [op-token (z/down loc)
         operator (parser/sym-name op-token)
         op-raw (when (and op-token (= :token (z/tag op-token))) (parser/raw op-token))
@@ -98,11 +160,9 @@
       operator
       (when-let [resolved (parser/resolve-sym op-raw ns-name aliases)]
         (let [parent (z/up loc)
-              parent-first (when parent (z/down parent))
-              parent-op (when parent-first (parser/sym-name parent-first))
               context (cond
-                        (= "merge" parent-op)
-                        :in-merge
+                        (read-as-data? loc ns-info)
+                        :as-data
 
                         (class-only-map? loc)
                         :class-only-map
@@ -130,22 +190,22 @@
         style-call-kws (set (map :kw style-calls))
         unused-styles (remove #(contains? style-call-kws (:kw %)) style-decls)
         usages-by-kw (group-by :kw style-calls)
-        defattrs-in-merge (for [decl style-decls
-                                :when (= :defattrs (:type decl))
-                                :when (some #(= :in-merge (:context %))
-                                            (get usages-by-kw (:kw decl)))]
-                            decl)]
+        defattrs-as-data (for [decl style-decls
+                               :when (= :defattrs (:type decl))
+                               :when (some #(= :as-data (:context %))
+                                           (get usages-by-kw (:kw decl)))]
+                           decl)]
     {:unused-styles (parser/distinct-by :kw unused-styles)
-     :defattrs-in-merge (vec defattrs-in-merge)
+     :defattrs-as-data (vec defattrs-as-data)
      :pseudo-in-main-map (vec pseudo-in-main-map)
      :consecutive-self-selectors (vec consecutive-self-selectors)
      :spade-ampersand-not-at-start (vec ampersand-not-at-start)
      :spade-keyword-combinator-selector (vec keyword-combinator)}))
 
-(defn- summary-lines* [{:keys [unused-styles defattrs-in-merge pseudo-in-main-map consecutive-self-selectors
+(defn- summary-lines* [{:keys [unused-styles defattrs-as-data pseudo-in-main-map consecutive-self-selectors
                                spade-ampersand-not-at-start spade-keyword-combinator-selector]}]
   [["Unused styles:" (count unused-styles)]
-   ["defattrs in merge:" (count defattrs-in-merge)]
+   ["defattrs as data:" (count defattrs-as-data)]
    ["Pseudo-selector in main map:" (count pseudo-in-main-map)]
    ["Consecutive self-selectors:" (count consecutive-self-selectors)]
    ["Ampersand not at start:" (count spade-ampersand-not-at-start)]
@@ -170,8 +230,9 @@
   (suggestions [_]
     {:unused-styles
      "Nothing calls this defclass or defattrs. Remove it, or call it where the style should apply."
-     :defattrs-in-merge
-     "This defattrs is merged into props. Declare it with defclass and pass it as :class, so no merge is needed."
+     :defattrs-as-data
+     (str "This defattrs is changed or read as a map, so the other attributes are hidden in it. Declare it with "
+          "defclass and pass it as :class in a literal props map.")
      :pseudo-in-main-map
      (str "Spade emits a pseudo-selector key inside a style map as an invalid CSS property and drops the rule. Move it into "
           "its own vector after the map, e.g. [:&:hover {...}].")
@@ -186,14 +247,14 @@
           "element. Use the string form, e.g. [\"> span\" {...}].")})
   (docs-anchors [_]
     {:consecutive-self-selectors "consecutive-self-selectors"
-     :defattrs-in-merge "defattrs-in-merge"
+     :defattrs-as-data "defattrs-as-data"
      :pseudo-in-main-map "pseudo-selector-in-spade-main-map"
      :spade-ampersand-not-at-start "ampersand-not-at-start"
      :spade-keyword-combinator-selector "keyword-combinator-selector"
      :unused-styles "unused-styles"})
   (rule->tier [_]
     {:unused-styles :cleanup
-     :defattrs-in-merge :deprecations
+     :defattrs-as-data :deprecations
      :pseudo-in-main-map :bugs
      :consecutive-self-selectors :bugs
      :spade-ampersand-not-at-start :bugs

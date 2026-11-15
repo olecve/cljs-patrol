@@ -24,7 +24,7 @@
                             :type :style-call
                             :file "views.cljs"
                             :row 12
-                            :context :in-merge})
+                            :context :as-data})
 (def ^:private pseudo-hover {:kw :webapp.styles/menu-item-style
                              :type :pseudo-in-main-map
                              :selector ":&:hover"
@@ -81,14 +81,14 @@
                                              :usages []})]
       (is (= 1 (count (:unused-styles result))))))
 
-  (testing "defattrs-in-merge: flags defattrs used in merge"
+  (testing "defattrs-as-data: flags defattrs read as data"
     (let [result (group/analyze spade/group
                                 {:declarations [defattrs-merged]
                                  :usages [merge-usage]})]
-      (is (= 1 (count (:defattrs-in-merge result))))
-      (is (= :webapp.styles/merged-attrs (-> result :defattrs-in-merge first :kw)))))
+      (is (= 1 (count (:defattrs-as-data result))))
+      (is (= :webapp.styles/merged-attrs (-> result :defattrs-as-data first :kw)))))
 
-  (testing "defattrs-in-merge: does not flag defattrs without merge usage"
+  (testing "defattrs-as-data: does not flag defattrs passed on whole"
     (let [plain-usage {:kw :webapp.styles/btn-attrs
                        :type :style-call
                        :file "v.cljs"
@@ -97,7 +97,7 @@
           result (group/analyze spade/group
                                 {:declarations [defattrs-decl]
                                  :usages [plain-usage]})]
-      (is (empty? (:defattrs-in-merge result)))))
+      (is (empty? (:defattrs-as-data result)))))
 
   (testing "pseudo-in-main-map: surfaces findings from declarations"
     (let [result (group/analyze spade/group
@@ -150,9 +150,9 @@
   (testing "does not fail when no unused styles"
     (is (not (group/failed? spade/group {:unused-styles []}))))
 
-  (testing "does not fail for defattrs-in-merge (warning only)"
+  (testing "does not fail for defattrs-as-data (warning only)"
     (is (not (group/failed? spade/group {:unused-styles []
-                                         :defattrs-in-merge [defattrs-merged]}))))
+                                         :defattrs-as-data [defattrs-merged]}))))
 
   (testing "fails when pseudo-in-main-map findings exist"
     (is (group/failed? spade/group {:unused-styles []
@@ -172,7 +172,7 @@
 
 (deftest summary-lines-test
   (let [lines (group/summary-lines spade/group {:unused-styles [defclass-decl defattrs-decl]
-                                                :defattrs-in-merge [defattrs-merged]
+                                                :defattrs-as-data [defattrs-merged]
                                                 :pseudo-in-main-map [pseudo-hover pseudo-first-child]
                                                 :consecutive-self-selectors [consecutive-before-after]
                                                 :spade-ampersand-not-at-start [ampersand-mid]

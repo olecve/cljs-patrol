@@ -81,15 +81,15 @@
                                       :file "src/app/ui.cljs"
                                       :row 8}))
         "unused-styles")
-    (is (= {:rule :defattrs-in-merge
+    (is (= {:rule :defattrs-as-data
             :ns "app.ui"
             :var "box-attrs"}
-           (baseline/issue->identity :defattrs-in-merge
+           (baseline/issue->identity :defattrs-as-data
                                      {:kw :app.ui/box-attrs
                                       :type :defattrs
                                       :file "src/app/ui.cljs"
                                       :row 12}))
-        "defattrs-in-merge")
+        "defattrs-as-data")
     (is (= {:rule :defclass-as-sole-attr
             :ns "app.ui"
             :var "btn-class"}

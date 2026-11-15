@@ -43,10 +43,10 @@
       (is (not (contains? (->> spade-result :unused-styles (map :kw) set)
                           :webapp.styles/container-style))))
 
-    (testing "detects defattrs used in merge"
-      (is (= 1 (count (:defattrs-in-merge spade-result))))
+    (testing "detects defattrs read as data"
+      (is (= 1 (count (:defattrs-as-data spade-result))))
       (is (= #{:webapp.styles/merged-attrs}
-             (->> spade-result :defattrs-in-merge (map :kw) set))))
+             (->> spade-result :defattrs-as-data (map :kw) set))))
 
     (testing "detects pseudo-selectors misplaced inside the main style map"
       (let [findings (:pseudo-in-main-map spade-result)]
@@ -185,7 +185,7 @@
 
     (testing "spade and reagent issues get correct tier"
       (is (every? #(= :cleanup (:tier %)) (:unused-styles spade-result)))
-      (is (every? #(= :deprecations (:tier %)) (:defattrs-in-merge spade-result)))
+      (is (every? #(= :deprecations (:tier %)) (:defattrs-as-data spade-result)))
       (is (every? #(= :bugs (:tier %)) (:pseudo-in-main-map spade-result)))
       (is (every? #(= :bugs (:tier %)) (:consecutive-self-selectors spade-result)))
       (is (every? #(= :deprecations (:tier %)) (:defclass-as-sole-attr reagent-result)))

@@ -1,0 +1,47 @@
+(ns webapp.attrs-styles
+  (:require
+   [spade.core :refer [defclass defattrs]]))
+
+;; Flagged — each call reads the defattrs result as a map.
+(defattrs merge-attrs [] {:padding "8px"})
+(defattrs assoc-attrs [] {:padding "8px"})
+(defattrs assoc-in-attrs [] {:padding "8px"})
+(defattrs update-attrs [] {:padding "8px"})
+(defattrs dissoc-attrs [] {:padding "8px"})
+(defattrs conj-attrs [] {:padding "8px"})
+(defattrs into-attrs [] {:padding "8px"})
+(defattrs keyword-attrs [] {:padding "8px"})
+(defattrs get-attrs [] {:padding "8px"})
+(defattrs get-in-attrs [] {:padding "8px"})
+(defattrs thread-lookup-attrs [] {:padding "8px"})
+(defattrs thread-assoc-attrs [] {:padding "8px"})
+(defattrs thread-step-attrs [] {:padding "8px"})
+(defattrs threaded-merge-attrs [] {:padding "8px"})
+(defattrs fn-literal-attrs [] {:padding "8px"})
+(defattrs repeated-attrs [] {:padding "8px"})
+(defattrs reader-conditional-attrs [] {:padding "8px"})
+(defattrs thread-head-attrs [] {:padding "8px"})
+(defattrs class-text-attrs [] {:padding "8px"})
+
+;; Left alone — each call is passed on whole.
+(defattrs whole-props-attrs [] {:padding "8px"})
+(defattrs component-props-attrs [] {:padding "8px"})
+(defattrs passed-attrs [] {:padding "8px"})
+(defattrs reader-conditional-props-attrs [] {:padding "8px"})
+(defattrs reader-conditional-step-key-attrs [] {:padding "8px"})
+(defattrs variant-attrs [] {:padding "8px"})
+(defattrs prop-attrs [] {:padding "8px"})
+(defattrs value-attrs [] {:padding "8px"})
+(defattrs fallback-attrs [] {:padding "8px"})
+(defattrs cache-key-attrs [] {:padding "8px"})
+(defattrs some-cache-key-attrs [] {:padding "8px"})
+(defattrs cond-cache-key-attrs [] {:padding "8px"})
+(defattrs map-step-key-attrs [] {:padding "8px"})
+(defattrs lone-thread-attrs [] {:padding "8px"})
+(defattrs local-merge-attrs [] {:padding "8px"})
+(defattrs local-assoc-attrs [] {:padding "8px"})
+(defattrs util-merge-attrs [] {:padding "8px"})
+(defattrs referred-assoc-attrs [] {:padding "8px"})
+
+;; Left alone — a defclass is not a defattrs.
+(defclass merged-class [] {:padding "8px"})
