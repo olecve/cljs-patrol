@@ -484,33 +484,38 @@
 
 (declare construction-attrs)
 
+(def ^:private opaque-contribution
+  {:attrs {}
+   :complete? false
+   :final #{}})
+
 (defn- contributed
-  "Return `{:attrs {kw → value-loc} :complete? bool}` for one argument of such a call.
-  `:complete?` says the argument's whole key set is known, not merely a floor of it."
+  "Return `{:attrs {kw → value-loc} :complete? bool :final #{kw}}` for one argument of such a call.
+  `:complete?` says the argument's whole key set is known, not merely a floor of it. `:final` holds the keys whose
+  value no unread part written after them can replace."
   [loc]
   (let [literal (fn [map-loc]
                   (let [attrs (literal-map map-loc)]
                     {:attrs (or attrs {})
-                     :complete? (some? attrs)}))]
+                     :complete? (some? attrs)
+                     :final (if attrs (set (keys attrs)) #{})}))]
     (cond
       (nil? loc) {:attrs {}
-                  :complete? true}
+                  :complete? true
+                  :final #{}}
       (= :map (z/tag loc)) (literal loc)
-      (= :list (z/tag loc)) (or (construction-attrs loc) {:attrs {}
-                                                          :complete? false})
+      (= :list (z/tag loc)) (or (construction-attrs loc) opaque-contribution)
       (= :token (z/tag loc)) (if-let [resolved (resolved-map loc)]
                                (literal resolved)
-                               {:attrs {}
-                                :complete? false})
-      :else {:attrs {}
-             :complete? false})))
+                               opaque-contribution)
+      :else opaque-contribution)))
 
 (defn- right-args [head]
   (when-let [arg (z/right head)]
     (cons arg (lazy-seq (right-args arg)))))
 
 (defn construction-attrs
-  "Return `{:attrs {kw → value-loc} :complete? bool}` for a map-building call.
+  "Return `{:attrs {kw → value-loc} :complete? bool :final #{kw}}` for a map-building call.
 
   Handles `(assoc base :k v …)`, `(merge base {:k v} …)` and `(assoc-in base [:k] v)`,
   nesting through each other and through a symbol naming a map literal. Returns nil
@@ -519,7 +524,10 @@
   `:complete?` is the whole point of the distinction: with an opaque base or a
   computed key the attrs are a floor, enough to answer that a key is present and
   never that one is absent. With every part readable the call states the whole map,
-  and reads the same as one written out."
+  and reads the same as one written out.
+
+  `:final` holds the keys whose written value is the value of the built map: no part that cannot be read comes after
+  them. `(assoc base :k v)` makes `:k` final, `(merge {:k v} base)` does not."
   [list-loc]
   (when (= :list (z/tag list-loc))
     (when-let [head (z/down list-loc)]
@@ -529,11 +537,15 @@
             (case head-str
               "merge"
               (reduce (fn [acc arg]
-                        (let [{:keys [attrs complete?]} (contributed arg)]
+                        (let [{:keys [attrs complete? final]} (contributed arg)]
                           {:attrs (merge (:attrs acc) attrs)
-                           :complete? (and (:complete? acc) complete?)}))
+                           :complete? (and (:complete? acc) complete?)
+                           :final (if complete?
+                                    (into (:final acc) final)
+                                    final)}))
                       {:attrs {}
-                       :complete? true}
+                       :complete? true
+                       :final #{}}
                       args)
 
               "assoc"
@@ -542,8 +554,12 @@
                    (partition 2)
                    (reduce (fn [acc [key-loc value-loc]]
                              (if (parser/kw-node? key-loc)
-                               (assoc-in acc [:attrs (z/sexpr key-loc)] value-loc)
-                               (assoc acc :complete? false)))
+                               (-> acc
+                                   (assoc-in [:attrs (z/sexpr key-loc)] value-loc)
+                                   (update :final conj (z/sexpr key-loc)))
+                               (assoc acc
+                                      :complete? false
+                                      :final #{})))
                            (contributed (first args))))
 
               "assoc-in"
@@ -557,10 +573,14 @@
                   ;; key holding a map that was not read, and an entry whose value is
                   ;; not the value is worse than no entry: rules read those values.
                   (and readable-key? (not (next path-keys)))
-                  (assoc-in [:attrs (z/sexpr outer-key)] value-loc)
+                  (-> (assoc-in [:attrs (z/sexpr outer-key)] value-loc)
+                      (update :final conj (z/sexpr outer-key)))
 
                   (or (not readable-key?) (next path-keys))
-                  (assoc :complete? false))))))))))
+                  (assoc :complete? false)
+
+                  (not readable-key?)
+                  (assoc :final #{}))))))))))
 
 (defn attrs-info
   "Classify the second child of a Hiccup vector.
@@ -570,14 +590,17 @@
     {:kind :map :attrs {kw → value-loc}}  ; literal map — attrs returned
     {:kind :map :attrs nil}               ; literal map with non-kw keys
     {:kind :non-map}                      ; e.g. [:img \"child\"] — no attrs slot
-    {:kind :dynamic-map :attrs {kw → …}}  ; (assoc base :k v) — the keys still readable
+    {:kind :dynamic-map :attrs {kw → …}   ; (assoc base :k v) — the keys still readable
+     :final-attrs {kw → …}}               ; the keys no unread part can replace
     {:kind :dynamic}                      ; non-literal (e.g. (build-attrs))
 
   Every classification that carries attrs also carries `:slot`, the child holding
   them, so a caller splitting attrs from body children asks once and gets both
   answers from the same reading.
 
-  `:dynamic-map` carries a partial view, so it answers only that a key is present.
+  `:dynamic-map` carries a partial view, so it answers only that a key is present. Its
+  `:final-attrs` also answer what a key's value is: `(assoc base :tab-index 1)` sets it,
+  while `(merge {:tab-index 1} base)` lets the base replace it.
   Rules asserting something is missing need `:map` — which a built map earns too, once
   every part of the call is readable: `(assoc {:class \"c\"} :on-click f)` states its
   whole key set, while `(assoc opaque :on-click f)` states a floor of it.
@@ -592,12 +615,13 @@
                     (cond-> info
                       (contains? attrs-slot-kinds (:kind info)) (assoc :slot second-child)))
         built (fn [construction]
-                (let [{:keys [attrs complete?]} construction]
+                (let [{:keys [attrs complete? final]} construction]
                   (cond
                     complete? {:kind :map
                                :attrs attrs}
                     (seq attrs) {:kind :dynamic-map
-                                 :attrs attrs}
+                                 :attrs attrs
+                                 :final-attrs (select-keys attrs final)}
                     :else {:kind :dynamic})))]
     (with-slot
       (cond

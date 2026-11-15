@@ -242,6 +242,29 @@
       (is (= #{:src} (-> info :attrs keys set))
           "recording the nested value under :alt would read as the alt text itself"))))
 
+(defn- final-keys [source]
+  (->> (hiccup/attrs-info (vec-zloc source)) :final-attrs keys set))
+
+(deftest attrs-info-final-keys-of-built-map-test
+  (is (= #{:a} (final-keys "[:div (assoc base :a 1)]"))
+      "assoc writes after the base")
+  (is (= #{} (final-keys "[:div (merge {:a 1} base)]"))
+      "base merged after the literal may replace it")
+  (is (= #{:a} (final-keys "[:div (merge base {:a 1})]"))
+      "literal merged after the base")
+  (is (= #{:a :b} (final-keys "[:div (merge base {:a 1} {:b 2})]"))
+      "literals merged one after another")
+  (is (= #{:b} (final-keys "[:div (merge {:a 1} (assoc base :b 2))]"))
+      "only the keys the opaque part writes itself")
+  (is (= #{} (final-keys "[:div (assoc base :a 1 k v)]"))
+      "computed key after the written one")
+  (is (= #{:a} (final-keys "[:div (assoc base k v :a 1)]"))
+      "written key after the computed one")
+  (is (= #{:a} (final-keys "[:div (assoc-in base [:a] 1)]"))
+      "one-key path")
+  (is (= #{} (final-keys "[:div (assoc-in (assoc base :a 1) [k] 2)]"))
+      "computed path key after a written one"))
+
 (deftest attrs-info-def-test
   (testing "a def in the same file names a map"
     (let [info (img-attrs-info "(def props {:src \"a\" :alt \"cat\"}) (defn v [] [:img props])")]

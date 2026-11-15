@@ -83,7 +83,7 @@
 (deftest invalid-tabindex-fixture-test
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
         {:keys [invalid-tabindex]} (first group-results)
-        by-row (rows invalid-tabindex)]
+        by-row (rows (filter #(str/ends-with? (:file %) "focus.cljs") invalid-tabindex))]
 
     (testing "flags positive integer tabindex"
       (is (contains? by-row 17)
@@ -1690,3 +1690,18 @@
          (field-wrapper-findings {'blogapp.ui/* #{:hint-text}
                                   'blogapp.ui/field #{:label}}))
       "exact key wins over namespace glob"))
+
+(def ^:private built-attrs-file (str fixture-dir "/built_attrs.cljs"))
+
+(deftest attribute-rules-read-final-keys-of-built-maps-test
+  (let [result (first (:group-results (core/run fixture-dir [a11y/group])))
+        reported (fn [rule] (fn-names-in built-attrs-file (get result rule)))]
+    (is (= #{"bad-built-positive-tabindex" "bad-built-positive-tabindex-merged-last"}
+           (reported :invalid-tabindex))
+        "tab index written after the base")
+    (is (= #{"bad-built-alert-downgraded-to-polite"}
+           (reported :aria-live-contradicts-role))
+        "role and aria-live written after the base")
+    (is (= #{"bad-built-hidden-wrapper"}
+           (reported :aria-hidden-focusable))
+        "aria-hidden written after the base, over a focusable child")))
