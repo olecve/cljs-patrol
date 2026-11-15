@@ -29,8 +29,8 @@ Run this group alone with `--only spade`.
 
 ### `defattrs` as data
 
-`defattrs-as-data` · deprecations — A `defattrs` whose result is changed or read as a map, where a `defclass` passed as
-`:class` is enough.
+`defattrs-as-data` · deprecations — A `defattrs` whose result is changed or read as a map, which hides the other
+attributes.
 
 ```clojure
 ;; flagged
@@ -53,7 +53,7 @@ Run this group alone with `--only spade`.
 ;; fix
 (defclass card-style []
   {:padding "8px"})
-(defn card [on-select] [:div {:class (card-style) :on-click on-select}])
+(defn card [props] [:div (merge {:class (card-style)} props)])
 
 (defclass row-style []
   {:display :flex})
@@ -97,8 +97,8 @@ the `defattrs` at its definition, one time for all of its calls. A call is read 
 - in a `->`, and the step after it is one of the forms above, for example `(-> (card-attrs) :class)` or
   `(-> (card-attrs) (assoc :id id))`.
 
-A `#_` form is no argument and no step. A call inside a `#_` form is left alone. A local that shadows the name of the
-`defattrs` is no call of it. A `defattrs` called through an alias or a `:refer` counts.
+A `#_` form is not an argument or a step. A call inside a `#_` form is left alone. A local that shadows the name of the
+`defattrs` is not a call of it. A `defattrs` called through an alias or a `:refer` counts.
 
 A function name counts only when it is the `clojure.core` / `cljs.core` function, written plain, through an alias, or
 through `:refer`. A local of the same name, or a function of another namespace with the same name, does not count. In a
@@ -112,8 +112,9 @@ and the use can be correct. A `defclass` is never reported.
 To fix it, declare the style with `defclass` and pass it as `:class` in a literal props map at every call, also where
 the call was the whole props map. When no call needs other props beside `:class`, keep the `defattrs` and pass its call
 whole, as `badge` and `tab` show. The mirror rule, [`defclass-as-sole-attr`](reagent.md#defclass-as-sole-attr), reports
-a `defclass` that is only the whole props map. So a style that one call uses whole and another call uses with other
-props is a `defclass`, and neither rule reports it.
+a `defclass` that is only the whole props map. A `{:class …}` map that is merged or changed, as in the `card` fix, is
+not the whole props map. So a style that one call uses whole and another call uses with other props is a `defclass`, and
+neither rule reports it.
 
 </details>
 

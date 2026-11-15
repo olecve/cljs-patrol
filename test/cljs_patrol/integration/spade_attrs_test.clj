@@ -76,11 +76,23 @@
       (is (not (flagged? "merged-class"))))
 
     (testing "flags nothing else"
-      (is (= 23 (count flagged))))))
+      (is (= 24 (count flagged))))))
 
 (deftest defattrs-as-data-fix-test
   (let [[spade-result reagent-result] (:group-results (core/run fixture-dir [spade/group reagent/group]))]
     (is (some #(= "icon-attrs" (name (:kw %))) (:defattrs-as-data spade-result))
         "defattrs used whole and with other props")
     (is (not-any? #(= "icon-style" (name (:kw %))) (:defclass-as-sole-attr reagent-result))
-        "defclass fix used whole and with other props")))
+        "defclass fix used whole and with other props")
+    (is (not-any? #(contains? #{"merged-fix-class" "assoc-fix-class"} (name (:kw %)))
+                  (:defclass-as-sole-attr reagent-result))
+        "defclass fix in a class map that is merged or changed")
+    (is (not-any? #(= "discarded-class" (name (:kw %))) (:defclass-as-sole-attr reagent-result))
+        "defclass used only inside a discarded form")))
+
+(deftest defattrs-as-data-prefers-file-declaration-test
+  (let [flagged (->> (core/run fixture-dir [spade/group]) :group-results first :defattrs-as-data (map :kw) set)]
+    (is (contains? flagged :webapp.redeclared-names/redeclared-attrs)
+        "defattrs declared in the file")
+    (is (not (contains? flagged :webapp.attrs-styles/redeclared-attrs))
+        "referred defattrs of the same name")))

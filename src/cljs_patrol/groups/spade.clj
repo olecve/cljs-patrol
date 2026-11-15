@@ -85,6 +85,17 @@
   "Forms that pass each step a value before the arguments the step writes."
   #{"->" "cond->" "some->"})
 
+(def ^:private map-reading-names
+  "The names of the heads that can read a call as a map, whatever namespace they resolve to."
+  (into #{"->"} (map name) (concat whole-reading-heads target-reading-heads)))
+
+(defn- may-read-as-map?
+  "True when list `loc` has a keyword head or a head named like one that reads a map. A cheap test before resolving."
+  [loc]
+  (let [head (z/down loc)]
+    (or (parser/kw-node? head)
+        (contains? map-reading-names (parser/sym-name head)))))
+
 (defn- argument-index
   "Count the forms before `loc` in its list, the head and the `#_` forms excluded."
   [loc]
@@ -130,20 +141,49 @@
   after the call is one of these. A call passed to any other function is passed on whole, and is left alone."
   [loc ns-info]
   (let [site (heads/site loc)
-        parent (z/up site)
-        index (argument-index site)]
-    (and (contains? #{:list :fn} (z/tag parent))
+        parent (z/up site)]
+    (and (contains? #{:list :fn} (some-> parent z/tag))
+         (may-read-as-map? parent)
          (not (inside-discard? site))
-         (or (reads-argument-as-map? parent (cond-> index (threaded-step? parent) inc) ns-info)
+         (or (reads-argument-as-map? parent (cond-> (argument-index site) (threaded-step? parent) inc) ns-info)
              (and (some? (heads/resolve-head parent ns-info #{'cljs.core/->}))
                   (step-reads-as-map? (next-written-sibling site) ns-info))))))
 
+(defn- declared-style-names
+  "Collect the names of the styles that the file of `loc` declares, once per file."
+  [loc]
+  (let [state (parser/file-state ::declared-style-names nil)]
+    (or @state
+        (let [root (last (take-while some? (iterate z/up loc)))
+              names (->> (parser/written-child-locs root)
+                         (filter #(and (= :list (z/tag %))
+                                       (contains? blocks/style-decl-fns (parser/sym-name (z/down %)))))
+                         (keep #(some-> (parser/declared-name-loc %) parser/sym-name))
+                         set)]
+          (reset! state names)))))
+
 (defn- resolve-style-call
-  "Resolve the head of a call to the keyword of the style it may name, through the ns form's aliases or refers."
-  [op-raw {:keys [ns-name aliases refers]}]
-  (if-let [referred-ns (when-not (str/includes? op-raw "/") (get refers op-raw))]
+  "Resolve the head of a call to the keyword of the style it may name, through the ns form's aliases or refers.
+
+  A refer counts only for a name that the file does not declare as a style itself."
+  [loc op-raw {:keys [ns-name aliases refers]}]
+  (if-let [referred-ns (when-not (contains? (declared-style-names loc) op-raw) (get refers op-raw))]
     (keyword referred-ns op-raw)
     (parser/resolve-sym op-raw ns-name aliases)))
+
+(defn- class-only-map-call?
+  "True when the call at `loc` is the only value of a `:class` map, and nothing changes or merges that map."
+  [loc ns-info]
+  (let [parent (z/up loc)
+        class-map (cond
+                    (class-only-map? loc) parent
+
+                    (and parent
+                         (= :vector (z/tag parent))
+                         (= 1 (count (z/child-sexprs parent)))
+                         (class-only-map? parent))
+                    (z/up parent))]
+    (and class-map (not (read-as-data? class-map ns-info)))))
 
 (defn- handle-list
   "Detect style declarations and usages from list nodes.
@@ -171,21 +211,14 @@
                :dynamics []}))))
 
       operator
-      (when-let [resolved (resolve-style-call op-raw ns-info)]
-        (let [parent (z/up loc)
-              context (cond
-                        (and (not (heads/locally-bound? loc op-raw))
-                             (read-as-data? loc ns-info))
+      (when-let [resolved (resolve-style-call loc op-raw ns-info)]
+        (let [context (cond
+                        (and (read-as-data? loc ns-info)
+                             (not (heads/locally-bound? loc op-raw)))
                         :as-data
 
-                        (class-only-map? loc)
-                        :class-only-map
-
-                        (and parent
-                             (= :vector (z/tag parent))
-                             (= 1 (count (z/child-sexprs parent)))
-                             (class-only-map? parent))
-                        :class-only-map)]
+                        (class-only-map-call? loc ns-info)
+                        (if (inside-discard? loc) :discarded :class-only-map))]
           {:decls []
            :dynamics []
            :usages [{:kw resolved

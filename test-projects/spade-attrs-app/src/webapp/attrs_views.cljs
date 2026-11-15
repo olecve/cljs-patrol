@@ -26,6 +26,14 @@
    [:div {:class (-> (styles/discard-step-attrs) #_str :class)}]
    (map #(merge (styles/fn-literal-attrs) %) cache)])
 
+(defn class-fix-views [props id]
+  [:div
+   [:div {:class (styles/merged-fix-class)}]
+   [:div (merge {:class (styles/merged-fix-class)} props)]
+   [:div {:class (styles/assoc-fix-class)}]
+   [:div (assoc {:class (styles/assoc-fix-class)} :id id)]
+   #_[:div {:class (styles/discarded-class)}]])
+
 (defn icon-views []
   [:div
    [:span (styles/icon-attrs)]
