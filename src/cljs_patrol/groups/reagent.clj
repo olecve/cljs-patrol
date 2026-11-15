@@ -442,8 +442,7 @@
 (defn- handle-let
   "Emit an :inline-component finding for each `let` binding holding an inline component."
   [loc ns-info file]
-  (when-not (or (hiccup/inside-unrendered-form? loc)
-                (hiccup/inside-style-decl? loc))
+  (when-not (hiccup/inside-non-hiccup-form? loc)
     (when-let [findings (seq (inline-component-findings loc ns-info file))]
       {:decls (vec findings)
        :usages []
@@ -458,8 +457,7 @@
 (defn- handle-discarded-hiccup
   "Emit a :discarded-hiccup finding for each Hiccup element a body drops before its last form."
   [loc ns-info file]
-  (when-not (or (hiccup/inside-unrendered-form? loc)
-                (hiccup/inside-style-decl? loc)
+  (when-not (or (hiccup/inside-non-hiccup-form? loc)
                 (inside-comment-form? loc))
     (when-let [findings (seq (map #(discarded-hiccup-finding % file) (discarded-hiccup-locs loc ns-info)))]
       {:decls (vec findings)

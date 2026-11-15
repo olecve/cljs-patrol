@@ -20,6 +20,57 @@ Every rule, one page per rule group. For the one-line summary of each group, see
 - **[`idioms`](rules/idioms.md)**
 - **[`comments`](rules/comments.md)**
 
+## Data `def`s
+
+The groups that read Hiccup, `a11y`, `forbid-props`, `reagent` and `react-testing-library-cljs`, read the value of a
+data `def` as data, not as markup. Other groups, such as `layout`, read it as before.
+
+```clojure
+;; data: the groups that read Hiccup skip it
+(def tag-props-schema
+  [:map {:closed true}
+   [:label {:optional true} [:maybe :string]]])
+
+(def settings-path [:settings :style])
+
+;; Hiccup: the groups read it as before
+(def logo [:img {:src "logo.png"}])
+
+(def toast {:message "Saved" :description [:img {:src "ok.png"}]})
+
+;; data, with markup under a cut-off: the groups read the [:img :src] as Hiccup
+(def item-schema [:vector {:render #(do [:img :src])} :int])
+```
+
+A data `def` is a `def` or `defonce` at the top level of the file, with or without metadata on its name or a docstring,
+whose value is a vector that is clearly data. Its value is the last form, with `#_` forms dropped. A vector is clearly
+data when one of these holds:
+
+- It is a Malli schema all through: its head is a Malli type keyword, then an optional properties map, then children. An
+  entry of a `:map`, `:multi`, `:catn`, `:altn`, `:orn` or `:andn` is `[key properties? schema]`. A child of `:enum`,
+  `:=` and the other comparators is a literal value. Every other child is a Malli schema: a keyword, a symbol, a regular
+  expression, a call in which every vector is clearly data, or a vector that is a schema all through. Every vector in a
+  properties map is clearly data too.
+- It has two or more elements, and each element is a keyword, such as the db path `[:settings :style]`.
+- Its head is a vector, and each element is clearly data, such as a list of schemas. In such a list, and inside a call
+  in a schema position, a vector of keywords whose head is an HTML tag is markup. So `[[:th :name] [:th :email]]` and
+  `(def s [:vector (m/schema [:img :src])])` stay Hiccup.
+
+The Malli type keywords that Hiccup or Garden also use, such as `:symbol`, `:>`, `:*` and `:+`, do not make a schema.
+Any other vector is markup, as before: an element with a string, a component, a Garden rule, or a pair such as
+`[:title "asc"]`. So is a value with metadata of its own, a map, a call, and a `def` inside another form or a reader
+conditional.
+
+The forms under a `#(…)` in the value are markup again, so the `[:img :src]` of `item-schema` keeps its findings. So are
+the forms under any form that holds a symbol named `as-element` anywhere inside it, from any namespace: as a head, a
+thread step such as `(-> [:img :src] r/as-element)`, an argument such as `(apply r/as-element …)`, or inside a reader
+conditional or a nested call. The name is not resolved, because a `.cljc` file can require Reagent inside a reader
+conditional. A `fn` cannot be in a data `def`, because its parameter vector is not clearly data.
+
+A Hiccup vector of keywords only, such as `(def greeting [:p :hello])`, is read as data, and the rules lose its
+findings. An HTML image map that is also a Malli schema all through, such as
+`[:map {:name "nav"} [:a {:href url} label]]`, is data too.
+
 ## Experimental: reading `.clj` files
 
 The tool reads `.cljs` and `.cljc`. Five of its groups are not about ClojureScript at all: `docstrings` enforces the

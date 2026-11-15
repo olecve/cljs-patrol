@@ -455,15 +455,19 @@
   (let [quoted (loc-at "'[:div [:img]]" "[:img]")
         styled (loc-at "(defattrs c [] [:a {:color :red}])" "[:a {:color :red}]")
         required (loc-at "(ns a (:require [b.c :as d]))" "[b.c :as d]")
-        rendered (loc-at "(defn v [] [:div [:img]])" "[:img]")]
-    (is (= [true false false false] (mapv hiccup/inside-unrendered-form? [quoted styled required rendered]))
+        rendered (loc-at "(defn v [] [:div [:img]])" "[:img]")
+        data (loc-at "(def path [:settings :style])" "[:settings :style]")
+        locs [quoted styled required rendered data]]
+    (is (= [true false false false false] (mapv hiccup/inside-unrendered-form? locs))
         "unrendered only under quote")
-    (is (= [false true false false] (mapv hiccup/inside-style-decl? [quoted styled required rendered]))
+    (is (= [false true false false false] (mapv hiccup/inside-style-decl? locs))
         "style declaration only under defattrs")
-    (is (= [false false true false] (mapv hiccup/inside-ns-form? [quoted styled required rendered]))
+    (is (= [false false true false false] (mapv hiccup/inside-ns-form? locs))
         "ns only under ns")
-    (is (= [true true true false] (mapv hiccup/inside-non-hiccup-form? [quoted styled required rendered]))
-        "non-hiccup under any of three")))
+    (is (= [false false false false true] (mapv hiccup/inside-data-def? locs))
+        "data def only in data def value")
+    (is (= [true true true false true] (mapv hiccup/inside-non-hiccup-form? locs))
+        "non-hiccup under any of four")))
 
 (deftest enclosing-forms-remembers-ancestors-in-file-memo
   (binding [parser/*file-memo* (java.util.HashMap.)]
@@ -480,6 +484,99 @@
         (.put table outer #{:ns})
         (is (= #{:ns} (hiccup/enclosing-forms (find-loc "[:i]")))
             "later ask stops at remembered ancestor")))))
+
+(deftest enclosing-forms-marks-data-def-values
+  (is (= #{:data-def} (hiccup/enclosing-forms (loc-at "(def path [:settings :style])" "[:settings :style]")))
+      "value itself")
+  (is (= #{:data-def}
+         (hiccup/enclosing-forms (loc-at "(def schema [:map [:label {:optional true} [:maybe :string]]])" "[:maybe :string]")))
+      "vector nested in value")
+  (is (= #{:data-def}
+         (hiccup/enclosing-forms (loc-at "(defonce ^:private schema \"Doc.\" [:map [:a :int]])" "[:a :int]")))
+      "defonce with metadata and docstring")
+  (is (= #{:data-def :unrendered}
+         (hiccup/enclosing-forms (loc-at "(def schema [:vector {:a '[:b :c]} :int])" "[:b :c]")))
+      "quoted vector in value keeps both kinds")
+  (is (= #{} (hiccup/enclosing-forms (loc-at "(def text [:div \"x\" [:img]])" "[:img]")))
+      "Hiccup def")
+  (is (= #{} (hiccup/enclosing-forms (loc-at "(def ^{:doc [:a :b]} path [:settings :style])" "[:a :b]")))
+      "vector in name metadata")
+  (is (= #{:unrendered} (hiccup/enclosing-forms (loc-at "(def path [:a :b] #_[:c :d])" "[:c :d]")))
+      "discarded form after value")
+  (is (= #{} (hiccup/enclosing-forms (loc-at "(do (def path [:a :b]))" "[:a :b]")))
+      "def inside other form")
+  (is (= #{} (hiccup/enclosing-forms (loc-at "(def path ^:const [:a :b])" "[:a :b]")))
+      "value with own metadata"))
+
+(defn- img-kinds
+  "Name the kinds of form that enclose the `[:img :a]` in a file with the given ns requires and def value."
+  [requires value]
+  (hiccup/enclosing-forms (loc-at (str "(ns a (:require " requires "))\n(def s " value ")") "[:img :a]")))
+
+(deftest enclosing-forms-ends-data-def-under-cut
+  (is (= #{} (img-kinds "" "[:vector {:render #(do [:img :a])} :int]"))
+      "fn literal")
+  (is (= #{} (img-kinds "" "[:vector {:render (fn [] [:img :a])} :int]"))
+      "fn parameter vector makes def no data def")
+  (is (= #{:data-def} (hiccup/enclosing-forms (loc-at "(def s [:vector {:a #(do [:img :a])} :int])" "#(do [:img :a])")))
+      "fn literal itself stays in data def")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (r/as-element [:img :a])} :int]"))
+      "as-element through alias")
+  (is (= #{} (img-kinds "[reagent.core :refer [as-element]]" "[:vector {:a (as-element [:img :a])} :int]"))
+      "as-element through refer")
+  (is (= #{} (img-kinds "" "[:vector {:a (reagent.core/as-element [:img :a])} :int]"))
+      "as-element written out")
+  (is (= #{} (img-kinds "[b.c :as r]" "[:vector {:a (r/as-element [:img :a])} :int]"))
+      "as-element of other namespace")
+  (is (= #{} (img-kinds "#?(:cljs [reagent.core :as r])" "[:vector {:a #?(:cljs (r/as-element [:img :a]))} :int]"))
+      "as-element required inside reader conditional")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (-> [:img :a] r/as-element)} :int]"))
+      "as-element thread step")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (-> [:img :a] #?(:cljs r/as-element))} :int]"))
+      "as-element thread step inside reader conditional")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (-> [:img :a] (-> r/as-element))} :int]"))
+      "as-element inside nested thread step")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a ((comp r/as-element identity) [:img :a])} :int]"))
+      "as-element inside composed head")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a (apply r/as-element (list [:img :a]))} :int]"))
+      "as-element argument of apply")
+  (is (= #{} (img-kinds "[reagent.core :as r]" "[:vector {:a [:tuple {:b [:img :a]} r/as-element]} :int]"))
+      "as-element symbol anywhere in value")
+  (is (= #{:data-def}
+         (hiccup/enclosing-forms (loc-at "(def s [:vector {:a (r/as-element [:img :a])} :int])"
+                                         "[:vector {:a (r/as-element [:img :a])} :int]")))
+      "value holding as-element itself stays in data def"))
+
+(deftest enclosing-forms-keeps-data-def-without-as-element-symbol
+  (is (= #{:data-def} (img-kinds "[reagent.core :as r]" "[:vector {:a (r/as-element-x [:img :a])} :int]"))
+      "other symbol name")
+  (is (= #{:data-def} (img-kinds "" "[:vector {:a (f :as-element [:img :a])} :int]"))
+      "keyword")
+  (is (= #{:data-def} (img-kinds "" "[:vector {:a (f \"as-element\" [:img :a])} :int]"))
+      "string"))
+
+(deftest enclosing-forms-tests-each-def-once-per-file
+  (let [tested (atom [])
+        clear-data? hiccup/clear-data?]
+    (binding [parser/*file-memo* (java.util.HashMap.)]
+      (with-redefs [hiccup/clear-data? (fn [loc] (swap! tested conj (z/string loc)) (clear-data? loc))]
+        (let [root (z/of-string "(def schema [:map [:a [:vector :int]] [:b [:enum :x]]])")
+              find-loc (fn [target] (z/find root z/next #(= target (z/string %))))]
+          (doseq [target ["[:vector :int]" "[:enum :x]" "[:a [:vector :int]]" "[:map [:a [:vector :int]] [:b [:enum :x]]]"
+                          "[:map [:a [:vector :int]] [:b [:enum :x]]]"]]
+            (is (= #{:data-def} (hiccup/enclosing-forms (find-loc target)))
+                (str target " in data def"))))))
+    (is (= ["[:map [:a [:vector :int]] [:b [:enum :x]]]"] @tested)
+        "def value tested once")))
+
+(deftest enclosing-forms-remembers-only-top-level-defs
+  (binding [parser/*file-memo* (java.util.HashMap.)]
+    (let [root (z/of-string "(def s [:vector (m/schema [:enum :a])])\n(defn f [] (g [:img]))")
+          find-loc (fn [target] (z/find root z/next #(= target (z/string %))))]
+      (is (= [#{:data-def} #{}] (mapv #(hiccup/enclosing-forms (find-loc %)) ["[:enum :a]" "[:img]"]))
+          "schema in data def, img in function")
+      (is (= 1 (.size ^java.util.Map (.get ^java.util.Map parser/*file-memo* :cljs-patrol.hiccup/data-defs)))
+          "only top-level def remembered"))))
 
 (defn- result-strings
   ([source] (mapv z/string (hiccup/result-locs (z/of-string source))))
@@ -782,60 +879,60 @@
   (is (not (clear-data-source? "[\"a\" :b]"))
       "string head"))
 
-(defn- clear-data-def-source? [source] (hiccup/clear-data-def? (z/of-string source)))
+(defn- data-def-value? [source target] (hiccup/inside-data-def? (loc-at source target)))
 
-(deftest clear-data-def?-reads-value
-  (is (clear-data-def-source? "(def path [:settings :style])")
+(deftest inside-data-def?-reads-def-value
+  (is (data-def-value? "(def path [:settings :style])" "[:settings :style]")
       "def")
-  (is (clear-data-def-source? "(defonce path [:settings :style])")
+  (is (data-def-value? "(defonce path [:settings :style])" "[:settings :style]")
       "defonce")
-  (is (clear-data-def-source? "(def ^:private ^:const schema [:map [:a :int]])")
+  (is (data-def-value? "(def ^:private ^:const schema [:map [:a :int]])" "[:map [:a :int]]")
       "metadata on name")
-  (is (clear-data-def-source? "(def schema \"Describes a tag.\" [:map [:a :int]])")
+  (is (data-def-value? "(def schema \"Describes a tag.\" [:map [:a :int]])" "[:map [:a :int]]")
       "docstring")
-  (is (clear-data-def-source? "(def schema [:map [:a :int]] #_[:div \"x\"])")
+  (is (data-def-value? "(def schema [:map [:a :int]] #_[:div \"x\"])" "[:map [:a :int]]")
       "discarded form after value")
-  (is (clear-data-def-source? "(def #_old schema [:map [:a :int]])")
+  (is (data-def-value? "(def #_old schema [:map [:a :int]])" "[:map [:a :int]]")
       "discarded form before name")
-  (is (clear-data-def-source? "(def schema [:map ^:x [:a :int]])")
+  (is (data-def-value? "(def schema [:map ^:x [:a :int]])" "[:map ^:x [:a :int]]")
       "inner metadata"))
 
-(deftest clear-data-def?-leaves-other-values
-  (is (not (clear-data-def-source? "(def path ^:const [:settings :style])"))
+(deftest inside-data-def?-leaves-other-values
+  (is (not (data-def-value? "(def path ^:const [:settings :style])" "[:settings :style]"))
       "value with own metadata")
-  (is (not (clear-data-def-source? "(def text [:div \"x\"])"))
+  (is (not (data-def-value? "(def text [:div \"x\"])" "[:div \"x\"]"))
       "hiccup value")
-  (is (not (clear-data-def-source? "(def paths {:a [:settings :style]})"))
+  (is (not (data-def-value? "(def paths {:a [:settings :style]})" "{:a [:settings :style]}"))
       "map value")
-  (is (not (clear-data-def-source? "(def schema (mu/closed-schema [:map [:a :int]]))"))
+  (is (not (data-def-value? "(def schema (mu/closed-schema [:map [:a :int]]))" "(mu/closed-schema [:map [:a :int]])"))
       "call value")
-  (is (not (clear-data-def-source? "(def row [item-row :a :b])"))
+  (is (not (data-def-value? "(def row [item-row :a :b])" "[item-row :a :b]"))
       "symbol-headed vector value")
-  (is (not (clear-data-def-source? "(def path #?(:cljs [:settings :style] :clj [:a :b]))"))
+  (is (not (data-def-value? "(def path #?(:cljs [:settings :style] :clj [:a :b]))" "[:settings :style]"))
       "reader conditional value")
-  (is (not (clear-data-def-source? "(def path)"))
+  (is (not (data-def-value? "(def path)" "path"))
       "no value")
-  (is (not (clear-data-def-source? "(def)"))
+  (is (not (data-def-value? "(def)" "def"))
       "no name")
-  (is (not (clear-data-def-source? "(def \"doc\" [:a :b])"))
+  (is (not (data-def-value? "(def \"doc\" [:a :b])" "[:a :b]"))
       "string in name slot")
-  (is (not (clear-data-def-source? "(def :path [:a :b])"))
+  (is (not (data-def-value? "(def :path [:a :b])" "[:a :b]"))
       "keyword in name slot")
-  (is (not (clear-data-def-source? "(def ^:private \"doc\" [:a :b])"))
+  (is (not (data-def-value? "(def ^:private \"doc\" [:a :b])" "[:a :b]"))
       "string with metadata in name slot")
-  (is (not (clear-data-def-source? "(def path #_[:settings :style])"))
+  (is (not (data-def-value? "(def path #_[:settings :style])" "[:settings :style]"))
       "only discarded value"))
 
-(deftest clear-data-def?-reads-top-level-defs-only
-  (is (not (clear-data-def-source? "(defn path [] [:settings :style])"))
+(deftest inside-data-def?-reads-top-level-defs-only
+  (is (not (data-def-value? "(defn path [] [:settings :style])" "[:settings :style]"))
       "defn")
-  (is (not (clear-data-def-source? "[def path [:settings :style]]"))
+  (is (not (data-def-value? "[def path [:settings :style]]" "[:settings :style]"))
       "vector starting with def")
-  (is (not (hiccup/clear-data-def? (loc-at "(do (def path [:settings :style]))" "(def path [:settings :style])")))
+  (is (not (data-def-value? "(do (def path [:settings :style]))" "[:settings :style]"))
       "nested def")
-  (is (not (hiccup/clear-data-def? (loc-at "#?(:cljs (def path [:settings :style]))" "(def path [:settings :style])")))
+  (is (not (data-def-value? "#?(:cljs (def path [:settings :style]))" "[:settings :style]"))
       "def inside reader conditional")
-  (is (hiccup/clear-data-def? (z/of-node* (z/node (z/of-string "(def path [:settings :style])"))))
+  (is (hiccup/inside-data-def? (-> "(def path [:settings :style])" z/of-string z/node z/of-node* z/down z/rightmost))
       "def at root of tree without forms node"))
 
 (deftest resolved-value-reads-def-at-root-of-tree-without-forms-node

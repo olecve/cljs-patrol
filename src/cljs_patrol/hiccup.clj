@@ -10,6 +10,7 @@
    [cljs-patrol.parser :as parser]
    [clojure.set :as set]
    [clojure.string :as str]
+   [rewrite-clj.node :as n]
    [rewrite-clj.zip :as z])
   (:import
    (java.util
@@ -733,38 +734,89 @@
                               (contains? style-decl-forms head) :style-decl
                               (= "ns" head) :ns))))
 
-(defn- enclosing-forms-memo
-  "Return the table of enclosing forms by node for the file being analyzed, or nil outside one."
-  ^Map []
-  (when-let [^Map memo parser/*file-memo*]
-    (or (.get memo ::enclosing-forms)
+(defn- file-memo-table
+  "Find the table by node that `file-memo`, the memo of the file being analyzed, keeps under `k`, or nil outside a file."
+  ^Map [^Map file-memo k]
+  (when file-memo
+    (or (.get file-memo k)
         (let [table (IdentityHashMap.)]
-          (.put memo ::enclosing-forms table)
+          (.put file-memo k table)
           table))))
 
-(defn enclosing-forms
-  "Return the set of the kinds of form that enclose loc at any depth: `:unrendered`, `:style-decl`, `:ns`.
+(declare clear-data?)
 
-  One walk up to the root answers all three. While [[parser/analyze-file]] reads a file,
-  every ancestor the walk passes keeps its answer, so the next vector in the same form
-  stops at the first ancestor already asked about."
+(defn- data-def-value-node
+  "Find the node of the value of def-loc when def-loc is a top-level `def` whose value is a vector that is clearly data.
+
+  A value with metadata of its own is not clearly data. With `memo`, the table of the file being analyzed, each
+  top-level `def` is tested once, however many of the forms in it ask. Any other form is no `def` and needs no entry."
+  [^Map memo def-loc]
+  (when (top-level-def? def-loc)
+    (let [node (z/node def-loc)]
+      (if (and memo (.containsKey memo node))
+        (.get memo node)
+        (let [[_ value] (def-binding def-loc)
+              value-node (when (and (= :vector (some-> value z/tag))
+                                    (clear-data? value))
+                           (z/node value))]
+          (when memo (.put memo node value-node))
+          value-node)))))
+
+(defn- data-def-value?
+  "True when loc is the value of a top-level `def` whose value is clearly data."
+  [memo loc]
+  (identical? (z/node loc) (some->> (z/up loc) (data-def-value-node memo))))
+
+(defn- as-element-symbol-node? [node]
+  (let [value (:value node)]
+    (and (symbol? value) (= "as-element" (name value)))))
+
+(defn- data-def-cut?
+  "True when loc is a `#(…)` or a form that holds a symbol named `as-element` anywhere inside it.
+
+  The name is not resolved, as a `.cljc` file can require Reagent inside a reader conditional. A `fn` or
+  `fn*` needs no check: its parameter vector is never clearly data, so no data `def` holds one."
   [loc]
-  (let [memo (enclosing-forms-memo)]
+  (or (= :fn (z/tag loc))
+      (boolean (some as-element-symbol-node? (tree-seq n/inner? n/children (z/node loc))))))
+
+(defn- children-kinds
+  "Return the kinds of form that enclose the children of loc, given the kinds that enclose loc."
+  [data-defs kinds loc]
+  (let [own-kind (form-kind loc)
+        kinds (cond-> kinds
+                (data-def-value? data-defs loc) (conj :data-def)
+                own-kind (conj own-kind))]
+    (cond-> kinds
+      (and (contains? kinds :data-def) (data-def-cut? loc)) (disj :data-def))))
+
+(defn enclosing-forms
+  "Return the set of the kinds of form that enclose loc at any depth: `:unrendered`, `:style-decl`, `:ns`, `:data-def`.
+
+  `:data-def` marks the value of a top-level `def` whose value is a vector that [[clear-data?]] accepts, the value
+  itself and every form in it, except the forms under a `#(…)` or a form that holds a symbol named `as-element`. One
+  walk up to the root answers all four. While [[parser/analyze-file]] reads a file, every ancestor the walk passes
+  keeps its answer, so the next vector in the same form stops at the first ancestor already asked about."
+  [loc]
+  (let [file-memo parser/*file-memo*
+        memo (file-memo-table file-memo ::enclosing-forms)
+        data-defs (file-memo-table file-memo ::data-defs)]
     (loop [below ()
            current (some-> loc z/up)]
       (if-let [known (cond
                        (nil? current) #{}
                        memo (.get memo (z/node current)))]
-        (reduce (fn [kinds ancestor]
-                  (let [kinds (if-let [kind (form-kind ancestor)] (conj kinds kind) kinds)]
-                    (when memo (.put memo (z/node ancestor) kinds))
-                    kinds))
-                known
-                below)
+        (cond-> (reduce (fn [kinds ancestor]
+                          (let [kinds (children-kinds data-defs kinds ancestor)]
+                            (when memo (.put memo (z/node ancestor) kinds))
+                            kinds))
+                        known
+                        below)
+          (data-def-value? data-defs loc) (conj :data-def))
         (recur (cons current below) (z/up current))))))
 
 (defn inside-non-hiccup-form?
-  "True when a quoting, discarding, style-declaration or `ns` form encloses loc."
+  "True when a quoting, discarding, style-declaration or `ns` form encloses loc, or loc is in the value of a data `def`."
   [loc]
   (boolean (seq (enclosing-forms loc))))
 
@@ -790,6 +842,12 @@
   Hiccup — rules that assume Hiccup should skip them."
   [loc]
   (contains? (enclosing-forms loc) :ns))
+
+(defn inside-data-def?
+  "True when loc is in the value of a top-level `def` whose value is a vector that [[clear-data?]] accepts.
+  A form under a `#(…)` or a form that holds a symbol named `as-element` in that value is not."
+  [loc]
+  (contains? (enclosing-forms loc) :data-def))
 
 (def malli-child-kinds
   "Malli keyword types, each with the kind of its children.
@@ -910,12 +968,3 @@
   is looked through, but every vector in that metadata must be clearly data."
   [loc]
   (boolean (clear-data-element? false loc)))
-
-(defn clear-data-def?
-  "True when def-loc is a top-level `def` or `defonce` whose value is a vector that is clearly data.
-  A value with metadata of its own is not clearly data."
-  [def-loc]
-  (and (top-level-def? def-loc)
-       (let [[_ value] (def-binding def-loc)]
-         (and (= :vector (z/tag value))
-              (clear-data? value)))))
