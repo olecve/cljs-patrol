@@ -109,6 +109,11 @@
   (when-let [first-child (some-> loc z/down)]
     (take-while some? (iterate #(some-> % z/right) first-child))))
 
+(defn written-child-locs
+  "Return the locs of loc's children, in order, the `#_` forms dropped."
+  [loc]
+  (remove #(= :uneval (z/tag %)) (child-locs loc)))
+
 (defn right-siblings
   "Return the locs to the right of loc, loc itself excluded."
   [loc]

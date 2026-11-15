@@ -941,11 +941,6 @@
   (and (= :vector (some-> loc z/tag))
        (some? (some-> loc z/down parser/raw hiccup/parse-tag))))
 
-(defn- argument-locs
-  "Return the locs of a vector's children, the `#_` forms dropped."
-  [loc]
-  (remove #(= :uneval (z/tag %)) (parser/child-locs loc)))
-
 (defn- label-component-props
   "Return the configured label props of the label component a vector renders, or nil."
   [loc {:keys [ns-info label-components]}]
@@ -968,7 +963,7 @@
   (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
     (case kind
       :map (map-draws-label? attrs label-props)
-      :non-map (let [argument (second (argument-locs loc))
+      :non-map (let [argument (second (parser/written-child-locs loc))
                      value (or (hiccup/resolved-value argument) argument)]
                  (if (= :map (z/tag value))
                    (map-draws-label? (hiccup/literal-map value) label-props)
@@ -993,7 +988,7 @@
   element given the id keeps it, so a control inside it is not named, where a component
   may pass it on. `child` is the wrapper's child on the way up from loc."
   [wrapper child loc {:keys [ns-info]}]
-  (and (identical? (z/node child) (some-> (nth (argument-locs wrapper) 2 nil) z/node))
+  (and (identical? (z/node child) (some-> (nth (parser/written-child-locs wrapper) 2 nil) z/node))
        (let [result (->> (hiccup/result-locs (hiccup/unwrap-meta child) ns-info)
                          (map hiccup/unwrap-meta)
                          (filter #(descendant-of? % loc))
@@ -1120,15 +1115,10 @@
         (when (some #(identical? (z/node %) (z/node loc)) (hiccup/result-locs body-end))
           (some-> (parser/declared-name-loc top) parser/sym-name))))))
 
-(defn- code-child-locs
-  "Return the locs of loc's children, the `#_` forms dropped."
-  [loc]
-  (remove #(= :uneval (z/tag %)) (parser/child-locs loc)))
-
 (defn- subtree-locs
   "Return loc and every loc inside it, the `#_` forms dropped."
   [loc]
-  (->> loc code-child-locs (mapcat subtree-locs) (cons loc)))
+  (->> loc parser/written-child-locs (mapcat subtree-locs) (cons loc)))
 
 (defn- may-hold-text?
   "True when a child added to a shell may hold text: anything but a vector, which may be icon markup."
@@ -1142,10 +1132,11 @@
   vector written out."
   [call ns-info]
   (let [consumer (z/up call)
-        [_ target & added] (code-child-locs consumer)]
+        [_ target & added] (parser/written-child-locs consumer)]
     (and (identical? (z/node target) (z/node call))
          (condp = (heads/resolve-head consumer ns-info shell-consumers)
-           'cljs.core/into (boolean (some #(or (not= :vector (z/tag %)) (some may-hold-text? (code-child-locs %)))
+           'cljs.core/into (boolean (some #(or (not= :vector (z/tag %))
+                                               (some may-hold-text? (parser/written-child-locs %)))
                                           added))
            'cljs.core/conj (boolean (some may-hold-text? added))
            false))))
@@ -1160,22 +1151,22 @@
   [call]
   (let [bindings (z/up call)
         binding-form (some-> bindings z/up)
-        elements (some-> bindings code-child-locs vec)
+        elements (some-> bindings parser/written-child-locs vec)
         index (first (keep-indexed #(when (identical? (z/node %2) (z/node call)) %1) elements))
         target (some->> index dec (get elements))
-        tag-name (some-> target code-child-locs first parser/raw)
+        tag-name (some-> target parser/written-child-locs first parser/raw)
         rebuilds (when tag-name
                    (->> binding-form
-                        code-child-locs
+                        parser/written-child-locs
                         (drop 2)
                         (mapcat subtree-locs)
                         (filter #(and (= :vector (z/tag %)) (= tag-name (some-> % z/down parser/raw))))))]
     (boolean (and (= :vector (some-> bindings z/tag))
                   (= :list (some-> binding-form z/tag))
                   (contains? destructuring-heads (some-> binding-form z/down parser/sym-name))
-                  (identical? (z/node bindings) (some-> binding-form code-child-locs second z/node))
+                  (identical? (z/node bindings) (some-> binding-form parser/written-child-locs second z/node))
                   (seq rebuilds)
-                  (every? #(some may-hold-text? (drop 2 (code-child-locs %))) rebuilds)))))
+                  (every? #(some may-hold-text? (drop 2 (parser/written-child-locs %))) rebuilds)))))
 
 (defn- live-use?
   "True when the token at loc names `fn-name` in code a page can run, as this file's function.

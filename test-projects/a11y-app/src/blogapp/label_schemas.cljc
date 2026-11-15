@@ -26,6 +26,13 @@
   [:map
    [:label #?(:cljs {:optional true}) [:maybe :string]]])
 
+(defn ok-label-entry-with-a-nil-literal []
+  [:map
+   [:label [:= nil]]])
+
+(defn ok-label-around-a-quoted-element []
+  [:label '[:span "Name"]])
+
 (defn ok-label-entry-with-vector []
   [:map
    [:label [:vector :string]]])
@@ -70,6 +77,10 @@
 
 (defn ok-label-around-a-maybe-with-props-that-reads-as-a-schema [caption]
   [:label [:maybe {:class "x"} caption]])
+
+(defn bad-label-entry-with-a-title-property []
+  [:map
+   [:label {:title "Name"} :string]])
 
 (defn bad-label-around-a-span [caption]
   [:label [:span caption]])
