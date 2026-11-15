@@ -1416,6 +1416,20 @@
          (fn-names (widget-findings :label-not-associated widget-aliases)))
       "label around aliased widget labels it"))
 
+(def ^:private label-schemas-file (str fixture-dir "/label_schemas.cljc"))
+
+(deftest label-not-associated-malli-entry-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        reported (fn-names-in label-schemas-file (:label-not-associated (first group-results)))]
+    (is (= #{"bad-label-around-a-span"
+             "bad-label-around-a-strong-with-props"
+             "bad-label-with-nil-for"
+             "bad-label-around-interop"
+             "bad-label-text-beside-a-schema-head"
+             "bad-label-with-a-dom-attr-over-a-schema-head"}
+           reported)
+        "Malli type heads mark entries in a function body and in a call def; markup stays reported")))
+
 (def ^:private label-props-file (str fixture-dir "/label_props.cljs"))
 
 (def ^:private label-props-aliases
