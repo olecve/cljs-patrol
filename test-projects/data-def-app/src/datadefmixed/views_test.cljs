@@ -5,3 +5,6 @@
 
 (deftest bad-save-button-by-test-id
   (.click (s/get-by-test-id "save-button")))
+
+(deftest bad-open-button-by-test-id
+  (.click (s/get-by-test-id "open-button")))

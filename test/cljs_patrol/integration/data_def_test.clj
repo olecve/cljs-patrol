@@ -149,10 +149,21 @@
   (is (= #{"bad-fragment-schema"} (-> reagent/group mixed-result :empty-fragment-props noted-defs))
       "reagent")
   (is (= [(str "Query it by role \"button\" and its name. Its element sits in a Malli schema at " mixed-file
-               ":19, which reads as markup because of (fn [_ _] \"Bad\"). Move that part into its own def or function,"
-               " so the schema reads as data.")]
+               ":20, which reads as markup because of (fn [_ _] \"Bad\"). Move that part into its own def or function,"
+               " so the schema reads as data.")
+          "Query it by role \"button\" and its name."]
          (->> react-testing-library-cljs/group mixed-result :test-id-query-on-role (map :hint)))
       "react-testing-library-cljs"))
+
+(deftest mixed-schema-note-leaves-schemas-that-a-cut-keeps-from-data
+  (is (not-any? #{"cut-as-element-schema" "cut-fn-literal-schema" "cut-sibling-as-element-schema"}
+                (-> a11y/group mixed-result :label-not-associated noted-defs))
+      "as-element or fn literal in the value"))
+
+(deftest mixed-schema-note-leaves-test-id-shared-with-real-element
+  (is (= 1 (->> react-testing-library-cljs/group mixed-result :test-id-query-on-role (filter :hint)
+                (filter #(str/includes? (:hint %) "Malli schema")) count))
+      "only the save button lookup, whose every element sits in a schema"))
 
 (deftest mixed-schema-note-on-run-level-a11y-findings
   (is (= #{"bad-notes-schema" "bad-separator-schema"}
@@ -168,7 +179,8 @@
 
 (deftest mixed-schema-note-leaves-schemas-with-more-parts-and-the-part-itself
   (let [findings (:label-not-associated (mixed-result a11y/group))]
-    (is (= #{"bad-label-schema" "bad-two-parts-schema" "bad-render-schema" "bad-alias-schema"}
+    (is (= #{"bad-label-schema" "bad-two-parts-schema" "bad-render-schema" "bad-alias-schema" "cut-as-element-schema"
+             "cut-fn-literal-schema" "cut-sibling-as-element-schema"}
            (def-names-in mixed-file findings))
         "every label stays reported")
     (is (not-any? #{"bad-two-parts-schema" "bad-render-schema"} (noted-defs findings))

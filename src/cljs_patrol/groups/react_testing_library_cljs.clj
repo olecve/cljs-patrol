@@ -571,9 +571,11 @@
          :row (parser/position-row loc)}))))
 
 (defn- schema-element-note
-  "Name the Malli schema that holds one of elements, and the one part that keeps it from reading as data, or nil."
+  "Name the Malli schema that holds the first of elements, and the one part that keeps it from reading as data, or nil.
+
+  Every element must sit in such a schema, or the finding stays once the part moves out."
   [elements]
-  (when-let [{:keys [file row schema-part]} (first (filter :schema-part elements))]
+  (when-let [{:keys [file row schema-part]} (when (every? :schema-part elements) (first elements))]
     (str "Its element sits in a Malli schema at " file ":" row ", which reads as markup because of " schema-part
          ". Move that part into its own def or function, so the schema reads as data.")))
 

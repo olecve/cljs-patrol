@@ -1060,12 +1060,20 @@
   (let [text (str/replace (parser/raw loc) #"\s+" " ")]
     (if (< 40 (count text)) (str (subs text 0 37) "...") text)))
 
+(defn- cut-node?
+  "True when node is a `#(…)` or a symbol named `as-element`, either of which ends the data `def` rule."
+  [node]
+  (or (= :fn (n/tag node)) (as-element-symbol-node? node)))
+
 (defn- reads-as-data-without?
-  "True when the vector at value-loc reads as data once a symbol takes the place of part, which value-loc holds."
+  "True when the vector at value-loc is a data `def` value once a symbol takes the place of part, which value-loc holds.
+
+  The value must be clearly data and hold no `#(…)` and no `as-element`, since either ends the data `def` rule."
   [value-loc part]
   (let [depth (count (take-while #(not (identical? (z/node %) (z/node value-loc))) (iterate z/up part)))
-        replaced (z/replace part (n/token-node 'extracted))]
-    (clear-data? (nth (iterate z/up replaced) depth))))
+        value (nth (iterate z/up (z/replace part (n/token-node 'extracted))) depth)]
+    (and (clear-data? value)
+         (not-any? cut-node? (tree-seq written-inner? n/children (z/node value))))))
 
 (defn mixed-schema-part
   "Show the one part that keeps the top-level Malli schema `def` around loc from reading as data, or nil.

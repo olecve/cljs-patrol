@@ -1,6 +1,7 @@
 (ns datadefmixed.views
   (:require
-   [datadefmixed.ui :as ui]))
+   [datadefmixed.ui :as ui]
+   [reagent.core :as r]))
 
 (def bad-label-schema
   [:map {:error/fn (fn [_ _] "Bad")}
@@ -41,3 +42,26 @@
 (def bad-alias-schema
   [:map {:render-button [:> ui/button {:on-click identity} "x"]}
    [:label {:title "Name"} :string]])
+
+(def cut-as-element-schema
+  [:map {:error/fn (fn [_ _] "Bad")}
+   [:x {:render (r/as-element [:map [:label {:title "Name"} :string]])} :string]])
+
+(def cut-fn-literal-schema
+  [:map {:error/fn (fn [_ _] "Bad")}
+   [:x {:render #(identity [:map [:label {:title "Name"} :string]])} :string]])
+
+(def cut-sibling-as-element-schema
+  [:map {:error/fn (fn [_ _] "Bad")}
+   [:label {:title "Name"} :string]
+   [:y {:r (r/as-element [:map [:z :int]])} :int]])
+
+(def shared-open-schema
+  [:map {:error/fn (fn [_ _] "Bad")}
+   [:button {:aria-label "Open"
+             :data-testid "open-button"} :string]])
+
+(defn open-button []
+  [:button {:aria-label "Open"
+            :data-testid "open-button"}
+   "Open"])
