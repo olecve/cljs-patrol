@@ -1,5 +1,20 @@
 # Changelog
 
+## [v0.0.56] - 2026-11-16
+
+* Add a11y label components for field wrappers that label their control by @olecve in https://github.com/olecve/cljs-patrol/pull/144
+* Skip private element shells that every caller fills in a11y by @olecve in https://github.com/olecve/cljs-patrol/pull/143
+* List every candidate shadow in the focus-ring raw-shadow hint by @olecve in https://github.com/olecve/cljs-patrol/pull/145
+* Add the clear-data test for telling data vectors from Hiccup by @olecve in https://github.com/olecve/cljs-patrol/pull/146
+* Read the value of a clearly data def as data by @olecve in https://github.com/olecve/cljs-patrol/pull/147
+* Read a nested Malli type in a label as a schema entry by @olecve in https://github.com/olecve/cljs-patrol/pull/149
+* Align ADR 0003 with the code and accept it by @olecve in https://github.com/olecve/cljs-patrol/pull/150
+* Flag a defattrs whose result is changed or read as a map by @olecve in https://github.com/olecve/cljs-patrol/pull/148
+* Read the final keys of built props maps in three a11y rules by @olecve in https://github.com/olecve/cljs-patrol/pull/151
+* Note the one part that keeps a Malli schema def from reading as data by @olecve in https://github.com/olecve/cljs-patrol/pull/152
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.55...v0.0.56
+
 ## [v0.0.55] - 2026-11-12
 
 * Reject the G1 collector ADR with the Linux measurement by @olecve in https://github.com/olecve/cljs-patrol/pull/140
