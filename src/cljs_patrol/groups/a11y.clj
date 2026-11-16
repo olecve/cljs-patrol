@@ -240,7 +240,9 @@
       (keep-indexed (fn [i loc] (when (odd? i) loc)) args)
       (rest args))))
 
-(declare icon-only-branches? visible-from?)
+(declare icon-only-branches?
+         visible-content?
+         visible-from?)
 
 (defn- image-alt-name?
   "True when loc is an `[:img …]` carrying non-empty `:alt` text.
@@ -252,14 +254,65 @@
        (let [alt (literal-sexpr (get attrs :alt))]
          (and (string? alt) (seq alt)))))
 
+(def ^:private aria-hidden-true-values
+  "Values that take an element out of the accessibility tree.
+  Reagent stringifies keyword attribute values, so all three spellings reach the DOM
+  as `aria-hidden=\"true\"`."
+  #{true "true" :true})
+
+(defn- aria-hidden? [attrs]
+  (contains? aria-hidden-true-values (literal-sexpr (get attrs :aria-hidden))))
+
+(def ^:private component-depth-limit
+  "How many local components deep a body is read; a component below that renders nothing known."
+  4)
+
+(defn- bound-symbol-loc?
+  "True when loc is a bare symbol a binding around it names, such as a parameter or a destructured prop."
+  [loc]
+  (let [symbol-name (parser/sym-name loc)]
+    (boolean (and symbol-name
+                  (= symbol-name (parser/raw loc))
+                  (heads/locally-bound? loc symbol-name)))))
+
+(defn- component-renders-text?
+  "True when loc calls a component its own file defines, and what the component returns carries visible content.
+
+  A returned Hiccup vector, string or bound symbol is read the way a direct child is; any
+  other result, such as a call, is not read, so it adds nothing. A component already being
+  read, one that renders itself or a cycle, renders nothing known, and so does one past
+  [[component-depth-limit]]."
+  [loc {:keys [ns-info expanded]
+        :as context}]
+  (boolean
+   (when-let [{:keys [name results]} (hiccup/local-component loc ns-info)]
+     (when (and (not (contains? expanded name))
+                (< (count expanded) component-depth-limit))
+       (let [inner (update context :expanded conj name)]
+         (some #(and (or (= :vector (z/tag %)) (literal-string-loc? %) (bound-symbol-loc? %))
+                     (visible-content? % inner))
+               results))))))
+
+(defn- hidden-element?
+  "True when loc is a native element whose settled attrs hide it with `:aria-hidden`.
+  A component's props are left alone, since a component may not pass them on."
+  [loc]
+  (and (= :vector (z/tag loc))
+       (some? (some-> loc z/down parser/raw hiccup/parse-tag))
+       (aria-hidden? (settled-attrs (hiccup/attrs-info loc)))))
+
 (defn- visible-content?
   "True when loc carries visible text or dynamically-computed content.
   A nested Hiccup vector is treated as opaque icon markup unless it
   contains a string literal, a dynamic form, or an aria-name attribute
-  on itself or a descendant."
-  [loc]
+  on itself or a descendant. A vector calling a component its own file
+  defines is also read through what the component returns. An element
+  hidden with `:aria-hidden` carries nothing, whatever it holds."
+  [loc context]
   (cond
     (literal-string-loc? loc) true
+
+    (hidden-element? loc) false
 
     (= :vector (z/tag loc))
     (let [{:keys [slot attrs]} (hiccup/attrs-info loc)
@@ -267,17 +320,19 @@
       (or (when slot
             (or (meaningful-text-name? attrs)
                 (image-alt-name? loc attrs)))
-          (visible-from? body-start)))
+          (visible-from? body-start context)
+          (component-renders-text? loc context)))
 
     (= :list (z/tag loc))
-    (not (icon-only-branches? loc))
+    (not (icon-only-branches? loc context))
 
     :else true))
 
 (defn- visible-from?
   "True when `body-start` or any sibling to its right carries visible content."
-  [body-start]
-  (boolean (some visible-content? (when body-start (cons body-start (parser/right-siblings body-start))))))
+  [body-start context]
+  (boolean (some #(visible-content? % context)
+                 (when body-start (cons body-start (parser/right-siblings body-start))))))
 
 (defn- icon-only-branches?
   "True when every branch a form could render is icon markup.
@@ -286,7 +341,7 @@
   reader and as nothing at all to a screen reader, so it must not count as a
   visible name. Anything else in a branch — a string, a symbol, a call that
   might produce text — makes the whole form opaque again."
-  [loc]
+  [loc context]
   (and (= :list (z/tag loc))
        (let [head (z/down loc)
              head-str (when head (parser/raw head))]
@@ -295,8 +350,8 @@
                 (and (seq results)
                      (every? (fn [result]
                                (case (z/tag result)
-                                 :vector (not (visible-content? result))
-                                 :list (icon-only-branches? result)
+                                 :vector (not (visible-content? result context))
+                                 :list (icon-only-branches? result context)
                                  false))
                              results)))))))
 
@@ -304,12 +359,13 @@
   "True when the vector has body content producing visible text or a labelled child.
   False for structurally empty vectors, and for icon-only markup like
   `[:button [icons/x]]`."
-  [vec-loc]
+  [vec-loc ns-info]
   (let [attrs-loc (hiccup/attrs-slot vec-loc)
         body-start (if attrs-loc
                      (z/right attrs-loc)
                      (some-> vec-loc z/down z/right))]
-    (visible-from? body-start)))
+    (visible-from? body-start {:expanded #{}
+                               :ns-info ns-info})))
 
 (def ^:private widget-state-attrs
   "Attributes marking a control as a stateful widget rather than a plain button.
@@ -327,11 +383,11 @@
   "True when an interactive element announces nothing at all.
   The body scan walks the whole subtree, so what the element is gets settled first:
   a `:div` that is not a control can never be flagged, whatever it contains."
-  [{:keys [kind attrs]} tag loc]
+  [{:keys [kind attrs]} tag loc ns-info]
   (let [interactive-tag? (contains? empty-interactive-tags tag)
         interactive-role? (and (= :map kind) (some? attrs) (interactive-via-role? attrs))]
     (when (and (or interactive-tag? interactive-role?)
-               (not (has-visible-body? loc)))
+               (not (has-visible-body? loc ns-info)))
       (if interactive-tag?
         (case kind
           :absent true
@@ -341,15 +397,6 @@
           false)
         (and (not (meaningful-text-name? attrs))
              (not (stateful-widget? attrs)))))))
-
-(def ^:private aria-hidden-true-values
-  "Values that take an element out of the accessibility tree.
-  Reagent stringifies keyword attribute values, so all three spellings reach the DOM
-  as `aria-hidden=\"true\"`."
-  #{true "true" :true})
-
-(defn- aria-hidden? [attrs]
-  (contains? aria-hidden-true-values (literal-sexpr (get attrs :aria-hidden))))
 
 (def ^:private focusable-tags
   "Tags the browser puts in the tab order with no authoring at all.
@@ -1854,7 +1901,7 @@
                        (on-click-on-non-interactive? info tag)
                        (conj (assoc base :type :on-click-on-non-interactive))
 
-                       (and (empty-interactive? info tag loc) (not (element-shell? loc ns-info)))
+                       (and (empty-interactive? info tag loc ns-info) (not (element-shell? loc ns-info)))
                        (conj (assoc base :type :empty-interactive-element))
 
                        (missing-accessible-name? info tag loc inside-label)

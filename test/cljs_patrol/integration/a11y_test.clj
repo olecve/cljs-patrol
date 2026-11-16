@@ -1621,6 +1621,32 @@
            (fn-names-in data-vectors-file (:empty-interactive-element (first group-results))))
         "shell every live caller fills is left alone, any other empty control is flagged")))
 
+(def ^:private local-components-file (str fixture-dir "/local_components.cljs"))
+
+(deftest local-components-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])]
+    (is (= #{"bad-button-holding-a-component-rendering-an-icon"
+             "bad-button-holding-a-component-rendering-a-decorative-image"
+             "bad-button-holding-a-component-returning-a-call"
+             "bad-button-holding-an-external-component"
+             "bad-button-holding-a-self-rendering-component"
+             "bad-button-holding-a-component-cycle"
+             "bad-button-holding-text-past-the-depth-limit"
+             "bad-button-holding-a-shadowed-component"
+             "bad-button-holding-a-component-returning-a-var"}
+           (fn-names-in local-components-file (:empty-interactive-element (first group-results))))
+        "control named by text a same-file component renders is left alone, any other empty control is flagged")))
+
+(def ^:private hidden-text-file (str fixture-dir "/hidden_text.cljs"))
+
+(deftest hidden-text-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])]
+    (is (= #{"bad-button-holding-only-hidden-text"
+             "bad-button-holding-text-hidden-with-a-string"
+             "bad-button-holding-a-component-rendering-hidden-text"}
+           (fn-names-in hidden-text-file (:empty-interactive-element (first group-results))))
+        "text inside an aria-hidden element names nothing")))
+
 (def ^:private field-wrappers-file (str fixture-dir "/field_wrappers.cljs"))
 
 (defn- field-wrapper-findings [label-components]

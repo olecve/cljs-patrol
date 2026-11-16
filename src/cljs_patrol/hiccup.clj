@@ -726,6 +726,77 @@
   ([loc ns-info]
    (result-locs* loc #(heads/resolve-head % ns-info result-heads))))
 
+(defn arity-bodies
+  "Return the body of each arity of a function form, its forms in order.
+
+  A single-arity form writes its body after the first vector from `start`, the parameters;
+  a name, a docstring or an attr map before it is no vector. A multi-arity form writes a
+  list per arity whose first child is that arity's parameters."
+  [start]
+  (loop [child start]
+    (cond
+      (nil? child) []
+      (= :vector (z/tag (unwrap-meta child))) [(parser/right-siblings child)]
+      (= :list (z/tag child)) (->> (cons child (parser/right-siblings child))
+                                   (filter #(= :list (z/tag %)))
+                                   (map #(parser/right-siblings (z/down %))))
+      :else (recur (z/right child)))))
+
+(def ^:private component-def-heads
+  "Forms defining a component that renders the last form of its body."
+  #{'cljs.core/defn 'cljs.core/defn- 'reagent.core/defc 'rum.core/defc})
+
+(defn- scan-component-defs
+  "Return `{name → form-loc}` for every component the file defines at the top level.
+  The last definition of a name wins, the way it does at load time."
+  [first-form ns-info]
+  (loop [form first-form
+         defs {}]
+    (if (nil? form)
+      defs
+      (recur (z/right form)
+             (or (when (and (= :list (z/tag form))
+                            (heads/resolve-head form ns-info component-def-heads))
+                   (when-let [defined (some-> (parser/declared-name-loc form) parser/sym-name)]
+                     (assoc defs defined form)))
+                 defs)))))
+
+(defn- component-def-index
+  "Find the components of the file being read, kept in [[parser/file-state]] for that file alone.
+  Keyed by identity of the file's first top-level form, as [[def-index]] is."
+  []
+  (parser/file-state ::component-def-index {:cached-root nil
+                                            :defs {}}))
+
+(defn- top-level-component-defs [loc ns-info]
+  (let [first-form (first-top-level-form loc)
+        root (some-> first-form z/node)
+        state (component-def-index)
+        {:keys [cached-root defs]} @state]
+    (if (and root (identical? root cached-root))
+      defs
+      (let [scanned (scan-component-defs first-form ns-info)]
+        (reset! state {:cached-root root
+                       :defs scanned})
+        scanned))))
+
+(defn local-component
+  "Return `{:name … :results […]}` for a Hiccup vector headed by a component its own file defines, or nil.
+
+  The head must be a bare symbol that no binding around the vector shadows, named by a top-level
+  `defn`, `defn-` or `defc` of the file. `:results` holds the locs every arity can return, read
+  through [[result-locs]]. Nothing is read across a namespace: a component another file defines
+  stays unknown."
+  [vec-loc ns-info]
+  (let [head (some-> vec-loc z/down)
+        head-name (unqualified-symbol-name head)]
+    (when (and head-name (not (heads/locally-bound? head head-name)))
+      (when-let [def-loc (get (top-level-component-defs vec-loc ns-info) head-name)]
+        {:name head-name
+         :results (->> (arity-bodies (some-> def-loc z/down z/right))
+                       (keep #(last (remove (fn [form] (= :uneval (z/tag form))) %)))
+                       (mapcat #(result-locs % ns-info)))}))))
+
 (defn- yields-hiccup?
   "True when the expression can yield a Hiccup vector rather than a value.
   Only the positions whose value becomes the expression's own are read: a vector held as

@@ -640,6 +640,28 @@
   (is (= ["(x/do [:a])" "[:c]"] (result-strings {} "(if p (x/do [:a]) [:c])"))
       "keeps unresolved branch whole"))
 
+(defn- local-component-results [ns-info source target]
+  (some->> (hiccup/local-component (loc-at source target) ns-info) :results (mapv z/string)))
+
+(deftest local-component-reads-same-file-components
+  (is (= ["[:span \"Save\"]"] (local-component-results {} "(defn- label [] [:span \"Save\"]) [:button [label]]" "[label]"))
+      "reads defn-")
+  (is (= ["[:span]" "[:i]"] (local-component-results {} "(defn label ([] [:span]) ([x] (when x [:i]))) [label]" "[label]"))
+      "reads every arity through result-locs")
+  (is (= ["[:span]"] (local-component-results {:aliases {"r" "reagent.core"}} "(r/defc label [] [:span]) [label]" "[label]"))
+      "reads reagent defc through alias")
+  (is (= ["[:span]"] (local-component-results {:aliases {"rum" "rum.core"}} "(rum/defc label < rum/static [] [:span]) [label]"
+                                              "[label]"))
+      "reads rum defc past its mixins")
+  (is (nil? (local-component-results {} "(x/defc label [] [:span]) [label]" "[label]"))
+      "skips look-alike defc")
+  (is (nil? (local-component-results {} "(defn- label [] [:span]) (defn v [label] [label])" "[label]"))
+      "skips head a parameter shadows")
+  (is (nil? (local-component-results {} "(defn- label [] [:span]) [ui/label]" "[ui/label]"))
+      "skips qualified head")
+  (is (nil? (local-component-results {} "(def label [:span]) [label]" "[label]"))
+      "skips def"))
+
 (deftest malli-child-kinds-match-malli-keyword-types
   (is (= (->> (m/default-schemas) keys (filter keyword?) set)
          (set (keys hiccup/malli-child-kinds)))
