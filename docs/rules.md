@@ -76,6 +76,33 @@ findings. An HTML image map or an SVG `<set>` that is also a Malli schema all th
 `[:map {:name "nav"} [:a {:href url} label]]` or `[:set {:attributeName "fill" :to "red"}]`, is data too. To keep such
 markup checked, put metadata on the value, such as `(def greeting ^:hiccup [:p :hello])`, or write it in a function.
 
+A Malli schema that one part keeps from reading as data gets a note on its findings. The note names that part and asks
+to move it into its own `def` or function. Then the schema reads as data, and the findings go away:
+
+```clojure
+;; a finding on the :label entry, with a note that names (fn [_ _] "Too long")
+(def title-schema
+  [:map {:error/fn (fn [_ _] "Too long")}
+   [:label {:title "Name"} :string]])
+
+;; the schema reads as data
+(defn too-long [_ _] "Too long")
+
+(def title-schema
+  [:map {:error/fn too-long}
+   [:label {:title "Name"} :string]])
+```
+
+The note is given only when the `def` is at the top level of the file, its value is a vector with no metadata of its
+own, exactly one part keeps the value from reading as data, and a symbol in place of that part makes it read as data. So
+the advice works: the value must also hold no `#(…)` and no `as-element`, which end the data `def` rule, or no note is
+given. That part can be a key or a value in a properties map, a form in a schema position that is not a schema, or a
+form among the values of `:enum`, `:=` or another literal type that is not a literal. A part that a symbol cannot
+replace, such as a whole entry with a computed key, gets no note. A finding inside that part gets no note, because the
+part stays markup. The `a11y` and `forbid-props` groups add the note to their findings in the schema, and `reagent` adds
+it to its fragment findings. The `react-testing-library-cljs` group adds it to a `test-id-query-on-role` finding when
+the one element it counts sits in such a schema.
+
 ## Experimental: reading `.clj` files
 
 The tool reads `.cljs` and `.cljc`. Five of its groups are not about ClojureScript at all: `docstrings` enforces the

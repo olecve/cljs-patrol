@@ -1816,6 +1816,10 @@
     (or (some-> ^IdentityHashMap (:unwrapped-locs @state) (.get (z/node written-loc)))
         written-loc)))
 
+(def ^:private run-level-types
+  "Usage types that become findings only once the whole run is read, and get their hint there."
+  #{::focusable-separator ::unreferenced-id-candidate})
+
 (defn- handle-vector* [written-loc ns-info file {:keys [component-aliases label-components label-styles]}]
   (let [loc (unwrapped-loc written-loc ns-info component-aliases)
         first-child (z/down loc)]
@@ -1896,9 +1900,13 @@
                                     :type :aria-live-contradicts-role
                                     :hint (aria-live-hint aria-live-conflict))))]
           (when (seq usages)
-            {:decls []
-             :dynamics []
-             :usages usages}))))))
+            (let [note (hiccup/mixed-schema-note written-loc)]
+              {:decls []
+               :dynamics []
+               :usages (mapv #(if (contains? run-level-types (:type %))
+                                (assoc % :schema-note note)
+                                (hiccup/add-note % note))
+                             usages)})))))))
 
 (defn- analyze* [{:keys [usages usages-in-run]}]
   ;; The parser pools :usages across ALL enabled groups into one seq before
@@ -1914,6 +1922,8 @@
                               (map #(-> %
                                         (assoc :type :missing-accessible-name
                                                :hint (unreferenced-id-hint (:id %)))
+                                        (hiccup/add-note (:schema-note %))
+                                        (dissoc :schema-note)
                                         (dissoc :id))))
         separators-in-run (count (filter #(= ::focusable-separator (:type %)) (or usages-in-run usages)))
         unnamed-separators (when (< 1 separators-in-run)
@@ -1922,6 +1932,8 @@
                                   (map #(-> %
                                             (assoc :type :missing-accessible-name
                                                    :hint (unnamed-separator-hint separators-in-run))
+                                            (hiccup/add-note (:schema-note %))
+                                            (dissoc :schema-note)
                                             (dissoc :unnamed?)))))]
     {:img-alt-missing (vec (:img-alt-missing by-type))
      :invalid-tabindex (vec (:invalid-tabindex by-type))

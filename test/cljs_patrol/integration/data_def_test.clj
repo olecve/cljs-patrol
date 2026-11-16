@@ -128,3 +128,66 @@
   (is (= #{"bad-split-label-schema"}
          (def-names-in defs-file (:form-after-split-map (result layout/group))))
       "layout still reads Malli def"))
+
+(def ^:private mixed-fixture-dir "test-projects/data-def-app/src/datadefmixed")
+
+(def ^:private mixed-file (str mixed-fixture-dir "/views.cljs"))
+
+(defn- mixed-result [rule-group]
+  (-> (core/run mixed-fixture-dir [rule-group]) :group-results first))
+
+(defn- noted-defs
+  "Name the fixture definitions whose findings carry the mixed schema note."
+  [findings]
+  (def-names-in mixed-file (filter #(some-> (:hint %) (str/includes? "Malli schema")) findings)))
+
+(deftest mixed-schema-note-on-each-group
+  (is (= #{"bad-label-schema" "bad-alias-schema"} (-> a11y/group mixed-result :label-not-associated noted-defs))
+      "a11y")
+  (is (= #{"bad-button-schema"}
+         (-> (forbid-props/make-group [:aria-disabled]) mixed-result :forbidden-prop noted-defs)))
+  (is (= #{"bad-fragment-schema"} (-> reagent/group mixed-result :empty-fragment-props noted-defs))
+      "reagent")
+  (is (= [(str "Query it by role \"button\" and its name. Its element sits in a Malli schema at " mixed-file
+               ":20, which reads as markup because of (fn [_ _] \"Bad\"). Move that part into its own def or function,"
+               " so the schema reads as data.")
+          "Query it by role \"button\" and its name."
+          "Query it by role \"button\" and its name."]
+         (->> react-testing-library-cljs/group mixed-result :test-id-query-on-role (map :hint)))
+      "react-testing-library-cljs"))
+
+(deftest mixed-schema-note-leaves-schemas-that-a-cut-keeps-from-data
+  (is (not-any? #{"cut-as-element-schema" "cut-fn-literal-schema" "cut-sibling-as-element-schema"}
+                (-> a11y/group mixed-result :label-not-associated noted-defs))
+      "as-element or fn literal in the value"))
+
+(deftest mixed-schema-note-leaves-test-id-shared-with-real-element
+  (is (= 1 (->> react-testing-library-cljs/group mixed-result :test-id-query-on-role (filter :hint)
+                (filter #(str/includes? (:hint %) "Malli schema")) count))
+      "only the save button lookup, whose one element sits in a schema"))
+
+(deftest mixed-schema-note-leaves-test-id-shared-by-two-schemas
+  (is (some #(= "Query it by role \"button\" and its name." (:hint %))
+            (->> react-testing-library-cljs/group mixed-result :test-id-query-on-role (filter #(= "bad-keep-button-by-test-id" (:test %)))))
+      "two schemas"))
+
+(deftest mixed-schema-note-on-run-level-a11y-findings
+  (is (= #{"bad-notes-schema" "bad-separator-schema"}
+         (-> a11y/group mixed-result :missing-accessible-name noted-defs))
+      "unreferenced id and unnamed separator"))
+
+(deftest mixed-schema-note-quotes-the-source
+  (is (some #(some-> (:hint %) (str/includes? "[:> ui/button {:on-click identity} \"x\"]"))
+            (-> (a11y/make-group {:component-aliases {'datadefmixed.ui/button :button}})
+                mixed-result
+                :label-not-associated))
+      "component alias"))
+
+(deftest mixed-schema-note-leaves-schemas-with-more-parts-and-the-part-itself
+  (let [findings (:label-not-associated (mixed-result a11y/group))]
+    (is (= #{"bad-label-schema" "bad-two-parts-schema" "bad-render-schema" "bad-alias-schema" "cut-as-element-schema"
+             "cut-fn-literal-schema" "cut-sibling-as-element-schema"}
+           (def-names-in mixed-file findings))
+        "every label stays reported")
+    (is (not-any? #{"bad-two-parts-schema" "bad-render-schema"} (noted-defs findings))
+        "two parts, and a label inside the part")))

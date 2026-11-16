@@ -105,9 +105,10 @@
                                  :when (and value-loc (written? value-loc) (forbidden-for? entry element))]
                              (finding loc prop element message file))]
               (when (seq findings)
-                {:decls []
-                 :dynamics []
-                 :usages (vec findings)}))))))))
+                (let [note (hiccup/mixed-schema-note loc)]
+                  {:decls []
+                   :dynamics []
+                   :usages (mapv #(hiccup/add-note % note) findings)})))))))))
 
 (defn- analyze* [{:keys [usages]}]
   {:forbidden-prop (filterv #(= :forbidden-prop (:type %)) usages)})

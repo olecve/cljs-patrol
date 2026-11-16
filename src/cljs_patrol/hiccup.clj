@@ -1012,3 +1012,97 @@
   is looked through, but every vector in that metadata must be clearly data."
   [loc]
   (boolean (clear-data-element? false loc)))
+
+(declare schema-parts)
+
+(defn- properties-parts [properties]
+  (when properties
+    (remove #(clear-value? false %) (parser/written-child-locs properties))))
+
+(defn- entry-parts [loc]
+  (let [[entry-key & more] (vector-elements loc)
+        [properties [schema & extra]] (split-properties more)]
+    (if (and (literal-of? [keyword? string? number?] entry-key) schema)
+      (concat (properties-parts properties) (schema-parts schema) extra)
+      [loc])))
+
+(defn- malli-vector-parts [loc]
+  (let [[head & more] (vector-elements loc)
+        [properties children] (split-properties more)
+        type (when (parser/kw-node? head) (z/sexpr head))]
+    (if (contains? data-types type)
+      (concat (properties-parts properties)
+              (mapcat (case (malli-child-kinds type)
+                        :entry entry-parts
+                        :literal #(when-not (literal-value? %) [%])
+                        :schema schema-parts)
+                      children))
+      [loc])))
+
+(defn- schema-parts [loc]
+  (cond
+    (malli-schema? loc) []
+    (vector-elements loc) (malli-vector-parts loc)
+    :else [loc]))
+
+(defn- top-level-form [loc]
+  (loop [current loc]
+    (let [parent (z/up current)]
+      (if (or (nil? parent) (= :forms (z/tag parent)))
+        current
+        (recur parent)))))
+
+(defn- inside? [loc ancestor]
+  (let [node (z/node ancestor)]
+    (boolean (some #(identical? node (z/node %)) (take-while some? (iterate z/up loc))))))
+
+(defn- snippet [loc]
+  (let [text (str/replace (parser/raw loc) #"\s+" " ")]
+    (if (< 40 (count text)) (str (subs text 0 37) "...") text)))
+
+(defn- cut-node?
+  "True when node is a `#(…)` or a symbol named `as-element`, either of which ends the data `def` rule."
+  [node]
+  (or (= :fn (n/tag node)) (as-element-symbol-node? node)))
+
+(defn- reads-as-data-without?
+  "True when the vector at value-loc is a data `def` value once a symbol takes the place of part, which value-loc holds.
+
+  The value must be clearly data and hold no `#(…)` and no `as-element`, since either ends the data `def` rule."
+  [value-loc part]
+  (let [depth (count (take-while #(not (identical? (z/node %) (z/node value-loc))) (iterate z/up part)))
+        value (nth (iterate z/up (z/replace part (n/token-node 'extracted))) depth)]
+    (and (clear-data? value)
+         (not-any? cut-node? (tree-seq written-inner? n/children (z/node value))))))
+
+(defn mixed-schema-part
+  "Show the one part that keeps the top-level Malli schema `def` around loc from reading as data, or nil.
+
+  The `def`'s value is a vector, with no metadata of its own, that [[clear-data?]] does not accept because of exactly
+  one part, such as Hiccup in a property value or a function. Moving that part into its own `def` or function must make
+  the value read as data, so a symbol is put in its place and the value is tested again. A loc inside that part gets
+  nil: it stays markup once the part moves out."
+  [loc]
+  (let [top (top-level-form loc)
+        [_ value] (when (top-level-def? top) (def-binding top))]
+    (when (and (= :vector (some-> value z/tag))
+               (inside? loc value))
+      (let [[part & more] (malli-vector-parts value)]
+        (when (and part
+                   (empty? more)
+                   (not (inside? loc part))
+                   (reads-as-data-without? value part))
+          (snippet part))))))
+
+(defn mixed-schema-note
+  "Build the hint note for a finding at loc in a Malli schema that one part keeps from reading as data, or nil."
+  [loc]
+  (when-let [part (mixed-schema-part loc)]
+    (str "The Malli schema around it reads as markup because of " part
+         ". Move that part into its own def or function, so the schema reads as data.")))
+
+(defn add-note
+  "Add note to the hint of finding, after the hint it already has."
+  [finding note]
+  (cond-> finding
+    note (update :hint #(if % (str % " " note) note))))

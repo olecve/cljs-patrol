@@ -538,12 +538,15 @@
     (when-let [{:keys [role]
                 :as element} (when-not (hiccup/inside-data-def? loc)
                                (role-and-name context loc))]
-      (let [{:keys [tag attrs]} (element-attrs context loc)]
+      (let [{:keys [tag attrs]} (element-attrs context loc)
+            test-id (some-> (get attrs :data-testid) string-value normalize-test-id)]
         {:decls []
          :usages [(assoc element
                          :type ::role-element
                          :role role
-                         :test-id (some-> (get attrs :data-testid) string-value normalize-test-id)
+                         :test-id test-id
+                         :row (parser/position-row loc)
+                         :schema-part (when test-id (hiccup/mixed-schema-part loc))
                          :hidden? (or (hidden-element? attrs)
                                       (closed-dialog? tag attrs)
                                       (hidden-in-form? context loc)
@@ -566,6 +569,15 @@
          :test (parser/enclosing-definition-name loc)
          :file file
          :row (parser/position-row loc)}))))
+
+(defn- schema-element-note
+  "Name the Malli schema that holds the one element, and the one part that keeps it from reading as data, or nil.
+
+  With more elements, they may sit in other schemas or none, and the finding stays once one part moves out."
+  [elements]
+  (when-let [{:keys [file row schema-part]} (when-not (next elements) (first (filter :schema-part elements)))]
+    (str "Its element sits in a Malli schema at " file ":" row ", which reads as markup because of " schema-part
+         ". Move that part into its own def or function, so the schema reads as data.")))
 
 (defn- find-test-id-queries-on-role
   "Keep the lookups of `usages` whose test id only elements a role query finds alone carry.
@@ -598,7 +610,8 @@
                      (-> lookup
                          (dissoc :type :id)
                          (assoc :type :test-id-query-on-role
-                                :hint (str "Query it by role \"" role "\" and its name.")))))))
+                                :hint (str "Query it by role \"" role "\" and its name."))
+                         (hiccup/add-note (schema-element-note elements)))))))
          vec)))
 
 (defn- handle-list [loc ns-info file]

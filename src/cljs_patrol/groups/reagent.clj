@@ -472,7 +472,7 @@
     (when-let [finding (cond
                          (empty-fragment-props? loc) (empty-fragment-props-finding loc file)
                          (redundant-fragment? loc ns-info) (redundant-fragment-finding loc file))]
-      {:decls [finding]
+      {:decls [(hiccup/add-note finding (hiccup/mixed-schema-note loc))]
        :usages []
        :dynamics []})))
 
