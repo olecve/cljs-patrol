@@ -1633,7 +1633,12 @@
              "bad-button-holding-a-component-cycle"
              "bad-button-holding-text-past-the-depth-limit"
              "bad-button-holding-a-shadowed-component"
-             "bad-button-holding-a-component-returning-a-var"}
+             "bad-button-holding-a-component-returning-a-var"
+             "bad-button-holding-an-icon-through-a-parameter"
+             "bad-button-holding-an-icon-through-a-destructured-key"
+             "bad-button-holding-an-icon-through-a-renamed-key"
+             "bad-button-holding-an-icon-through-the-matching-arity"
+             "bad-button-holding-an-icon-through-a-variadic-component"}
            (fn-names-in local-components-file (:empty-interactive-element (first group-results))))
         "control named by text a same-file component renders is left alone, any other empty control is flagged")))
 
@@ -1643,6 +1648,7 @@
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])]
     (is (= #{"bad-button-holding-only-hidden-text"
              "bad-button-holding-text-hidden-with-a-string"
+             "bad-button-holding-text-hidden-with-a-keyword"
              "bad-button-holding-a-component-rendering-hidden-text"}
            (fn-names-in hidden-text-file (:empty-interactive-element (first group-results))))
         "text inside an aria-hidden element names nothing")))

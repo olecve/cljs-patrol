@@ -159,3 +159,94 @@
   [:button {:on-click on-click
             :type "button"}
    [close-reference]])
+
+(defn- icon-slot [icon]
+  [:span.icon-slot icon])
+
+(defn bad-button-holding-an-icon-through-a-parameter [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [icon-slot [icons/square {:size 16}]]])
+
+(defn ok-button-holding-text-through-a-parameter [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [icon-slot "Close"]])
+
+(defn- icon-face [{:keys [icon]}]
+  icon)
+
+(defn bad-button-holding-an-icon-through-a-destructured-key [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [icon-face {:icon [icons/square {:size 16}]}]])
+
+(defn ok-button-holding-text-through-a-destructured-key [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [icon-face {:icon "Close"}]])
+
+(defn ok-button-holding-a-symbol-through-a-destructured-key [on-click label]
+  [:button {:on-click on-click
+            :type "button"}
+   [icon-face {:icon label}]])
+
+(defn ok-button-holding-a-key-the-map-leaves-out [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [icon-face {:size 16}]])
+
+(defn- renamed-face [{text :label}]
+  [:span text])
+
+(defn bad-button-holding-an-icon-through-a-renamed-key [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [renamed-face {:label [icons/square {:size 16}]}]])
+
+(defn ok-button-holding-text-through-a-renamed-key [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [renamed-face {:label "Close"}]])
+
+(defn- whole-face [{:as props}]
+  [:span props])
+
+(defn ok-button-holding-a-whole-map-parameter [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [whole-face {:label [icons/square {:size 16}]}]])
+
+(defn- shadowing-slot [icon]
+  (let [icon "Close"]
+    [:span icon]))
+
+(defn ok-button-holding-a-parameter-rebound-inside [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [shadowing-slot [icons/square {:size 16}]]])
+
+(defn- arity-slot
+  ([] [:span "Close"])
+  ([icon] [:span icon]))
+
+(defn bad-button-holding-an-icon-through-the-matching-arity [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [arity-slot [icons/square {:size 16}]]])
+
+(defn- variadic-slot [icon & _more]
+  [:span icon])
+
+(defn bad-button-holding-an-icon-through-a-variadic-component [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [variadic-slot [icons/square {:size 16}]]])
+
+(defn- rest-slot [icon & children]
+  [:span icon children])
+
+(defn ok-button-holding-a-rest-parameter [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [rest-slot [icons/square {:size 16}] [icons/square {:size 16}] [icons/square {:size 16}]]])

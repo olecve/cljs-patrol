@@ -641,7 +641,7 @@
       "keeps unresolved branch whole"))
 
 (defn- local-component-results [ns-info source target]
-  (some->> (hiccup/local-component (loc-at source target) ns-info) :results (mapv z/string)))
+  (some->> (hiccup/local-component (loc-at source target) ns-info) :arities (mapcat :results) (mapv z/string)))
 
 (deftest local-component-reads-same-file-components
   (is (= ["[:span \"Save\"]"] (local-component-results {} "(defn- label [] [:span \"Save\"]) [:button [label]]" "[label]"))
@@ -653,6 +653,14 @@
   (is (= ["[:span]"] (local-component-results {:aliases {"rum" "rum.core"}} "(rum/defc label < rum/static [] [:span]) [label]"
                                               "[label]"))
       "reads rum defc past its mixins")
+  (is (= ["[:span \"Close\"]"] (local-component-results {:aliases {"rum" "rum.core"}}
+                                                        "(rum/defc label < (rum/local 0 ::n) [state] [:span \"Close\"]) [label]"
+                                                        "[label]"))
+      "reads rum defc past a call mixin")
+  (is (nil? (local-component-results {:aliases {"r" "reagent.core"}}
+                                     "(defn- label [] [:span \"Save\"]) (def label (r/memo icon-only)) [label]"
+                                     "[label]"))
+      "skips name a later def rebinds")
   (is (nil? (local-component-results {} "(x/defc label [] [:span]) [label]" "[label]"))
       "skips look-alike defc")
   (is (nil? (local-component-results {} "(defn- label [] [:span]) (defn v [label] [label])" "[label]"))

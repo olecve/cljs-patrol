@@ -180,20 +180,29 @@
        (mapcat symbol-names)
        set))
 
+(defn- binds-name?
+  "True when the form at loc binds the unqualified name for what it holds."
+  [loc unqualified-name]
+  (or (and (contains? #{:list :fn} (z/tag loc))
+           (contains? (names-bound-by (z/node loc)) unqualified-name))
+      (and (method-definition? loc)
+           (contains? (method-parameter-names loc) unqualified-name))))
+
 (defn locally-bound?
   "True when a form enclosing loc binds the unqualified name, so it is a local and not a var.
 
   Every binding form above loc is read, whatever part of it loc sits in: a local that shadows
   `filter` in one branch is reason enough to vouch for no `filter` there."
   [loc unqualified-name]
-  (loop [current (z/up loc)]
-    (cond
-      (nil? current) false
-      (and (contains? #{:list :fn} (z/tag current))
-           (contains? (names-bound-by (z/node current)) unqualified-name)) true
-      (and (method-definition? current)
-           (contains? (method-parameter-names current) unqualified-name)) true
-      :else (recur (z/up current)))))
+  (boolean (some #(binds-name? % unqualified-name) (take-while some? (iterate z/up (z/up loc))))))
+
+(defn bound-below?
+  "True when a form between loc and `ancestor` binds the unqualified name, `ancestor` itself left out.
+  A `let` inside a function that rebinds one of its parameters is such a form."
+  [loc ancestor unqualified-name]
+  (boolean (some #(binds-name? % unqualified-name)
+                 (take-while #(and (some? %) (not (identical? (z/node %) (z/node ancestor))))
+                             (iterate z/up (z/up loc))))))
 
 (defn core-name-shadowed?
   "True when the ns form may take the unqualified name from somewhere other than core."

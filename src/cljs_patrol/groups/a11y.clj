@@ -263,70 +263,157 @@
 (defn- aria-hidden? [attrs]
   (contains? aria-hidden-true-values (literal-sexpr (get attrs :aria-hidden))))
 
+(defn- hidden-by-attrs?
+  "True when the element whose `attrs-info` this is carries `:aria-hidden true` of its own."
+  [info]
+  (boolean (some-> info settled-attrs aria-hidden?)))
+
+(defn- hidden-subtree?
+  "True when the element carries `:aria-hidden true` of its own.
+  The search stops there: that element runs the same search over its own subtree, and
+  reporting both would count nesting depth rather than defects."
+  [loc]
+  (hidden-by-attrs? (hiccup/attrs-info loc)))
+
+(defn- hidden-native-element?
+  "True when loc is a native element hidden with `:aria-hidden`, read from its `attrs-info`.
+  A component's props are left alone, since a component may not pass them on."
+  [loc info]
+  (and (some? (some-> loc z/down parser/raw hiccup/parse-tag))
+       (hidden-by-attrs? info)))
+
 (def ^:private component-depth-limit
   "How many local components deep a body is read; a component below that renders nothing known."
   4)
 
-(defn- bound-symbol-loc?
-  "True when loc is a bare symbol a binding around it names, such as a parameter or a destructured prop."
+(defn- map-parameter-bindings
+  "Map each name a map parameter binds to the value the caller's map gives it, or to nil.
+
+  `{:keys [label]}` and `{label :label}` read the key out of a literal map argument; a key the
+  map does not hold, or an argument that is no literal map, gives nil. Any other entry, an
+  `:as` among them, binds names this leaves out, and a name left out counts as text."
+  [param argument]
+  (let [values (when (= :map (some-> argument z/tag)) (hiccup/literal-map argument))
+        value-of #(get values %)]
+    (->> (parser/written-child-locs param)
+         (partition 2)
+         (mapcat (fn [[k v]]
+                   (let [key-value (literal-sexpr k)]
+                     (cond
+                       (and (= :keys key-value) (= :vector (z/tag v)))
+                       (keep (fn [element]
+                               (let [element-value (literal-sexpr element)]
+                                 (when (or (symbol? element-value) (keyword? element-value))
+                                   [(name element-value) (value-of (keyword (namespace element-value)
+                                                                            (name element-value)))])))
+                             (parser/written-child-locs v))
+
+                       (and (hiccup/unqualified-symbol-name k) (keyword? (literal-sexpr v)))
+                       [[(hiccup/unqualified-symbol-name k) (value-of (literal-sexpr v))]])))))))
+
+(defn- parameter-bindings
+  "Map each name a parameter binds to the caller's argument it takes, or to nil when it cannot be read."
+  [param argument]
+  (cond
+    (hiccup/unqualified-symbol-name param) [[(hiccup/unqualified-symbol-name param) argument]]
+    (= :map (z/tag param)) (map-parameter-bindings param argument)))
+
+(defn- variadic? [params]
+  (some #(= "&" (parser/raw %)) params))
+
+(defn- matching-arity
+  "Return the arity a call with `argument-count` arguments runs, or nil when none can be told."
+  [arities argument-count]
+  (let [params-of #(some-> % :params parser/written-child-locs)
+        fixed-count #(count (take-while (fn [param] (not= "&" (parser/raw param))) (params-of %)))]
+    (or (first (filter #(and (not (variadic? (params-of %))) (= argument-count (count (params-of %)))) arities))
+        (first (filter #(and (variadic? (params-of %)) (<= (fixed-count %) argument-count)) arities)))))
+
+(defn- caller-arguments
+  "Map each name the arity's fixed parameters bind to what the call passes for it, or to nil."
+  [{:keys [params]} arguments]
+  (into {}
+        (mapcat parameter-bindings
+                (take-while #(not= "&" (parser/raw %)) (some-> params parser/written-child-locs))
+                arguments)))
+
+(defn- caller-argument
+  "Return `[argument context]` for a parameter symbol at loc that a component reads, or nil.
+
+  The argument is what the caller passed for it, read in the caller's own context. A symbol
+  rebound inside the component, by a `let` for one, is no longer the parameter."
+  [loc {:keys [component]}]
+  (when-let [{:keys [arguments caller-context def-loc]} component]
+    (when-let [symbol-name (hiccup/unqualified-symbol-name loc)]
+      (when-let [argument (get arguments symbol-name)]
+        (when-not (heads/bound-below? loc def-loc symbol-name)
+          [argument caller-context])))))
+
+(defn- renderable-result?
+  "True when a component result is read for content: a Hiccup vector, a string, or a bound symbol."
   [loc]
-  (let [symbol-name (parser/sym-name loc)]
-    (boolean (and symbol-name
-                  (= symbol-name (parser/raw loc))
-                  (heads/locally-bound? loc symbol-name)))))
+  (or (= :vector (z/tag loc))
+      (literal-string-loc? loc)
+      (boolean (when-let [symbol-name (hiccup/unqualified-symbol-name loc)]
+                 (heads/locally-bound? loc symbol-name)))))
 
 (defn- component-renders-text?
   "True when loc calls a component its own file defines, and what the component returns carries visible content.
 
   A returned Hiccup vector, string or bound symbol is read the way a direct child is; any
-  other result, such as a call, is not read, so it adds nothing. A component already being
-  read, one that renders itself or a cycle, renders nothing known, and so does one past
+  other result, such as a call, is not read, so it adds nothing. A parameter the component
+  renders is read as what the call passes for it. A component already being read, one that
+  renders itself or a cycle, renders nothing known, and so does one past
   [[component-depth-limit]]."
   [loc {:keys [ns-info expanded]
         :as context}]
   (boolean
-   (when-let [{:keys [name results]} (hiccup/local-component loc ns-info)]
+   (when-let [{:keys [name def-loc arities]} (hiccup/local-component loc ns-info)]
      (when (and (not (contains? expanded name))
                 (< (count expanded) component-depth-limit))
-       (let [inner (update context :expanded conj name)]
-         (some #(and (or (= :vector (z/tag %)) (literal-string-loc? %) (bound-symbol-loc? %))
-                     (visible-content? % inner))
-               results))))))
-
-(defn- hidden-element?
-  "True when loc is a native element whose settled attrs hide it with `:aria-hidden`.
-  A component's props are left alone, since a component may not pass them on."
-  [loc]
-  (and (= :vector (z/tag loc))
-       (some? (some-> loc z/down parser/raw hiccup/parse-tag))
-       (aria-hidden? (settled-attrs (hiccup/attrs-info loc)))))
+       (let [arguments (rest (parser/written-child-locs loc))
+             arity (matching-arity arities (count arguments))
+             inner (assoc context
+                          :expanded (conj expanded name)
+                          :component (when arity
+                                       {:arguments (caller-arguments arity arguments)
+                                        :caller-context context
+                                        :def-loc def-loc}))]
+         (some #(and (renderable-result? %) (visible-content? % inner))
+               (if arity (:results arity) (mapcat :results arities))))))))
 
 (defn- visible-content?
   "True when loc carries visible text or dynamically-computed content.
+
   A nested Hiccup vector is treated as opaque icon markup unless it
   contains a string literal, a dynamic form, or an aria-name attribute
   on itself or a descendant. A vector calling a component its own file
-  defines is also read through what the component returns. An element
-  hidden with `:aria-hidden` carries nothing, whatever it holds."
+  defines is also read through what the component returns, and a
+  parameter that component renders through what its caller passes. A
+  native element hidden with `:aria-hidden` carries nothing, whatever it
+  holds."
   [loc context]
   (cond
     (literal-string-loc? loc) true
 
-    (hidden-element? loc) false
-
     (= :vector (z/tag loc))
-    (let [{:keys [slot attrs]} (hiccup/attrs-info loc)
+    (let [{:keys [slot attrs]
+           :as info} (hiccup/attrs-info loc)
           body-start (if slot (z/right slot) (some-> loc z/down z/right))]
-      (or (when slot
-            (or (meaningful-text-name? attrs)
-                (image-alt-name? loc attrs)))
-          (visible-from? body-start context)
-          (component-renders-text? loc context)))
+      (and (not (hidden-native-element? loc info))
+           (or (when slot
+                 (or (meaningful-text-name? attrs)
+                     (image-alt-name? loc attrs)))
+               (visible-from? body-start context)
+               (component-renders-text? loc context))))
 
     (= :list (z/tag loc))
     (not (icon-only-branches? loc context))
 
-    :else true))
+    :else
+    (if-let [[argument caller-context] (caller-argument loc context)]
+      (visible-content? argument caller-context)
+      true)))
 
 (defn- visible-from?
   "True when `body-start` or any sibling to its right carries visible content."
@@ -846,13 +933,6 @@
   [loc]
   (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
     (when (= :map kind) attrs)))
-
-(defn- hidden-subtree?
-  "True when the element carries `:aria-hidden true` of its own.
-  The search stops there: that element runs the same search over its own subtree, and
-  reporting both would count nesting depth rather than defects."
-  [loc]
-  (boolean (some-> (hiccup/attrs-info loc) settled-attrs aria-hidden?)))
 
 (defn- disabled-fieldset?
   "True when the element empties the tab order beneath it.

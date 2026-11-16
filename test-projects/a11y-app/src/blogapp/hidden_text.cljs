@@ -13,6 +13,11 @@
             :type "button"}
    [:span {:aria-hidden "true"} "Save"]])
 
+(defn bad-button-holding-text-hidden-with-a-keyword [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [:span {:aria-hidden :true} "Save"]])
+
 (defn- hidden-label []
   [:span {:aria-hidden true} "Save"])
 
