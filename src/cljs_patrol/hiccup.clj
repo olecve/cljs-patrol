@@ -167,7 +167,7 @@
   Only `defmethod` can put a vector — its dispatch value — before the parameters."
   {"defmethod" 2})
 
-(defn- unqualified-symbol-name
+(defn unqualified-symbol-name
   "Return the name of a bare symbol token, or nil for anything else.
   A qualified symbol names something another namespace binds, which no local
   binding form can shadow, so `ui/props` must not answer to a local `props`."
@@ -195,41 +195,13 @@
 (defn- skip-right [loc n]
   (reduce (fn [current _] (some-> current z/right)) loc (range n)))
 
-(defn unwrap-meta
-  "Return the value a `:meta` node wraps, or loc itself.
-  `(defn f ^:static [a b] …)` reads as a parameter list with something in front of it,
-  and the parameters bind whether or not anything is attached to them."
-  [loc]
-  (loop [current loc]
-    (if (= :meta (some-> current z/tag))
-      (recur (some-> current z/down z/rightmost))
-      current)))
-
 (defn- parameter-vectors
-  "Return the vectors binding parameters in a fn-like form.
-
-  The first vector after the head is the parameter list of a single-arity form; in a
-  multi-arity one each arity is a list whose first child is that vector. A body vector
-  is never mistaken for either, since a parameter list always precedes the body."
+  "Return the vectors binding parameters in a fn-like form, one per arity, read by [[heads/arities]]."
   [list-loc]
   (let [head (z/down list-loc)
         start (skip-right (some-> head z/right)
                           (get parameter-list-offsets (some-> head parser/sym-name) 0))]
-    (loop [child start
-           arity-vectors []]
-      (cond
-        (nil? child) arity-vectors
-
-        ;; A single-arity form states its parameters directly, and then everything
-        ;; after them is body — including a body that begins with a vector.
-        (= :vector (some-> child unwrap-meta z/tag)) [(unwrap-meta child)]
-
-        (= :list (z/tag child))
-        (let [first-child (some-> child z/down unwrap-meta)]
-          (recur (z/right child)
-                 (cond-> arity-vectors (= :vector (some-> first-child z/tag)) (conj first-child))))
-
-        :else (recur (z/right child) arity-vectors)))))
+    (keep :params (heads/arities start))))
 
 (defn- binding-pairs [vector-loc]
   (loop [form (z/down vector-loc)
@@ -278,7 +250,7 @@
   discarded one is not there at all, so neither disqualifies the list."
   [vector-loc]
   (loop [element (z/down vector-loc)]
-    (let [value (some-> element unwrap-meta)]
+    (let [value (some-> element heads/unwrap-meta)]
       (cond
         (nil? element) true
         (= :uneval (z/tag element)) (recur (z/right element))
@@ -398,52 +370,68 @@
          (= :list (z/tag loc))
          (contains? top-level-def-heads (some-> loc z/down parser/raw)))))
 
-(defn- first-top-level-form [loc]
-  (let [root (loop [current loc]
-               (if-let [parent (z/up current)]
-                 (recur parent)
-                 current))]
-    (if (= :forms (z/tag root))
-      (z/down root)
-      (z/leftmost root))))
+(defn file-root
+  "Return the root of the tree loc sits in."
+  [loc]
+  (loop [current loc]
+    (if-let [parent (z/up current)]
+      (recur parent)
+      current)))
 
-(defn- scan-top-level-defs
-  "Return `{name → value-loc}` for every `def` in the file.
-  The last `def` of a name wins, the way it does at load time: a re-`def` rebinds the
+(defn- first-top-level-form [root]
+  (if (= :forms (z/tag root))
+    (z/down root)
+    (z/leftmost root)))
+
+(def ^:private component-def-heads
+  "Forms defining a component that renders the last form of its body."
+  #{'cljs.core/defn 'cljs.core/defn- 'reagent.core/defc 'rum.core/defc})
+
+(defn- definition-name
+  "Return the name a top-level form defines, or nil.
+  A `def` binding a value counts, and so does a function [[local-component]] reads; a
+  look-alike such as `mx/defn` defines nothing here."
+  [form ns-info]
+  (cond
+    (top-level-def? form) (first (def-binding form))
+
+    (and (= :list (z/tag form))
+         (heads/resolve-head form ns-info component-def-heads))
+    (some-> (parser/declared-name-loc form) parser/sym-name)))
+
+(defn- scan-top-level-definitions
+  "Return `{name → form-loc}` holding the last top-level definition of every name in the file.
+  The last definition of a name wins, the way it does at load time: a re-`def` rebinds the
   var, and a function body called afterwards sees the value that rebinding left."
   [first-form]
-  (loop [form first-form
-         defs {}]
-    (if (nil? form)
-      defs
-      (recur (z/right form)
-             (or (when (top-level-def? form)
-                   (when-let [[defined value] (def-binding form)]
-                     (assoc defs defined value)))
-                 defs)))))
+  (let [ns-info @@(parser/file-state ::file-ns-info (delay (or (parser/find-ns-info first-form) {})))]
+    (loop [form first-form
+           definitions {}]
+      (if (nil? form)
+        definitions
+        (recur (z/right form)
+               (if-let [defined (definition-name form ns-info)]
+                 (assoc definitions defined form)
+                 definitions))))))
 
-(defn- def-index
-  "Find the `def`s of the file being read, kept in [[parser/file-state]] for that file alone.
+(defn- definition-index
+  "Find the top-level definitions of each tree of the file being read, kept in [[parser/file-state]] for that file alone.
 
   A file's vectors ask about its vars over and over, so this turns a scan per question
   into a scan per file: the difference between linear and quadratic on a namespace with
-  a thousand `def`s. Keyed by identity of the file's first top-level form, so a tree this
-  never saw rebuilds it."
-  []
-  (parser/file-state ::def-index {:cached-root nil
-                                  :defs {}}))
+  a thousand `def`s. Keyed by identity of the tree's root node, so a tree rewritten from
+  the file, such as one with interop calls unwrapped, gets definitions of its own."
+  ^IdentityHashMap []
+  @(parser/file-state ::definition-index (IdentityHashMap.)))
 
-(defn- top-level-defs [loc]
-  (let [first-form (first-top-level-form loc)
-        root (some-> first-form z/node)
-        state (def-index)
-        {:keys [cached-root defs]} @state]
-    (if (and root (identical? root cached-root))
-      defs
-      (let [scanned (scan-top-level-defs first-form)]
-        (reset! state {:cached-root root
-                       :defs scanned})
-        scanned))))
+(defn- top-level-definitions [loc]
+  (let [root (file-root loc)
+        root-node (z/node root)
+        index (definition-index)]
+    (or (.get index root-node)
+        (let [scanned (scan-top-level-definitions (first-top-level-form root))]
+          (.put index root-node scanned)
+          scanned))))
 
 (defn- top-level-def-value
   "Return the value a `def` in the same file binds symbol-name to, or nil.
@@ -452,7 +440,9 @@
   does. Nothing is read across a namespace: a symbol another file defines stays
   unknown, as it was before anything was looked up at all."
   [loc symbol-name]
-  (get (top-level-defs loc) symbol-name))
+  (let [form (get (top-level-definitions loc) symbol-name)]
+    (when (and form (top-level-def? form))
+      (second (def-binding form)))))
 
 (defn resolved-value
   "Return what a bare symbol names, or nil when nothing here answers for it.
@@ -725,6 +715,28 @@
    (result-locs* loc #(get result-head-by-name (some-> % z/down parser/sym-name))))
   ([loc ns-info]
    (result-locs* loc #(heads/resolve-head % ns-info result-heads))))
+
+(defn local-component
+  "Return `{:name … :def-loc … :arities […]}` for a Hiccup vector headed by a component its own file defines, or nil.
+
+  The head must be a bare symbol that no binding around the vector shadows, whose last
+  top-level definition in the file is a `defn`, `defn-` or `defc`. Each arity is
+  `{:params … :results […]}`, the results being the locs it can return, read through
+  [[result-locs]]. Nothing is read across a namespace: a component another file defines
+  stays unknown."
+  [vec-loc ns-info]
+  (let [head (some-> vec-loc z/down)
+        head-name (unqualified-symbol-name head)
+        def-loc (when (and head-name (not (heads/locally-bound? head head-name)))
+                  (get (top-level-definitions vec-loc) head-name))]
+    (when (and def-loc (not (top-level-def? def-loc)))
+      {:name head-name
+       :def-loc def-loc
+       :arities (map (fn [{:keys [params body]}]
+                       {:params params
+                        :results (some-> (last (remove #(= :uneval (z/tag %)) body))
+                                         (result-locs ns-info))})
+                     (heads/arities (some-> def-loc z/down z/right)))})))
 
 (defn- yields-hiccup?
   "True when the expression can yield a Hiccup vector rather than a value.

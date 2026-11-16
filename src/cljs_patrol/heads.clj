@@ -94,20 +94,61 @@
                        (binding-sides value-node)
                        [binding-node])))))))
 
-(defn- parameter-vectors
-  "Return the parameter vectors of a fn-like form from its arguments.
+(defn unwrap-meta
+  "Return the value a `:meta` node wraps, or loc itself.
+  `(defn f ^:static [a b] …)` reads as a parameter list with something in front of it,
+  and the parameters bind whether or not anything is attached to them."
+  [loc]
+  (loop [current loc]
+    (if (= :meta (some-> current z/tag))
+      (recur (some-> current z/down z/rightmost))
+      current)))
 
-  The first vector is the parameter list of a single arity, and the vector opening each
-  arity list of a multi-arity form. A `defmethod` has its dispatch value first, which may be
-  a vector too. A vector in a body, the return of a Hiccup view, is not a parameter list."
+(defn- unwrap-meta-node
+  "Return the value a `:meta` node wraps, or node itself."
+  [node]
+  (if (= :meta (some-> node n/tag))
+    (recur (last (code-forms node)))
+    node))
+
+(defn- arity-list-node? [node]
+  (and (= :list (n/tag node))
+       (= :vector (some-> (first (code-forms node)) unwrap-meta-node n/tag))))
+
+(defn- arity-nodes
+  "Return the arities among `forms`, the forms after a fn-like form's head.
+
+  A single arity is its parameter vector: the first vector, after a name, a docstring,
+  an attr map or a Rum mixin such as `(rum/local 0 ::n)`. A multi-arity form gives a list
+  per arity, whose first child is that arity's parameters. A vector in a body, the return
+  of a Hiccup view, is never a parameter list, since the parameters come before the body."
+  [forms]
+  (loop [remaining (seq forms)]
+    (let [form (first remaining)]
+      (cond
+        (nil? remaining) []
+        (= :vector (n/tag (unwrap-meta-node form))) [form]
+        (arity-list-node? form) (filter arity-list-node? remaining)
+        :else (recur (next remaining))))))
+
+(defn arities
+  "Return `{:params … :body […]}` for each arity of a function form, from `start`, the loc after its head.
+  The arities are those [[arity-nodes]] finds; the body holds the forms after the parameters, in order."
+  [start]
+  (let [locs (take-while some? (iterate z/right start))]
+    (for [opening (arity-nodes (map z/node locs))
+          :let [loc (first (filter #(identical? opening (z/node %)) locs))
+                params (if (= :list (n/tag opening)) (z/down loc) loc)]]
+      {:params (unwrap-meta params)
+       :body (parser/right-siblings params)})))
+
+(defn- parameter-vectors
+  "Return the parameter vectors of a fn-like form from its arguments, those [[arity-nodes]] finds.
+  A `defmethod` has its dispatch value first, which may be a vector too."
   [head-name arguments]
-  (let [after-dispatch (if (= "defmethod" head-name) (drop 2 arguments) arguments)]
-    (if-let [single (first (filter #(= :vector (n/tag %)) after-dispatch))]
-      [single]
-      (keep #(when (= :list (n/tag %))
-               (let [opening (first (code-forms %))]
-                 (when (= :vector (some-> opening n/tag)) opening)))
-            after-dispatch))))
+  (->> (if (= "defmethod" head-name) (drop 2 arguments) arguments)
+       arity-nodes
+       (map #(unwrap-meta-node (if (= :list (n/tag %)) (first (code-forms %)) %)))))
 
 (defn- names-bound-by
   "Return the names list-node binds for its body.
@@ -180,20 +221,29 @@
        (mapcat symbol-names)
        set))
 
+(defn- binds-name?
+  "True when the form at loc binds the unqualified name for what it holds."
+  [loc unqualified-name]
+  (or (and (contains? #{:list :fn} (z/tag loc))
+           (contains? (names-bound-by (z/node loc)) unqualified-name))
+      (and (method-definition? loc)
+           (contains? (method-parameter-names loc) unqualified-name))))
+
 (defn locally-bound?
   "True when a form enclosing loc binds the unqualified name, so it is a local and not a var.
 
   Every binding form above loc is read, whatever part of it loc sits in: a local that shadows
   `filter` in one branch is reason enough to vouch for no `filter` there."
   [loc unqualified-name]
-  (loop [current (z/up loc)]
-    (cond
-      (nil? current) false
-      (and (contains? #{:list :fn} (z/tag current))
-           (contains? (names-bound-by (z/node current)) unqualified-name)) true
-      (and (method-definition? current)
-           (contains? (method-parameter-names current) unqualified-name)) true
-      :else (recur (z/up current)))))
+  (boolean (some #(binds-name? % unqualified-name) (take-while some? (iterate z/up (z/up loc))))))
+
+(defn bound-below?
+  "True when a form between loc and `ancestor` binds the unqualified name, `ancestor` itself left out.
+  A `let` inside a function that rebinds one of its parameters is such a form."
+  [loc ancestor unqualified-name]
+  (boolean (some #(binds-name? % unqualified-name)
+                 (take-while #(and (some? %) (not (identical? (z/node %) (z/node ancestor))))
+                             (iterate z/up (z/up loc))))))
 
 (defn core-name-shadowed?
   "True when the ns form may take the unqualified name from somewhere other than core."

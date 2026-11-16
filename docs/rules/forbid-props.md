@@ -20,9 +20,9 @@ element or component. The finding gives the entry's message.
 
 ```clojure
 ;; flagged
-(defn save-button [allowed?]
+(defn save-button [allowed? on-save]
   [:button {:aria-disabled (not allowed?)
-            :on-click #(when allowed? (save!))
+            :on-click #(when allowed? (on-save))
             :type "button"}
    "Save"])
 
@@ -32,9 +32,9 @@ element or component. The finding gives the entry's message.
    "Comment"])
 
 ;; fix
-(defn save-button [allowed?]
+(defn save-button [allowed? on-save]
   [:button {:disabled (not allowed?)
-            :on-click save!
+            :on-click on-save
             :type "button"}
    "Save"])
 ```

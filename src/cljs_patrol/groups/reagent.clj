@@ -309,7 +309,7 @@
   however many items it gives, and a form choosing between branches as its busiest branch,
   since only one of them renders."
   [loc ns-info]
-  (let [loc (hiccup/unwrap-meta loc)]
+  (let [loc (heads/unwrap-meta loc)]
     (cond
       (hiccup-element? loc)
       (+ (if (handler-element? loc) 1 0)
@@ -368,22 +368,6 @@
   "Forms defining a function that returns the last form of its body."
   #{'cljs.core/defn 'cljs.core/defn- 'cljs.core/fn 'rum.core/defc})
 
-(defn- arity-bodies
-  "Return the body of each arity of a function form, its forms in order.
-
-  A single-arity form writes its body after the first vector from `start`, the parameters;
-  a name, a docstring or an attr map before it is no vector. A multi-arity form writes a
-  list per arity whose first child is that arity's parameters."
-  [start]
-  (loop [child start]
-    (cond
-      (nil? child) []
-      (= :vector (z/tag (hiccup/unwrap-meta child))) [(parser/right-siblings child)]
-      (= :list (z/tag child)) (->> (cons child (parser/right-siblings child))
-                                   (filter #(= :list (z/tag %)))
-                                   (map #(parser/right-siblings (z/down %))))
-      :else (recur (z/right child)))))
-
 (defn- finally-form? [loc]
   (and (= :list (z/tag loc))
        (= "finally" (some-> loc z/down parser/sym-name))))
@@ -402,10 +386,10 @@
   (let [head (heads/resolve-head loc ns-info returning-heads)
         bodies (cond
                  (contains? function-heads-with-body head)
-                 (arity-bodies (some-> loc z/down z/right))
+                 (map :body (heads/arities (some-> loc z/down z/right)))
 
                  (= 'cljs.core/defmethod head)
-                 (arity-bodies (some-> loc z/down z/right z/right z/right))
+                 (map :body (heads/arities (some-> loc z/down z/right z/right z/right)))
 
                  (contains? body-head->offset head)
                  [(cond->> (->> loc parser/written-child-locs rest (drop (body-head->offset head)))
@@ -417,11 +401,11 @@
   [loc ns-info]
   (->> (returning-bodies loc ns-info)
        (mapcat butlast)
-       (filter #(hiccup-element? (hiccup/unwrap-meta %)))))
+       (filter #(hiccup-element? (heads/unwrap-meta %)))))
 
 (defn- discarded-hiccup-finding [loc file]
   (let [[row col] (parser/position loc)]
-    {:kw (head-identifier (z/down (hiccup/unwrap-meta loc)))
+    {:kw (head-identifier (z/down (heads/unwrap-meta loc)))
      :type :discarded-hiccup
      :form (parser/source-snippet loc)
      :file file

@@ -111,3 +111,39 @@
   (with-redefs [heads/locally-bound? (fn [& _] (throw (ex-info "bindings read" {})))]
     (is (nil? (resolve-among #{'cljs.core/when} "(let [map f] (map x y))" [z/down z/right z/right]))
         "gives nil for bare head outside candidates without reading bindings")))
+
+(defn- token-at
+  "Return the loc of the last token in source whose text is target."
+  [source target]
+  (->> (iterate z/next (z/of-string source))
+       (take-while (complement z/end?))
+       (filter #(= target (z/string %)))
+       last))
+
+(defn- arity-strings [source]
+  (map (fn [{:keys [params body]}] [(z/string params) (mapv z/string body)])
+       (heads/arities (-> (z/of-string source) z/down z/right))))
+
+(deftest arities-read-parameters-and-body
+  (is (= [["[a]" ["[:span a]"]]] (arity-strings "(defn f \"doc\" {:m 1} [a] [:span a])"))
+      "single arity after name, docstring and attr map")
+  (is (= [["[]" ["[:i]"]] ["[a]" ["[:b a]"]]] (arity-strings "(defn f ([] [:i]) ([a] [:b a]) {:added 1})"))
+      "one entry per arity, trailing attr map left out")
+  (is (= [["[s]" ["[:span]"]]] (arity-strings "(rum/defc f < (rum/local 0 ::n) [s] [:span])"))
+      "call mixin before parameters")
+  (is (= [["[a]" ["a"]]] (arity-strings "(defn f ^:static [a] a)"))
+      "metadata on parameters"))
+
+(deftest bound-below-stops-at-ancestor
+  (let [in-let (token-at "(defn f [icon] (let [icon 1] [:span icon]))" "icon")
+        in-body (token-at "(defn f [icon] [:span icon])" "icon")]
+    (is (heads/bound-below? in-let (z/up (z/up (z/up in-let))) "icon")
+        "let between token and ancestor binds")
+    (is (not (heads/bound-below? in-body (z/up (z/up in-body)) "icon"))
+        "ancestor's own parameters left out")
+    (is (heads/locally-bound? in-body "icon")
+        "same token is bound once ancestor counts")))
+
+(deftest defmethod-parameters-skip-discarded-dispatch
+  (is (heads/locally-bound? (token-at "(defmethod render #_:old [:a :b] [x] [:span x])" "x") "x")
+      "dispatch vector after discarded form is no parameter list"))

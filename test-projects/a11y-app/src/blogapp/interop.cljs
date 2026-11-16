@@ -1,6 +1,6 @@
 (ns blogapp.interop
   (:require
-   ["@acme/ui-kit" :refer [Button Input Switch TextArea]]
+   ["@acme/ui-kit" :refer [Button Icon Input Switch TextArea]]
    ["react-resizable-panels" :as rrp :refer [PanelResizeHandle]]))
 
 (defn bad-interop-handle-unnamed []
@@ -49,3 +49,11 @@
 
 (defn bad-button-holding-interop-button []
   [:button "Save" [:> Button {:aria-label "More"}]])
+
+(defn- interop-icon-face []
+  [:> Icon {:size 16}])
+
+(defn bad-button-holding-a-component-rendering-an-interop-icon [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [interop-icon-face]])

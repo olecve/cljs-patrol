@@ -2,6 +2,7 @@
   "Rule group: conventions of test code."
   (:require
    [cljs-patrol.group :as group]
+   [cljs-patrol.heads :as heads]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
@@ -198,7 +199,7 @@
     ;; reports the one deref twice.
     (let [var-loc (up-through-meta loc)]
       (and (= :var (some-> var-loc z/tag))
-           (identical? (z/node loc) (some-> var-loc z/down hiccup/unwrap-meta z/node))))
+           (identical? (z/node loc) (some-> var-loc z/down heads/unwrap-meta z/node))))
     (up-through-meta loc)))
 
 (defn- deref-around
