@@ -2,6 +2,8 @@
 
 ## [v0.0.56] - 2026-11-16
 
+**Breaking:** the spade rule `defattrs-in-merge` is now `defattrs-as-data` (#148). Baseline entries under the old key read as fixed, and the same findings come back under the new key until the next `--baseline-write --allow-new`. `--fail-on defattrs-in-merge` is now an unknown token: use `--fail-on defattrs-as-data`.
+
 * Add a11y label components for field wrappers that label their control by @olecve in https://github.com/olecve/cljs-patrol/pull/144
 * Skip private element shells that every caller fills in a11y by @olecve in https://github.com/olecve/cljs-patrol/pull/143
 * List every candidate shadow in the focus-ring raw-shadow hint by @olecve in https://github.com/olecve/cljs-patrol/pull/145
