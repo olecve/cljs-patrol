@@ -498,7 +498,7 @@
                   (let [attrs (literal-map map-loc)]
                     {:attrs (or attrs {})
                      :complete? (some? attrs)
-                     :final (if attrs (set (keys attrs)) #{})}))]
+                     :final (set (keys attrs))}))]
     (cond
       (nil? loc) {:attrs {}
                   :complete? true
@@ -509,10 +509,6 @@
                                (literal resolved)
                                opaque-contribution)
       :else opaque-contribution)))
-
-(defn- right-args [head]
-  (when-let [arg (z/right head)]
-    (cons arg (lazy-seq (right-args arg)))))
 
 (defn construction-attrs
   "Return `{:attrs {kw → value-loc} :complete? bool :final #{kw}}` for a map-building call.
@@ -533,7 +529,7 @@
     (when-let [head (z/down list-loc)]
       (let [head-str (parser/raw head)]
         (when (contains? attr-construction-heads head-str)
-          (let [args (right-args head)]
+          (let [args (rest (parser/written-child-locs list-loc))]
             (case head-str
               "merge"
               (reduce (fn [acc arg]
@@ -551,12 +547,20 @@
               "assoc"
               (->> args
                    rest
-                   (partition 2)
+                   (partition-all 2)
                    (reduce (fn [acc [key-loc value-loc]]
-                             (if (parser/kw-node? key-loc)
+                             (cond
+                               (nil? value-loc)
+                               (reduced (assoc acc
+                                               :complete? false
+                                               :final #{}))
+
+                               (parser/kw-node? key-loc)
                                (-> acc
                                    (assoc-in [:attrs (z/sexpr key-loc)] value-loc)
                                    (update :final conj (z/sexpr key-loc)))
+
+                               :else
                                (assoc acc
                                       :complete? false
                                       :final #{})))
@@ -565,7 +569,7 @@
               "assoc-in"
               (let [[base path-loc value-loc] args
                     path-keys (when (= :vector (some-> path-loc z/tag))
-                                (vec (parser/child-locs path-loc)))
+                                (vec (parser/written-child-locs path-loc)))
                     outer-key (first path-keys)
                     readable-key? (and outer-key (parser/kw-node? outer-key))]
                 (cond-> (contributed base)
@@ -578,6 +582,9 @@
 
                   (or (not readable-key?) (next path-keys))
                   (assoc :complete? false)
+
+                  (and readable-key? (next path-keys))
+                  (update :final disj (z/sexpr outer-key))
 
                   (not readable-key?)
                   (assoc :final #{}))))))))))

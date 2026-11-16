@@ -1691,7 +1691,7 @@
                                   'blogapp.ui/field #{:label}}))
       "exact key wins over namespace glob"))
 
-(def ^:private built-attrs-file (str fixture-dir "/built_attrs.cljs"))
+(def ^:private built-attrs-file (str fixture-dir "/built_attrs.cljc"))
 
 (deftest attribute-rules-read-final-keys-of-built-maps-test
   (let [result (first (:group-results (core/run fixture-dir [a11y/group])))
@@ -1702,6 +1702,8 @@
     (is (= #{"bad-built-alert-downgraded-to-polite"}
            (reported :aria-live-contradicts-role))
         "role and aria-live written after the base")
-    (is (= #{"bad-built-hidden-wrapper"}
+    (is (= #{"bad-built-hidden-wrapper" "bad-built-wrapper-inside-hidden-wrapper"}
            (reported :aria-hidden-focusable))
-        "aria-hidden written after the base, over a focusable child")))
+        "aria-hidden written after the base, over a focusable child")
+    (is (= 2 (count (filter #(= built-attrs-file (:file %)) (:aria-hidden-focusable result))))
+        "hidden wrapper inside another reported once")))

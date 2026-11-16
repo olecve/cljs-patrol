@@ -263,7 +263,17 @@
   (is (= #{:a} (final-keys "[:div (assoc-in base [:a] 1)]"))
       "one-key path")
   (is (= #{} (final-keys "[:div (assoc-in (assoc base :a 1) [k] 2)]"))
-      "computed path key after a written one"))
+      "computed path key after a written one")
+  (is (= #{} (final-keys "[:div (assoc-in (assoc base :a 1) [:a :x] 2)]"))
+      "deeper path under a written key")
+  (is (= #{:a} (final-keys "[:div (assoc-in base [#_:x :a] 1)]"))
+      "discarded form in the path")
+  (is (= #{} (final-keys "[:div (assoc base :a 1 #?@(:cljs [:a 0]))]"))
+      "splice after a written key")
+  (is (= #{} (final-keys "[:div (assoc base :a 1 :b)]"))
+      "key without a value")
+  (is (= #{:a} (final-keys "[:div (assoc base #_:x :a 1)]"))
+      "discarded form among the arguments"))
 
 (deftest attrs-info-def-test
   (testing "a def in the same file names a map"

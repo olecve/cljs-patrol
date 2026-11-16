@@ -805,7 +805,7 @@
   The search stops there: that element runs the same search over its own subtree, and
   reporting both would count nesting depth rather than defects."
   [loc]
-  (boolean (some-> (readable-attrs loc) aria-hidden?)))
+  (boolean (some-> (hiccup/attrs-info loc) settled-attrs aria-hidden?)))
 
 (defn- disabled-fieldset?
   "True when the element empties the tab order beneath it.

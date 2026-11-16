@@ -42,6 +42,17 @@
              :type "button"}
     "Close"]])
 
+(defn bad-built-wrapper-inside-hidden-wrapper [on-close]
+  [:div {:aria-hidden true}
+   [:span (assoc (base-attrs) :aria-hidden true)
+    [:button {:on-click on-close
+              :type "button"}
+     "Close"]]])
+
+(defn ok-built-tabindex-replaced-by-splice []
+  [:div (assoc (base-attrs) :tab-index 3 #?@(:cljs [:tab-index 0]))
+   "Card"])
+
 (defn ok-built-hidden-self [on-close]
   [:button (assoc (base-attrs) :aria-hidden true :on-click on-close :type "button")
    "Close"])
