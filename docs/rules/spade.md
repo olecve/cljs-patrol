@@ -24,6 +24,7 @@ Run this group alone with `--only spade`.
 ;; fix
 (defclass legacy-panel-style []
   {:color :red})
+
 (defn panel [] [:div {:class (legacy-panel-style) :id "panel"}])
 ```
 
@@ -36,29 +37,40 @@ attributes.
 ;; flagged
 (defattrs card-attrs []
   {:padding "8px"})
+
 (defn card [props] [:div (merge (card-attrs) props)])
 
+;; assoc onto it
 (defattrs row-attrs []
   {:display :flex})
+
 (defn row [id] [:div (assoc (row-attrs) :id id)])
 
+;; one key read out of it
 (defattrs badge-attrs []
   {:color :red})
+
 (defn badge [] [:span {:class (:class (badge-attrs))}])
 
+;; a key threaded out of it
 (defattrs tab-attrs []
   {:margin 0})
+
 (defn tab [] [:li {:class (-> (tab-attrs) :class)}])
 
 ;; fix
 (defclass card-style []
   {:padding "8px"})
+
 (defn card [props] [:div (merge {:class (card-style)} props)])
 
+;; assoc onto it
 (defclass row-style []
   {:display :flex})
+
 (defn row [id] [:div {:class (row-style) :id id}])
 
+;; one key read out of it
 (defn badge [] [:span (badge-attrs)])
 (defn tab [] [:li (tab-attrs)])
 ```
@@ -69,18 +81,23 @@ attributes.
 ;; the whole props map of a tag or a component
 (defattrs card-attrs []
   {:padding "8px"})
+
 (defn card [] [:div (card-attrs)])
+
 (defn panel [] [card (card-attrs)])
 
 ;; passed to another function, or as a prop
 (defattrs row-attrs []
   {:display :flex})
+
 (defn row [] [:div (with-focus (row-attrs))])
+
 (defn table [] [card {:row-props (row-attrs)}])
 
 ;; a local merge
 (defattrs tab-attrs []
   {:margin 0})
+
 (defn tab [merge props] [:li (merge (tab-attrs) props)])
 ```
 

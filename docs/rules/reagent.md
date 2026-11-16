@@ -19,11 +19,13 @@ directly.
 ;; flagged
 (defclass row-style []
   {:display :flex})
+
 (defn row [] [:div {:class (row-style)}])
 
 ;; fix
 (defattrs row-attrs []
   {:display :flex})
+
 (defn row [] [:div (row-attrs)])
 ```
 
@@ -33,12 +35,15 @@ directly.
 ;; carries other props
 (defclass row-style []
   {:display :flex})
+
 (defn row [on-select] [:div {:class (row-style) :on-click on-select}])
 
 ;; merged with other props, or used only inside #_
 (defclass card-style []
   {:padding "8px"})
+
 (defn card [props] [:div (merge {:class (card-style)} props)])
+
 (defn old-card [] #_[:div {:class (card-style)}])
 ```
 
@@ -112,6 +117,7 @@ through the ns form: a look-alike from another library, such as xforms' `x/into`
    [edit-controls {:editing? false}]
    [accept-button]])
 
+;; a value as the first child
 (defn status [busy-reason]
   [:<> {}
    busy-reason
@@ -123,6 +129,7 @@ through the ns form: a look-alike from another library, such as xforms' `x/into`
    [edit-controls {:editing? false}]
    [accept-button]])
 
+;; a value as the first child
 (defn status [busy-reason]
   [:<>
    busy-reason

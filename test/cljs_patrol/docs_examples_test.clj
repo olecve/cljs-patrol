@@ -86,6 +86,46 @@
       (->> (subvec lines (dec row) end-row)
            (str/join "\n")))))
 
+(defn- symbol-names
+  "Return the names of every symbol in node."
+  [node]
+  (->> (tree-seq n/inner? n/children node)
+       (keep #(when (= :token (n/tag %))
+                (let [value (n/sexpr %)]
+                  (when (symbol? value) (name value)))))
+       set))
+
+(defn- defined-name
+  "Return the name a `def`-like form defines, or nil."
+  [node]
+  (when (= :list (n/tag node))
+    (let [[head defined] (remove n/whitespace-or-comment? (n/children node))]
+      (when (and (some-> head n/sexpr symbol?)
+                 (str/starts-with? (name (n/sexpr head)) "def")
+                 (some-> defined n/sexpr symbol?))
+        (name (n/sexpr defined))))))
+
+(defn- unrelated-parts
+  "Return the parts of an example, split at blank lines between top-level forms, that use no name an earlier part defines.
+
+  An example that spans a blank line shows forms that lean on each other, such as a component and the
+  button that renders it; a part that leans on nothing is another example missing its own comment."
+  [code]
+  (let [forms (->> (p/parse-string-all code)
+                   n/children
+                   (remove n/whitespace-or-comment?))
+        parts (reduce (fn [parts form]
+                        (let [previous-end (some-> parts peek peek meta :end-row)]
+                          (if (and previous-end (< (inc previous-end) (:row (meta form))))
+                            (conj parts [form])
+                            (conj (pop parts) (conj (or (peek parts) []) form)))))
+                      [[]]
+                      forms)]
+    (->> (map vector parts (reductions into #{} (map #(keep defined-name %) parts)))
+         rest
+         (remove (fn [[part defined]] (some defined (mapcat symbol-names part))))
+         (map (fn [[part _]] (str/join "\n" (map n/string part)))))))
+
 (defn- code-blocks [text]
   (map second (re-seq #"(?s)```clojure\n(.*?)```" text)))
 
@@ -110,8 +150,8 @@
         :when rule]
     {:rule rule
      :anchor (-> section str/split-lines first heading-anchor)
-     :flagged (some-> flagged chunks)
-     :fix (some-> fix chunks)
+     :flagged (some->> flagged (str ";; flagged\n") chunks)
+     :fix (some->> fix (str ";; fix\n") chunks)
      :left-alone (some-> left-alone chunks)
      :links (->> (str/split section #"\n```" 2) first (re-seq #"\]\(#([^)]+)\)") (map second))}))
 
@@ -155,6 +195,13 @@
          (chunks "(def a 1) ;; note\n(def b a)"))
       "comment after code on the same line starts nothing"))
 
+(deftest unrelated-parts-find-an-unlabeled-example
+  (is (= ["(def b 2)"]
+         (unrelated-parts "(def a 1)\n\n(def b 2)"))
+      "part that uses nothing defined above is another example")
+  (is (empty? (unrelated-parts "(defn- face [] [:span \"x\"])\n\n(defn button [] [:button [face]])"))
+      "part that uses a name defined above belongs to the example"))
+
 (deftest rule-examples-match-the-tool
   (let [groups (into {} (map (juxt group/group-id identity)) (assemble-groups docs-config false))
         pages (->> (io/file "docs/rules") .listFiles (filter #(str/ends-with? (.getName ^java.io.File %) ".md")))]
@@ -176,6 +223,10 @@
             (doseq [anchor links]
               (is (contains? (anchors text) anchor)
                   (str "a link in the key line points at no heading: #" anchor)))
+            (doseq [code (concat flagged fix left-alone)]
+              (is (empty? (unrelated-parts code))
+                  (str "example spans a blank line, but a part uses nothing defined above it; "
+                       "give that part its own comment:\n" code)))
             (doseq [code flagged
                     :let [{:keys [count warnings]} (findings rule-group rule code)]]
               (is (str/blank? warnings)

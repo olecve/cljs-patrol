@@ -256,7 +256,9 @@ fx.
 ;; flagged
 (defn show-error! [response]
   (js/console.error (:status response)))
+
 (rf/reg-fx ::show-error show-error!)
+
 (defn on-failure [response] (show-error! response))
 
 ;; fix
@@ -277,6 +279,7 @@ fx.
 ;; private
 (defn- show-error! [response]
   (js/console.error (:status response)))
+
 (rf/reg-fx ::show-error show-error!)
 
 ;; a fn of another namespace
