@@ -1705,5 +1705,5 @@
     (is (= #{"bad-built-hidden-wrapper" "bad-built-wrapper-inside-hidden-wrapper"}
            (reported :aria-hidden-focusable))
         "aria-hidden written after the base, over a focusable child")
-    (is (= 2 (count (filter #(= built-attrs-file (:file %)) (:aria-hidden-focusable result))))
+    (is (= 2 (->> result :aria-hidden-focusable (filter #(= built-attrs-file (:file %))) count))
         "hidden wrapper inside another reported once")))
