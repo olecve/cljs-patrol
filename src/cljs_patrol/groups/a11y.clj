@@ -91,8 +91,16 @@
           :else true))
       false)))
 
-(defn- invalid-tabindex? [{:keys [kind attrs]}]
-  (when (and (= kind :map) (some? attrs))
+(defn- settled-attrs
+  "Find the attrs whose values the element surely gets: all of a literal map, or the final keys of a built one."
+  [{:keys [kind attrs final-attrs]}]
+  (case kind
+    :map attrs
+    :dynamic-map final-attrs
+    nil))
+
+(defn- invalid-tabindex? [info]
+  (when-let [attrs (settled-attrs info)]
     (or (invalid-tabindex-value? (get attrs :tab-index))
         (invalid-tabindex-value? (get attrs :tabIndex)))))
 
@@ -577,8 +585,8 @@
   The attribute wins: browsers read `aria-live` first and consult the role only when
   it is absent. An absent `:aria-live` is conformant and not reported, `\"off\"` is a
   deliberate opt-out, and non-literal values are skipped."
-  [{:keys [kind attrs]}]
-  (when (and (= :map kind) (some? attrs))
+  [info]
+  (when-let [attrs (settled-attrs info)]
     (let [role (literal-sexpr (get attrs :role))
           implied (get role->implicit-aria-live role)
           declared (declared-aria-live attrs)]
@@ -797,7 +805,7 @@
   The search stops there: that element runs the same search over its own subtree, and
   reporting both would count nesting depth rather than defects."
   [loc]
-  (boolean (some-> (readable-attrs loc) aria-hidden?)))
+  (boolean (some-> (hiccup/attrs-info loc) settled-attrs aria-hidden?)))
 
 (defn- disabled-fieldset?
   "True when the element empties the tab order beneath it.
@@ -814,8 +822,8 @@
   `aria-hidden` applies to the whole subtree, so a control inside a hidden wrapper is
   hidden from assistive technology while keeping its place in the tab order — the same
   defect as on the wrapper itself, and the more common way to write it."
-  [{:keys [kind attrs]} loc ns-info component-aliases]
-  (when (and (= :map kind) (some? attrs) (aria-hidden? attrs))
+  [info loc ns-info component-aliases]
+  (when (some-> (settled-attrs info) aria-hidden?)
     (first-matching-descendant {:match? #(focusable-loc? % ns-info component-aliases)
                                 :prune? #(or (hidden-subtree? %) (disabled-fieldset? %))}
                                (body-locs loc))))
