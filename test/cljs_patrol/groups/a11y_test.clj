@@ -6,7 +6,10 @@
    [cljs-patrol.temp-project :as temp-project]
    [clojure.java.io :as io]
    [clojure.string :as str]
-   [clojure.test :refer [deftest is testing]]))
+   [clojure.test :refer [deftest is testing]])
+  (:import
+   (java.io
+    File)))
 
 (defn- img-finding [row]
   {:type :img-alt-missing
@@ -307,4 +310,4 @@
             "four jobs find what one job finds"))
       (finally
         (doseq [file (reverse (file-seq dir))]
-          (.delete ^java.io.File file))))))
+          (.delete ^File file))))))

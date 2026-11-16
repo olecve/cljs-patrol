@@ -7,6 +7,7 @@ Each record states one decision, the options that were considered, and the condi
 | [0001](0001-native-image-garbage-collector.md) | Build The Linux Native Binary With The G1 Garbage Collector | Rejected | 2026-11-12 |
 | [0002](0002-per-file-result-cache.md)          | Cache The Analysis Result Of Each File                      | Proposed | 2026-11-12 |
 | [0003](0003-tell-data-vectors-from-hiccup.md)  | Tell Data Vectors From Hiccup                               | Accepted | 2026-11-15 |
+| [0004](0004-rule-docs-examples-are-tests.md)   | Run The Rule Docs Examples As Tests                         | Accepted | 2026-11-16 |
 
 ## Format
 
@@ -26,7 +27,8 @@ Each record has these sections, in this order. The sections in parentheses are o
 7. **Confirmation.** What must be true before the status changes to `Accepted`.
 8. **(Implementation).** The steps, one pull request each.
 9. **Revisit when.** The conditions that make the decision worth a new look. Each one is a fact that a reader can check.
-10. **More Information.** Links to pull requests, commits, code and sources, with each link pinned to a tag or a commit.
+10. **More Information.** Links to pull requests, commits, code and sources. A link to a page outside the repository is
+    pinned to a tag or a commit. A link to a file in the repository is a relative link.
 
 A record names no author. It is written in Simplified Technical English. A new record that replaces an old one says so
 in its Context, and the old record gets the status `Superseded by ADR NNNN`.

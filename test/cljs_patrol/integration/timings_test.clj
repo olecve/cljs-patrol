@@ -4,7 +4,10 @@
    [clojure.java.io :as io]
    [clojure.java.shell :refer [sh]]
    [clojure.string :as str]
-   [clojure.test :refer [deftest is]]))
+   [clojure.test :refer [deftest is]])
+  (:import
+   (java.io
+    File)))
 
 (def ^:private fixture-src "test-projects/a11y-app/src")
 
@@ -44,7 +47,7 @@
   (let [dir (.toFile (java.nio.file.Files/createTempDirectory "cljs-patrol" (make-array java.nio.file.attribute.FileAttribute 0)))
         source-dir (str dir)]
     (try
-      (doseq [^java.io.File file (file-seq (io/file fixture-src))
+      (doseq [^File file (file-seq (io/file fixture-src))
               :when (.isFile file)]
         (let [target (io/file dir (-> (io/file fixture-src) .toPath (.relativize (.toPath file)) str))]
           (io/make-parents target)
