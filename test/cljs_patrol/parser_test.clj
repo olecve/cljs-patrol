@@ -9,7 +9,10 @@
    [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
-   [rewrite-clj.zip :as z]))
+   [rewrite-clj.zip :as z])
+  (:import
+   (java.io
+    File)))
 
 (deftest resolve-kw-test
   (testing "plain keyword"
@@ -142,7 +145,7 @@
             "memo unbound after file"))
       (finally
         (doseq [file (reverse (file-seq dir))]
-          (.delete ^java.io.File file))))))
+          (.delete ^File file))))))
 
 (defn- file-probe
   "Build a group whose file handler calls `on-file` with the file's path and declares the file."
@@ -176,7 +179,7 @@
       (f (str dir) (fs/list-source-files (str dir) #{".cljs"}))
       (finally
         (doseq [file (reverse (file-seq dir))]
-          (.delete ^java.io.File file))))))
+          (.delete ^File file))))))
 
 (def ^:private four-files
   {"a.cljs" "(ns a)"

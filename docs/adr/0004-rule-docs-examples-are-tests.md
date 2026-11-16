@@ -29,7 +29,8 @@ In October 2026 the examples became tests. `test/cljs_patrol/docs_examples_test.
 Every code block in the rule docs is a test, and a label comment starts each example.
 
 - **Every block runs.** The test reads each fenced `clojure` and `edn` block of `docs/rules.md`, `docs/rules/*.md` and
-  `README.md`. It fails when a block is not an example and not a config. The other Markdown files have no such blocks.
+  `README.md`. It fails when a block is not an example and not a config. The code blocks in `docs/adr/` are not checked,
+  because they show a decision, not the current behavior. The other Markdown files have no such blocks.
 - **A label starts an example.** A `;;` comment at the start of a line starts a new example. The example continues to
   the next label, and blank lines in it stay in it. An example with no label ends at a blank line.
 - **The label gives the expected result.** A label that starts with `flagged` expects a finding. A label that starts
@@ -41,7 +42,9 @@ Every code block in the rule docs is a test, and a label comment starts each exa
   Each form group after the first must use a name that an earlier form group defines. If it does not, it is a different
   example with no label, and the test fails.
 - **A config block must be a config.** A block that is one map with keyword keys, or an `edn` block, is a config. Each
-  key must name a group or a top-level config key, and the groups must accept the config.
+  key must name a group or a top-level config key, a `:fail-on` value must name tiers or rules, and no group may refuse
+  the config. These checks cannot see an option that a group ignores, such as a wrong key inside the map of a group. The
+  test runs the same checks on each `;; config` line.
 
 An example block:
 
@@ -96,15 +99,20 @@ The reasons for these choices:
 
 ### When the test fails
 
-| Message                                                       | Fix                                                                                   |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `flagged example is not flagged`                              | Change the example so that the rule flags it, or change its label.                    |
-| `left-alone example is flagged` or `fix or left-alone …`      | Change the example, or the rule. The example can also need a `;; config` line.        |
-| `example spans a blank line, but a part uses nothing …`       | Put a label above the form group, or remove the blank line if the forms are one case. |
-| `example has no label that starts with flagged or left alone` | Start the first label of the block with `flagged` or `left alone`.                    |
-| `config block names a key that is no group`                   | Use a group name, such as `:a11y`, or a top-level key, such as `:baseline`.           |
-| `code block holds no example`                                 | Add an example, or make the block a config.                                           |
-| `… does not parse`                                            | Fix the code. The message shows what the run wrote to stderr.                         |
+| Message                                                         | Fix                                                                                                                                                                    |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `flagged example is not flagged`                                | Change the example so that the rule flags it, or change its label.                                                                                                     |
+| `left-alone example is flagged` or `fix or left-alone …`        | Change the example, or the rule. The example can also need a `;; config` line.                                                                                         |
+| `example spans a blank line, but a part uses nothing …`         | Put a label above the form group, or remove the blank line if the forms are one case.                                                                                  |
+| `example has no label that starts with flagged or left alone`   | Start the first label of the block with `flagged`, `left alone` or `fix`.                                                                                              |
+| `config block fails the config checks` or `config line fails …` | Use a group name, such as `:a11y`, or a top-level key, such as `:baseline`. Make `:fail-on` name tiers or rules. Read the message for a group that refuses the config. |
+| `no group runs the examples of …`                               | Add the page to `page-groups` in the test.                                                                                                                             |
+| `every rule shows code it flags`                                | Give the rule section a first block with a `;; flagged` part.                                                                                                          |
+| `every rule the group declares has a section …`                 | Add a section with a key line for the rule, or fix the rule key in the key line.                                                                                       |
+| `a link in the key line points at no heading`                   | Point the link at a heading of the same page.                                                                                                                          |
+| `every page is named after a group`                             | Name the page after a group, such as `a11y.md`.                                                                                                                        |
+| `code block holds no example`                                   | Add an example, or make the block a config.                                                                                                                            |
+| `… does not parse`                                              | Fix the code. The message shows what the run wrote to stderr.                                                                                                          |
 
 ## Options
 
@@ -166,9 +174,8 @@ Rejected because the examples drift from the tool, and nothing shows it.
 - An example needs two form groups, and neither form group uses a name that the other defines.
 - A regular expression reads a page incorrectly, or a page needs a Markdown shape that the regular expressions cannot
   read. Then use a Markdown parser for step 1.
-- Another Markdown file gets a `clojure` or `edn` block, such as a guide outside `docs/rules/`.
+- A Markdown file outside `docs/adr/` gets a `clojure` or `edn` block, such as a guide outside `docs/rules/`.
 
 ## More Information
 
-- The test:
-  [`test/cljs_patrol/docs_examples_test.clj`](https://github.com/olecve/cljs-patrol/blob/main/test/cljs_patrol/docs_examples_test.clj)
+- The test: [`test/cljs_patrol/docs_examples_test.clj`](../../test/cljs_patrol/docs_examples_test.clj)

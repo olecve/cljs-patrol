@@ -2,22 +2,27 @@
   "Run every code block of the rule docs, so the docs cannot drift from the tool.
 
   A rule change that makes an example false fails the build until the docs agree, and a rule
-  with no section fails it too. A block outside a rule's two example blocks runs as well: a
-  config block must be a config the groups accept, and any other block is labeled examples. A rule's section opens with its key, then a block whose
+  with no section fails it too. A rule's section opens with its key, then a block whose
   `;; flagged` part holds code the rule reports and whose `;; fix` part holds the same code
-  rewritten, and a `**Left alone:**` block of code it does not report. Each example is one
-  chunk, analyzed as a file of its own, so an example cannot lean on another. ADR 0004
-  records why the examples are tests and how a block splits into examples."
+  rewritten, and a `**Left alone:**` block of code it does not report. Every other block runs
+  as well: a config block must pass the config checks, and any other block holds labeled
+  examples. Each example is one chunk, analyzed as a file of its own, so an example cannot
+  lean on another. ADR 0004 records why the examples are tests and how a block splits into
+  examples."
   (:require
    [cljs-patrol.core :as core]
    [cljs-patrol.group :as group]
+   [cljs-patrol.severity :as severity]
    [cljs-patrol.temp-project :as temp-project]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
    [rewrite-clj.node :as n]
-   [rewrite-clj.parser :as p]))
+   [rewrite-clj.parser :as p])
+  (:import
+   (java.io
+    File)))
 
 (def ^:private assemble-groups #'core/assemble-groups)
 
@@ -171,7 +176,7 @@
       (str/replace " " "-")))
 
 (defn- rule-sections
-  "Return {:rule :anchor :flagged :fix :left-alone :links} for every rule section of a docs page.
+  "Return {:rule :anchor :config :flagged :fix :left-alone :links} for every rule section of a docs page.
 
   A section is the text under one heading; it is a rule's when it holds a key line."
   [text]
@@ -183,6 +188,9 @@
         :when rule]
     {:rule rule
      :anchor (-> section str/split-lines first heading-anchor)
+     :config (merge-with merge
+                         (some-> example labeled-examples :config)
+                         (some-> left-alone labeled-examples :config))
      :flagged (some->> flagged (str ";; flagged\n") chunks)
      :fix (some->> fix (str ";; fix\n") chunks)
      :left-alone (some-> left-alone chunks)
@@ -256,6 +264,27 @@
                     [nil nil]
                     examples)))
 
+(defn- config-problems
+  "Return what is wrong with a config: an unknown key, a `:fail-on` that names nothing, or a group that refuses it.
+
+  The checks cannot see an option a group ignores, such as a misspelled key inside a group's map."
+  [config]
+  (let [default-groups (assemble-groups {} false)
+        config-keys (into top-level-config-keys (map group/group-id default-groups))
+        rule->tier (into {} (map group/rule->tier default-groups))
+        unknown-keys (remove config-keys (keys config))
+        fail-on-error (when (contains? config :fail-on)
+                        (:error (severity/parse-fail-on (:fail-on config) rule->tier)))
+        group-error (try
+                      (assemble-groups config false)
+                      nil
+                      (catch Exception e
+                        (ex-message e)))]
+    (cond-> []
+      (seq unknown-keys) (conj (str "keys that name no group: " (vec unknown-keys)))
+      fail-on-error (conj fail-on-error)
+      group-error (conj group-error))))
+
 (defn- declared-rules
   "Return every rule a group declares, however it declares it."
   [rule-group]
@@ -285,9 +314,9 @@
 
 (deftest rule-examples-match-the-tool
   (let [groups (into {} (map (juxt group/group-id identity)) (assemble-groups docs-config false))
-        pages (->> (io/file "docs/rules") .listFiles (filter #(str/ends-with? (.getName ^java.io.File %) ".md")))]
+        pages (->> (io/file "docs/rules") .listFiles (filter #(str/ends-with? (.getName ^File %) ".md")))]
     (is (seq pages))
-    (doseq [^java.io.File page pages
+    (doseq [^File page pages
             :let [group-id (-> page .getName (str/replace #"\.md$" "") keyword)
                   rule-group (get groups group-id)
                   text (slurp page)
@@ -297,8 +326,15 @@
             "every page is named after a group")
         (is (= (declared-rules rule-group) (set (map :rule sections)))
             "every rule the group declares has a section with its key line, and no section names another")
-        (doseq [{:keys [rule flagged fix left-alone links]} sections]
+        (doseq [{:keys [config rule flagged fix left-alone links]} sections
+                :let [rule-group (if config
+                                   (->> (assemble-groups (merge-with merge docs-config config) false)
+                                        (filter #(= group-id (group/group-id %)))
+                                        first)
+                                   rule-group)]]
           (testing (name rule)
+            (is (empty? (config-problems config))
+                (str "config line fails the config checks: " (config-problems config)))
             (is (seq flagged)
                 "every rule shows code it flags")
             (doseq [anchor links]
@@ -322,29 +358,29 @@
                   (str "fix or left-alone example is flagged:\n" code)))))))))
 
 (deftest every-code-block-is-checked
-  (let [group-ids (set (map group/group-id (assemble-groups {} false)))
-        config-keys (into top-level-config-keys group-ids)
-        pages (->> (io/file "docs/rules")
+  (let [pages (->> (io/file "docs/rules")
                    .listFiles
-                   (filter #(str/ends-with? (.getName ^java.io.File %) ".md"))
+                   (filter #(str/ends-with? (.getName ^File %) ".md"))
                    (concat [(io/file "docs/rules.md") (io/file "README.md")]))]
-    (doseq [^java.io.File page pages
+    (doseq [^File page pages
             :let [page-name (.getName page)
                   page-group-ids (get page-groups page-name #{(keyword (str/replace page-name #"\.md$" ""))})]
             {:keys [code rule]
              :as block} (other-blocks (slurp page))]
       (testing (str page-name " " (some-> rule name))
         (if (config-block? block)
-          (let [config (edn/read-string code)]
-            (is (every? config-keys (keys config))
-                (str "config block names a key that is no group:\n" code))
-            (is (seq (assemble-groups config false))
-                (str "config block is not a config the groups take:\n" code)))
+          (let [problems (config-problems (edn/read-string code))]
+            (is (empty? problems)
+                (str "config block fails the config checks: " problems "\n" code)))
           (let [{:keys [config examples]} (labeled-examples code)
                 groups (filter #(contains? page-group-ids (group/group-id %))
                                (assemble-groups (merge-with merge docs-config config) false))]
             (is (seq examples)
                 (str "code block holds no example:\n" code))
+            (is (seq groups)
+                (str "no group runs the examples of " page-name "; add the page to page-groups"))
+            (is (empty? (config-problems config))
+                (str "config line fails the config checks: " (config-problems config) "\n" code))
             (doseq [[{:keys [code]} expectation] (expectations examples)
                     :let [runs (for [rule-group groups]
                                  (findings rule-group (if rule #{rule} (declared-rules rule-group)) code))
@@ -384,7 +420,7 @@
               (str "anchor #" (get anchors rule) " is not rule's section #" (rule->anchor rule))))))))
 
 (deftest docs-headings-have-distinct-anchors
-  (doseq [^java.io.File page (.listFiles (io/file "docs/rules"))
+  (doseq [^File page (.listFiles (io/file "docs/rules"))
           :when (str/ends-with? (.getName page) ".md")
           :let [headings (map second (re-seq #"(?m)^#+ (.*)$" (slurp page)))
                 duplicates (->> headings (map heading-anchor) frequencies (filter #(< 1 (val %))) (map key))]]

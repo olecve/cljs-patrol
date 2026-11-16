@@ -8,7 +8,8 @@
    [rewrite-clj.zip :as z])
   (:import
    (java.util
-    HashMap)))
+    HashMap
+    Map)))
 
 (deftest parse-tag-test
   (testing "plain tag"
@@ -525,7 +526,7 @@
           find-loc (fn [target] (z/find root z/next #(= target (z/string %))))]
       (is (= #{:style-decl} (hiccup/enclosing-forms (find-loc "[:b]")))
           "first ask walks to root")
-      (let [^java.util.Map table (.get ^java.util.Map parser/*file-memo* :cljs-patrol.hiccup/enclosing-forms)
+      (let [^Map table (.get ^Map parser/*file-memo* :cljs-patrol.hiccup/enclosing-forms)
             outer (z/node (find-loc "[:a [:b] [:i]]"))]
         (is (= #{:style-decl} (.get table outer))
             "answer kept for enclosing vector")
@@ -627,7 +628,7 @@
           find-loc (fn [target] (z/find root z/next #(= target (z/string %))))]
       (is (= [#{:data-def} #{}] (mapv #(hiccup/enclosing-forms (find-loc %)) ["[:enum :a]" "[:img]"]))
           "schema in data def, img in function")
-      (is (= 1 (.size ^java.util.Map (.get ^java.util.Map parser/*file-memo* :cljs-patrol.hiccup/data-defs)))
+      (is (= 1 (.size ^Map (.get ^Map parser/*file-memo* :cljs-patrol.hiccup/data-defs)))
           "only top-level def remembered"))))
 
 (defn- result-strings

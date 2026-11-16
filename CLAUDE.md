@@ -136,8 +136,9 @@ next such comment, blank lines and all, and an example with no opening comment e
 several forms with a comment above its first form, never between its forms, and put a blank line before a form that uses
 a name defined above it. A part of an example after a blank line must use a name an earlier part defines, so an
 unlabeled example cannot slip into the one above it. Every other `clojure` or `edn` block in `docs/rules.md`,
-`docs/rules/*.md` and `README.md` runs too: a config block must be a config the groups accept, and any other block needs
-labels that start with `flagged` or `left alone`, with a `;; config {…}` line when its examples need config.
+`docs/rules/*.md` and `README.md` runs too. A config block must pass the config checks. Any other block holds labeled
+examples: its first label starts with `flagged`, `left alone` or `fix`, and a later label that starts with none of them
+keeps the expectation of the example before it. A `;; config {…}` line gives a block the config its examples need.
 [ADR 0004](docs/adr/0004-rule-docs-examples-are-tests.md) records why and lists the failure messages with their fixes.
 The test runs each example through the rule as a file of its own: a flagged example must be reported, a fix or
 left-alone one must not, every chunk must parse, every rule the group declares needs a section, and every key-line link

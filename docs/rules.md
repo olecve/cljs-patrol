@@ -4,10 +4,10 @@ Every rule, one page per rule group. For the one-line summary of each group, see
 [Rule groups](../README.md#rule-groups).
 
 Every code block on these pages is a test. A test reads each page with regular expressions, takes out its `clojure` and
-`edn` blocks, and splits them into examples. It runs each flagged, fixed and left-alone example through its rule, and
-checks that each config block is a config the groups accept. So an example cannot show behavior that the tool does not
-have. [ADR 0004](adr/0004-rule-docs-examples-are-tests.md) gives the reasons and the rules for how a code block splits
-into examples.
+`edn` blocks, and splits them into examples. It runs each flagged, fixed and left-alone example through its rule, or on
+this page through the groups that read Hiccup, and it checks each config block. So a rule change that makes an example
+false fails the build. [ADR 0004](adr/0004-rule-docs-examples-are-tests.md) gives the reasons and the rules for how a
+code block splits into examples.
 
 [← back to the README](../README.md)
 
@@ -33,12 +33,12 @@ data `def` as data, not as markup. Other groups, such as `layout`, read it as be
 
 ```clojure
 ;; left alone: data, so the groups that read Hiccup skip it
-(def tag-props-schema
+(def avatar-schema
   [:map {:closed true}
-   [:label {:optional true} [:maybe :string]]])
+   [:img {:optional true} [:maybe :string]]])
 
 ;; a db path
-(def settings-path [:settings :style])
+(def image-path [:img :src])
 
 ;; flagged: Hiccup, so the groups read it as before
 (def logo [:img {:src "logo.png"}])
