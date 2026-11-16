@@ -274,16 +274,16 @@ fx.
 **Left alone:**
 
 ```clojure
+;; private
 (defn- show-error! [response]
   (js/console.error (:status response)))
-;; private
 (rf/reg-fx ::show-error show-error!)
 
+;; a fn of another namespace
 (ns example.core
   (:require
    [example.dom :as dom]
    [re-frame.core :as rf]))
-;; a fn of another namespace
 (rf/reg-fx ::scroll dom/scroll-into-view!)
 
 ;; not top-level, the symbol may be a local

@@ -200,18 +200,18 @@ string.
 **Left alone:**
 
 ```clojure
-(defn describe [title] (str "Search case " (or title "Untitled")))
 ;; a fn's output
+(defn describe [title] (str "Search case " (or title "Untitled")))
 (deftest describe-falls-back-to-untitled
   (is (= "Search case Untitled" (describe nil))))
 
-(def completed-message (str "Smart Search " "completed"))
 ;; a computed constant
+(def completed-message (str "Smart Search " "completed"))
 (deftest completed-copy
   (is (= "Smart Search completed" completed-message)))
 
-(def label "View Results")
 ;; a local may shadow the constant
+(def label "View Results")
 (deftest label-copy
   (let [label "View Results"]
     (is (= "View Results" label))))

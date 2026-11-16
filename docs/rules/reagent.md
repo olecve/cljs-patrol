@@ -30,14 +30,14 @@ directly.
 **Left alone:**
 
 ```clojure
+;; carries other props
 (defclass row-style []
   {:display :flex})
-;; carries other props
 (defn row [on-select] [:div {:class (row-style) :on-click on-select}])
 
+;; merged with other props, or used only inside #_
 (defclass card-style []
   {:padding "8px"})
-;; merged with other props, or used only inside #_
 (defn card [props] [:div (merge {:class (card-style)} props)])
 (defn old-card [] #_[:div {:class (card-style)}])
 ```

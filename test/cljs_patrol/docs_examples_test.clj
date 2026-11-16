@@ -3,9 +3,8 @@
 
   A rule's section opens with its key, then a block whose `;; flagged` part holds code the
   rule reports and whose `;; fix` part holds the same code rewritten, and a `**Left alone:**`
-  block of code it does not report. Top-level forms with no blank line between them make
-  one chunk, analyzed as a file of its own, so an example cannot lean on another, and the
-  docs cannot drift from the tool."
+  block of code it does not report. Each example is one chunk, analyzed as a file of its
+  own, so an example cannot lean on another, and the docs cannot drift from the tool."
   (:require
    [cljs-patrol.core :as core]
    [cljs-patrol.group :as group]
@@ -41,28 +40,50 @@
        " [app.theme.button :as button-theme]"
        " [app.ui.button :as button])"))
 
-(defn- chunks
-  "Split code into chunks of top-level forms, a blank line between two forms ending a chunk.
+(defn- example-items
+  "Return the top-level forms of code as `{:row :end-row}`, and each comment that opens a line as `{:comment? true}`."
+  [code]
+  (->> (p/parse-string-all code)
+       n/children
+       (keep (fn [node]
+               (let [{:keys [row col end-row]} (meta node)]
+                 (cond
+                   (= :comment (n/tag node)) (when (= 1 col) {:comment? true})
+                   (n/whitespace-or-comment? node) nil
+                   :else {:end-row end-row
+                          :row row}))))))
 
-  Read with the parser rather than split on blank lines, so a blank line inside a form, a
-  docstring's paragraph break, stays in its chunk. Code that does not parse throws."
+(defn- start-example [{:keys [groups pending-comment?]} {:keys [end-row row]}]
+  {:commented? (boolean pending-comment?)
+   :groups (conj groups {:end-row end-row
+                         :row row})})
+
+(defn- add-example-item
+  "Add a comment or a form to the examples read so far."
+  [{:keys [commented? groups pending-comment?]
+    :as examples}
+   {:keys [comment? end-row row]
+    :as item}]
+  (let [previous-end (some-> groups peek :end-row)]
+    (cond
+      comment? (assoc examples :pending-comment? true)
+      (or pending-comment? (nil? previous-end)) (start-example examples item)
+      (and (not commented?) (< (inc previous-end) row)) (start-example examples item)
+      :else (assoc-in examples [:groups (dec (count groups)) :end-row] end-row))))
+
+(defn- chunks
+  "Split code into chunks of top-level forms, one chunk per example.
+
+  A comment that opens a line starts a new example, which runs on until the next such
+  comment, blank lines and all, so an example of two forms can space them out. An example
+  that opens with no comment ends at a blank line. Read with the parser rather than split on
+  lines, so a blank line inside a form, a docstring's paragraph break, stays in its chunk.
+  Code that does not parse throws."
   [code]
   (let [lines (vec (str/split-lines code))
-        spans (->> (p/parse-string-all code)
-                   n/children
-                   (remove n/whitespace-or-comment?)
-                   (map (comp (juxt :row :end-row) meta)))
-        groups (reduce (fn [groups [row end-row]]
-                         (let [previous-end (-> groups peek peek second)]
-                           (if (and previous-end (<= row (inc previous-end)))
-                             (conj (pop groups) (conj (peek groups) [row end-row]))
-                             (conj groups [[row end-row]]))))
-                       []
-                       spans)]
-    (for [group groups
-          :let [start (first (first group))
-                end (second (peek group))]]
-      (->> (subvec lines (dec start) end)
+        examples (reduce add-example-item {:groups []} (example-items code))]
+    (for [{:keys [row end-row]} (:groups examples)]
+      (->> (subvec lines (dec row) end-row)
            (str/join "\n")))))
 
 (defn- code-blocks [text]
@@ -119,6 +140,20 @@
   [rule-group]
   (into (set (keys (group/suggestions rule-group)))
         (keys (group/rule->tier rule-group))))
+
+(deftest chunks-split-examples-at-comments
+  (is (= ["(def a 1)" "(def b 2)"]
+         (chunks "(def a 1)\n\n(def b 2)"))
+      "a blank line ends an example that opens with no comment")
+  (is (= ["(def a 1)\n\n(def b a)" "(def c 3)"]
+         (chunks ";; a and b\n(def a 1)\n\n(def b a)\n;; c\n(def c 3)"))
+      "commented example runs past a blank line to the next comment")
+  (is (= ["(def a 1)" "(def b 2)"]
+         (chunks "(def a 1)\n;; b\n(def b 2)"))
+      "comment right after a form starts a new example")
+  (is (= ["(def a 1) ;; note\n(def b a)"]
+         (chunks "(def a 1) ;; note\n(def b a)"))
+      "comment after code on the same line starts nothing"))
 
 (deftest rule-examples-match-the-tool
   (let [groups (into {} (map (juxt group/group-id identity)) (assemble-groups docs-config false))
