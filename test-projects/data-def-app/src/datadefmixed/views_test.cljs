@@ -8,3 +8,6 @@
 
 (deftest bad-open-button-by-test-id
   (.click (s/get-by-test-id "open-button")))
+
+(deftest bad-keep-button-by-test-id
+  (.click (s/get-by-test-id "keep-button")))

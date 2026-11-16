@@ -65,3 +65,13 @@
   [:button {:aria-label "Open"
             :data-testid "open-button"}
    "Open"])
+
+(def first-keep-schema
+  [:map {:error/fn (fn [_ _] "Bad")}
+   [:button {:aria-label "Keep"
+             :data-testid "keep-button"} :string]])
+
+(def second-keep-schema
+  [:map {:error/fn (fn [_ _] "Worse")}
+   [:button {:aria-label "Keep"
+             :data-testid "keep-button"} :string]])

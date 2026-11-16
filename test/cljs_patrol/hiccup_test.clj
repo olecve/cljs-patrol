@@ -1031,7 +1031,11 @@
   (is (= "(fn [] 1)"
          (hiccup/mixed-schema-part (loc-at "(def s [:map [:a [:vector {:render (fn [] 1)} :int]] [:id :int]])"
                                            "[:id :int]")))
-      "function in a nested schema"))
+      "function in a nested schema")
+  (is (str/includes? (schema-note "(def s [:map {:error/fn (fn [_ _] \"Bad\") :x #_(r/as-element [:div])} [:id :int]])"
+                                  "[:id :int]")
+                     "(fn [_ _] \"Bad\")")
+      "as-element only under a discard"))
 
 (deftest mixed-schema-note-leaves-other-defs
   (is (nil? (schema-note "(def s [:map [:label [:fn #(pos? %)]] [:title [:fn #(string? %)]]])" "[:label [:fn #(pos? %)]]"))

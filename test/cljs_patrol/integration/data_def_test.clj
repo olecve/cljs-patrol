@@ -151,6 +151,7 @@
   (is (= [(str "Query it by role \"button\" and its name. Its element sits in a Malli schema at " mixed-file
                ":20, which reads as markup because of (fn [_ _] \"Bad\"). Move that part into its own def or function,"
                " so the schema reads as data.")
+          "Query it by role \"button\" and its name."
           "Query it by role \"button\" and its name."]
          (->> react-testing-library-cljs/group mixed-result :test-id-query-on-role (map :hint)))
       "react-testing-library-cljs"))
@@ -163,7 +164,12 @@
 (deftest mixed-schema-note-leaves-test-id-shared-with-real-element
   (is (= 1 (->> react-testing-library-cljs/group mixed-result :test-id-query-on-role (filter :hint)
                 (filter #(str/includes? (:hint %) "Malli schema")) count))
-      "only the save button lookup, whose every element sits in a schema"))
+      "only the save button lookup, whose one element sits in a schema"))
+
+(deftest mixed-schema-note-leaves-test-id-shared-by-two-schemas
+  (is (some #(= "Query it by role \"button\" and its name." (:hint %))
+            (->> react-testing-library-cljs/group mixed-result :test-id-query-on-role (filter #(= "bad-keep-button-by-test-id" (:test %)))))
+      "two schemas"))
 
 (deftest mixed-schema-note-on-run-level-a11y-findings
   (is (= #{"bad-notes-schema" "bad-separator-schema"}

@@ -101,7 +101,7 @@ form among the values of `:enum`, `:=` or another literal type that is not a lit
 replace, such as a whole entry with a computed key, gets no note. A finding inside that part gets no note, because the
 part stays markup. The `a11y` and `forbid-props` groups add the note to their findings in the schema, and `reagent` adds
 it to its fragment findings. The `react-testing-library-cljs` group adds it to a `test-id-query-on-role` finding when
-every element it counts sits in such a schema.
+the one element it counts sits in such a schema.
 
 ## Experimental: reading `.clj` files
 
