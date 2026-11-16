@@ -348,54 +348,53 @@
 (defn- caller-argument
   "Return `[argument context]` for a parameter symbol at loc that a component reads, or nil.
 
-  The argument is what the caller passed for it, read in the caller's own context. A symbol
-  rebound inside the component, by a `let` for one, is no longer the parameter."
+  The argument is what the caller passed for it, read in the caller's own context. Only a
+  symbol inside the component's own definition is its parameter: one in a `def` the
+  component reads names a var, and one rebound inside the component, by a `let` for one,
+  is no longer the parameter."
   [loc {:keys [component]}]
   (when-let [{:keys [arguments caller-context def-loc]} component]
     (when-let [symbol-name (hiccup/unqualified-symbol-name loc)]
       (when-let [argument (get arguments symbol-name)]
-        (when-not (heads/bound-below? loc def-loc symbol-name)
+        (when (and (some #(identical? (z/node def-loc) (z/node %)) (take-while some? (iterate z/up loc)))
+                   (not (heads/bound-below? loc def-loc symbol-name)))
           [argument caller-context])))))
 
 (defn- result-content
-  "Return the loc a component result is read as, or nil when it is not read.
-  A Hiccup vector, a string and a local symbol are read as they are, and a symbol a `def`
-  of the file names is read as the value it binds, so `[:span save-text]` and a component
-  returning `save-text` agree."
+  "Return the loc a component result is read as.
+  That is the result itself, or for a symbol that is no local but a `def` of the file names,
+  the value it binds, so `[:span save-text]` and a component returning `save-text` agree."
   [loc]
-  (if-let [symbol-name (hiccup/unqualified-symbol-name loc)]
-    (if (heads/locally-bound? loc symbol-name)
-      loc
-      (hiccup/resolved-value loc))
-    (when (or (= :vector (z/tag loc)) (literal-string-loc? loc))
-      loc)))
+  (let [symbol-name (hiccup/unqualified-symbol-name loc)]
+    (or (when (and symbol-name (not (heads/locally-bound? loc symbol-name)))
+          (hiccup/resolved-value loc))
+        loc)))
 
-(defn- component-renders-text?
-  "True when loc calls a component its own file defines, and what the component returns carries visible content.
+(defn- component-content
+  "Read a call of a component its own file defines: `{:matched? … :visible? …}`, or nil.
 
-  A returned Hiccup vector, string or bound symbol is read the way a direct child is, and a
-  var through the value its `def` binds; any other result, such as a call, is not read, so it
-  adds nothing. A parameter the component renders is read as what the call passes for it. A
-  component already being read, one that renders itself or a cycle, renders nothing known,
-  and so does one past [[component-depth-limit]]."
+  `:matched?` says an arity of the component takes the call's arguments, so what the call
+  passes is read only through the parameters the component renders. `:visible?` says what
+  the component returns carries visible content: each result is read the way a direct
+  child is, and a parameter it renders as what the call passes for it. The answer is nil
+  for any other vector, and for a component already being read, one that renders itself
+  or a cycle, or one past [[component-depth-limit]]."
   [loc {:keys [ns-info expanded]
         :as context}]
-  (boolean
-   (when-let [{:keys [name def-loc arities]} (hiccup/local-component loc ns-info)]
-     (when (and (not (contains? expanded name))
-                (< (count expanded) component-depth-limit))
-       (let [arguments (rest (parser/written-child-locs loc))
-             arity (matching-arity arities (count arguments))
-             inner (assoc context
-                          :expanded (conj expanded name)
-                          :component (when arity
-                                       {:arguments (caller-arguments arity arguments)
-                                        :caller-context context
-                                        :def-loc def-loc}))]
-         (some (fn [result]
-                 (when-let [content (result-content result)]
-                   (visible-content? content (if (identical? content result) inner (dissoc inner :component)))))
-               (if arity (:results arity) (mapcat :results arities))))))))
+  (when-let [{:keys [name def-loc arities]} (hiccup/local-component loc ns-info)]
+    (when (and (not (contains? expanded name))
+               (< (count expanded) component-depth-limit))
+      (let [arguments (rest (parser/written-child-locs loc))
+            arity (matching-arity arities (count arguments))
+            inner (assoc context
+                         :expanded (conj expanded name)
+                         :component (when arity
+                                      {:arguments (caller-arguments arity arguments)
+                                       :caller-context context
+                                       :def-loc def-loc}))]
+        {:matched? (some? arity)
+         :visible? (boolean (some #(visible-content? (result-content %) inner)
+                                  (if arity (:results arity) (mapcat :results arities))))}))))
 
 (defn- visible-content?
   "True when loc carries visible text or dynamically-computed content.
@@ -403,10 +402,10 @@
   A nested Hiccup vector is treated as opaque icon markup unless it
   contains a string literal, a dynamic form, or an aria-name attribute
   on itself or a descendant. A vector calling a component its own file
-  defines is also read through what the component returns, and a
-  parameter that component renders through what its caller passes. A
-  native element hidden with `:aria-hidden` carries nothing, whatever it
-  holds."
+  defines is read through what the component returns, and a parameter
+  that component renders through what its caller passes; when an arity
+  takes the call's arguments, they are read only that way. A native
+  element hidden with `:aria-hidden` carries nothing, whatever it holds."
   [loc context]
   (cond
     (literal-string-loc? loc) true
@@ -414,13 +413,14 @@
     (= :vector (z/tag loc))
     (let [{:keys [slot attrs]
            :as info} (hiccup/attrs-info loc)
-          body-start (if slot (z/right slot) (some-> loc z/down z/right))]
+          body-start (if slot (z/right slot) (some-> loc z/down z/right))
+          {:keys [matched? visible?]} (component-content loc context)]
       (and (not (hidden-native-element? loc info))
            (or (when slot
                  (or (meaningful-text-name? attrs)
                      (image-alt-name? loc attrs)))
-               (visible-from? body-start context)
-               (component-renders-text? loc context))))
+               (boolean visible?)
+               (and (not matched?) (visible-from? body-start context)))))
 
     (= :list (z/tag loc))
     (not (icon-only-branches? loc context))
@@ -454,9 +454,7 @@
                                (case (z/tag result)
                                  :vector (not (visible-content? result context))
                                  :list (icon-only-branches? result context)
-                                 (if-let [[argument caller-context] (caller-argument result context)]
-                                   (not (visible-content? argument caller-context))
-                                   false)))
+                                 (not (visible-content? result context))))
                              results)))))))
 
 (defn- has-visible-body?
@@ -698,7 +696,7 @@
   [loc tag]
   (and (= :table tag)
        (boolean (some (fn [child]
-                        (let [value (hiccup/unwrap-meta child)]
+                        (let [value (heads/unwrap-meta child)]
                           (and (= :caption (some-> value z/down parser/raw hiccup/parse-tag))
                                (announces-something? value))))
                       (body-locs loc)))))
@@ -967,7 +965,7 @@
   hidden from assistive technology while keeping its place in the tab order — the same
   defect as on the wrapper itself, and the more common way to write it."
   [info loc ns-info component-aliases]
-  (when (some-> (settled-attrs info) aria-hidden?)
+  (when (hidden-by-attrs? info)
     (first-matching-descendant {:match? #(focusable-loc? % ns-info component-aliases)
                                 :prune? #(or (hidden-subtree? %) (disabled-fieldset? %))}
                                (body-locs loc))))
@@ -987,16 +985,11 @@
   in one file is the strongest evidence available that the two agree.
 
   Every label in a file asks the same question, so this turns a scan per label into a scan
-  per file. Keyed by identity of the file's root node, the way hiccup.clj keys its own
-  index, so a tree this never saw rebuilds it."
+  per file. Keyed by identity of the file's root node, so a tree this never saw rebuilds it."
   []
   (parser/file-state ::aria-reference-index {:cached-root nil
                                              :references {:ids #{}
                                                           :sources #{}}}))
-
-(defn- file-root [loc]
-  (loop [current loc]
-    (if-let [parent (z/up current)] (recur parent) current)))
 
 (defn- normalized-source [loc]
   (parser/normalize-form (parser/raw loc)))
@@ -1022,12 +1015,12 @@
       :else (recur (z/next current) references))))
 
 (defn- aria-references [loc]
-  (let [node (z/node (file-root loc))
+  (let [node (z/node (hiccup/file-root loc))
         state (aria-reference-index)
         {:keys [cached-root references]} @state]
     (if (and node (identical? node cached-root))
       references
-      (let [scanned (scan-aria-references (file-root loc))]
+      (let [scanned (scan-aria-references (hiccup/file-root loc))]
         (reset! state {:cached-root node
                        :references scanned})
         scanned))))
@@ -1141,8 +1134,8 @@
   may pass it on. `child` is the wrapper's child on the way up from loc."
   [wrapper child loc {:keys [ns-info]}]
   (and (identical? (z/node child) (some-> (nth (parser/written-child-locs wrapper) 2 nil) z/node))
-       (let [result (->> (hiccup/result-locs (hiccup/unwrap-meta child) ns-info)
-                         (map hiccup/unwrap-meta)
+       (let [result (->> (hiccup/result-locs (heads/unwrap-meta child) ns-info)
+                         (map heads/unwrap-meta)
                          (filter #(descendant-of? % loc))
                          first)]
          (or (nil? result)
@@ -1275,7 +1268,7 @@
 (defn- may-hold-text?
   "True when a child added to a shell may hold text: anything but a vector, which may be icon markup."
   [loc]
-  (not= :vector (some-> loc hiccup/unwrap-meta z/tag)))
+  (not= :vector (some-> loc heads/unwrap-meta z/tag)))
 
 (defn- filled-by-consumer?
   "True when `call` is the shell that an `into` or `conj` call adds a child to that may hold text.
@@ -1360,7 +1353,7 @@
              (let [state (parser/file-state ::filled-shell-names {})]
                (if (contains? @state fn-name)
                  (get @state fn-name)
-                 (let [answer (filled-shell-name? (file-root loc) fn-name ns-info)]
+                 (let [answer (filled-shell-name? (hiccup/file-root loc) fn-name ns-info)]
                    (swap! state assoc fn-name answer)
                    answer))))))
 
@@ -1477,7 +1470,7 @@
   `aria-labelledby` list, a markup string, or a constant either is built from. Lists are
   where a file is met, so a file holding none, not even an `ns` form, is not read."
   [loc]
-  (let [root (file-root loc)
+  (let [root (hiccup/file-root loc)
         state (file-literals-root)]
     (when-not (identical? (z/node root) @state)
       (reset! state (z/node root))
@@ -1518,7 +1511,7 @@
   called, so it settles nothing."
   [loc]
   (boolean (some #(or (literal-string-loc? %)
-                      (and (= :vector (z/tag (hiccup/unwrap-meta %))) (not (hiccup/malli-schema-vector? %))))
+                      (and (= :vector (z/tag (heads/unwrap-meta %))) (not (hiccup/malli-schema-vector? %))))
                  (body-locs loc))))
 
 (defn- hiccup-label?
@@ -1755,7 +1748,7 @@
   (boolean
    (when loc
      (case (z/tag loc)
-       :meta (holds-field? (hiccup/unwrap-meta loc) except context)
+       :meta (holds-field? (heads/unwrap-meta loc) except context)
        :vector (and (not (identical? (z/node loc) (z/node except)))
                     (or (possible-field? loc context)
                         (if (native-vector? loc)
@@ -1945,7 +1938,7 @@
 (defn- unwrapped-loc
   "Return loc's place in the file with every aliased `[:> Comp …]` read as a call."
   [written-loc ns-info component-aliases]
-  (let [root-node (z/node (file-root written-loc))
+  (let [root-node (z/node (hiccup/file-root written-loc))
         state (interop-index)
         cached @state]
     (when-not (identical? root-node (:written-root cached))

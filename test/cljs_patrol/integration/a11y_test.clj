@@ -1633,7 +1633,6 @@
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])]
     (is (= #{"bad-button-holding-a-component-rendering-an-icon"
              "bad-button-holding-a-component-rendering-a-decorative-image"
-             "bad-button-holding-a-component-returning-a-call"
              "bad-button-holding-an-external-component"
              "bad-button-holding-a-self-rendering-component"
              "bad-button-holding-a-component-cycle"
@@ -1647,7 +1646,12 @@
              "bad-button-holding-an-icon-through-a-variadic-component"
              "bad-button-holding-an-icon-through-a-branch"
              "bad-button-holding-an-icon-through-a-let-bound-map"
-             "bad-button-holding-an-icon-through-a-def-map"}
+             "bad-button-holding-an-icon-through-a-def-map"
+             "bad-button-holding-text-a-component-hides"
+             "bad-button-holding-a-symbol-a-component-hides"
+             "bad-button-holding-text-a-component-drops"
+             "bad-button-holding-a-map-a-component-drops"
+             "bad-button-holding-an-icon-through-a-fixed-arity"}
            (fn-names-in local-components-file (:empty-interactive-element (first group-results))))
         "control named by text a same-file component renders is left alone, any other empty control is flagged")))
 

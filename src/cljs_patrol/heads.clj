@@ -104,46 +104,51 @@
       (recur (some-> current z/down z/rightmost))
       current)))
 
-(defn- arity-list? [loc]
-  (and (= :list (z/tag loc))
-       (= :vector (some-> loc z/down unwrap-meta z/tag))))
+(defn- unwrap-meta-node
+  "Return the value a `:meta` node wraps, or node itself."
+  [node]
+  (if (= :meta (some-> node n/tag))
+    (recur (last (code-forms node)))
+    node))
+
+(defn- arity-list-node? [node]
+  (and (= :list (n/tag node))
+       (= :vector (some-> (first (code-forms node)) unwrap-meta-node n/tag))))
+
+(defn- arity-nodes
+  "Return the arities among `forms`, the forms after a fn-like form's head.
+
+  A single arity is its parameter vector: the first vector, after a name, a docstring,
+  an attr map or a Rum mixin such as `(rum/local 0 ::n)`. A multi-arity form gives a list
+  per arity, whose first child is that arity's parameters. A vector in a body, the return
+  of a Hiccup view, is never a parameter list, since the parameters come before the body."
+  [forms]
+  (loop [remaining (seq forms)]
+    (let [form (first remaining)]
+      (cond
+        (nil? remaining) []
+        (= :vector (n/tag (unwrap-meta-node form))) [form]
+        (arity-list-node? form) (filter arity-list-node? remaining)
+        :else (recur (next remaining))))))
 
 (defn arities
-  "Return `{:params … :body […]}` for each arity of a function form, its body forms in order.
-
-  A single-arity form writes its body after the first vector from `start`, the parameters;
-  a name, a docstring, an attr map or a Rum mixin such as `(rum/local 0 ::n)` before it is
-  no vector. A multi-arity form writes a list per arity whose first child is that arity's
-  parameters. A vector in a body, the return of a Hiccup view, is never a parameter list,
-  since the parameters always come before the body."
+  "Return `{:params … :body […]}` for each arity of a function form, from `start`, the loc after its head.
+  The arities are those [[arity-nodes]] finds; the body holds the forms after the parameters, in order."
   [start]
-  (loop [child start]
-    (cond
-      (nil? child) []
-
-      (= :vector (z/tag (unwrap-meta child)))
-      [{:params (unwrap-meta child)
-        :body (parser/right-siblings child)}]
-
-      (arity-list? child)
-      (->> (cons child (parser/right-siblings child))
-           (filter arity-list?)
-           (map (fn [arity]
-                  {:params (unwrap-meta (z/down arity))
-                   :body (parser/right-siblings (z/down arity))})))
-
-      :else (recur (z/right child)))))
+  (let [locs (take-while some? (iterate z/right start))]
+    (for [opening (arity-nodes (map z/node locs))
+          :let [loc (first (filter #(identical? opening (z/node %)) locs))
+                params (if (= :list (n/tag opening)) (z/down loc) loc)]]
+      {:params (unwrap-meta params)
+       :body (parser/right-siblings params)})))
 
 (defn- parameter-vectors
-  "Return the parameter vectors of the fn-like form `node`, read by [[arities]] from `offset` children after its head.
+  "Return the parameter vectors of a fn-like form from its arguments, those [[arity-nodes]] finds.
   A `defmethod` has its dispatch value first, which may be a vector too."
-  [node offset]
-  (->> (some-> (z/of-node* node) z/down z/right)
-       (iterate #(some-> % z/right))
-       (drop offset)
-       first
-       arities
-       (keep #(some-> % :params z/node))))
+  [head-name arguments]
+  (->> (if (= "defmethod" head-name) (drop 2 arguments) arguments)
+       arity-nodes
+       (map #(unwrap-meta-node (if (= :list (n/tag %)) (first (code-forms %)) %)))))
 
 (defn- names-bound-by
   "Return the names list-node binds for its body.
@@ -164,12 +169,13 @@
 
       (= "letfn" head-name)
       (some->> arguments first code-forms
-               (mapcat #(concat (some-> (first (code-forms %)) symbol-names)
-                                (mapcat symbol-names (parameter-vectors % 0))))
+               (mapcat #(let [[fn-name & fn-arguments] (code-forms %)]
+                          (concat (some-> fn-name symbol-names)
+                                  (mapcat symbol-names (parameter-vectors "fn" fn-arguments)))))
                set)
 
       (or (contains? fn-like-heads head-name) (some-> head-name (str/starts-with? "def")))
-      (cond-> (->> (parameter-vectors list-node (if (= "defmethod" head-name) 2 0))
+      (cond-> (->> (parameter-vectors head-name arguments)
                    (mapcat symbol-names)
                    set)
         (and (= "fn" head-name) (= :token (some-> arguments first n/tag)))
@@ -209,7 +215,9 @@
 (defn- method-parameter-names
   "Return the names a method definition binds for its body, one arity or several."
   [loc]
-  (->> (parameter-vectors (z/node loc) 0)
+  (->> (code-forms (z/node loc))
+       rest
+       (parameter-vectors "fn")
        (mapcat symbol-names)
        set))
 

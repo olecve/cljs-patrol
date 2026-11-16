@@ -195,10 +195,6 @@
 (defn- skip-right [loc n]
   (reduce (fn [current _] (some-> current z/right)) loc (range n)))
 
-(def unwrap-meta
-  "Return the value a `:meta` node wraps, or loc itself; see [[heads/unwrap-meta]]."
-  heads/unwrap-meta)
-
 (defn- parameter-vectors
   "Return the vectors binding parameters in a fn-like form, one per arity, read by [[heads/arities]]."
   [list-loc]
@@ -254,7 +250,7 @@
   discarded one is not there at all, so neither disqualifies the list."
   [vector-loc]
   (loop [element (z/down vector-loc)]
-    (let [value (some-> element unwrap-meta)]
+    (let [value (some-> element heads/unwrap-meta)]
       (cond
         (nil? element) true
         (= :uneval (z/tag element)) (recur (z/right element))
@@ -374,7 +370,9 @@
          (= :list (z/tag loc))
          (contains? top-level-def-heads (some-> loc z/down parser/raw)))))
 
-(defn- file-root [loc]
+(defn file-root
+  "Return the root of the tree loc sits in."
+  [loc]
   (loop [current loc]
     (if-let [parent (z/up current)]
       (recur parent)
@@ -406,7 +404,7 @@
   The last definition of a name wins, the way it does at load time: a re-`def` rebinds the
   var, and a function body called afterwards sees the value that rebinding left."
   [first-form]
-  (let [ns-info (or (parser/find-ns-info first-form) {})]
+  (let [ns-info @@(parser/file-state ::file-ns-info (delay (or (parser/find-ns-info first-form) {})))]
     (loop [form first-form
            definitions {}]
       (if (nil? form)
@@ -717,11 +715,6 @@
    (result-locs* loc #(get result-head-by-name (some-> % z/down parser/sym-name))))
   ([loc ns-info]
    (result-locs* loc #(heads/resolve-head % ns-info result-heads))))
-
-(defn arity-bodies
-  "Return the body of each arity of a function form, its forms in order."
-  [start]
-  (map :body (heads/arities start)))
 
 (defn local-component
   "Return `{:name … :def-loc … :arities […]}` for a Hiccup vector headed by a component its own file defines, or nil.

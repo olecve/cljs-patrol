@@ -103,7 +103,7 @@
 (defn- render-label [label]
   (str "Label: " label))
 
-(defn bad-button-holding-a-component-returning-a-call [on-click]
+(defn ok-button-holding-a-component-returning-a-call [on-click]
   [:button {:on-click on-click
             :type "button"}
    [render-label {:label "Save"}]])
@@ -305,3 +305,75 @@
   [:button {:on-click on-click
             :type "button"}
    [caption-ignoring-its-parameter [icons/square {:size 16}]]])
+
+(defn- translated-face [{:keys [k]}]
+  (translate k))
+
+(defn ok-button-holding-a-component-returning-a-translation [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [translated-face {:k :save}]])
+
+(defn- built-label []
+  (into [:span] ["Save"]))
+
+(defn ok-button-holding-a-component-returning-a-built-vector [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [built-label]])
+
+(defn- keyed-label []
+  ^{:key "save"} [:span "Save"])
+
+(defn ok-button-holding-a-component-returning-a-keyed-vector [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [keyed-label]])
+
+(defn- hidden-wrap [content]
+  [:span {:aria-hidden true} content])
+
+(defn bad-button-holding-text-a-component-hides [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [hidden-wrap "Save"]])
+
+(defn bad-button-holding-a-symbol-a-component-hides [on-click label]
+  [:button {:on-click on-click
+            :type "button"}
+   [hidden-wrap label]])
+
+(defn- drop-face [_icon _label]
+  [:svg])
+
+(defn bad-button-holding-text-a-component-drops [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [drop-face [:svg] "Close"]])
+
+(defn bad-button-holding-a-map-a-component-drops [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [drop-face {:size 16} {:label "Close"}]])
+
+(def caption-text "Close")
+
+(def caption-props {:icon caption-text})
+
+(defn- caption-face [caption-text]
+  (prn caption-text)
+  [icon-face caption-props])
+
+(defn ok-button-holding-a-def-map-naming-a-var [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [caption-face [icons/square {:size 16}]]])
+
+(defn- either-slot
+  ([icon] [:span icon])
+  ([_icon & _more] [:span "Close"]))
+
+(defn bad-button-holding-an-icon-through-a-fixed-arity [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [either-slot [icons/square {:size 16}]]])
