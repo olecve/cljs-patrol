@@ -37,7 +37,8 @@ Every code block in the rule docs is a test, and a label comment starts each exa
   with `left alone` or `fix` expects no finding. A label that starts with neither keeps the expected result of the
   example before it. In the first block of a rule section, the `;; flagged` and `;; fix` markers are the labels.
 - **A config line sets the config.** A `;; config {…}` line in a block gives the config that every example of the block
-  runs under. It is not a label.
+  runs under. In a rule section, the config lines of the first block and of the Left alone block apply to both blocks.
+  Two config lines merge: maps merge at every depth, and vectors join. A config line is not a label.
 - **A form group must use a name from above.** A blank line between top-level forms splits an example into form groups.
   Each form group after the first must use a name that an earlier form group defines. If it does not, it is a different
   example with no label, and the test fails.
@@ -179,3 +180,5 @@ Rejected because the examples drift from the tool, and nothing shows it.
 ## More Information
 
 - The test: [`test/cljs_patrol/docs_examples_test.clj`](../../test/cljs_patrol/docs_examples_test.clj)
+- The pull request that made every block a test:
+  [olecve/cljs-patrol#156](https://github.com/olecve/cljs-patrol/pull/156)

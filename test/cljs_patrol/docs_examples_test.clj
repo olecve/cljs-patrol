@@ -51,6 +51,17 @@
        " [my.ui :as ui]"
        " [my.ui.icons :as icons])"))
 
+(defn- merge-configs
+  "Merge configs: maps merge at every depth, vectors join, and any other later value wins."
+  [& configs]
+  (apply merge-with
+         (fn merge-values [earlier later]
+           (cond
+             (and (map? earlier) (map? later)) (merge-with merge-values earlier later)
+             (and (vector? earlier) (vector? later)) (into earlier later)
+             :else later))
+         configs))
+
 (defn- comment-item
   "Read a comment that opens a line: a `;; config {…}` line gives config, any other comment is a label."
   [node]
@@ -93,7 +104,7 @@
     :as item}]
   (let [previous-end (some-> groups peek :end-row)]
     (cond
-      config (update examples :config #(merge-with merge % config))
+      config (update examples :config merge-configs config)
       label (update examples :pending-label #(or % label))
       (or pending-label (nil? previous-end)) (start-example examples item)
       (and (not commented?) (< (inc previous-end) row)) (start-example examples item)
@@ -188,9 +199,9 @@
         :when rule]
     {:rule rule
      :anchor (-> section str/split-lines first heading-anchor)
-     :config (merge-with merge
-                         (some-> example labeled-examples :config)
-                         (some-> left-alone labeled-examples :config))
+     :config (merge-configs
+              (some-> example labeled-examples :config)
+              (some-> left-alone labeled-examples :config))
      :flagged (some->> flagged (str ";; flagged\n") chunks)
      :fix (some->> fix (str ";; fix\n") chunks)
      :left-alone (some-> left-alone chunks)
@@ -271,7 +282,7 @@
   [config]
   (let [default-groups (assemble-groups {} false)
         config-keys (into top-level-config-keys (map group/group-id default-groups))
-        rule->tier (into {} (map group/rule->tier default-groups))
+        rule->tier (severity/collect-rule->tier default-groups)
         unknown-keys (remove config-keys (keys config))
         fail-on-error (when (contains? config :fail-on)
                         (:error (severity/parse-fail-on (:fail-on config) rule->tier)))
@@ -305,6 +316,18 @@
          (chunks "(def a 1) ;; note\n(def b a)"))
       "comment after code on the same line starts nothing"))
 
+(deftest merge-configs-merges-at-every-depth
+  (is (= {:a11y {:component-aliases {'a/x :button
+                                     'b/y :dialog}}}
+         (merge-configs {:a11y {:component-aliases {'a/x :button}}} {:a11y {:component-aliases {'b/y :dialog}}}))
+      "maps merge below the group map")
+  (is (= {:forbid-props [{:prop :aria-disabled} {:prop :style}]}
+         (merge-configs {:forbid-props [{:prop :aria-disabled}]} {:forbid-props [{:prop :style}]}))
+      "vectors join")
+  (is (= {:idioms {:min-calls 4}}
+         (merge-configs {:idioms {:min-calls 3}} {:idioms {:min-calls 4}}))
+      "later value wins"))
+
 (deftest unrelated-parts-find-an-unlabeled-example
   (is (= ["(def b 2)"]
          (unrelated-parts "(def a 1)\n\n(def b 2)"))
@@ -327,14 +350,15 @@
         (is (= (declared-rules rule-group) (set (map :rule sections)))
             "every rule the group declares has a section with its key line, and no section names another")
         (doseq [{:keys [config rule flagged fix left-alone links]} sections
-                :let [rule-group (if config
-                                   (->> (assemble-groups (merge-with merge docs-config config) false)
+                :let [problems (config-problems config)
+                      rule-group (if (and config (empty? problems))
+                                   (->> (assemble-groups (merge-configs docs-config config) false)
                                         (filter #(= group-id (group/group-id %)))
                                         first)
                                    rule-group)]]
           (testing (name rule)
-            (is (empty? (config-problems config))
-                (str "config line fails the config checks: " (config-problems config)))
+            (is (empty? problems)
+                (str "config line fails the config checks: " problems))
             (is (seq flagged)
                 "every rule shows code it flags")
             (doseq [anchor links]
@@ -373,14 +397,15 @@
             (is (empty? problems)
                 (str "config block fails the config checks: " problems "\n" code)))
           (let [{:keys [config examples]} (labeled-examples code)
+                problems (config-problems config)
                 groups (filter #(contains? page-group-ids (group/group-id %))
-                               (assemble-groups (merge-with merge docs-config config) false))]
+                               (assemble-groups (if (empty? problems) (merge-configs docs-config config) docs-config) false))]
             (is (seq examples)
                 (str "code block holds no example:\n" code))
             (is (seq groups)
                 (str "no group runs the examples of " page-name "; add the page to page-groups"))
-            (is (empty? (config-problems config))
-                (str "config line fails the config checks: " (config-problems config) "\n" code))
+            (is (empty? problems)
+                (str "config line fails the config checks: " problems "\n" code))
             (doseq [[{:keys [code]} expectation] (expectations examples)
                     :let [runs (for [rule-group groups]
                                  (findings rule-group (if rule #{rule} (declared-rules rule-group)) code))
