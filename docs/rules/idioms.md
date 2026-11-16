@@ -19,6 +19,7 @@ Run this group alone with `--only idioms`. Its settings live under `:idioms` in 
 (defn active-users [rows]
   (set (filter active? (map :user rows))))
 
+;; a thread-first chain
 (defn top-result [response]
   (select-keys (first (get-in response [:body :results])) [:id :title]))
 
@@ -26,6 +27,7 @@ Run this group alone with `--only idioms`. Its settings live under `:idioms` in 
 (defn active-users [rows]
   (->> rows (map :user) (filter active?) set))
 
+;; a thread-first chain
 (defn top-result [response]
   (-> response (get-in [:body :results]) first (select-keys [:id :title])))
 ```
@@ -176,6 +178,7 @@ Left alone, since the scan cannot vouch that it is core's `cond` or that it is c
 (defn retry-label [ready? attempts]
   (if (not ready?) "Waiting" (str attempts " attempts")))
 
+;; in a when
 (defn warn! [ready?]
   (when (not ready?)
     (js/console.warn "not ready")))
@@ -184,6 +187,7 @@ Left alone, since the scan cannot vouch that it is core's `cond` or that it is c
 (defn retry-label [ready? attempts]
   (if-not ready? "Waiting" (str attempts " attempts")))
 
+;; in a when
 (defn warn! [ready?]
   (when-not ready?
     (js/console.warn "not ready")))
@@ -240,6 +244,7 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 (defn tag-ids [tags]
   (into #{} (map :id tags)))
 
+;; into a vector
 (defn titles [docs]
   (into [] (map :title docs)))
 
@@ -247,6 +252,7 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 (defn tag-ids [tags]
   (set (map :id tags)))
 
+;; into a vector
 (defn titles [docs]
   (mapv :title docs))
 ```
@@ -307,9 +313,11 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 (defn next-page [page]
   (+ page 1))
 
+;; minus one
 (defn last-index [items]
   (- (count items) 1))
 
+;; inside an anonymous fn
 (defn bump-all [counts]
   (map #(+ % 1) counts))
 
@@ -317,9 +325,11 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 (defn next-page [page]
   (inc page))
 
+;; minus one
 (defn last-index [items]
   (dec (count items)))
 
+;; inside an anonymous fn
 (defn bump-all [counts]
   (map inc counts))
 ```
@@ -384,6 +394,7 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 (defn changed? [before after]
   (not (= before after)))
 
+;; inside an if
 (defn label [status]
   (if (not (= status :done)) "Open" "Done"))
 
@@ -391,6 +402,7 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
 (defn changed? [before after]
   (not= before after))
 
+;; inside an if
 (defn label [status]
   (if (not= status :done) "Open" "Done"))
 ```
@@ -443,6 +455,7 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
     true (update :counter inc)
     reset? (dissoc :cache)))
 
+;; cond->>
 (defn prepare [xs needs-filter?]
   (cond->> xs
     true (map inc)
@@ -455,6 +468,7 @@ Left alone, since the scan cannot vouch that the rewrite means the same:
               (update :counter inc))
     reset? (dissoc :cache)))
 
+;; cond->>
 (defn prepare [xs needs-filter?]
   (cond->> (map inc xs)
     needs-filter? (filter pos?)))
@@ -513,9 +527,11 @@ Left alone, since the scan cannot vouch that the clause always runs or that the 
 (defn ids [rows]
   (vec (map :id rows)))
 
+;; a ->> chain ending in vec
 (defn active [users]
   (->> users (remove :deleted?) (filter :active?) vec))
 
+;; vec around a ->> chain
 (defn names [users]
   (vec (->> users (remove :deleted?) (map :name))))
 
@@ -523,9 +539,11 @@ Left alone, since the scan cannot vouch that the clause always runs or that the 
 (defn ids [rows]
   (mapv :id rows))
 
+;; a ->> chain ending in vec
 (defn active [users]
   (->> users (remove :deleted?) (filterv :active?)))
 
+;; vec around a ->> chain
 (defn names [users]
   (->> users (remove :deleted?) (mapv :name)))
 ```

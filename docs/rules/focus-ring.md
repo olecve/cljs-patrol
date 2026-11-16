@@ -102,10 +102,12 @@ paints no ring and is left alone. So is a block holding anything besides literal
   [:&:focus-visible {:box-shadow "0 0 0 2px var(--ring-color)"
                      :outline "2px solid transparent"}])
 
+;; a theme shadow
 (defclass link-style []
   [:&:focus-visible {:box-shadow button-theme/shadow-brand-focused
                      :outline "2px solid transparent"}])
 
+;; a shadow built with str
 (defclass tab-style []
   [:&:focus-visible {:box-shadow (str "inset " focus-rings/primary-shadow ", 0 0 0 1px #516BFF")
                      :outline "2px solid transparent"}])

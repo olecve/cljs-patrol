@@ -186,12 +186,15 @@ string.
 ```clojure
 ;; flagged
 (def file-failed-message "We couldn't read this file")
+
 (deftest file-failed-copy
   (is (= "We couldn't read this file" file-failed-message)))
 
 ;; fix
 (def file-failed-message "We couldn't read this file")
+
 (defn toast-for [{:keys [files]}] {:message (when (seq files) file-failed-message)})
+
 (deftest upload-failure-fires-file-reading-toast
   (is (= file-failed-message (:message (toast-for {:files [:report]})))
       "file-reading heading when submit had files"))
@@ -200,18 +203,21 @@ string.
 **Left alone:**
 
 ```clojure
-(defn describe [title] (str "Search case " (or title "Untitled")))
 ;; a fn's output
+(defn describe [title] (str "Search case " (or title "Untitled")))
+
 (deftest describe-falls-back-to-untitled
   (is (= "Search case Untitled" (describe nil))))
 
-(def completed-message (str "Smart Search " "completed"))
 ;; a computed constant
+(def completed-message (str "Smart Search " "completed"))
+
 (deftest completed-copy
   (is (= "Smart Search completed" completed-message)))
 
-(def label "View Results")
 ;; a local may shadow the constant
+(def label "View Results")
+
 (deftest label-copy
   (let [label "View Results"]
     (is (= "View Results" label))))

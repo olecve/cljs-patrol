@@ -26,6 +26,7 @@ element or component. The finding gives the entry's message.
             :type "button"}
    "Save"])
 
+;; on a component
 (defn comment-button []
   [button/button {:aria-disabled true
                   :on-click nil}

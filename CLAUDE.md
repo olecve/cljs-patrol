@@ -130,9 +130,13 @@ So when a change needs documenting:
 Every rule's section in `docs/rules/` leads with code, not prose, in this order: a key line,
 `` `rule-key` · tier — Summary. `` (with ``· config [`:option`](#anchor)`` before the dash when a setting changes the
 rule); a block with a `;; flagged` part and a `;; fix` part; a `**Left alone:**` block where the edges need showing;
-and, when the summary is not enough, the full explanation folded into `<details>`. `docs_examples_test.clj` reads every
-chunk of top-level forms, a blank line between forms ending a chunk, and runs it through the rule as a file of its own:
-a flagged example must be reported, a fix or left-alone one must not, every chunk must parse, every rule the group
+and, when the summary is not enough, the full explanation folded into `<details>`. `docs_examples_test.clj` splits each
+block into examples: a `;;` comment opening a line starts one, `;; flagged` and `;; fix` included, which runs to the
+next such comment, blank lines and all, and an example with no opening comment ends at a blank line. Label an example of
+several forms with a comment above its first form, never between its forms, and put a blank line before a form that uses
+a name defined above it. A part of an example after a blank line must use a name an earlier part defines, so an
+unlabeled example cannot slip into the one above it. The test runs each example through the rule as a file of its own: a
+flagged example must be reported, a fix or left-alone one must not, every chunk must parse, every rule the group
 declares needs a section, and every key-line link must hit a heading. A fix is only checked against its own rule, so it
 may still trip a sibling rule if copied as is. A rule PR leads with the same kind of examples.
 

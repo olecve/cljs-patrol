@@ -3,9 +3,8 @@
 
   A rule's section opens with its key, then a block whose `;; flagged` part holds code the
   rule reports and whose `;; fix` part holds the same code rewritten, and a `**Left alone:**`
-  block of code it does not report. Top-level forms with no blank line between them make
-  one chunk, analyzed as a file of its own, so an example cannot lean on another, and the
-  docs cannot drift from the tool."
+  block of code it does not report. Each example is one chunk, analyzed as a file of its
+  own, so an example cannot lean on another, and the docs cannot drift from the tool."
   (:require
    [cljs-patrol.core :as core]
    [cljs-patrol.group :as group]
@@ -41,29 +40,91 @@
        " [app.theme.button :as button-theme]"
        " [app.ui.button :as button])"))
 
-(defn- chunks
-  "Split code into chunks of top-level forms, a blank line between two forms ending a chunk.
+(defn- example-items
+  "Return the top-level forms of code as `{:row :end-row}`, and each comment that opens a line as `{:comment? true}`."
+  [code]
+  (->> (p/parse-string-all code)
+       n/children
+       (keep (fn [node]
+               (let [{:keys [row col end-row]} (meta node)]
+                 (cond
+                   (= :comment (n/tag node)) (when (= 1 col) {:comment? true})
+                   (n/whitespace-or-comment? node) nil
+                   :else {:end-row end-row
+                          :row row}))))))
 
-  Read with the parser rather than split on blank lines, so a blank line inside a form, a
-  docstring's paragraph break, stays in its chunk. Code that does not parse throws."
+(defn- start-example [{:keys [groups pending-comment?]} {:keys [end-row row]}]
+  {:commented? (boolean pending-comment?)
+   :groups (conj groups {:end-row end-row
+                         :row row})})
+
+(defn- add-example-item
+  "Add a comment or a form to the examples read so far."
+  [{:keys [commented? groups pending-comment?]
+    :as examples}
+   {:keys [comment? end-row row]
+    :as item}]
+  (let [previous-end (some-> groups peek :end-row)]
+    (cond
+      comment? (assoc examples :pending-comment? true)
+      (or pending-comment? (nil? previous-end)) (start-example examples item)
+      (and (not commented?) (< (inc previous-end) row)) (start-example examples item)
+      :else (assoc-in examples [:groups (dec (count groups)) :end-row] end-row))))
+
+(defn- chunks
+  "Split code into chunks of top-level forms, one chunk per example.
+
+  A comment that opens a line starts a new example, which runs on until the next such
+  comment, blank lines and all, so an example of two forms can space them out. An example
+  that opens with no comment ends at a blank line. Read with the parser rather than split on
+  lines, so a blank line inside a form, a docstring's paragraph break, stays in its chunk.
+  Code that does not parse throws."
   [code]
   (let [lines (vec (str/split-lines code))
-        spans (->> (p/parse-string-all code)
-                   n/children
-                   (remove n/whitespace-or-comment?)
-                   (map (comp (juxt :row :end-row) meta)))
-        groups (reduce (fn [groups [row end-row]]
-                         (let [previous-end (-> groups peek peek second)]
-                           (if (and previous-end (<= row (inc previous-end)))
-                             (conj (pop groups) (conj (peek groups) [row end-row]))
-                             (conj groups [[row end-row]]))))
-                       []
-                       spans)]
-    (for [group groups
-          :let [start (first (first group))
-                end (second (peek group))]]
-      (->> (subvec lines (dec start) end)
+        examples (reduce add-example-item {:groups []} (example-items code))]
+    (for [{:keys [row end-row]} (:groups examples)]
+      (->> (subvec lines (dec row) end-row)
            (str/join "\n")))))
+
+(defn- symbol-names
+  "Return the names of every symbol in node."
+  [node]
+  (->> (tree-seq n/inner? n/children node)
+       (keep #(when (= :token (n/tag %))
+                (let [value (n/sexpr %)]
+                  (when (symbol? value) (name value)))))
+       set))
+
+(defn- defined-name
+  "Return the name a `def`-like form defines, or nil."
+  [node]
+  (when (= :list (n/tag node))
+    (let [[head defined] (remove n/whitespace-or-comment? (n/children node))]
+      (when (and (some-> head n/sexpr symbol?)
+                 (str/starts-with? (name (n/sexpr head)) "def")
+                 (some-> defined n/sexpr symbol?))
+        (name (n/sexpr defined))))))
+
+(defn- unrelated-parts
+  "Return the parts of an example, split at blank lines between top-level forms, that use no name an earlier part defines.
+
+  An example that spans a blank line shows forms that lean on each other, such as a component and the
+  button that renders it; a part that leans on nothing is another example missing its own comment."
+  [code]
+  (let [forms (->> (p/parse-string-all code)
+                   n/children
+                   (remove n/whitespace-or-comment?))
+        parts (reduce (fn [parts form]
+                        (let [previous-end (some-> parts peek peek meta :end-row)]
+                          (if (and previous-end (< (inc previous-end) (:row (meta form))))
+                            (conj parts [form])
+                            (conj (pop parts) (conj (or (peek parts) []) form)))))
+                      [[]]
+                      forms)]
+    (->> (map vector parts (reductions into #{} (map #(keep defined-name %) parts)))
+         rest
+         (remove (fn [[part defined]] (some defined (mapcat symbol-names part))))
+         (map (fn [[part _]] (str/join "\n" (map n/string part)))))))
 
 (defn- code-blocks [text]
   (map second (re-seq #"(?s)```clojure\n(.*?)```" text)))
@@ -89,8 +150,8 @@
         :when rule]
     {:rule rule
      :anchor (-> section str/split-lines first heading-anchor)
-     :flagged (some-> flagged chunks)
-     :fix (some-> fix chunks)
+     :flagged (some->> flagged (str ";; flagged\n") chunks)
+     :fix (some->> fix (str ";; fix\n") chunks)
      :left-alone (some-> left-alone chunks)
      :links (->> (str/split section #"\n```" 2) first (re-seq #"\]\(#([^)]+)\)") (map second))}))
 
@@ -120,6 +181,27 @@
   (into (set (keys (group/suggestions rule-group)))
         (keys (group/rule->tier rule-group))))
 
+(deftest chunks-split-examples-at-comments
+  (is (= ["(def a 1)" "(def b 2)"]
+         (chunks "(def a 1)\n\n(def b 2)"))
+      "a blank line ends an example that opens with no comment")
+  (is (= ["(def a 1)\n\n(def b a)" "(def c 3)"]
+         (chunks ";; a and b\n(def a 1)\n\n(def b a)\n;; c\n(def c 3)"))
+      "commented example runs past a blank line to the next comment")
+  (is (= ["(def a 1)" "(def b 2)"]
+         (chunks "(def a 1)\n;; b\n(def b 2)"))
+      "comment right after a form starts a new example")
+  (is (= ["(def a 1) ;; note\n(def b a)"]
+         (chunks "(def a 1) ;; note\n(def b a)"))
+      "comment after code on the same line starts nothing"))
+
+(deftest unrelated-parts-find-an-unlabeled-example
+  (is (= ["(def b 2)"]
+         (unrelated-parts "(def a 1)\n\n(def b 2)"))
+      "part that uses nothing defined above is another example")
+  (is (empty? (unrelated-parts "(defn- face [] [:span \"x\"])\n\n(defn button [] [:button [face]])"))
+      "part that uses a name defined above belongs to the example"))
+
 (deftest rule-examples-match-the-tool
   (let [groups (into {} (map (juxt group/group-id identity)) (assemble-groups docs-config false))
         pages (->> (io/file "docs/rules") .listFiles (filter #(str/ends-with? (.getName ^java.io.File %) ".md")))]
@@ -141,6 +223,10 @@
             (doseq [anchor links]
               (is (contains? (anchors text) anchor)
                   (str "a link in the key line points at no heading: #" anchor)))
+            (doseq [code (concat flagged fix left-alone)]
+              (is (empty? (unrelated-parts code))
+                  (str "example spans a blank line, but a part uses nothing defined above it; "
+                       "give that part its own comment:\n" code)))
             (doseq [code flagged
                     :let [{:keys [count warnings]} (findings rule-group rule code)]]
               (is (str/blank? warnings)
