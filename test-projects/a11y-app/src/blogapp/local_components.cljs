@@ -377,3 +377,55 @@
   [:button {:on-click on-click
             :type "button"}
    [either-slot [icons/square {:size 16}]]])
+
+(defn- avatar [user]
+  [:img {:alt (:name user)
+         :src (:url user)}])
+
+(defn ok-button-holding-a-component-with-a-dynamic-alt [user on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [avatar user]])
+
+(defn- named-avatar [user-name]
+  [:img {:alt user-name
+         :src "avatar.png"}])
+
+(defn ok-button-holding-a-component-with-an-alt-argument [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [named-avatar "Ann"]])
+
+(defn bad-button-holding-a-component-with-an-empty-alt-argument [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [named-avatar ""]])
+
+(declare hub-b
+         hub-c
+         hub-d
+         hub-e
+         hub-f)
+
+(defn- hub-a []
+  [:span [icons/square {:size 16}] [hub-b] [hub-c] [hub-d] [hub-e] [hub-f]])
+
+(defn- hub-b []
+  [:span [icons/square {:size 16}] [hub-a] [hub-c] [hub-d] [hub-e] [hub-f]])
+
+(defn- hub-c []
+  [:span [icons/square {:size 16}] [hub-a] [hub-b] [hub-d] [hub-e] [hub-f]])
+
+(defn- hub-d []
+  [:span [icons/square {:size 16}] [hub-a] [hub-b] [hub-c] [hub-e] [hub-f]])
+
+(defn- hub-e []
+  [:span [icons/square {:size 16}] [hub-a] [hub-b] [hub-c] [hub-d] [hub-f]])
+
+(defn- hub-f []
+  [:span [icons/square {:size 16}] [hub-a] [hub-b] [hub-c] [hub-d] [hub-e]])
+
+(defn ok-button-holding-components-past-the-read-limit [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [hub-a]])

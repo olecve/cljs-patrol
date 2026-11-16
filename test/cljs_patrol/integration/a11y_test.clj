@@ -1651,7 +1651,8 @@
              "bad-button-holding-a-symbol-a-component-hides"
              "bad-button-holding-text-a-component-drops"
              "bad-button-holding-a-map-a-component-drops"
-             "bad-button-holding-an-icon-through-a-fixed-arity"}
+             "bad-button-holding-an-icon-through-a-fixed-arity"
+             "bad-button-holding-a-component-with-an-empty-alt-argument"}
            (fn-names-in local-components-file (:empty-interactive-element (first group-results))))
         "control named by text a same-file component renders is left alone, any other empty control is flagged")))
 

@@ -240,19 +240,22 @@
       (keep-indexed (fn [i loc] (when (odd? i) loc)) args)
       (rest args))))
 
-(declare icon-only-branches?
+(declare caller-argument
+         icon-only-branches?
          visible-content?
          visible-from?)
 
 (defn- image-alt-name?
-  "True when loc is an `[:img …]` carrying non-empty `:alt` text.
-  Alt text is announced, so an image holding it names whatever control it sits in."
-  [loc attrs]
+  "True when loc is an `[:img …]` whose `:alt` names it.
+  Alt text is announced, so an image holding it names whatever control it sits in. The
+  `:alt` is read like any other name attribute, and a component parameter as what the
+  caller passes for it."
+  [loc attrs context]
   (and (some? attrs)
        (when-let [head (z/down loc)]
          (= :img (hiccup/parse-tag (parser/raw head))))
-       (let [alt (literal-sexpr (get attrs :alt))]
-         (and (string? alt) (seq alt)))))
+       (let [alt (get attrs :alt)]
+         (meaningful-name-value? (or (some-> alt (caller-argument context) first) alt)))))
 
 (def ^:private aria-hidden-true-values
   "Values that take an element out of the accessibility tree.
@@ -288,6 +291,12 @@
 (def ^:private component-depth-limit
   "How many local components deep a body is read; a component below that renders nothing known."
   4)
+
+(def ^:private component-read-limit
+  "How many local component calls one control's body reads in all; past that, a call counts as visible.
+  Components that render each other branch at each level, so without it the reads grow with
+  the number of paths through them."
+  64)
 
 (defn- map-parameter-bindings
   "Map each name a map parameter binds to the value the caller's map gives it, or to nil.
@@ -378,23 +387,27 @@
   the component returns carries visible content: each result is read the way a direct
   child is, and a parameter it renders as what the call passes for it. The answer is nil
   for any other vector, and for a component already being read, one that renders itself
-  or a cycle, or one past [[component-depth-limit]]."
-  [loc {:keys [ns-info expanded]
+  or a cycle, or one past [[component-depth-limit]]. Past [[component-read-limit]] a call
+  is not read, and counts as visible."
+  [loc {:keys [ns-info expanded reads]
         :as context}]
   (when-let [{:keys [name def-loc arities]} (hiccup/local-component loc ns-info)]
     (when (and (not (contains? expanded name))
                (< (count expanded) component-depth-limit))
-      (let [arguments (rest (parser/written-child-locs loc))
-            arity (matching-arity arities (count arguments))
-            inner (assoc context
-                         :expanded (conj expanded name)
-                         :component (when arity
-                                      {:arguments (caller-arguments arity arguments)
-                                       :caller-context context
-                                       :def-loc def-loc}))]
-        {:matched? (some? arity)
-         :visible? (boolean (some #(visible-content? (result-content %) inner)
-                                  (if arity (:results arity) (mapcat :results arities))))}))))
+      (if (> (swap! reads inc) component-read-limit)
+        {:matched? true
+         :visible? true}
+        (let [arguments (rest (parser/written-child-locs loc))
+              arity (matching-arity arities (count arguments))
+              inner (assoc context
+                           :expanded (conj expanded name)
+                           :component (when arity
+                                        {:arguments (caller-arguments arity arguments)
+                                         :caller-context context
+                                         :def-loc def-loc}))]
+          {:matched? (some? arity)
+           :visible? (boolean (some #(visible-content? (result-content %) inner)
+                                    (if arity (:results arity) (mapcat :results arities))))})))))
 
 (defn- visible-content?
   "True when loc carries visible text or dynamically-computed content.
@@ -418,7 +431,7 @@
       (and (not (hidden-native-element? loc info))
            (or (when slot
                  (or (meaningful-text-name? attrs)
-                     (image-alt-name? loc attrs)))
+                     (image-alt-name? loc attrs context)))
                (boolean visible?)
                (and (not matched?) (visible-from? body-start context)))))
 
@@ -467,7 +480,8 @@
                      (z/right attrs-loc)
                      (some-> vec-loc z/down z/right))]
     (visible-from? body-start {:expanded #{}
-                               :ns-info ns-info})))
+                               :ns-info ns-info
+                               :reads (atom 0)})))
 
 (def ^:private widget-state-attrs
   "Attributes marking a control as a stateful widget rather than a plain button.
