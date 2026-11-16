@@ -1,4 +1,6 @@
-(ns datadefmixed.views)
+(ns datadefmixed.views
+  (:require
+   [datadefmixed.ui :as ui]))
 
 (def bad-label-schema
   [:map {:error/fn (fn [_ _] "Bad")}
@@ -24,3 +26,18 @@
 (def bad-render-schema
   [:map {:render (fn [] [:label {:title "Name"} "x"])}
    [:id :int]])
+
+(def bad-notes-schema
+  [:map {:error/fn (fn [_ _] "Bad")}
+   [:textarea {:id "notes-field"} :string]])
+
+(def bad-separator-schema
+  [:map {:error/fn (fn [_ _] "Bad")}
+   [:hr {:tab-index 0} :int]])
+
+(defn focusable-rule []
+  [:hr {:tab-index 0}])
+
+(def bad-alias-schema
+  [:map {:render-button [:> ui/button {:on-click identity} "x"]}
+   [:label {:title "Name"} :string]])

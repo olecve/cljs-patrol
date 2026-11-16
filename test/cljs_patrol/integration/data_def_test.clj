@@ -142,19 +142,34 @@
   (def-names-in mixed-file (filter #(some-> (:hint %) (str/includes? "Malli schema")) findings)))
 
 (deftest mixed-schema-note-on-each-group
-  (is (= #{"bad-label-schema"} (-> a11y/group mixed-result :label-not-associated noted-defs))
+  (is (= #{"bad-label-schema" "bad-alias-schema"} (-> a11y/group mixed-result :label-not-associated noted-defs))
       "a11y")
   (is (= #{"bad-button-schema"}
          (-> (forbid-props/make-group [:aria-disabled]) mixed-result :forbidden-prop noted-defs)))
   (is (= #{"bad-fragment-schema"} (-> reagent/group mixed-result :empty-fragment-props noted-defs))
       "reagent")
-  (is (some #(str/includes? (:hint %) "(fn [_ _] \"Bad\")")
-            (:test-id-query-on-role (mixed-result react-testing-library-cljs/group)))
+  (is (= [(str "Query it by role \"button\" and its name. Its element sits in a Malli schema at " mixed-file
+               ":19, which reads as markup because of (fn [_ _] \"Bad\"). Move that part into its own def or function,"
+               " so the schema reads as data.")]
+         (->> react-testing-library-cljs/group mixed-result :test-id-query-on-role (map :hint)))
       "react-testing-library-cljs"))
+
+(deftest mixed-schema-note-on-run-level-a11y-findings
+  (is (= #{"bad-notes-schema" "bad-separator-schema"}
+         (-> a11y/group mixed-result :missing-accessible-name noted-defs))
+      "unreferenced id and unnamed separator"))
+
+(deftest mixed-schema-note-quotes-the-source
+  (is (some #(some-> (:hint %) (str/includes? "[:> ui/button {:on-click identity} \"x\"]"))
+            (-> (a11y/make-group {:component-aliases {'datadefmixed.ui/button :button}})
+                mixed-result
+                :label-not-associated))
+      "component alias"))
 
 (deftest mixed-schema-note-leaves-schemas-with-more-parts-and-the-part-itself
   (let [findings (:label-not-associated (mixed-result a11y/group))]
-    (is (= #{"bad-label-schema" "bad-two-parts-schema" "bad-render-schema"} (def-names-in mixed-file findings))
+    (is (= #{"bad-label-schema" "bad-two-parts-schema" "bad-render-schema" "bad-alias-schema"}
+           (def-names-in mixed-file findings))
         "every label stays reported")
     (is (not-any? #{"bad-two-parts-schema" "bad-render-schema"} (noted-defs findings))
         "two parts, and a label inside the part")))

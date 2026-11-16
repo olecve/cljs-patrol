@@ -93,12 +93,14 @@ to move it into its own `def` or function. Then the schema reads as data, and th
    [:label {:title "Name"} :string]])
 ```
 
-The note is given only when the `def` is at the top level of the file, its value is a vector with a Malli type head, and
-exactly one part keeps it from reading as data. That part can be a function, Hiccup in a property value, or a form in a
-schema position that is not a schema. A finding inside that part gets no note, because the part stays markup. The
-`a11y`, `forbid-props` and `reagent` groups add the note to their findings in the schema. The
-`react-testing-library-cljs` group adds it to a `test-id-query-on-role` finding when the element it counts sits in such
-a schema.
+The note is given only when the `def` is at the top level of the file, its value is a vector with no metadata of its
+own, exactly one part keeps the value from reading as data, and a symbol in place of that part makes it read as data. So
+the advice always works. That part can be a key or a value in a properties map, a form in a schema position that is not
+a schema, or a form among the values of `:enum`, `:=` or another literal type that is not a literal. A part that a
+symbol cannot replace, such as a whole entry with a computed key, gets no note. A finding inside that part gets no note,
+because the part stays markup. The `a11y` and `forbid-props` groups add the note to their findings in the schema, and
+`reagent` adds it to its fragment findings. The `react-testing-library-cljs` group adds it to a `test-id-query-on-role`
+finding when the element it counts sits in such a schema.
 
 ## Experimental: reading `.clj` files
 

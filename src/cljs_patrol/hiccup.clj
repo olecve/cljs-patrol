@@ -1017,9 +1017,7 @@
 
 (defn- properties-parts [properties]
   (when properties
-    (if (= :map (z/tag properties))
-      (remove #(clear-value? false %) (parser/written-child-locs properties))
-      [properties])))
+    (remove #(clear-value? false %) (parser/written-child-locs properties))))
 
 (defn- entry-parts [loc]
   (let [[entry-key & more] (vector-elements loc)
@@ -1062,20 +1060,30 @@
   (let [text (str/replace (parser/raw loc) #"\s+" " ")]
     (if (< 40 (count text)) (str (subs text 0 37) "...") text)))
 
+(defn- reads-as-data-without?
+  "True when the vector at value-loc reads as data once a symbol takes the place of part, which value-loc holds."
+  [value-loc part]
+  (let [depth (count (take-while #(not (identical? (z/node %) (z/node value-loc))) (iterate z/up part)))
+        replaced (z/replace part (n/token-node 'extracted))]
+    (clear-data? (nth (iterate z/up replaced) depth))))
+
 (defn mixed-schema-part
   "Show the one part that keeps the top-level Malli schema `def` around loc from reading as data, or nil.
 
-  The `def`'s value is a vector with a Malli type head that [[clear-data?]] does not accept, because of exactly one
-  part, such as Hiccup in a property value or a function. A loc inside that part gets nil: it stays markup once the
-  part moves out."
+  The `def`'s value is a vector, with no metadata of its own, that [[clear-data?]] does not accept because of exactly
+  one part, such as Hiccup in a property value or a function. Moving that part into its own `def` or function must make
+  the value read as data, so a symbol is put in its place and the value is tested again. A loc inside that part gets
+  nil: it stays markup once the part moves out."
   [loc]
   (let [top (top-level-form loc)
-        [_ value] (when (top-level-def? top) (def-binding top))
-        type (some-> value vector-elements first (#(when (parser/kw-node? %) (z/sexpr %))))]
-    (when (and (contains? data-types type)
+        [_ value] (when (top-level-def? top) (def-binding top))]
+    (when (and (= :vector (some-> value z/tag))
                (inside? loc value))
       (let [[part & more] (malli-vector-parts value)]
-        (when (and part (empty? more) (not (inside? loc part)))
+        (when (and part
+                   (empty? more)
+                   (not (inside? loc part))
+                   (reads-as-data-without? value part))
           (snippet part))))))
 
 (defn mixed-schema-note

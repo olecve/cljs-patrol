@@ -538,13 +538,15 @@
     (when-let [{:keys [role]
                 :as element} (when-not (hiccup/inside-data-def? loc)
                                (role-and-name context loc))]
-      (let [{:keys [tag attrs]} (element-attrs context loc)]
+      (let [{:keys [tag attrs]} (element-attrs context loc)
+            test-id (some-> (get attrs :data-testid) string-value normalize-test-id)]
         {:decls []
          :usages [(assoc element
                          :type ::role-element
                          :role role
-                         :test-id (some-> (get attrs :data-testid) string-value normalize-test-id)
-                         :schema-part (hiccup/mixed-schema-part loc)
+                         :test-id test-id
+                         :row (parser/position-row loc)
+                         :schema-part (when test-id (hiccup/mixed-schema-part loc))
                          :hidden? (or (hidden-element? attrs)
                                       (closed-dialog? tag attrs)
                                       (hidden-in-form? context loc)

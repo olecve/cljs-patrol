@@ -1025,10 +1025,6 @@
       "element in a schema position")
   (is (str/includes? (schema-note "(def s [:map [:kind [:enum :a (f)]] [:id :int]])" "[:id :int]") "(f)")
       "call among literal values")
-  (is (str/includes? (schema-note "(def s [:map [k :int] [:id :int]])" "[:id :int]") "[k :int]")
-      "entry with a computed key")
-  (is (str/includes? (schema-note "(def s [:map [:a :int :extra] [:id :int]])" "[:id :int]") ":extra")
-      "entry with an element after its schema")
   (is (str/includes? (schema-note "(def s [:map [:a {:render (fn [] 1)} :int] [:id :int]])" "[:id :int]")
                      "(fn [] 1)")
       "function in entry properties")
@@ -1048,6 +1044,28 @@
       "markup root")
   (is (nil? (schema-note "(defn s [] [:map [:label [:fn #(pos? %)]]])" "[:label [:fn #(pos? %)]]"))
       "schema in a function body")
+  (is (nil? (schema-note "(def s [:map [k :int] [:id :int]])" "[:id :int]"))
+      "entry with a computed key, which a symbol does not replace")
+  (is (nil? (schema-note "(def s [:map [:a :int :extra] [:id :int]])" "[:id :int]"))
+      "element after an entry's schema")
+  (is (nil? (schema-note "(def s [:map [:a {:optional true}] [:id :int]])" "[:id :int]"))
+      "entry with no schema")
+  (is (nil? (schema-note "(def s ^:hiccup [:map {:render (fn [] 1)} [:id :int]])" "[:id :int]"))
+      "value with metadata of its own")
   (is (nil? (schema-note "(def ^{:example [:label {:title \"x\"} :string]} s [:map {:render (fn [] 1)} [:id :int]])"
                          "[:label {:title \"x\"} :string]"))
       "form in the metadata of the name"))
+
+(deftest mixed-schema-note-shortens-a-long-part
+  (is (str/includes? (schema-note "(def s [:map {:render (fn []\n  (do-something-long with many arguments here))} [:id :int]])"
+                                  "[:id :int]")
+                     "because of (fn [] (do-something-long with many a...")
+      "whitespace collapsed and cut at 40 characters"))
+
+(deftest add-note-puts-the-note-after-the-hint
+  (is (= {:hint "Fix it. Note."} (hiccup/add-note {:hint "Fix it."} "Note."))
+      "after an existing hint")
+  (is (= {:hint "Note."} (hiccup/add-note {} "Note."))
+      "alone")
+  (is (= {:hint "Fix it."} (hiccup/add-note {:hint "Fix it."} nil))
+      "no note"))
