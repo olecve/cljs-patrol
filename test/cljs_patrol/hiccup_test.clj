@@ -272,6 +272,8 @@
       "splice after a written key")
   (is (= #{} (final-keys "[:div (assoc base :a 1 :b)]"))
       "key without a value")
+  (is (= #{} (final-keys "[:div (assoc base :a 1 :x #?@(:clj [1] :cljs [1 :a 0]))]"))
+      "splice in a value slot that writes a key again")
   (is (= #{:a} (final-keys "[:div (assoc base #_:x :a 1)]"))
       "discarded form among the arguments"))
 

@@ -510,6 +510,12 @@
                                opaque-contribution)
       :else opaque-contribution)))
 
+(defn- splice-form?
+  "True when loc is a `#?@` splice, which writes any number of forms where the source shows one."
+  [loc]
+  (and (= :reader-macro (z/tag loc))
+       (= "?@" (some-> loc z/down parser/raw))))
+
 (defn construction-attrs
   "Return `{:attrs {kw → value-loc} :complete? bool :final #{kw}}` for a map-building call.
 
@@ -550,7 +556,7 @@
                    (partition-all 2)
                    (reduce (fn [acc [key-loc value-loc]]
                              (cond
-                               (nil? value-loc)
+                               (or (nil? value-loc) (splice-form? value-loc))
                                (reduced (assoc acc
                                                :complete? false
                                                :final #{}))

@@ -1706,4 +1706,7 @@
            (reported :aria-hidden-focusable))
         "aria-hidden written after the base, over a focusable child")
     (is (= 2 (->> result :aria-hidden-focusable (filter #(= built-attrs-file (:file %))) count))
-        "hidden wrapper inside another reported once")))
+        "hidden wrapper inside another reported once")
+    (is (= #{"bad-img-alt-behind-discarded-key"}
+           (reported :img-alt-missing))
+        "map built without the discarded key")))

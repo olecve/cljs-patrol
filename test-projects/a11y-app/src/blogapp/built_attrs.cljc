@@ -53,6 +53,13 @@
   [:div (assoc (base-attrs) :tab-index 3 #?@(:cljs [:tab-index 0]))
    "Card"])
 
+(defn ok-built-tabindex-replaced-by-splice-in-value []
+  [:div (assoc (base-attrs) :tab-index 3 :x #?@(:clj [1] :cljs [1 :tab-index 0]))
+   "Card"])
+
+(defn bad-img-alt-behind-discarded-key []
+  [:img (assoc {:src "a.png"} #_:alt :class "c")])
+
 (defn ok-built-hidden-self [on-close]
   [:button (assoc (base-attrs) :aria-hidden true :on-click on-close :type "button")
    "Close"])
