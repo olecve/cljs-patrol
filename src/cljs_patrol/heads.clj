@@ -94,20 +94,56 @@
                        (binding-sides value-node)
                        [binding-node])))))))
 
-(defn- parameter-vectors
-  "Return the parameter vectors of a fn-like form from its arguments.
+(defn unwrap-meta
+  "Return the value a `:meta` node wraps, or loc itself.
+  `(defn f ^:static [a b] …)` reads as a parameter list with something in front of it,
+  and the parameters bind whether or not anything is attached to them."
+  [loc]
+  (loop [current loc]
+    (if (= :meta (some-> current z/tag))
+      (recur (some-> current z/down z/rightmost))
+      current)))
 
-  The first vector is the parameter list of a single arity, and the vector opening each
-  arity list of a multi-arity form. A `defmethod` has its dispatch value first, which may be
-  a vector too. A vector in a body, the return of a Hiccup view, is not a parameter list."
-  [head-name arguments]
-  (let [after-dispatch (if (= "defmethod" head-name) (drop 2 arguments) arguments)]
-    (if-let [single (first (filter #(= :vector (n/tag %)) after-dispatch))]
-      [single]
-      (keep #(when (= :list (n/tag %))
-               (let [opening (first (code-forms %))]
-                 (when (= :vector (some-> opening n/tag)) opening)))
-            after-dispatch))))
+(defn- arity-list? [loc]
+  (and (= :list (z/tag loc))
+       (= :vector (some-> loc z/down unwrap-meta z/tag))))
+
+(defn arities
+  "Return `{:params … :body […]}` for each arity of a function form, its body forms in order.
+
+  A single-arity form writes its body after the first vector from `start`, the parameters;
+  a name, a docstring, an attr map or a Rum mixin such as `(rum/local 0 ::n)` before it is
+  no vector. A multi-arity form writes a list per arity whose first child is that arity's
+  parameters. A vector in a body, the return of a Hiccup view, is never a parameter list,
+  since the parameters always come before the body."
+  [start]
+  (loop [child start]
+    (cond
+      (nil? child) []
+
+      (= :vector (z/tag (unwrap-meta child)))
+      [{:params (unwrap-meta child)
+        :body (parser/right-siblings child)}]
+
+      (arity-list? child)
+      (->> (cons child (parser/right-siblings child))
+           (filter arity-list?)
+           (map (fn [arity]
+                  {:params (unwrap-meta (z/down arity))
+                   :body (parser/right-siblings (z/down arity))})))
+
+      :else (recur (z/right child)))))
+
+(defn- parameter-vectors
+  "Return the parameter vectors of the fn-like form `node`, read by [[arities]] from `offset` children after its head.
+  A `defmethod` has its dispatch value first, which may be a vector too."
+  [node offset]
+  (->> (some-> (z/of-node* node) z/down z/right)
+       (iterate #(some-> % z/right))
+       (drop offset)
+       first
+       arities
+       (keep #(some-> % :params z/node))))
 
 (defn- names-bound-by
   "Return the names list-node binds for its body.
@@ -128,13 +164,12 @@
 
       (= "letfn" head-name)
       (some->> arguments first code-forms
-               (mapcat #(let [[fn-name & fn-arguments] (code-forms %)]
-                          (concat (some-> fn-name symbol-names)
-                                  (mapcat symbol-names (parameter-vectors "fn" fn-arguments)))))
+               (mapcat #(concat (some-> (first (code-forms %)) symbol-names)
+                                (mapcat symbol-names (parameter-vectors % 0))))
                set)
 
       (or (contains? fn-like-heads head-name) (some-> head-name (str/starts-with? "def")))
-      (cond-> (->> (parameter-vectors head-name arguments)
+      (cond-> (->> (parameter-vectors list-node (if (= "defmethod" head-name) 2 0))
                    (mapcat symbol-names)
                    set)
         (and (= "fn" head-name) (= :token (some-> arguments first n/tag)))
@@ -174,9 +209,7 @@
 (defn- method-parameter-names
   "Return the names a method definition binds for its body, one arity or several."
   [loc]
-  (->> (code-forms (z/node loc))
-       rest
-       (parameter-vectors "fn")
+  (->> (parameter-vectors (z/node loc) 0)
        (mapcat symbol-names)
        set))
 

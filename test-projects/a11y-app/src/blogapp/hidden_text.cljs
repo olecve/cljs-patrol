@@ -47,3 +47,8 @@
             :type "button"}
    (:title {:aria-hidden true
             :title "Save"})])
+
+(defn ok-button-holding-a-hidden-fragment [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [:<> {:aria-hidden true} "Save"]])

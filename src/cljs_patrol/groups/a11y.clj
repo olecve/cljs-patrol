@@ -277,10 +277,13 @@
 
 (defn- hidden-native-element?
   "True when loc is a native element hidden with `:aria-hidden`, read from its `attrs-info`.
-  A component's props are left alone, since a component may not pass them on."
+  A component's props are left alone, since a component may not pass them on, and so is a
+  fragment, which renders no element to hide."
   [loc info]
-  (and (some? (some-> loc z/down parser/raw hiccup/parse-tag))
-       (hidden-by-attrs? info)))
+  (let [tag (some-> loc z/down parser/raw hiccup/parse-tag)]
+    (and (some? tag)
+         (not= :<> tag)
+         (hidden-by-attrs? info))))
 
 (def ^:private component-depth-limit
   "How many local components deep a body is read; a component below that renders nothing known."
@@ -289,11 +292,13 @@
 (defn- map-parameter-bindings
   "Map each name a map parameter binds to the value the caller's map gives it, or to nil.
 
-  `{:keys [label]}` and `{label :label}` read the key out of a literal map argument; a key the
-  map does not hold, or an argument that is no literal map, gives nil. Any other entry, an
-  `:as` among them, binds names this leaves out, and a name left out counts as text."
+  `{:keys [label]}` and `{label :label}` read the key out of the caller's map: a literal one,
+  or one a symbol names through [[hiccup/resolved-value]]. A key the map does not hold, or an
+  argument that is no readable map, gives nil. Any other entry, an `:as` among them, binds
+  names this leaves out, and a name left out counts as text."
   [param argument]
-  (let [values (when (= :map (some-> argument z/tag)) (hiccup/literal-map argument))
+  (let [map-loc (if (= :map (some-> argument z/tag)) argument (some-> argument hiccup/resolved-value))
+        values (when (= :map (some-> map-loc z/tag)) (hiccup/literal-map map-loc))
         value-of #(get values %)]
     (->> (parser/written-child-locs param)
          (partition 2)
@@ -318,24 +323,27 @@
     (hiccup/unqualified-symbol-name param) [[(hiccup/unqualified-symbol-name param) argument]]
     (= :map (z/tag param)) (map-parameter-bindings param argument)))
 
-(defn- variadic? [params]
-  (some #(= "&" (parser/raw %)) params))
+(defn- split-parameters
+  "Split an arity's parameters at `&` into `{:fixed […] :variadic? …}`."
+  [{:keys [params]}]
+  (let [[fixed rest-part] (split-with #(not= "&" (parser/raw %)) (some-> params parser/written-child-locs))]
+    {:fixed fixed
+     :variadic? (boolean (seq rest-part))}))
 
 (defn- matching-arity
   "Return the arity a call with `argument-count` arguments runs, or nil when none can be told."
   [arities argument-count]
-  (let [params-of #(some-> % :params parser/written-child-locs)
-        fixed-count #(count (take-while (fn [param] (not= "&" (parser/raw param))) (params-of %)))]
-    (or (first (filter #(and (not (variadic? (params-of %))) (= argument-count (count (params-of %)))) arities))
-        (first (filter #(and (variadic? (params-of %)) (<= (fixed-count %) argument-count)) arities)))))
+  (let [takes? (fn [variadic-wanted? arity]
+                 (let [{:keys [fixed variadic?]} (split-parameters arity)]
+                   (and (= variadic-wanted? variadic?)
+                        (if variadic? (<= (count fixed) argument-count) (= argument-count (count fixed))))))]
+    (or (first (filter #(takes? false %) arities))
+        (first (filter #(takes? true %) arities)))))
 
 (defn- caller-arguments
   "Map each name the arity's fixed parameters bind to what the call passes for it, or to nil."
-  [{:keys [params]} arguments]
-  (into {}
-        (mapcat parameter-bindings
-                (take-while #(not= "&" (parser/raw %)) (some-> params parser/written-child-locs))
-                arguments)))
+  [arity arguments]
+  (into {} (mapcat parameter-bindings (:fixed (split-parameters arity)) arguments)))
 
 (defn- caller-argument
   "Return `[argument context]` for a parameter symbol at loc that a component reads, or nil.
@@ -349,22 +357,27 @@
         (when-not (heads/bound-below? loc def-loc symbol-name)
           [argument caller-context])))))
 
-(defn- renderable-result?
-  "True when a component result is read for content: a Hiccup vector, a string, or a bound symbol."
+(defn- result-content
+  "Return the loc a component result is read as, or nil when it is not read.
+  A Hiccup vector, a string and a local symbol are read as they are, and a symbol a `def`
+  of the file names is read as the value it binds, so `[:span save-text]` and a component
+  returning `save-text` agree."
   [loc]
-  (or (= :vector (z/tag loc))
-      (literal-string-loc? loc)
-      (boolean (when-let [symbol-name (hiccup/unqualified-symbol-name loc)]
-                 (heads/locally-bound? loc symbol-name)))))
+  (if-let [symbol-name (hiccup/unqualified-symbol-name loc)]
+    (if (heads/locally-bound? loc symbol-name)
+      loc
+      (hiccup/resolved-value loc))
+    (when (or (= :vector (z/tag loc)) (literal-string-loc? loc))
+      loc)))
 
 (defn- component-renders-text?
   "True when loc calls a component its own file defines, and what the component returns carries visible content.
 
-  A returned Hiccup vector, string or bound symbol is read the way a direct child is; any
-  other result, such as a call, is not read, so it adds nothing. A parameter the component
-  renders is read as what the call passes for it. A component already being read, one that
-  renders itself or a cycle, renders nothing known, and so does one past
-  [[component-depth-limit]]."
+  A returned Hiccup vector, string or bound symbol is read the way a direct child is, and a
+  var through the value its `def` binds; any other result, such as a call, is not read, so it
+  adds nothing. A parameter the component renders is read as what the call passes for it. A
+  component already being read, one that renders itself or a cycle, renders nothing known,
+  and so does one past [[component-depth-limit]]."
   [loc {:keys [ns-info expanded]
         :as context}]
   (boolean
@@ -379,7 +392,9 @@
                                        {:arguments (caller-arguments arity arguments)
                                         :caller-context context
                                         :def-loc def-loc}))]
-         (some #(and (renderable-result? %) (visible-content? % inner))
+         (some (fn [result]
+                 (when-let [content (result-content result)]
+                   (visible-content? content (if (identical? content result) inner (dissoc inner :component)))))
                (if arity (:results arity) (mapcat :results arities))))))))
 
 (defn- visible-content?
@@ -439,7 +454,9 @@
                                (case (z/tag result)
                                  :vector (not (visible-content? result context))
                                  :list (icon-only-branches? result context)
-                                 false))
+                                 (if-let [[argument caller-context] (caller-argument result context)]
+                                   (not (visible-content? argument caller-context))
+                                   false)))
                              results)))))))
 
 (defn- has-visible-body?

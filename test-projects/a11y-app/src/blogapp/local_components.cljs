@@ -250,3 +250,58 @@
   [:button {:on-click on-click
             :type "button"}
    [rest-slot [icons/square {:size 16}] [icons/square {:size 16}] [icons/square {:size 16}]]])
+
+(def save-caption "Save")
+
+(defn- caption-label []
+  save-caption)
+
+(defn ok-button-holding-a-component-returning-a-text-var [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [caption-label]])
+
+(defn- optional-icon-slot [icon]
+  [:span (when icon icon)])
+
+(defn bad-button-holding-an-icon-through-a-branch [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [optional-icon-slot [icons/square {:size 16}]]])
+
+(defn ok-button-holding-text-through-a-branch [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [optional-icon-slot "Close"]])
+
+(defn bad-button-holding-an-icon-through-a-let-bound-map [on-click]
+  (let [props {:icon [icons/square {:size 16}]}]
+    [:button {:on-click on-click
+              :type "button"}
+     [icon-face props]]))
+
+(defn ok-button-holding-text-through-a-let-bound-map [on-click]
+  (let [props {:icon "Close"}]
+    [:button {:on-click on-click
+              :type "button"}
+     [icon-face props]]))
+
+(def icon-props {:icon [icons/square {:size 16}]})
+
+(defn bad-button-holding-an-icon-through-a-def-map [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [icon-face icon-props]])
+
+(def close-text "Close")
+
+(def close-caption (when close-text close-text))
+
+(defn- caption-ignoring-its-parameter [close-text]
+  (prn close-text)
+  close-caption)
+
+(defn ok-button-holding-a-var-that-shares-a-parameter-name [on-click]
+  [:button {:on-click on-click
+            :type "button"}
+   [caption-ignoring-its-parameter [icons/square {:size 16}]]])

@@ -1511,6 +1511,7 @@
 (def ^:private interop-aliases
   {'react-resizable-panels/PanelResizeHandle :separator
    "@acme/ui-kit/Button" :button
+   "@acme/ui-kit/Icon" :svg
    "@acme/ui-kit/Input" :input
    "@acme/ui-kit/Switch" :switch
    "@acme/ui-kit/TextArea" :textarea})
@@ -1526,6 +1527,11 @@
         "finding shows form as written")
     (is (empty? (fn-names-in interop-file (widget-findings :missing-accessible-name {})))
         "unmapped interop component stays inert")))
+
+(deftest empty-interactive-element-interop-fixture-test
+  (is (= #{"bad-button-holding-a-component-rendering-an-interop-icon"}
+         (fn-names-in interop-file (widget-findings :empty-interactive-element interop-aliases)))
+      "local component is read with its interop calls unwrapped"))
 
 (deftest label-not-associated-interop-fixture-test
   (is (empty? (fn-names-in interop-file (widget-findings :label-not-associated interop-aliases)))
@@ -1638,7 +1644,10 @@
              "bad-button-holding-an-icon-through-a-destructured-key"
              "bad-button-holding-an-icon-through-a-renamed-key"
              "bad-button-holding-an-icon-through-the-matching-arity"
-             "bad-button-holding-an-icon-through-a-variadic-component"}
+             "bad-button-holding-an-icon-through-a-variadic-component"
+             "bad-button-holding-an-icon-through-a-branch"
+             "bad-button-holding-an-icon-through-a-let-bound-map"
+             "bad-button-holding-an-icon-through-a-def-map"}
            (fn-names-in local-components-file (:empty-interactive-element (first group-results))))
         "control named by text a same-file component renders is left alone, any other empty control is flagged")))
 

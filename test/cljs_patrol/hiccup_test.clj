@@ -5,7 +5,10 @@
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
    [malli.core :as m]
-   [rewrite-clj.zip :as z]))
+   [rewrite-clj.zip :as z])
+  (:import
+   (java.util
+    HashMap)))
 
 (deftest parse-tag-test
   (testing "plain tag"
@@ -345,6 +348,17 @@
     (is (= :map (:kind (img-attrs-info "(def ^{:doc \"d\"} ^:private props {:alt \"cat\"}) (defn v [] [:img props])")))
         "a metadata map and a shorthand layer"))
 
+  (testing "a later function definition hides a def, and a look-alike one does not"
+    (is (= :non-map (:kind (img-attrs-info "(def props {:alt \"cat\"}) (defn props [] {}) (defn v [] [:img props])")))
+        "core defn rebinds the var")
+    (is (= #{:alt} (-> (str "(ns a (:require [mx.core :as mx])) "
+                            "(def card-attrs {:alt \"cat\"}) (mx/defn card-attrs [] {}) (defn v [] [:img card-attrs])")
+                       img-attrs-info
+                       :attrs
+                       keys
+                       set))
+        "look-alike defn leaves def"))
+
   (testing "a def of something other than a map literal answers nothing"
     (is (= :non-map (:kind (img-attrs-info "(def props (make-props)) (defn v [] [:img props])")))))
 
@@ -640,35 +654,58 @@
   (is (= ["(x/do [:a])" "[:c]"] (result-strings {} "(if p (x/do [:a]) [:c])"))
       "keeps unresolved branch whole"))
 
-(defn- local-component-results [ns-info source target]
-  (some->> (hiccup/local-component (loc-at source target) ns-info) :arities (mapcat :results) (mapv z/string)))
+(def ^:private component-ns
+  "An ns form giving the examples below the aliases they define components through."
+  "(ns a (:require [mx.core :as mx] [reagent.core :as r] [rum.core :as rum]))")
+
+(defn- local-component-results [source target]
+  (some->> (hiccup/local-component (loc-at (str component-ns " " source) target) {})
+           :arities
+           (mapcat :results)
+           (mapv z/string)))
 
 (deftest local-component-reads-same-file-components
-  (is (= ["[:span \"Save\"]"] (local-component-results {} "(defn- label [] [:span \"Save\"]) [:button [label]]" "[label]"))
+  (is (= ["[:span \"Save\"]"] (local-component-results "(defn- label [] [:span \"Save\"]) [:button [label]]" "[label]"))
       "reads defn-")
-  (is (= ["[:span]" "[:i]"] (local-component-results {} "(defn label ([] [:span]) ([x] (when x [:i]))) [label]" "[label]"))
+  (is (= ["[:span]" "[:i]"] (local-component-results "(defn label ([] [:span]) ([x] (when x [:i]))) [label]" "[label]"))
       "reads every arity through result-locs")
-  (is (= ["[:span]"] (local-component-results {:aliases {"r" "reagent.core"}} "(r/defc label [] [:span]) [label]" "[label]"))
+  (is (= ["[:span]"] (local-component-results "(r/defc label [] [:span]) [label]" "[label]"))
       "reads reagent defc through alias")
-  (is (= ["[:span]"] (local-component-results {:aliases {"rum" "rum.core"}} "(rum/defc label < rum/static [] [:span]) [label]"
-                                              "[label]"))
+  (is (= ["[:span]"] (local-component-results "(rum/defc label < rum/static [] [:span]) [label]" "[label]"))
       "reads rum defc past its mixins")
-  (is (= ["[:span \"Close\"]"] (local-component-results {:aliases {"rum" "rum.core"}}
-                                                        "(rum/defc label < (rum/local 0 ::n) [state] [:span \"Close\"]) [label]"
-                                                        "[label]"))
+  (is (= ["[:span \"Close\"]"]
+         (local-component-results "(rum/defc label < (rum/local 0 ::n) [state] [:span \"Close\"]) [label]" "[label]"))
       "reads rum defc past a call mixin")
-  (is (nil? (local-component-results {:aliases {"r" "reagent.core"}}
-                                     "(defn- label [] [:span \"Save\"]) (def label (r/memo icon-only)) [label]"
-                                     "[label]"))
+  (is (nil? (local-component-results "(defn- label [] [:span]) (def label (r/memo icon)) [label]" "[label]"))
       "skips name a later def rebinds")
-  (is (nil? (local-component-results {} "(x/defc label [] [:span]) [label]" "[label]"))
+  (is (= ["[:span]"] (local-component-results "(defn- label [] [:span]) (mx/defn label [] [:i]) [label]" "[label]"))
+      "ignores look-alike defn defined later")
+  (is (nil? (local-component-results "(x/defc label [] [:span]) [label]" "[label]"))
       "skips look-alike defc")
-  (is (nil? (local-component-results {} "(defn- label [] [:span]) (defn v [label] [label])" "[label]"))
+  (is (nil? (local-component-results "(defn- label [] [:span]) (defn v [label] [label])" "[label]"))
       "skips head a parameter shadows")
-  (is (nil? (local-component-results {} "(defn- label [] [:span]) [ui/label]" "[ui/label]"))
+  (is (nil? (local-component-results "(defn- label [] [:span]) [ui/label]" "[ui/label]"))
       "skips qualified head")
-  (is (nil? (local-component-results {} "(def label [:span]) [label]" "[label]"))
+  (is (nil? (local-component-results "(def label [:span]) [label]" "[label]"))
       "skips def"))
+
+(defn- component-results-at [root target]
+  (some->> (hiccup/local-component (z/find root z/next #(= target (z/string %))) {})
+           :arities
+           (mapcat :results)
+           (mapv z/string)))
+
+(deftest local-component-reads-each-tree-of-a-file-on-its-own
+  (binding [parser/*file-memo* (HashMap.)]
+    (let [written (z/of-string "(ns a) (defn- face [] [:i]) [face]")
+          rewritten (-> (z/find written z/next #(= "[:i]" (z/string %)))
+                        (z/replace (z/node (z/of-string "[:span]")))
+                        z/root
+                        z/of-node*)]
+      (is (= ["[:i]"] (component-results-at written "[face]"))
+          "written tree")
+      (is (= ["[:span]"] (component-results-at rewritten "[face]"))
+          "rewritten tree sharing first form"))))
 
 (deftest malli-child-kinds-match-malli-keyword-types
   (is (= (->> (m/default-schemas) keys (filter keyword?) set)
