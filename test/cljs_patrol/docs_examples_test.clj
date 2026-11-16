@@ -83,8 +83,10 @@
                    :else {:end-row end-row
                           :row row}))))))
 
-(defn- start-example [{:keys [groups pending-label]
-                       :as examples} {:keys [end-row row]}]
+(defn- start-example
+  [{:keys [groups pending-label]
+    :as examples}
+   {:keys [end-row row]}]
   (assoc examples
          :commented? (some? pending-label)
          :groups (conj groups {:end-row end-row
@@ -133,7 +135,7 @@
   lines, so a blank line inside a form, a docstring's paragraph break, stays in its chunk.
   Code that does not parse throws."
   [code]
-  (map :code (:examples (labeled-examples code))))
+  (->> code labeled-examples :examples (map :code)))
 
 (defn- symbol-names
   "Return the names of every symbol in node."
@@ -266,8 +268,9 @@
 (defn- expectations
   "Pair each example with `:flagged` or `:left-alone`, read from its label or, for a label that names neither, the one before."
   [examples]
-  (rest (reductions (fn [[_ previous] {:keys [label]
-                                       :as example}]
+  (rest (reductions (fn [[_ previous]
+                         {:keys [label]
+                          :as example}]
                       [example (cond
                                  (some->> label (re-find #"(?i)^flagged")) :flagged
                                  (some->> label (re-find #"(?i)^(left alone|fix)")) :left-alone
@@ -381,48 +384,56 @@
               (is (zero? count)
                   (str "fix or left-alone example is flagged:\n" code)))))))))
 
-(deftest every-code-block-is-checked
-  (let [pages (->> (io/file "docs/rules")
-                   .listFiles
-                   (filter #(str/ends-with? (.getName ^File %) ".md"))
-                   (concat [(io/file "docs/rules.md") (io/file "README.md")]))]
-    (doseq [^File page pages
-            :let [page-name (.getName page)
-                  page-group-ids (get page-groups page-name #{(keyword (str/replace page-name #"\.md$" ""))})]
-            {:keys [code rule]
-             :as block} (other-blocks (slurp page))]
-      (testing (str page-name " " (some-> rule name))
-        (if (config-block? block)
-          (let [problems (config-problems (edn/read-string code))]
-            (is (empty? problems)
-                (str "config block fails the config checks: " problems "\n" code)))
-          (let [{:keys [config examples]} (labeled-examples code)
+(def ^:private wrong-result-messages
+  "The message for an example that does not give the result its label expects."
+  {:flagged "flagged example is not flagged"
+   :left-alone "left-alone example is flagged"})
+
+(defn- other-page-blocks
+  "Return the other blocks of every docs page, each with its page name and the groups its examples run under."
+  []
+  (for [^File page (->> (io/file "docs/rules")
+                        .listFiles
+                        (filter #(str/ends-with? (.getName ^File %) ".md"))
+                        (concat [(io/file "docs/rules.md") (io/file "README.md")]))
+        :let [page-name (.getName page)]
+        block (other-blocks (slurp page))]
+    (assoc block
+           :page-group-ids (get page-groups page-name #{(keyword (str/replace page-name #"\.md$" ""))})
+           :page-name page-name)))
+
+(deftest config-blocks-pass-the-config-checks
+  (doseq [{:keys [code page-name]} (filter config-block? (other-page-blocks))
+          :let [problems (config-problems (edn/read-string code))]]
+    (is (empty? problems)
+        (str page-name ": config block fails the config checks: " problems "\n" code))))
+
+(deftest labeled-blocks-match-the-tool
+  (doseq [{:keys [code page-group-ids page-name rule]} (remove config-block? (other-page-blocks))
+          :let [{:keys [config examples]} (labeled-examples code)
                 problems (config-problems config)
                 groups (filter #(contains? page-group-ids (group/group-id %))
-                               (assemble-groups (if (empty? problems) (merge-configs docs-config config) docs-config) false))]
-            (is (seq examples)
-                (str "code block holds no example:\n" code))
-            (is (seq groups)
-                (str "no group runs the examples of " page-name "; add the page to page-groups"))
-            (is (empty? problems)
-                (str "config line fails the config checks: " problems "\n" code))
-            (doseq [[{:keys [code]} expectation] (expectations examples)
-                    :let [runs (for [rule-group groups]
-                                 (findings rule-group (if rule #{rule} (declared-rules rule-group)) code))
-                          finding-count (reduce + (map :count runs))
-                          warnings (str/join (map :warnings runs))]]
-              (is (some? expectation)
-                  (str "example has no label that starts with flagged or left alone:\n" code))
-              (is (empty? (unrelated-parts code))
-                  (str "example spans a blank line, but a part uses nothing defined above it:\n" code))
-              (is (str/blank? warnings)
-                  (str "example does not parse:\n" code "\n" warnings))
-              (case expectation
-                :flagged (is (pos? finding-count)
-                             (str "flagged example is not flagged:\n" code))
-                :left-alone (is (zero? finding-count)
-                                (str "left-alone example is flagged:\n" code))
-                nil))))))))
+                               (assemble-groups (if (empty? problems) (merge-configs docs-config config) docs-config) false))]]
+    (testing (str page-name " " (some-> rule name))
+      (is (seq examples)
+          (str "code block holds no example:\n" code))
+      (is (seq groups)
+          (str "no group runs the examples of " page-name "; add the page to page-groups"))
+      (is (empty? problems)
+          (str "config line fails the config checks: " problems "\n" code))
+      (doseq [[{:keys [code]} expectation] (expectations examples)
+              :let [runs (for [rule-group groups]
+                           (findings rule-group (if rule #{rule} (declared-rules rule-group)) code))
+                    finding-count (reduce + (map :count runs))
+                    warnings (str/join (map :warnings runs))]]
+        (is (some? expectation)
+            (str "example has no label that starts with flagged or left alone:\n" code))
+        (is (empty? (unrelated-parts code))
+            (str "example spans a blank line, but a part uses nothing defined above it:\n" code))
+        (is (str/blank? warnings)
+            (str "example does not parse:\n" code "\n" warnings))
+        (is (= (= :flagged expectation) (pos? finding-count))
+            (str (wrong-result-messages expectation) ":\n" code))))))
 
 (def ^:private suggestion-limit
   "Characters a suggestion may spend: a sentence or two naming the fix, the docs carrying the rest."
