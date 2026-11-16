@@ -448,7 +448,8 @@
   [loc ns-info file]
   (when-not (or (hiccup/inside-non-hiccup-form? loc)
                 (inside-comment-form? loc))
-    (when-let [findings (seq (map #(discarded-hiccup-finding % file) (discarded-hiccup-locs loc ns-info)))]
+    (when-let [findings (seq (map #(hiccup/add-note (discarded-hiccup-finding % file) (hiccup/mixed-schema-note %))
+                                  (discarded-hiccup-locs loc ns-info)))]
       {:decls (vec findings)
        :usages []
        :dynamics []})))
@@ -461,7 +462,7 @@
   [loc ns-info file]
   (when (and (not (hiccup/inside-non-hiccup-form? loc))
              (redundant-into? loc ns-info))
-    {:decls [(redundant-into-finding loc file)]
+    {:decls [(hiccup/add-note (redundant-into-finding loc file) (hiccup/mixed-schema-note loc))]
      :usages []
      :dynamics []}))
 
@@ -472,7 +473,7 @@
     (when-let [finding (cond
                          (empty-fragment-props? loc) (empty-fragment-props-finding loc file)
                          (redundant-fragment? loc ns-info) (redundant-fragment-finding loc file))]
-      {:decls [finding]
+      {:decls [(hiccup/add-note finding (hiccup/mixed-schema-note loc))]
        :usages []
        :dynamics []})))
 

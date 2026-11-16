@@ -76,6 +76,30 @@ findings. An HTML image map or an SVG `<set>` that is also a Malli schema all th
 `[:map {:name "nav"} [:a {:href url} label]]` or `[:set {:attributeName "fill" :to "red"}]`, is data too. To keep such
 markup checked, put metadata on the value, such as `(def greeting ^:hiccup [:p :hello])`, or write it in a function.
 
+A Malli schema that one part keeps from reading as data gets a note on its findings. The note names that part and asks
+to move it into its own `def` or function. Then the schema reads as data, and the findings go away:
+
+```clojure
+;; a finding on the :label entry, with a note that names (fn [_ _] "Too long")
+(def title-schema
+  [:map {:error/fn (fn [_ _] "Too long")}
+   [:label {:title "Name"} :string]])
+
+;; the schema reads as data
+(defn too-long [_ _] "Too long")
+
+(def title-schema
+  [:map {:error/fn too-long}
+   [:label {:title "Name"} :string]])
+```
+
+The note is given only when the `def` is at the top level of the file, its value is a vector with a Malli type head, and
+exactly one part keeps it from reading as data. That part can be a function, Hiccup in a property value, or a form in a
+schema position that is not a schema. A finding inside that part gets no note, because the part stays markup. The
+`a11y`, `forbid-props` and `reagent` groups add the note to their findings in the schema. The
+`react-testing-library-cljs` group adds it to a `test-id-query-on-role` finding when the element it counts sits in such
+a schema.
+
 ## Experimental: reading `.clj` files
 
 The tool reads `.cljs` and `.cljc`. Five of its groups are not about ClojureScript at all: `docstrings` enforces the

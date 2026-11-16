@@ -128,3 +128,33 @@
   (is (= #{"bad-split-label-schema"}
          (def-names-in defs-file (:form-after-split-map (result layout/group))))
       "layout still reads Malli def"))
+
+(def ^:private mixed-fixture-dir "test-projects/data-def-app/src/datadefmixed")
+
+(def ^:private mixed-file (str mixed-fixture-dir "/views.cljs"))
+
+(defn- mixed-result [rule-group]
+  (-> (core/run mixed-fixture-dir [rule-group]) :group-results first))
+
+(defn- noted-defs
+  "Name the fixture definitions whose findings carry the mixed schema note."
+  [findings]
+  (def-names-in mixed-file (filter #(some-> (:hint %) (str/includes? "Malli schema")) findings)))
+
+(deftest mixed-schema-note-on-each-group
+  (is (= #{"bad-label-schema"} (-> a11y/group mixed-result :label-not-associated noted-defs))
+      "a11y")
+  (is (= #{"bad-button-schema"}
+         (-> (forbid-props/make-group [:aria-disabled]) mixed-result :forbidden-prop noted-defs)))
+  (is (= #{"bad-fragment-schema"} (-> reagent/group mixed-result :empty-fragment-props noted-defs))
+      "reagent")
+  (is (some #(str/includes? (:hint %) "(fn [_ _] \"Bad\")")
+            (:test-id-query-on-role (mixed-result react-testing-library-cljs/group)))
+      "react-testing-library-cljs"))
+
+(deftest mixed-schema-note-leaves-schemas-with-more-parts-and-the-part-itself
+  (let [findings (:label-not-associated (mixed-result a11y/group))]
+    (is (= #{"bad-label-schema" "bad-two-parts-schema" "bad-render-schema"} (def-names-in mixed-file findings))
+        "every label stays reported")
+    (is (not-any? #{"bad-two-parts-schema" "bad-render-schema"} (noted-defs findings))
+        "two parts, and a label inside the part")))

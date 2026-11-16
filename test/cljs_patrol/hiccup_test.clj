@@ -2,6 +2,7 @@
   (:require
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
+   [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
    [malli.core :as m]
    [rewrite-clj.zip :as z]))
@@ -1007,3 +1008,46 @@
         usage (-> root z/down z/rightmost z/down z/right)]
     (is (= "(f props)" (z/string (hiccup/resolved-value usage)))
         "root def answers")))
+
+(defn- schema-note [source target] (hiccup/mixed-schema-note (loc-at source target)))
+
+(deftest mixed-schema-note-names-the-part-that-keeps-a-schema-from-data
+  (is (str/includes? (schema-note "(def s [:map {:render (fn [] [:span])} [:label {:optional true} [:maybe :string]]])"
+                                  "[:label {:optional true} [:maybe :string]]")
+                     "(fn [] [:span])")
+      "function in a property value")
+  (is (str/includes? (schema-note "(def s [:map [:label {:optional true} [:fn #(pos? %)]]])"
+                                  "[:label {:optional true} [:fn #(pos? %)]]")
+                     "#(pos? %)")
+      "function literal in a schema position")
+  (is (str/includes? (schema-note "(def s [:map [:label [:img {:src \"a\"}]] [:id :int]])" "[:id :int]")
+                     "[:img {:src \"a\"}]")
+      "element in a schema position")
+  (is (str/includes? (schema-note "(def s [:map [:kind [:enum :a (f)]] [:id :int]])" "[:id :int]") "(f)")
+      "call among literal values")
+  (is (str/includes? (schema-note "(def s [:map [k :int] [:id :int]])" "[:id :int]") "[k :int]")
+      "entry with a computed key")
+  (is (str/includes? (schema-note "(def s [:map [:a :int :extra] [:id :int]])" "[:id :int]") ":extra")
+      "entry with an element after its schema")
+  (is (str/includes? (schema-note "(def s [:map [:a {:render (fn [] 1)} :int] [:id :int]])" "[:id :int]")
+                     "(fn [] 1)")
+      "function in entry properties")
+  (is (= "(fn [] 1)"
+         (hiccup/mixed-schema-part (loc-at "(def s [:map [:a [:vector {:render (fn [] 1)} :int]] [:id :int]])"
+                                           "[:id :int]")))
+      "function in a nested schema"))
+
+(deftest mixed-schema-note-leaves-other-defs
+  (is (nil? (schema-note "(def s [:map [:label [:fn #(pos? %)]] [:title [:fn #(string? %)]]])" "[:label [:fn #(pos? %)]]"))
+      "two parts")
+  (is (nil? (schema-note "(def s [:map {:render (fn [] [:img {:src \"a\"}])} [:id :int]])" "[:img {:src \"a\"}]"))
+      "loc inside the part")
+  (is (nil? (schema-note "(def s [:map [:label {:optional true} [:maybe :string]]])" "[:maybe :string]"))
+      "schema that reads as data")
+  (is (nil? (schema-note "(def s [:div {:on-click (fn [] 1)} [:label \"x\"]])" "[:label \"x\"]"))
+      "markup root")
+  (is (nil? (schema-note "(defn s [] [:map [:label [:fn #(pos? %)]]])" "[:label [:fn #(pos? %)]]"))
+      "schema in a function body")
+  (is (nil? (schema-note "(def ^{:example [:label {:title \"x\"} :string]} s [:map {:render (fn [] 1)} [:id :int]])"
+                         "[:label {:title \"x\"} :string]"))
+      "form in the metadata of the name"))

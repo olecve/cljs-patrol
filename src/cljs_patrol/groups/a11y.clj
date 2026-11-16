@@ -1896,9 +1896,10 @@
                                     :type :aria-live-contradicts-role
                                     :hint (aria-live-hint aria-live-conflict))))]
           (when (seq usages)
-            {:decls []
-             :dynamics []
-             :usages usages}))))))
+            (let [note (hiccup/mixed-schema-note loc)]
+              {:decls []
+               :dynamics []
+               :usages (mapv #(hiccup/add-note % note) usages)})))))))
 
 (defn- analyze* [{:keys [usages usages-in-run]}]
   ;; The parser pools :usages across ALL enabled groups into one seq before
@@ -1914,6 +1915,7 @@
                               (map #(-> %
                                         (assoc :type :missing-accessible-name
                                                :hint (unreferenced-id-hint (:id %)))
+                                        (hiccup/add-note (:hint %))
                                         (dissoc :id))))
         separators-in-run (count (filter #(= ::focusable-separator (:type %)) (or usages-in-run usages)))
         unnamed-separators (when (< 1 separators-in-run)
@@ -1922,6 +1924,7 @@
                                   (map #(-> %
                                             (assoc :type :missing-accessible-name
                                                    :hint (unnamed-separator-hint separators-in-run))
+                                            (hiccup/add-note (:hint %))
                                             (dissoc :unnamed?)))))]
     {:img-alt-missing (vec (:img-alt-missing by-type))
      :invalid-tabindex (vec (:invalid-tabindex by-type))

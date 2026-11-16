@@ -544,6 +544,7 @@
                          :type ::role-element
                          :role role
                          :test-id (some-> (get attrs :data-testid) string-value normalize-test-id)
+                         :schema-part (hiccup/mixed-schema-part loc)
                          :hidden? (or (hidden-element? attrs)
                                       (closed-dialog? tag attrs)
                                       (hidden-in-form? context loc)
@@ -566,6 +567,13 @@
          :test (parser/enclosing-definition-name loc)
          :file file
          :row (parser/position-row loc)}))))
+
+(defn- schema-element-note
+  "Name the Malli schema that holds one of elements, and the one part that keeps it from reading as data, or nil."
+  [elements]
+  (when-let [{:keys [file row schema-part]} (first (filter :schema-part elements))]
+    (str "Its element sits in a Malli schema at " file ":" row ", which reads as markup because of " schema-part
+         ". Move that part into its own def or function, so the schema reads as data.")))
 
 (defn- find-test-id-queries-on-role
   "Keep the lookups of `usages` whose test id only elements a role query finds alone carry.
@@ -598,7 +606,8 @@
                      (-> lookup
                          (dissoc :type :id)
                          (assoc :type :test-id-query-on-role
-                                :hint (str "Query it by role \"" role "\" and its name.")))))))
+                                :hint (str "Query it by role \"" role "\" and its name."))
+                         (hiccup/add-note (schema-element-note elements)))))))
          vec)))
 
 (defn- handle-list [loc ns-info file]
