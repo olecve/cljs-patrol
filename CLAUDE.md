@@ -135,10 +135,11 @@ block into examples: a `;;` comment opening a line starts one, `;; flagged` and 
 next such comment, blank lines and all, and an example with no opening comment ends at a blank line. Label an example of
 several forms with a comment above its first form, never between its forms, and put a blank line before a form that uses
 a name defined above it. A part of an example after a blank line must use a name an earlier part defines, so an
-unlabeled example cannot slip into the one above it. The test runs each example through the rule as a file of its own: a
-flagged example must be reported, a fix or left-alone one must not, every chunk must parse, every rule the group
-declares needs a section, and every key-line link must hit a heading. A fix is only checked against its own rule, so it
-may still trip a sibling rule if copied as is. A rule PR leads with the same kind of examples.
+unlabeled example cannot slip into the one above it. [ADR 0004](docs/adr/0004-rule-docs-examples-are-tests.md) records
+why. The test runs each example through the rule as a file of its own: a flagged example must be reported, a fix or
+left-alone one must not, every chunk must parse, every rule the group declares needs a section, and every key-line link
+must hit a heading. A fix is only checked against its own rule, so it may still trip a sibling rule if copied as is. A
+rule PR leads with the same kind of examples.
 
 Two things that keep the split honest: every page links back to the README, and a cross-reference between pages is a
 relative link with an anchor (`[Property-order tables](rules/css-order.md#property-order-tables)`), never a bare

@@ -7,6 +7,7 @@ Each record states one decision, the options that were considered, and the condi
 | [0001](0001-native-image-garbage-collector.md) | Build The Linux Native Binary With The G1 Garbage Collector | Rejected | 2026-11-12 |
 | [0002](0002-per-file-result-cache.md)          | Cache The Analysis Result Of Each File                      | Proposed | 2026-11-12 |
 | [0003](0003-tell-data-vectors-from-hiccup.md)  | Tell Data Vectors From Hiccup                               | Accepted | 2026-11-15 |
+| [0004](0004-rule-docs-examples-are-tests.md)   | Run The Rule Docs Examples As Tests                         | Accepted | 2026-11-16 |
 
 ## Format
 

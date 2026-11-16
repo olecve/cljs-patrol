@@ -1,10 +1,12 @@
 (ns cljs-patrol.docs-examples-test
-  "Run every example in docs/rules/ through the rule it illustrates.
+  "Run every example in docs/rules/ through the rule it illustrates, so the docs cannot drift from the tool.
 
-  A rule's section opens with its key, then a block whose `;; flagged` part holds code the
-  rule reports and whose `;; fix` part holds the same code rewritten, and a `**Left alone:**`
-  block of code it does not report. Each example is one chunk, analyzed as a file of its
-  own, so an example cannot lean on another, and the docs cannot drift from the tool."
+  A rule change that makes an example false fails the build until the docs agree, and a rule
+  with no section fails it too. A rule's section opens with its key, then a block whose
+  `;; flagged` part holds code the rule reports and whose `;; fix` part holds the same code
+  rewritten, and a `**Left alone:**` block of code it does not report. Each example is one
+  chunk, analyzed as a file of its own, so an example cannot lean on another. ADR 0004
+  records why the examples are tests and how a block splits into examples."
   (:require
    [cljs-patrol.core :as core]
    [cljs-patrol.group :as group]
@@ -59,7 +61,11 @@
                          :row row})})
 
 (defn- add-example-item
-  "Add a comment or a form to the examples read so far."
+  "Add a comment or a form to the examples read so far.
+
+  A comment marks the next form as the start of a labeled example. A form after a blank line
+  starts a new example only when the current one has no label, since a label is what lets
+  one example space out its forms."
   [{:keys [commented? groups pending-comment?]
     :as examples}
    {:keys [comment? end-row row]

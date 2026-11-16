@@ -3,6 +3,11 @@
 Every rule, one page per rule group. For the one-line summary of each group, see
 [Rule groups](../README.md#rule-groups).
 
+Every example on these pages is a test. A test reads each page with regular expressions, takes out its Clojure code
+blocks, splits them into examples, and runs each flagged, fixed and left-alone example through its rule. So an example
+cannot show behavior that the tool does not have. [ADR 0004](adr/0004-rule-docs-examples-are-tests.md) gives the reasons
+and the rules for how a code block splits into examples.
+
 [← back to the README](../README.md)
 
 - **[`re-frame`](rules/re-frame.md)**
