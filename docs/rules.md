@@ -3,10 +3,11 @@
 Every rule, one page per rule group. For the one-line summary of each group, see
 [Rule groups](../README.md#rule-groups).
 
-Every example on these pages is a test. A test reads each page with regular expressions, takes out its Clojure code
-blocks, splits them into examples, and runs each flagged, fixed and left-alone example through its rule. So an example
-cannot show behavior that the tool does not have. [ADR 0004](adr/0004-rule-docs-examples-are-tests.md) gives the reasons
-and the rules for how a code block splits into examples.
+Every code block on these pages is a test. A test reads each page with regular expressions, takes out its `clojure` and
+`edn` blocks, and splits them into examples. It runs each flagged, fixed and left-alone example through its rule, and
+checks that each config block is a config the groups accept. So an example cannot show behavior that the tool does not
+have. [ADR 0004](adr/0004-rule-docs-examples-are-tests.md) gives the reasons and the rules for how a code block splits
+into examples.
 
 [← back to the README](../README.md)
 
@@ -31,19 +32,21 @@ The groups that read Hiccup, `a11y`, `forbid-props`, `reagent` and `react-testin
 data `def` as data, not as markup. Other groups, such as `layout`, read it as before.
 
 ```clojure
-;; data: the groups that read Hiccup skip it
+;; left alone: data, so the groups that read Hiccup skip it
 (def tag-props-schema
   [:map {:closed true}
    [:label {:optional true} [:maybe :string]]])
 
+;; a db path
 (def settings-path [:settings :style])
 
-;; Hiccup: the groups read it as before
+;; flagged: Hiccup, so the groups read it as before
 (def logo [:img {:src "logo.png"}])
 
+;; markup in a map
 (def toast {:message "Saved" :description [:img {:src "ok.png"}]})
 
-;; data, with markup under a cut-off: the groups read the [:img :src] as Hiccup
+;; flagged: data, with markup under a cut-off, so the groups read the [:img :src] as Hiccup
 (def item-schema [:vector {:render #(do [:img :src])} :int])
 ```
 
@@ -85,12 +88,12 @@ A Malli schema that one part keeps from reading as data gets a note on its findi
 to move it into its own `def` or function. Then the schema reads as data, and the findings go away:
 
 ```clojure
-;; a finding on the :label entry, with a note that names (fn [_ _] "Too long")
+;; flagged: a finding on the :label entry, with a note that names (fn [_ _] "Too long")
 (def title-schema
   [:map {:error/fn (fn [_ _] "Too long")}
    [:label {:title "Name"} :string]])
 
-;; the schema reads as data
+;; left alone: the schema reads as data
 (defn too-long [_ _] "Too long")
 
 (def title-schema
