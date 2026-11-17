@@ -1583,7 +1583,10 @@
 (defn- argument-index
   "Return the position of loc in its parent list, the head being 0, or nil."
   [loc parent]
-  (first (keep-indexed #(when (identical? (z/node loc) (z/node %2)) %1) (parser/written-child-locs parent))))
+  (->> parent
+       parser/written-child-locs
+       (keep-indexed #(when (identical? (z/node loc) (z/node %2)) %1))
+       first))
 
 (defn- data-vector?
   "True when a vector spelled like an element is data: a path, a key or an event.
