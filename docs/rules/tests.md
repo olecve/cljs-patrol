@@ -189,39 +189,38 @@ reads.
 
 A `^js` type hint tells shadow-cljs that a value is a JS object. shadow-cljs reads the hint in every build, not only
 under `:advanced`: when an interop call reads a value it cannot type, it prints an `:infer-warning` ("Cannot infer
-target type"), in a test build too. So a hint on a value that an interop call reads can keep the build log clean, and
-the rule leaves it. A hint on a value that nothing reads through interop changes nothing, and the rule flags it.
+target type"), in a test build too. The value can reach that call in many ways: as the target itself, through a name it
+is bound to, a thread, a branch, a return, or a macro. So the rule flags a hint only when it can see that the value
+reaches none of them, and leaves every other hint alone. A wrong flag would send someone to remove a hint the build
+needs.
 
-What counts as read:
+The rule flags:
 
-- The hinted value is the target of `(.f x)`, `(.-p x)`, `(.. x -p)` or `(. x f)`, also inside a `#(…)` literal.
-- The hinted value is threaded into an interop step: the next step of `->` or `some->`; a next step of `->>` or
-  `some->>` that is `.-p`, `.f` or an interop call with no arguments, such as `(.-p)`; any step of `doto` or `cond->`;
-  such a bare step of `cond->>`.
-- The hinted value is bound to a name that an interop call reads: a `let`-like binding, a `def` or `defonce` var, or an
-  `as->` name, which only the first step reads before it is bound again. This is how `(let [el ^js (load)] (.-p el))`
-  and `(let [v ^js (.-value x)] (.-p v))` stay.
-- A hint on a bound name — a `let`, `loop` or `doseq` binding, a parameter of `fn`, `defn`, `defmethod`, `reify` or
-  `deftype`, a `deftype` field, destructuring, or the name of `this-as` or `catch` — when an interop call reads that
-  name, or a local bound to it, in the form that binds it.
-- A hint on the name a `def` or `defn` defines, or on a `defn` arglist (single or multi-arity), in any order with other
-  metadata. Callers read it as the type of what a call returns. A `defmethod` or inline `fn` arglist is not one.
+- A hint on a name that a known form binds — a `let`-like form, `doseq` or `for` bindings, a parameter of `fn`, `defn`,
+  `reify` or `deftype`, a `deftype` field, destructuring, or the name of `this-as` or `catch` — when every use of that
+  name in compiled code is harmless.
+- A hint on a value in a harmless place.
 
-A hint in code that shadow-cljs never compiles is not checked, and a read there does not count: inside `#_`, a quoted
-form, a syntax-quoted form outside `~`, `(comment …)`, or a `#?(:clj …)` branch. Names compare as written, so `other/el`
-is not the local `el`, and a project's own `m/doto` is not `doto`. A read that carries its own `^js` does not need the
-binding's hint. A hint on a use inside a vector or map literal, `[^js el]`, types only that use. `binding` gives a
-dynamic var no tag, so it carries no hint on. Shadowing is not tracked: an inner binding of the same name that an
-interop call reads keeps an outer hint.
+A use is harmless when it is an argument of a plain function call other than the target of an interop call, such as
+`(fake-event el)`, `(js/getComputedStyle el)` or `(.valid GapCursor el)`; an element of a literal collection in such a
+place, or of a `#js` literal; or a use that carries a tag of its own, such as `(.-p ^js el)`. Code that shadow-cljs
+never compiles does not count, and a hint there is not checked: `#_`, a quoted form, a syntax-quoted form outside `~`,
+`(comment …)`, and a reader conditional branch for another platform than `:cljs` (or `:default` when there is no
+`:cljs`). Names compare as written, so `other/el` is not the local `el`, and a project's own `m/doto` is a plain call.
+
+The rule leaves a hint alone wherever the value can be handed on: as an argument of `if`, `let`, `do`, a thread,
+`binding`, `as->` or any `def`-like form; as the last form of a body; as a `def` value; or in a collection right after a
+head it does not know, which could be the bindings of a macro such as `p/let`. A bare core name the resolver cannot
+place, for example under `:refer :all`, is read as core's. So the rule also leaves some hints that nothing reads, such
+as a `defmethod` arglist or a hint on a `binding` value.
 
 The rule cannot tell when shadow-cljs would print no warning anyway. It skips the warning for property names it knows
-from its externs, such as the DOM's `width`, `textContent`, `value` or `focus`. So a hint read only through such a name
-changes nothing, but the rule leaves it, because it reads no externs.
+from its externs, such as the DOM's `width`, `textContent`, `value` or `focus`, and for a value it already types as JS,
+such as `js/document`. The rule reads no externs and does not type values, so it leaves such hints too.
 
 Both spellings count — `^js` and `^{:tag js}`. Left alone: `^js/Foo`, which names a type rather than asking for
 inference, and `^clj`, `^boolean`, `^:private` and every other tag; the symbol `js` anywhere but the tag slot, so
-`^:private js` and `^{:doc js}` are not hints; and anything inside a quoted or discarded form. Only test code is read:
-in source, the rule leaves every hint alone.
+`^:private js` and `^{:doc js}` are not hints. Only test code is read: in source, the rule leaves every hint alone.
 
 </details>
 

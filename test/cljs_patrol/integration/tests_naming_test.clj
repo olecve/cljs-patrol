@@ -328,40 +328,61 @@
                                   ["thread-last-call-step-read" "->> with an interop call step and no arguments"]
                                   ["cond-thread-last-call-step-read" "cond->> with an interop call step"]
                                   ["comment-hint" "a hint inside a (comment …) block"]
-                                  ["unquoted-read" "a read under ~ inside a syntax-quote"]]]
+                                  ["unquoted-read" "a read under ~ inside a syntax-quote"]
+                                  ["doseq-let-modifier-read" "a doseq :let name read by .-pendingOp"]
+                                  ["letfn-param-read" "a letfn param read by .-type"]
+                                  ["handle-pair" "a defmethod param after a vector dispatch value"]
+                                  ["discarded-binding-shift" "a binding after a discarded #_#_ pair"]
+                                  ["tail-hint" "the last form of a defn body, which types its return"]
+                                  ["branch-hints" "if branches whose result a name takes"]
+                                  ["as-thread-name-hint" "a hint on the as-> name"]
+                                  ["thread-into-macro-step" "a value threaded into a doto step"]
+                                  ["library-let-read" "a binding of a project's own let macro"]
+                                  ["doc-def" "a def value after a docstring"]
+                                  ["let-value-symbol" "inline on a symbol a let binds to a read name"]]]
+        (is (not (contains? flagged definition))
+            shape)))
+
+    (testing "leaves a hint in a shape it does not follow, though nothing reads it"
+      (doseq [[definition shape] [["handle-unread-return" "a defmethod arglist"]
+                                  ["inline-fn-return" "an inline fn arglist"]
+                                  ["hint-on-interop-call" "a let value whose name only a plain call reads"]
+                                  ["hinted-vector-value" "a def's vector value"]
+                                  ["vector-literal-use" "a use in a vector right after a head"]
+                                  ["body-vector-not-alias" "a body vector under let"]
+                                  ["dynamic-binding" "a value given to binding"]
+                                  ["as-thread-rebound" "a value an as-> name takes"]
+                                  ["hinted-defonce-value" "a defonce vector value"]
+                                  ["body-vector" "a vector in a defn body"]
+                                  ["rebound-name-not-read" "a name bound again"]]]
         (is (not (contains? flagged definition))
             shape)))
 
     (testing "flags a hint that nothing reads"
-      (doseq [[definition shape] [["handle-unread-return" "a defmethod arglist, which no caller reads"]
-                                  ["inline-fn-return" "an inline fn arglist"]
-                                  ["inline-arg-hint" "an inline hint on a plain call argument"]
+      (doseq [[definition shape] [["inline-arg-hint" "an inline hint on a plain call argument"]
                                   ["read-only-when-discarded" "a read only inside #_"]
                                   ["read-only-in-comment" "a read only inside (comment …)"]
                                   ["namespaced-namesake" "other/el, which is not the local el"]
-                                  ["hinted-vector-value" "a def's vector value, which is not an arglist"]
-                                  ["hint-on-interop-call" "a hint on an interop call whose result nothing reads"]
-                                  ["vector-literal-use" "inline on a use inside a vector literal"]
-                                  ["body-vector-not-alias" "a body vector under let is not a binding"]
-                                  ["dynamic-binding" "binding gives a dynamic var no tag"]
-                                  ["as-thread-rebound" "an as-> name read only after it is bound again"]
-                                  ["hinted-defonce-value" "a defonce vector value"]
-                                  ["body-vector" "a vector in a defn body"]
-                                  ["project-doto" "a project's own m/doto"]
-                                  ["rebound-name-not-read" "a name bound again, which is not a value"]]]
+                                  ["project-doto" "a project's own m/doto, a plain call"]
+                                  ["read-with-its-own-map-tag" "a binding whose only read carries ^{:tag js}"]
+                                  ["read-with-its-own-named-tag" "a binding whose only read carries ^js/HTMLElement"]
+                                  ["interop-argument-only" "a binding read only as an interop argument, not its target"]
+                                  ["js-literal-only" "a param read only as a #js literal value"]
+                                  ["discarded-before-unread-binding" "a binding after #_, read only by a plain call"]
+                                  ["catch-unread" "a catch name read only by a plain call"]]]
         (is (contains? flagged definition)
             shape)))
 
     (testing "flags exactly those"
-      (is (= 16 (count found))))))
+      (is (= 11 (count found))))))
 
 (deftest js-hint-in-test-reader-conditional-test
   (let [flagged (->> (:js-hint-in-test (result))
                      (filter #(str/ends-with? (:file %) "js_hints_cljc_test.cljc"))
                      (map (comp str :test))
                      set)]
-    (is (= #{"clj-branch-read"} flagged)
-        "a read only in the :clj branch, which shadow-cljs never compiles")))
+    (is (= #{"clj-branch-read" "cljr-branch-read" "default-beside-cljs-read"} flagged)
+        "a read only in a branch for another platform, which shadow-cljs never compiles, under :refer :all")))
 
 (def ^:private paths-fixture-dir "test-projects/tests-paths-app")
 

@@ -1,5 +1,6 @@
 (ns webapp.js-hints-cljc-test
-  (:require [cljs.test :refer [deftest is]]))
+  (:require #?(:clj [clojure.test :refer :all]
+               :cljs [cljs.test :refer [deftest is]])))
 
 (defn- load-canvas [] #?(:cljs (js/Object.) :clj nil))
 
@@ -10,3 +11,19 @@
 (deftest cljs-branch-read
   (let [^js el (load-canvas)]
     #?(:clj (is (some? el)) :cljs (is (= 1 (.-pendingOp el))))))
+
+(deftest cljr-branch-read
+  (let [^js el (load-canvas)]
+    #?(:cljr (.-pendingOp el) :cljs (is (some? el)))))
+
+(deftest refer-all-let-read
+  (let [^js el (load-canvas)]
+    (is (= 1 (.-pendingOp el)))))
+
+(deftest default-beside-cljs-read
+  (let [^js el (load-canvas)]
+    #?(:default (.-pendingOp el) :cljs (is (some? el)))))
+
+(deftest default-alone-read
+  (let [^js el (load-canvas)]
+    #?(:default (is (= 1 (.-pendingOp el))))))

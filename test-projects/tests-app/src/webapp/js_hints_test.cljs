@@ -166,3 +166,69 @@
         el 2]
     (is (= 1 (.-pendingOp c)))
     (is (= [d el] [d 2]))))
+
+(deftest doseq-let-modifier-read
+  (doseq [x [1]
+          :let [^js el (load-canvas x)]]
+    (is (= 1 (.-pendingOp el)))))
+
+(deftest letfn-param-read
+  (letfn [(f [^js e] (.-type e))]
+    (is (= 1 (f 1)))))
+
+(defmulti handle-pair first)
+
+(defmethod handle-pair [:a :b] [^js e] (.-type e))
+
+(deftest discarded-binding-shift
+  (let [#_#_a 1
+        ^js el (load-canvas)]
+    (is (= 1 (.-pendingOp el)))))
+
+(defn- tail-hint [] ^js (load-canvas))
+
+(deftest branch-hints
+  (let [el (if (load-canvas) ^js (load-canvas) ^js (load-canvas))]
+    (is (= 1 (.-pendingOp el)))))
+
+(deftest as-thread-name-hint
+  (is (= 1 (as-> (load-canvas) ^js $ (.-pendingOp $)))))
+
+(deftest thread-into-macro-step
+  (let [^js el (load-canvas)]
+    (is (some? (-> el (doto (.focus)))))))
+
+(deftest library-let-read
+  (m/let [^js el (load-canvas)]
+    (is (= 1 (.-pendingOp el)))))
+
+(def doc-def "A canvas." ^js (load-canvas))
+
+(deftest read-with-its-own-map-tag
+  (let [^js el (load-canvas)]
+    (is (= 1 (.-pendingOp ^{:tag js} el)))))
+
+(deftest read-with-its-own-named-tag
+  (let [^js el (load-canvas)]
+    (is (= 1 (.-pendingOp ^js/HTMLElement el)))))
+
+(deftest interop-argument-only
+  (let [^js end (load-canvas)]
+    (is (.valid js/GapCursor end))))
+
+(defn- js-literal-only [^js target]
+  #js {:target target})
+
+(defn- let-value-symbol [el]
+  (let [x ^js el]
+    (is (= 1 (.-pendingOp x)))))
+
+(deftest discarded-before-unread-binding
+  (let [#_x ^js el (load-canvas)]
+    (is (some? el))))
+
+(deftest catch-unread
+  (try
+    (load-canvas)
+    (catch :default ^js e
+      (is (some? e)))))
