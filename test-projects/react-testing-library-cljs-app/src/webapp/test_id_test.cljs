@@ -225,6 +225,9 @@
 (deftest finds-plain-in-span
   (.click (s/get-by-test-id "plain-in-span")))
 
+(deftest finds-plain-past-discard
+  (.click (s/get-by-test-id "plain-past-discard")))
+
 (deftest finds-exact-with-options
   (run! #(.click %) (s/query-all-by-test-id "exact" {:exact false})))
 

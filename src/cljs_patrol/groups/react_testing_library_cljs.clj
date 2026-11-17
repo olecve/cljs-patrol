@@ -311,7 +311,7 @@
   (when (= :vector (some-> loc z/tag))
     (let [html-tag (some-> loc z/down parser/raw hiccup/parse-tag)
           configured (configured-element context loc)
-          second-child (some-> loc z/down z/right)
+          second-child (second (parser/written-child-locs loc))
           {:keys [kind attrs]} (hiccup/attrs-info loc)
           attrs (case kind
                   :absent {}

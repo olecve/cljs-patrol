@@ -108,43 +108,50 @@
   "The values a button's `type` may take, compared in lower case as HTML does."
   #{"button" "submit" "reset"})
 
-(declare element-shell? markup-vector? names-unreadable-props? written-value)
+(declare cannot-be-props? element-shell? markup-vector? names-a-dom-attr? names-unreadable-props? renders-something?
+         schema-property-keys written-value)
 
 (defn- type-reading
   "Read the `:type` that `attrs` give a button: `:missing`, `:valid`, `:invalid` or `:unknown`.
 
   Reagent omits a nil or false attribute, so the button then has no type. A string or a
-  keyword is a literal type; anything else cannot be read."
+  keyword is a literal type, checked as HTML checks it; a number, a boolean or a character
+  is a literal that is never a button type. A symbol or a computed value cannot be read."
   [attrs]
   (let [value (written-value attrs :type)]
     (cond
       (= ::absent value) :missing
+      (= ::non-literal value) :unknown
       (or (string? value) (keyword? value)) (if (contains? button-types (str/lower-case (name value)))
                                               :valid
                                               :invalid)
       (or (number? value) (boolean? value) (char? value)) :invalid
       :else :unknown)))
 
-(defn- selector-block?
-  "True when the vector holds a nested `[:& …]` block, which only a Garden selector has."
-  [loc]
-  (some #(and (= :vector (z/tag %))
-              (some-> % z/down parser/raw (str/starts-with? ":&")))
-        (rest (parser/written-child-locs loc))))
+(def ^:private path-taking-heads
+  "Core functions whose second argument is a path of keys, never markup."
+  #{"get-in" "assoc-in" "update-in" "select-keys"})
 
-(defn- names-a-string?
-  "True when a body child is a symbol that a `let` or a same-file `def` binds to a string."
+(defn- path-argument?
+  "True when the vector at `loc` is the path argument of `get-in`, `assoc-in`, `update-in` or `select-keys`."
   [loc]
-  (and (= :token (z/tag loc))
-       (some? (parser/sym-name loc))
-       (string? (some-> (hiccup/resolved-value loc) (#(when (= :token (z/tag %)) (z/sexpr %)))))))
+  (let [parent (z/up loc)]
+    (and (= :list (some-> parent z/tag))
+         (contains? path-taking-heads (some-> parent z/down parser/sym-name))
+         (identical? (z/node loc) (some-> (nth (parser/written-child-locs parent) 2 nil) z/node)))))
 
 (defn- markup-button?
-  "True when a `[:button …]` vector is markup, not a data path, a Malli entry or a Garden rule."
+  "True when a `[:button …]` vector is markup, not a data path, a Malli entry or a Garden rule.
+
+  A keyword right after the tag is a data path: as markup it would render the keyword's text."
   [info loc]
-  (and (not (selector-block? loc))
-       (or (markup-vector? info loc)
-           (some names-a-string? (rest (parser/written-child-locs loc))))))
+  (and (not (some-> (second (parser/written-child-locs loc)) parser/kw-node?))
+       (not (path-argument? loc))
+       (markup-vector? info loc)
+       (or (not= :map (:kind info))
+           (nil? (:attrs info))
+           (names-a-dom-attr? (:attrs info) schema-property-keys)
+           (renders-something? loc))))
 
 (defn- button-missing-type?
   "True when a button has no valid `:type`.
@@ -161,14 +168,14 @@
   (when (= :button tag)
     (let [reading (some-> (settled-attrs info) type-reading)]
       (if (= :button (some-> loc z/down parser/raw hiccup/parse-tag))
-        (and (markup-button? info loc)
-             (not (element-shell? loc ns-info))
-             (case kind
+        (and (case kind
                :absent true
                :non-map (not (names-unreadable-props? loc))
                :map (contains? #{:missing :invalid} reading)
                :dynamic-map (= :invalid reading)
-               false))
+               false)
+             (markup-button? info loc)
+             (not (element-shell? loc ns-info)))
         (= :invalid reading)))))
 
 (defn- button-label-snippet
@@ -986,16 +993,6 @@
   (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
              (interactive-content? (hiccup/attrs-info loc) tag))))
 
-(defn- names-a-literal?
-  "True when `loc` is a symbol that a `let` or a same-file `def` binds to a literal string, number or keyword.
-
-  Such a symbol holds no props. A symbol bound to another symbol, or to a call, still may."
-  [loc]
-  (let [value (hiccup/resolved-value loc)]
-    (and (= :token (some-> value z/tag))
-         (let [v (try (z/sexpr value) (catch Exception _ nil))]
-           (or (string? v) (number? v) (keyword? v))))))
-
 (defn- names-unreadable-props?
   "True when the element's second child may name props this cannot read.
   `attrs-info` answers `:non-map` both for `[:button \"Save\"]`, which really carries no
@@ -1007,7 +1004,7 @@
          (= :token (z/tag second-child))
          (some? (parser/sym-name second-child))
          (not= :map (:kind (hiccup/attrs-info loc)))
-         (not (names-a-literal? second-child)))))
+         (not (some-> (hiccup/resolved-value second-child) cannot-be-props?)))))
 
 (defn- focusable-loc? [loc ns-info component-aliases]
   (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
@@ -1286,7 +1283,7 @@
     :absent true
     :map (and (some? attrs) (not (has-accessible-name? attrs)) (not (aria-hidden? attrs)))
     :non-map (and (some? (some-> loc z/down parser/raw hiccup/parse-tag))
-                  (cannot-be-props? (z/right (z/down loc))))
+                  (cannot-be-props? (second (parser/written-child-locs loc))))
     false))
 
 (defn- missing-accessible-name? [{:keys [kind attrs]
@@ -1592,14 +1589,35 @@
 (def ^:private dom-attr-keys
   #{:class :className :id :style :for :html-for :htmlFor :title :role :hidden :key :ref :tab-index :tabIndex})
 
+(def ^:private schema-property-keys
+  "DOM attribute names a Malli entry's properties also take, so they prove no markup on their own."
+  #{:id :style :title :hidden :key})
+
 (defn- names-a-dom-attr?
   "True when a literal props map carries something only markup would carry.
-  A Malli entry's properties — `{:optional true}` — carry none of it."
-  [attrs]
-  (boolean (some (fn [k]
-                   (or (contains? dom-attr-keys k)
-                       (some #(str/starts-with? (name k) %) dom-attr-prefixes)))
-                 (keys attrs))))
+  A Malli entry's properties — `{:optional true}` — carry none of it. Given `ignored`, those
+  keys prove nothing."
+  ([attrs] (names-a-dom-attr? attrs #{}))
+  ([attrs ignored]
+   (boolean (some (fn [k]
+                    (and (not (contains? ignored k))
+                         (or (contains? dom-attr-keys k)
+                             (some #(str/starts-with? (name k) %) dom-attr-prefixes))))
+                  (keys attrs)))))
+
+(defn- names-a-string?
+  "True when `loc` is a symbol that a `let` or a same-file `def` binds to a string, as a caption often is."
+  [loc]
+  (and (= :token (z/tag loc))
+       (some? (parser/sym-name loc))
+       (literal-string-loc? (hiccup/resolved-value loc))))
+
+(defn- selector-block?
+  "True when the vector holds a nested `[:& …]` block, which only a Garden selector has."
+  [loc]
+  (some #(and (= :vector (z/tag %))
+              (some-> % z/down parser/raw (str/starts-with? ":&")))
+        (rest (parser/written-child-locs loc))))
 
 (defn- renders-something?
   "True when the label's body holds anything only markup holds.
@@ -1610,6 +1628,7 @@
   called, so it settles nothing."
   [loc]
   (boolean (some #(or (literal-string-loc? %)
+                      (names-a-string? %)
                       (and (= :vector (z/tag (heads/unwrap-meta %))) (not (hiccup/malli-schema-vector? %))))
                  (body-locs loc))))
 
@@ -1623,10 +1642,12 @@
   schema: `[:label (my-schema)]` is an entry whose schema is computed, and it renders nothing.
   A `#_` form is no child. A quoted form is a child only after a props call or a built map."
   [{:keys [kind attrs]} loc]
-  (or (and (= :map kind) (some? attrs) (names-a-dom-attr? attrs))
-      (and (contains? #{:dynamic :dynamic-map} kind)
-           (some #(not (or (= :uneval (z/tag %)) (hiccup/malli-schema-vector? %))) (body-locs loc)))
-      (renders-something? loc)))
+  (and
+   (not (selector-block? loc))
+   (or (and (= :map kind) (some? attrs) (names-a-dom-attr? attrs))
+       (and (contains? #{:dynamic :dynamic-map} kind)
+            (some #(not (or (= :uneval (z/tag %)) (hiccup/malli-schema-vector? %))) (body-locs loc)))
+       (renders-something? loc))))
 
 (defn- label-props
   "Return the label's props when `for` can be answered for, or `::unknown`.

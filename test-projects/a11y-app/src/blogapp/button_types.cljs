@@ -100,3 +100,32 @@
 (defn long-delete [f] [:button {:class "toolbar-action toolbar-action--primary toolbar-action--wide toolbar-action--with-icon toolbar-action--in-dialog-footer" :on-click f} "Delete"])
 
 (defn number-before-label [] (let [n 3] [:button n "Save"]))
+
+(defn computed-type [submit?] [:button {:type (if submit? "submit" "button")} "Save"])
+
+(defn named-type [t] [:button {:type (name t)} "Save"])
+
+(defn conditional-type [] [:button {:type #?(:cljs "button" :clj "button")} "Save"])
+
+(defn built-computed-type [props s] [:button (assoc props :type (if s "submit" "button")) "Save"])
+
+(defn component-computed-type [submit?] [ui/button {:type (when submit? :submit)} "Send"])
+
+(defn keyword-path-with-text [db] (get-in db [:button :primary "Save"]))
+
+(def nested-path {:path [:button :sizes [:sm :md]]})
+
+(defn string-key-path [db] (let [k "save"] (get-in db [:button k])))
+
+(defn string-assoc-path [db] (assoc-in db [:button "Save"] true))
+
+(defn malli-title [v] (validate [:map [:button {:title "Submit button"} :string]] v))
+
+(def multi-line-label "Save
+all")
+
+(defn multi-line-symbol-label [] [:button multi-line-label])
+
+(defn garden-label [] (css [:label {:color "red"} [:&:hover {:color "blue"}]]))
+
+(defn discarded-before-text [] [:textarea #_{:aria-label "Draft"} "draft"])

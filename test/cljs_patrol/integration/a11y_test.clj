@@ -1797,7 +1797,8 @@
                                   ["invalid-keyword" "a keyword"]
                                   ["built-invalid" "a value set last on a built map"]
                                   ["numeric-type" "a number"]
-                                  ["number-before-label" "a symbol bound to a number holds no props"]]]
+                                  ["number-before-label" "a symbol bound to a number holds no props"]
+                                  ["multi-line-symbol-label" "a symbol bound to a multi-line string"]]]
         (is (contains? flagged definition)
             shape)))
 
@@ -1827,12 +1828,21 @@
                                   ["malli-entry" "a Malli entry with properties"]
                                   ["malli-nested" "a Malli entry with a nested schema"]
                                   ["plain-selector" "a Garden rule with only CSS properties"]
-                                  ["one-key-path" "a one-key data path"]]]
+                                  ["one-key-path" "a one-key data path"]
+                                  ["computed-type" "a type an if computes"]
+                                  ["named-type" "a type a call computes"]
+                                  ["conditional-type" "a type in a reader conditional"]
+                                  ["built-computed-type" "a computed type set last on a built map"]
+                                  ["keyword-path-with-text" "a keyword after the tag, then text"]
+                                  ["nested-path" "a keyword after the tag, then a vector"]
+                                  ["string-key-path" "a get-in path whose key names a string"]
+                                  ["string-assoc-path" "an assoc-in path with a string key"]
+                                  ["malli-title" "a Malli entry with a :title property"]]]
         (is (not (contains? flagged definition))
             shape)))
 
     (testing "flags exactly those"
-      (is (= 17 (count found))))
+      (is (= 18 (count found))))
 
     (testing "leaves other rules quiet on props a symbol passes on"
       (let [result (first group-results)
@@ -1842,7 +1852,11 @@
         (is (not (contains? (in-fixture :label-not-associated) "symbol-bound-label"))
             "label-not-associated")
         (is (not (contains? (in-fixture :aria-hidden-focusable) "symbol-bound-hidden"))
-            "aria-hidden-focusable")))
+            "aria-hidden-focusable")
+        (is (not (contains? (in-fixture :label-not-associated) "garden-label"))
+            "a Garden [:label …] rule is no label")
+        (is (contains? (in-fixture :missing-accessible-name) "discarded-before-text")
+            "a #_ props map names nothing, so the text after it is read")))
 
     (testing "keeps two buttons that differ only past the snippet cut apart"
       (let [names (definitions-by-row "test-projects/a11y-app/src/blogapp/button_types.cljs")
@@ -1871,9 +1885,10 @@
 
     (testing "leaves an aliased button that sets its own default type"
       (doseq [[definition shape] [["component-button" "no :type"]
-                                  ["component-html-type" "an HTML type"]]]
+                                  ["component-html-type" "an HTML type"]
+                                  ["component-computed-type" "a computed type"]]]
         (is (not (contains? flagged definition))
             shape)))
 
     (testing "adds only those to the keyword-tag findings"
-      (is (= 19 (count found))))))
+      (is (= 20 (count found))))))
