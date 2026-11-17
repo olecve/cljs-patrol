@@ -1757,41 +1757,96 @@
            (reported :img-alt-missing))
         "map built without the discarded key")))
 
+(defn- definitions-by-row
+  "Map each row of `file` that opens a top-level definition to that definition's name."
+  [file]
+  (into {}
+        (keep-indexed (fn [i line]
+                        (when-let [[_ definition] (re-find #"^\((?:defn-?|def) (\S+)" line)]
+                          [(inc i) definition])))
+        (str/split-lines (slurp file))))
+
+(defn- flagged-definitions [found]
+  (let [names (definitions-by-row "test-projects/a11y-app/src/blogapp/button_types.cljs")]
+    (set (map #(get names (:row %)) found))))
+
 (deftest button-missing-type-fixture-test
   (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
         found (->> (first group-results)
                    :button-missing-type
                    (filter #(str/ends-with? (:file %) "button_types.cljs")))
-        by-row (rows found)]
+        flagged (flagged-definitions found)]
 
     (testing "flags a button that submits by default"
-      (doseq [[row shape] [[4 "a text child and no props"]
-                           [36 "no children at all"]
-                           [6 "a literal map with no :type"]
-                           [8 "a :button.class tag"]]]
-        (is (contains? by-row row)
+      (doseq [[definition shape] [["no-props" "a text child and no props"]
+                                  ["bare-button" "no children at all"]
+                                  ["no-type" "a literal map with no :type"]
+                                  ["class-shorthand" "a :button.class tag"]
+                                  ["id-shorthand" "a :button#id tag"]
+                                  ["nil-type" ":type nil, which Reagent omits"]
+                                  ["false-type" ":type false, which Reagent omits"]
+                                  ["let-bound-props" "a let-bound map with no :type"]
+                                  ["def-bound-props" "a def-bound map with no :type"]
+                                  ["complete-built" "a fully readable built map with no :type"]
+                                  ["label-symbol" "a symbol that names a string, so no props"]]]
+        (is (contains? flagged definition)
             shape)))
 
     (testing "flags a literal type that is not a button type"
-      (doseq [[row shape] [[10 "a string"]
-                           [12 "a keyword"]
-                           [14 "a value set last on a built map"]]]
-        (is (contains? by-row row)
+      (doseq [[definition shape] [["invalid-string" "a string"]
+                                  ["invalid-keyword" "a keyword"]
+                                  ["built-invalid" "a value set last on a built map"]]]
+        (is (contains? flagged definition)
             shape)))
 
-    (testing "leaves a button whose type is written or may be"
-      (doseq [[row shape] [[16 "type button"]
-                           [18 "type submit"]
-                           [20 "type reset as a keyword"]
-                           [22 "a type held in a symbol"]
-                           [24 "props held in a symbol"]
-                           [26 "props from a call"]
-                           [28 "a built map whose unread part may set the type"]
-                           [30 "a type the merged props may replace"]
-                           [32 "a component, which renders its own type"]
-                           [34 "a div with a button role"]]]
-        (is (not (contains? by-row row))
+    (testing "leaves a button whose type is written or may be, and vectors that are not buttons"
+      (doseq [[definition shape] [["typed-button" "type button"]
+                                  ["submit-button" "type submit"]
+                                  ["reset-button" "type reset as a keyword"]
+                                  ["upper-case-type" "\"Button\", which HTML reads as button"]
+                                  ["upper-case-keyword-type" ":Submit, which HTML reads as submit"]
+                                  ["symbol-type" "a type held in a symbol"]
+                                  ["opaque-props" "props held in a symbol"]
+                                  ["discarded-before-props" "props held in a symbol after #_"]
+                                  ["call-props" "props from a call"]
+                                  ["built-unknown" "a built map whose unread part may set the type"]
+                                  ["merged-type" "a type the merged props may replace"]
+                                  ["string-keys" "a map with string keys"]
+                                  ["component-button" "a component with no alias"]
+                                  ["not-a-button" "a div with a button role"]
+                                  ["text-input" "an input, whose :type is not a button type"]
+                                  ["data-path" "a [:button :primary] data path"]
+                                  ["selector" "a Garden selector with a nested [:& …] block"]
+                                  ["button-shell" "a shell its caller fills with a type"]]]
+        (is (not (contains? flagged definition))
             shape)))
 
     (testing "flags exactly those"
-      (is (= 7 (count found))))))
+      (is (= 14 (count found))))
+
+    (testing "keeps two buttons that differ only in their label apart"
+      (is (= "\"Save\"" (->> found (filter #(= 6 (:row %))) first :inner-form))
+          "the label snippet of a button with props joins the identity"))))
+
+(deftest button-missing-type-alias-fixture-test
+  (let [group (a11y/make-group {:component-aliases {'blogapp.ui/button :button}})
+        {:keys [group-results]} (core/run fixture-dir [group])
+        found (->> (first group-results)
+                   :button-missing-type
+                   (filter #(str/ends-with? (:file %) "button_types.cljs")))
+        flagged (flagged-definitions found)]
+
+    (testing "flags a styling keyword in the :type of an aliased button"
+      (doseq [[definition shape] [["component-styling-type" "a literal :type :primary"]
+                                  ["component-built-styling-type" "a :type :secondary set last on a built map"]]]
+        (is (contains? flagged definition)
+            shape)))
+
+    (testing "leaves an aliased button that sets its own default type"
+      (doseq [[definition shape] [["component-button" "no :type"]
+                                  ["component-html-type" "an HTML type"]]]
+        (is (not (contains? flagged definition))
+            shape)))
+
+    (testing "adds only those to the keyword-tag findings"
+      (is (= 16 (count found))))))

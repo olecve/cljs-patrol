@@ -105,47 +105,69 @@
         (invalid-tabindex-value? (get attrs :tabIndex)))))
 
 (def ^:private button-types
-  "The values a button's `type` may take."
+  "The values a button's `type` may take, compared in lower case as HTML does."
   #{"button" "submit" "reset"})
 
-(defn- literal-type-value
-  "Return a literal `:type` value as a string, or nil when it is not a literal string or keyword."
-  [value-loc]
-  (when (= :token (some-> value-loc z/tag))
-    (let [value (try (z/sexpr value-loc) (catch Exception _ nil))]
-      (cond
-        (string? value) value
-        (simple-keyword? value) (name value)))))
+(declare element-shell? names-unreadable-props? written-value)
 
-(defn- invalid-button-type? [value-loc]
-  (when-let [value (literal-type-value value-loc)]
-    (not (contains? button-types value))))
+(defn- type-reading
+  "Read the `:type` that `attrs` give a button: `:missing`, `:valid`, `:invalid` or `:unknown`.
 
-(defn- symbol-props-slot?
-  "True when the second child of the vector at `loc` is a symbol, which may hold props the rule cannot read."
+  Reagent omits a nil or false attribute, so the button then has no type. A string or a
+  keyword is a literal type; anything else cannot be read."
+  [attrs]
+  (let [value (written-value attrs :type)]
+    (cond
+      (= ::absent value) :missing
+      (or (string? value) (keyword? value)) (if (contains? button-types (str/lower-case (name value)))
+                                              :valid
+                                              :invalid)
+      :else :unknown)))
+
+(defn- keyword-props-slot?
+  "True when a keyword follows the tag, as in `[:button :primary]`: a data path, not markup."
   [loc]
-  (let [slot (some-> loc z/down z/right)]
-    (and (= :token (some-> slot z/tag)) (some? (parser/sym-name slot)))))
+  (boolean (some-> (second (parser/written-child-locs loc)) parser/kw-node?)))
+
+(defn- selector-block?
+  "True when the vector holds a nested `[:& …]` block, as a Garden selector does, so it is CSS rather than markup."
+  [loc]
+  (some #(and (= :vector (z/tag %))
+              (some-> % z/down parser/raw (str/starts-with? ":&")))
+        (rest (parser/written-child-locs loc))))
 
 (defn- button-missing-type?
-  "True when a literal `[:button …]` has no valid `:type`.
+  "True when a button has no valid `:type`.
 
-  A button with no type submits the form it sits in. A literal map with no `:type`, or no
-  props at all, counts; so does a literal value that is not `button`, `submit` or `reset`.
-  Props built elsewhere may set the type, so only a built map's settled keys are read, and
-  only for an invalid value. A component the aliases resolve to `:button` renders its own
-  `type`, so only the keyword tag counts."
-  [{:keys [kind attrs]
-    :as info} loc]
-  (when (= :button (some-> loc z/down parser/raw hiccup/parse-tag))
-    (case kind
-      :absent true
-      :non-map (not (symbol-props-slot? loc))
-      :map (and (some? attrs)
-                (or (not (contains? attrs :type))
-                    (boolean (invalid-button-type? (get attrs :type)))))
-      :dynamic-map (boolean (some-> (settled-attrs info) (get :type) invalid-button-type?))
-      false)))
+  A button with no type submits the form it sits in. On the `:button` keyword tag, a
+  literal or fully readable map with no `:type`, or no props at all, counts; so does a
+  literal value that is not `button`, `submit` or `reset`. A built map with unreadable
+  parts counts only for such a value among its settled keys, since a part may set the type.
+  A component the aliases resolve to `:button` is assumed to set its own default type, so
+  there only an invalid value counts. A data path such as `[:button :primary]`, a Garden
+  selector and a shell its callers fill are not markup."
+  [{:keys [kind]
+    :as info} loc tag ns-info]
+  (when (= :button tag)
+    (let [reading (some-> (settled-attrs info) type-reading)]
+      (if (= :button (some-> loc z/down parser/raw hiccup/parse-tag))
+        (and (not (keyword-props-slot? loc))
+             (not (selector-block? loc))
+             (not (element-shell? loc ns-info))
+             (case kind
+               :absent true
+               :non-map (not (names-unreadable-props? loc))
+               :map (contains? #{:missing :invalid} reading)
+               :dynamic-map (= :invalid reading)
+               false))
+        (= :invalid reading)))))
+
+(defn- button-label-snippet
+  "Return the snippet of a button's last child, which tells two long buttons in one file apart."
+  [loc]
+  (let [children (rest (parser/written-child-locs loc))]
+    (when (< 1 (count children))
+      (source-snippet (last children)))))
 
 (def ^:private non-interactive-tags
   "HTML tags that carry no built-in click / keyboard semantics.
@@ -961,10 +983,11 @@
   attrs, and for `[:button props \"Save\"]`, where a symbol nothing in the file defines
   may name a map holding the very way out being called missing."
   [loc]
-  (let [second-child (some-> loc z/down z/right)]
+  (let [second-child (second (parser/written-child-locs loc))]
     (and (some? second-child)
          (= :token (z/tag second-child))
          (some? (parser/sym-name second-child))
+         (not= :token (some-> (hiccup/resolved-value second-child) z/tag))
          (not= :map (:kind (hiccup/attrs-info loc))))))
 
 (defn- focusable-loc? [loc ns-info component-aliases]
@@ -2045,8 +2068,9 @@
                        (invalid-tabindex? info)
                        (conj (assoc base :type :invalid-tabindex))
 
-                       (button-missing-type? info loc)
-                       (conj (assoc base :type :button-missing-type))
+                       (button-missing-type? info loc tag ns-info)
+                       (conj (cond-> (assoc base :type :button-missing-type)
+                               (button-label-snippet loc) (assoc :inner-form (button-label-snippet loc))))
 
                        (on-click-on-non-interactive? info tag)
                        (conj (assoc base :type :on-click-on-non-interactive))
