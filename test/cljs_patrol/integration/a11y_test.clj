@@ -1802,7 +1802,14 @@
                                   ["malli-title" "a Malli entry with a :title, which reads as markup as for a label"]
                                   ["keyed-in-for" "a :key and a computed label"]
                                   ["id-only" "an :id and a label parameter"]
-                                  ["style-only" "a :style and a text parameter"]]]
+                                  ["style-only" "a :style and a text parameter"]
+                                  ["reset-markup" "markup that reset! stores"]
+                                  ["assoc-markup" "markup that assoc stores"]
+                                  ["swap-assoc-markup" "markup that assoc stores through swap!"]
+                                  ["get-default-markup" "markup given as the default of get"]
+                                  ["swap-path-past-value" "markup assoc stores through swap!, not an assoc-in path"]
+                                  ["swap-assoc-in-value" "markup assoc-in stores through swap!, after the path"]
+                                  ["swap-conj-markup" "markup conj appends through swap!"]]]
         (is (contains? flagged definition)
             shape)))
 
@@ -1850,7 +1857,7 @@
             shape)))
 
     (testing "flags exactly those"
-      (is (= 22 (count found))))
+      (is (= 29 (count found))))
 
     (testing "leaves other rules quiet on props a symbol passes on"
       (let [result (first group-results)
@@ -1868,7 +1875,9 @@
         (is (contains? (in-fixture :missing-accessible-name) "symbol-text-area")
             "a symbol bound to text holds no props, so it names nothing")
         (is (not (contains? (in-fixture :label-not-associated) "label-path"))
-            "an assoc-in path is no label")))
+            "an assoc-in path is no label")
+        (is (contains? (in-fixture :label-not-associated) "reset-label")
+            "a label that reset! stores is markup")))
 
     (testing "keeps two buttons that differ only past the snippet cut apart"
       (let [names (definitions-by-row "test-projects/a11y-app/src/blogapp/button_types.cljs")
@@ -1903,4 +1912,4 @@
             shape)))
 
     (testing "adds only those to the keyword-tag findings"
-      (is (= 24 (count found))))))
+      (is (= 31 (count found))))))

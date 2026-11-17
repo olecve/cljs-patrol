@@ -149,3 +149,19 @@ all")
 (defn label-path [db] (let [lang "en"] (assoc-in db [:label lang] "x")))
 
 (defn symbol-text-area [] (let [t "draft"] [:textarea t]))
+
+(defn reset-markup [content] (reset! content [:button "OK"]))
+
+(defn assoc-markup [props] (assoc props :footer [:button "OK"]))
+
+(defn swap-assoc-markup [state] (swap! state assoc :body [:button "OK"]))
+
+(defn get-default-markup [m k] (get m k [:button "OK"]))
+
+(defn reset-label [content] (reset! content [:label "Name"]))
+
+(defn swap-path-past-value [state] (swap! state assoc :k [:button "OK"]))
+
+(defn swap-assoc-in-value [state] (swap! state assoc-in [:footer] [:button "OK"]))
+
+(defn swap-conj-markup [state] (swap! state conj [:button "OK"]))

@@ -1566,22 +1566,46 @@
 (def ^:private dom-attr-keys
   #{:class :className :id :style :for :html-for :htmlFor :title :role :hidden :key :ref :tab-index :tabIndex})
 
-(def ^:private data-taking-heads
-  "Functions whose vector arguments are paths, keys or events, never markup."
-  #{"get" "get-in" "assoc" "assoc-in" "update" "update-in" "dissoc" "contains?" "select-keys" "swap!" "reset!"
-    "dispatch" "dispatch-sync" "subscribe"})
+(def ^:private path-taking-heads
+  "Functions whose argument after the collection is a path or a key, never markup."
+  #{"get" "get-in" "assoc-in" "update-in" "dissoc" "contains?" "select-keys"})
+
+(def ^:private event-taking-heads
+  "The re-frame functions whose first argument is an event or a query, never markup."
+  #{"dispatch" "dispatch-sync" "subscribe"})
+
+(def ^:private first-threads
+  "Threads that put the threaded value first.
+
+  In a step of one, the step's own first argument is the one after the collection."
+  #{"->" "some->"})
+
+(defn- argument-index
+  "Return the position of loc in its parent list, the head being 0, or nil."
+  [loc parent]
+  (first (keep-indexed #(when (identical? (z/node loc) (z/node %2)) %1) (parser/written-child-locs parent))))
 
 (defn- data-vector?
   "True when a vector spelled like an element is data: a path, a key or an event.
 
   A keyword right after the tag is one, since as markup it would render the keyword's text.
-  So is an argument of `get-in`, `assoc-in`, `swap!`, `dispatch`, `subscribe` and the like,
-  also as a step of a thread."
+  So is the path or key argument of `get-in`, `assoc-in`, `get` and the like, also as a step
+  of `->` or `some->` or after `assoc-in` or `update-in` in `swap!`, and the event of
+  `dispatch` or `subscribe`. A value argument, such as the one `assoc` or `reset!` stores,
+  may be markup."
   [loc]
-  (or (some-> (second (parser/written-child-locs loc)) parser/kw-node?)
-      (let [parent (z/up loc)]
-        (and (= :list (some-> parent z/tag))
-             (contains? data-taking-heads (some-> parent z/down parser/sym-name))))))
+  (or (boolean (some-> (second (parser/written-child-locs loc)) parser/kw-node?))
+      (let [parent (z/up loc)
+            head (some-> parent z/down parser/sym-name)
+            index (when (= :list (some-> parent z/tag)) (argument-index loc parent))
+            children (some-> parent parser/written-child-locs vec)
+            threaded? (contains? first-threads (some-> parent z/up z/down parser/sym-name))]
+        (boolean
+         (and index
+              (or (and (contains? path-taking-heads head) (= index (if threaded? 1 2)))
+                  (and (= "swap!" head) (= 3 index)
+                       (contains? #{"assoc-in" "update-in"} (some-> (get children 2) parser/sym-name)))
+                  (and (contains? event-taking-heads head) (= 1 index))))))))
 
 (defn- names-a-dom-attr?
   "True when a literal props map carries something only markup would carry.
@@ -1632,11 +1656,11 @@
   [{:keys [kind attrs]} loc]
   (and
    (not (selector-block? loc))
-   (not (data-vector? loc))
    (or (and (= :map kind) (some? attrs) (names-a-dom-attr? attrs))
-       (and (contains? #{:dynamic :dynamic-map} kind)
-            (some #(not (or (= :uneval (z/tag %)) (hiccup/malli-schema-vector? %))) (body-locs loc)))
-       (renders-something? loc))))
+       (and (not (data-vector? loc))
+            (or (and (contains? #{:dynamic :dynamic-map} kind)
+                     (some #(not (or (= :uneval (z/tag %)) (hiccup/malli-schema-vector? %))) (body-locs loc)))
+                (renders-something? loc))))))
 
 (defn- label-props
   "Return the label's props when `for` can be answered for, or `::unknown`.
