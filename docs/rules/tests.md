@@ -148,33 +148,83 @@ reported too. That is deliberate: it is a var deref whichever it is, and the fix
 
 ### `^js` hint in test
 
-`js-hint-in-test` · cleanup · config [`:paths`](#test-paths) — A `^js` hint in test code, where nothing reads it.
+`js-hint-in-test` · cleanup · config [`:paths`](#test-paths) — A `^js` hint in test code on a value that no interop call
+reads.
 
 ```clojure
 ;; flagged
-(deftest width
+(deftest chart-renders
   (let [^js el (render-chart)]
-    (is (= 10 (.-width el)))))
+    (is (some? el))))
 
 ;; fix
-(deftest width
+(deftest chart-renders
   (let [el (render-chart)]
-    (is (= 10 (.-width el)))))
+    (is (some? el))))
+```
+
+**Left alone:**
+
+```clojure
+;; left alone: .getObjects reads canvas, so the hint stops an :infer-warning
+(deftest objects
+  (let [^js canvas (load-canvas)]
+    (is (= 4 (count (.getObjects canvas))))))
+
+;; left alone: inline on the target of the interop call
+(deftest first-object
+  (is (some? (first (.getObjects ^js (load-canvas))))))
+
+;; left alone: threaded into a property read
+(deftest pending-op
+  (let [^js el (render-chart)]
+    (is (= "2" (-> el .-dataset .-pendingOp)))))
+
+;; left alone: a hint on what a helper returns, which its callers read
+(defn- ^js load-canvas [] (render-chart))
 ```
 
 <details>
 <summary>Details</summary>
 
-A `^js` type hint written in test code. The hint exists so shadow-cljs infers an extern and the Closure compiler leaves
-a JS interop property name alone under `:advanced` optimizations (shadow-cljs User's Guide, 14.2.1 _Externs Inference_).
-A test build never runs `:advanced`, so nothing reads the hint and nothing would change if it were not there. Remove it.
+A `^js` type hint tells shadow-cljs that a value is a JS object. shadow-cljs reads the hint in every build, not only
+under `:advanced`: when an interop call reads a value it cannot type, it prints an `:infer-warning` ("Cannot infer
+target type"), in a test build too. The value can reach that call in many ways: as the target itself, through a name it
+is bound to, a thread, a branch, a return, or a macro. So the rule flags a hint only when it can see that the value
+reaches none of them, and leaves every other hint alone. A wrong flag would send someone to remove a hint the build
+needs.
 
-Both spellings count — `^js` and `^{:tag js}` — wherever they are written: a `defn` or `fn` parameter, a `let`, `loop`
-or `doseq` binding, map or vector destructuring, or inline on an expression (`(.-textContent ^js %)`). Left alone:
-`^js/Foo`, which names a type rather than asking for inference, and `^clj`, `^boolean`, `^:private` and every other tag;
-the symbol `js` anywhere but the tag slot, so `^:private js` and `^{:doc js}` are not hints; and anything inside a
-quoted or discarded form. Only test code is read: a hint in source can be load-bearing, and only a release build's infer
-warnings can say which.
+The rule flags:
+
+- A hint on a name that a known form binds — a `let`-like form, `doseq` or `for` bindings, a parameter of `fn`, `defn`,
+  `reify` or `deftype`, a `deftype` field, destructuring, or the name of `this-as` or `catch` — when every use of that
+  name in compiled code is harmless.
+- A hint on a value in a harmless place.
+
+A use is harmless when it is an argument of a plain function call other than the target of an interop call, such as
+`(fake-event el)`, `(js/getComputedStyle el)` or `(.valid GapCursor el)`; an element of a literal collection in such a
+place, or of a `#js` literal; or a use that carries a tag of its own, such as `(.-p ^js el)`. Code that shadow-cljs
+never compiles does not count, and a hint there is not checked: `#_`, a quoted form, a syntax-quoted form outside `~`,
+`(comment …)`, and a reader conditional branch for another platform, such as `:clj`, `:cljr` or `:bb`. A `:default` or a
+custom feature branch counts as compiled, since the reader may take it. A use inside a `:cljs` branch stands where the
+conditional stands. Names compare as written, so `other/el` is not the local `el`.
+
+The rule leaves a hint alone wherever the value can be handed on: as an argument of a core macro or special form, such
+as `if`, `let`, `do`, a thread, `binding`, `as->`, `with-redefs` or `time`; of `are`, `async`, `testing` or `this-as`;
+of any head named `def…` or `with-…`, or named like a core macro, qualified or not, or that the ns form names as a macro
+through `:refer-macros` or `:require-macros`, such as `s/defn` or `m/doto`; as the last form of a body or an arity, also
+in `letfn`; as a `def` value; or in a collection right after a head it does not know, which could be the bindings of a
+macro such as `p/let`. A plain call is any other head: a project or library function, a `js/` global, a constructor, or
+a core function. A bare core name the resolver cannot place, for example under `:refer :all`, is read as core's. So the
+rule also leaves some hints that nothing reads, such as a `defmethod` arglist or a hint on a `binding` value.
+
+The rule cannot tell when shadow-cljs would print no warning anyway. It skips the warning for property names it knows
+from its externs, such as the DOM's `width`, `textContent`, `value` or `focus`, and for a value it already types as JS,
+such as `js/document`. The rule reads no externs and does not type values, so it leaves such hints too.
+
+Both spellings count — `^js` and `^{:tag js}`. Left alone: `^js/Foo`, which names a type rather than asking for
+inference, and `^clj`, `^boolean`, `^:private` and every other tag; the symbol `js` anywhere but the tag slot, so
+`^:private js` and `^{:doc js}` are not hints. Only test code is read: in source, the rule leaves every hint alone.
 
 </details>
 

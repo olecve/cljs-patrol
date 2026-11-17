@@ -218,37 +218,64 @@
           "two reads in one test still collapse, which no stable key can split"))))
 
 (deftest js-hint-in-test-fixture-test
-  (let [found (:js-hint-in-test (result))
+  (let [all-found (:js-hint-in-test (result))
+        found (filter #(str/ends-with? (:file %) "naming_test.cljs") all-found)
         by-row (frequencies (map :row found))]
 
-    (testing "flags the hint wherever it is written"
-      (is (= 1 (by-row 92))
-          "a let binding")
+    (testing "flags a hint that no interop call reads, wherever it is written"
       (is (= 1 (by-row 93))
-          "a map destructuring key")
+          "a map destructuring key read only by a keyword lookup")
       (is (= 2 (by-row 94))
-          "both hints in a vector destructuring")
+          "both hints in a vector destructuring, read by nothing")
       (is (= 1 (by-row 95))
           "the ^{:tag js} spelling")
-      (is (= 1 (by-row 96))
-          "inline on an argument")
-      (is (= 1 (by-row 97))
-          "inline on a nested expression")
-      (is (= 1 (by-row 100))
-          "a defn parameter in a test helper"))
+      (is (= 1 (by-row 132))
+          "a let binding read only by a plain call")
+      (is (= 1 (by-row 138))
+          "inline on an argument of a plain call")
+      (is (= 1 (by-row 145))
+          "a defn parameter read only by a plain call")
+      (is (= 1 (by-row 92))
+          "a let binding whose only read carries its own ^js"))
+
+    (testing "leaves a hint that an interop call reads, because it stops an :infer-warning"
+      (is (not (by-row 96))
+          "inline on the target of .-textContent")
+      (is (not (by-row 97))
+          "inline on the target of ..")
+      (is (not (by-row 100))
+          "a defn parameter read by .-value")
+      (is (not (by-row 128))
+          "a let binding read by a method call")
+      (is (not (by-row 129))
+          "a let binding threaded into a property read")
+      (is (not (by-row 130))
+          "a let binding that doto passes to a method call")
+      (is (not (by-row 131))
+          "a let binding read through the . special form")
+      (is (not (by-row 140))
+          "a hint on the defined name, which callers read")
+      (is (not (by-row 148))
+          "a hint on an arglist, which callers read")
+      (is (not (by-row 151))
+          "a let binding read by a method call inside a #() literal")
+      (is (not (by-row 152))
+          "inline on the target of a property read inside a #() literal")
+      (is (not (by-row 143))
+          "a this-as binding read by .."))
 
     (testing "leaves every other tag alone"
-      (is (not (by-row 108))
-          "^js/Foo names a type rather than asking for inference")
       (is (not (by-row 109))
-          "^clj")
+          "^js/Foo names a type rather than asking for inference")
       (is (not (by-row 110))
+          "^clj")
+      (is (not (by-row 111))
           "^boolean"))
 
     (testing "says nothing about text that merely reads like a hint"
       (is (not-any? #(= "\"^js\"" (:form %)) found)
           "a string containing ^js")
-      (is (not (by-row 102))
+      (is (not (by-row 101))
           "a comment containing ^js"))
 
     (testing "says nothing about a form that does not render"
@@ -264,15 +291,121 @@
           "^{:doc js} — js is a map value under :doc, not :tag"))
 
     (testing "says nothing in a production namespace"
-      (is (not-any? #(str/ends-with? (:file %) "views.cljs") found)
+      (is (not-any? #(str/ends-with? (:file %) "views.cljs") all-found)
           "a hint in source can be load-bearing"))
 
     (testing "names the hint and what to do"
-      (is (= "Remove the hint — nothing reads it in a build that is not :advanced."
+      (is (= "Remove the hint — no interop call reads this value, so shadow-cljs has nothing to infer."
              (:hint (first found)))))
 
-    (testing "flags exactly the hints"
+    (testing "flags exactly the unread hints"
       (is (= 8 (count found))))))
+
+(deftest js-hint-in-test-reading-shapes-test
+  (let [found (filter #(str/ends-with? (:file %) "js_hints_test.cljs") (:js-hint-in-test (result)))
+        flagged (set (map (comp str :test) found))]
+
+    (testing "leaves a hint that shadow-cljs reads"
+      (doseq [[definition shape] [["stacked-def" "a return hint under ^:private"]
+                                  ["stacked-defn" "a defn return hint under ^:private"]
+                                  ["multi-arity" "arglist hints of a multi-arity defn"]
+                                  ["reify-fake" "a reify method parameter read by .-type"]
+                                  ["FakeNode" "a deftype field read by .-x"]
+                                  ["thread-last-read" "->> with a bare interop step"]
+                                  ["some-thread-read" "some-> with an interop step"]
+                                  ["cond-thread-read" "cond-> with an interop step"]
+                                  ["as-thread-read" "an as-> name read by .-x"]
+                                  ["doto-later-step" "doto where the interop step is not the first"]
+                                  ["alias-read" "a local bound to the hinted local, read by .-x"]
+                                  ["as-thread-inline-read" "inline on the value an as-> name takes"]
+                                  ["cond-thread-last-read" "cond->> with a bare interop step"]
+                                  ["destructured-read" "a destructured key read outside its map"]
+                                  ["inline-let-value-read" "inline on a let value whose name .-pendingOp reads"]
+                                  ["init-def" "inline on a def value whose var .-pendingOp reads"]
+                                  ["interop-call-result-read" "a hint on an interop call whose bound result is read"]
+                                  ["MutableNode" "a deftype field hint written before ^:mutable"]
+                                  ["catch-read" "a catch name read by .-response"]
+                                  ["thread-last-call-step-read" "->> with an interop call step and no arguments"]
+                                  ["cond-thread-last-call-step-read" "cond->> with an interop call step"]
+                                  ["comment-hint" "a hint inside a (comment …) block"]
+                                  ["unquoted-read" "a read under ~ inside a syntax-quote"]
+                                  ["doseq-let-modifier-read" "a doseq :let name read by .-pendingOp"]
+                                  ["letfn-param-read" "a letfn param read by .-type"]
+                                  ["handle-pair" "a defmethod param after a vector dispatch value"]
+                                  ["discarded-binding-shift" "a binding after a discarded #_#_ pair"]
+                                  ["tail-hint" "the last form of a defn body, which types its return"]
+                                  ["branch-hints" "if branches whose result a name takes"]
+                                  ["as-thread-name-hint" "a hint on the as-> name"]
+                                  ["thread-into-macro-step" "a value threaded into a doto step"]
+                                  ["library-let-read" "a binding of a project's own let macro"]
+                                  ["doc-def" "a def value after a docstring"]
+                                  ["let-value-symbol" "inline on a symbol a let binds to a read name"]
+                                  ["project-doto" "a project's own m/doto, which may thread like doto"]
+                                  ["are-binding-read" "a value are pastes into an interop read"]
+                                  ["are-value-read" "inline on a value are pastes into an interop read"]
+                                  ["make-multi" "the last form of each arity"]
+                                  ["letfn-tail-read" "the last form of a letfn function"]
+                                  ["schema-load" "an arglist hint of a project's own m/defn"]
+                                  ["async-name-read" "the name async binds"]
+                                  ["namespaced-keys-read" "a namespaced :keys entry, which binds the bare name"]
+                                  ["with-redefs-tail-read" "the last form of with-redefs"]
+                                  ["testing-tail-read" "the last form of testing"]
+                                  ["project-with-macro-tail-read" "the last form of a project's own with- macro"]
+                                  ["time-tail-read" "the last form of time, a core macro"]
+                                  ["macro-alias-read" "an argument of a :require-macros alias"]
+                                  ["referred-macro-read" "an argument of a :refer-macros name"]
+                                  ["cljs-only-macro-read" "a binding of simple-benchmark, a cljs-only macro"]
+                                  ["nil-tag-read" "a read whose own ^{:tag nil} gives no tag"]]]
+        (is (not (contains? flagged definition))
+            shape)))
+
+    (testing "leaves a hint in a shape it does not follow, though nothing reads it"
+      (doseq [[definition shape] [["handle-unread-return" "a defmethod arglist"]
+                                  ["inline-fn-return" "an inline fn arglist"]
+                                  ["hint-on-interop-call" "a let value whose name only a plain call reads"]
+                                  ["hinted-vector-value" "a def's vector value"]
+                                  ["vector-literal-use" "a use in a vector right after a head"]
+                                  ["body-vector-not-alias" "a body vector under let"]
+                                  ["dynamic-binding" "a value given to binding"]
+                                  ["as-thread-rebound" "a value an as-> name takes"]
+                                  ["hinted-defonce-value" "a defonce vector value"]
+                                  ["body-vector" "a vector in a defn body"]
+                                  ["rebound-name-not-read" "a name bound again"]]]
+        (is (not (contains? flagged definition))
+            shape)))
+
+    (testing "flags a hint that nothing reads"
+      (doseq [[definition shape] [["inline-arg-hint" "an inline hint on a plain call argument"]
+                                  ["read-only-when-discarded" "a read only inside #_"]
+                                  ["read-only-in-comment" "a read only inside (comment …)"]
+                                  ["namespaced-namesake" "other/el, which is not the local el"]
+                                  ["read-with-its-own-map-tag" "a binding whose only read carries ^{:tag js}"]
+                                  ["read-with-its-own-named-tag" "a binding whose only read carries ^js/HTMLElement"]
+                                  ["interop-argument-only" "a binding read only as an interop argument, not its target"]
+                                  ["js-literal-only" "a param read only as a #js literal value"]
+                                  ["discarded-before-unread-binding" "a binding after #_, read only by a plain call"]
+                                  ["catch-unread" "a catch name read only by a plain call"]]]
+        (is (contains? flagged definition)
+            shape)))
+
+    (testing "flags exactly those"
+      (is (= 10 (count found))))))
+
+(deftest js-hint-in-test-reader-conditional-test
+  (let [flagged (->> (:js-hint-in-test (result))
+                     (filter #(str/ends-with? (:file %) "js_hints_cljc_test.cljc"))
+                     (map (comp str :test))
+                     set)]
+    (is (= #{"clj-branch-read" "cljr-branch-read" "branch-use-unread"} flagged)
+        "a read only in a branch for another platform, which shadow-cljs never compiles, under :refer :all")
+    (is (not (contains? flagged "default-beside-cljs-read"))
+        "the reader takes :default when it comes first")
+    (is (not (contains? flagged "custom-feature-read"))
+        "a build may add :node to its reader features")
+    (is (not (contains? flagged "branch-use-read"))
+        "a use in the :cljs branch is where the conditional stands")
+    (is (not (contains? flagged "absent-branch-before-target"))
+        "a :clj-only conditional reads as nothing, so el stays the interop target")))
 
 (def ^:private paths-fixture-dir "test-projects/tests-paths-app")
 
