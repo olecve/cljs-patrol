@@ -75,6 +75,7 @@
     :repeated-accessible-name
     :img-alt-missing
     :invalid-tabindex
+    :button-missing-type
     :missing-accessible-name
     :on-click-on-non-interactive
     :aria-hidden-focusable

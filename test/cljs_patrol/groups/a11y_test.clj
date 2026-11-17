@@ -23,6 +23,12 @@
    :file "views.cljs"
    :row row})
 
+(defn- button-type-finding [row]
+  {:type :button-missing-type
+   :kw :button
+   :file "views.cljs"
+   :row row})
+
 (defn- on-click-finding [row]
   {:type :on-click-on-non-interactive
    :kw :div
@@ -103,6 +109,13 @@
                                    :on-click-on-non-interactive []
                                    :empty-interactive-element []})))
 
+  (testing "fails when any button-missing-type is found"
+    (is (group/failed? a11y/group {:img-alt-missing []
+                                   :invalid-tabindex []
+                                   :button-missing-type [(button-type-finding 5)]
+                                   :on-click-on-non-interactive []
+                                   :empty-interactive-element []})))
+
   (testing "fails when any on-click-on-non-interactive is found"
     (is (group/failed? a11y/group {:img-alt-missing []
                                    :invalid-tabindex []
@@ -151,6 +164,8 @@
   (let [lines (group/summary-lines a11y/group
                                    {:img-alt-missing [(img-finding 1) (img-finding 2)]
                                     :invalid-tabindex [(tabindex-finding 3)]
+                                    :button-missing-type [(button-type-finding 9) (button-type-finding 10)
+                                                          (button-type-finding 11)]
                                     :on-click-on-non-interactive [(on-click-finding 4) (on-click-finding 5)]
                                     :empty-interactive-element [(empty-interactive-finding 6)]
                                     :missing-accessible-name []
@@ -160,13 +175,14 @@
                                     :nested-interactive-element []
                                     :label-not-associated []
                                     :aria-label-beside-visible-label []})]
-    (is (= 11 (count lines)))
+    (is (= 12 (count lines)))
     (is (= 2 (second (first lines))))
     (is (= 1 (second (second lines))))
-    (is (= 2 (second (nth lines 2))))
-    (is (= 1 (second (nth lines 3))))
-    (is (= 1 (second (nth lines 5))))
-    (is (= 1 (second (nth lines 6))))))
+    (is (= ["Button missing type:" 3] (nth lines 2)))
+    (is (= 2 (second (nth lines 3))))
+    (is (= 1 (second (nth lines 4))))
+    (is (= 1 (second (nth lines 6))))
+    (is (= 1 (second (nth lines 7))))))
 
 (deftest rule->tier-test
   (let [tiers (group/rule->tier a11y/group)]
@@ -175,6 +191,9 @@
 
     (testing "invalid-tabindex is a bug"
       (is (= :bugs (get tiers :invalid-tabindex))))
+
+    (testing "button-missing-type is a bug"
+      (is (= :bugs (get tiers :button-missing-type))))
 
     (testing "on-click-on-non-interactive is a bug"
       (is (= :bugs (get tiers :on-click-on-non-interactive))))

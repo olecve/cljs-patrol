@@ -1756,3 +1756,42 @@
     (is (= #{"bad-img-alt-behind-discarded-key"}
            (reported :img-alt-missing))
         "map built without the discarded key")))
+
+(deftest button-missing-type-fixture-test
+  (let [{:keys [group-results]} (core/run fixture-dir [a11y/group])
+        found (->> (first group-results)
+                   :button-missing-type
+                   (filter #(str/ends-with? (:file %) "button_types.cljs")))
+        by-row (rows found)]
+
+    (testing "flags a button that submits by default"
+      (doseq [[row shape] [[4 "a text child and no props"]
+                           [36 "no children at all"]
+                           [6 "a literal map with no :type"]
+                           [8 "a :button.class tag"]]]
+        (is (contains? by-row row)
+            shape)))
+
+    (testing "flags a literal type that is not a button type"
+      (doseq [[row shape] [[10 "a string"]
+                           [12 "a keyword"]
+                           [14 "a value set last on a built map"]]]
+        (is (contains? by-row row)
+            shape)))
+
+    (testing "leaves a button whose type is written or may be"
+      (doseq [[row shape] [[16 "type button"]
+                           [18 "type submit"]
+                           [20 "type reset as a keyword"]
+                           [22 "a type held in a symbol"]
+                           [24 "props held in a symbol"]
+                           [26 "props from a call"]
+                           [28 "a built map whose unread part may set the type"]
+                           [30 "a type the merged props may replace"]
+                           [32 "a component, which renders its own type"]
+                           [34 "a div with a button role"]]]
+        (is (not (contains? by-row row))
+            shape)))
+
+    (testing "flags exactly those"
+      (is (= 7 (count found))))))

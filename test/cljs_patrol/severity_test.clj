@@ -119,7 +119,7 @@
            :missing-accessible-name :repeated-accessible-name
            :aria-live-contradicts-role
            :aria-hidden-focusable :nested-interactive-element
-           :label-not-associated :aria-label-beside-visible-label
+           :label-not-associated :aria-label-beside-visible-label :button-missing-type
            :discarded-hiccup}
          (severity/tier->rules rule->tier :bugs)))
   (is (= #{:deprecated-effects :defclass-as-sole-attr
@@ -157,7 +157,7 @@
                   :missing-accessible-name :repeated-accessible-name
                   :aria-live-contradicts-role
                   :aria-hidden-focusable :nested-interactive-element
-                  :label-not-associated :aria-label-beside-visible-label
+                  :label-not-associated :aria-label-beside-visible-label :button-missing-type
                   :discarded-hiccup}}
            (severity/parse-fail-on "bugs" rule->tier)))
     (is (= {:ok (severity/tier->rules rule->tier :deprecations)}
@@ -225,7 +225,7 @@
                :missing-accessible-name :repeated-accessible-name
                :aria-live-contradicts-role
                :aria-hidden-focusable :nested-interactive-element
-               :label-not-associated :aria-label-beside-visible-label
+               :label-not-associated :aria-label-beside-visible-label :button-missing-type
                :discarded-hiccup}
              (->> tiered :bugs (map :rule) set)))
       (is (= #{:deprecated-effects :defclass-as-sole-attr

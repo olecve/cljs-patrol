@@ -104,6 +104,49 @@
     (or (invalid-tabindex-value? (get attrs :tab-index))
         (invalid-tabindex-value? (get attrs :tabIndex)))))
 
+(def ^:private button-types
+  "The values a button's `type` may take."
+  #{"button" "submit" "reset"})
+
+(defn- literal-type-value
+  "Return a literal `:type` value as a string, or nil when it is not a literal string or keyword."
+  [value-loc]
+  (when (= :token (some-> value-loc z/tag))
+    (let [value (try (z/sexpr value-loc) (catch Exception _ nil))]
+      (cond
+        (string? value) value
+        (simple-keyword? value) (name value)))))
+
+(defn- invalid-button-type? [value-loc]
+  (when-let [value (literal-type-value value-loc)]
+    (not (contains? button-types value))))
+
+(defn- symbol-props-slot?
+  "True when the second child of the vector at `loc` is a symbol, which may hold props the rule cannot read."
+  [loc]
+  (let [slot (some-> loc z/down z/right)]
+    (and (= :token (some-> slot z/tag)) (some? (parser/sym-name slot)))))
+
+(defn- button-missing-type?
+  "True when a literal `[:button …]` has no valid `:type`.
+
+  A button with no type submits the form it sits in. A literal map with no `:type`, or no
+  props at all, counts; so does a literal value that is not `button`, `submit` or `reset`.
+  Props built elsewhere may set the type, so only a built map's settled keys are read, and
+  only for an invalid value. A component the aliases resolve to `:button` renders its own
+  `type`, so only the keyword tag counts."
+  [{:keys [kind attrs]
+    :as info} loc]
+  (when (= :button (some-> loc z/down parser/raw hiccup/parse-tag))
+    (case kind
+      :absent true
+      :non-map (not (symbol-props-slot? loc))
+      :map (and (some? attrs)
+                (or (not (contains? attrs :type))
+                    (boolean (invalid-button-type? (get attrs :type)))))
+      :dynamic-map (boolean (some-> (settled-attrs info) (get :type) invalid-button-type?))
+      false)))
+
 (def ^:private non-interactive-tags
   "HTML tags that carry no built-in click / keyboard semantics.
   Attaching a mouse / pointer interaction to these without a :role hint or
@@ -2002,6 +2045,9 @@
                        (invalid-tabindex? info)
                        (conj (assoc base :type :invalid-tabindex))
 
+                       (button-missing-type? info loc)
+                       (conj (assoc base :type :button-missing-type))
+
                        (on-click-on-non-interactive? info tag)
                        (conj (assoc base :type :on-click-on-non-interactive))
 
@@ -2088,6 +2134,7 @@
                                             (dissoc :unnamed?)))))]
     {:img-alt-missing (vec (:img-alt-missing by-type))
      :invalid-tabindex (vec (:invalid-tabindex by-type))
+     :button-missing-type (vec (:button-missing-type by-type))
      :on-click-on-non-interactive (vec (:on-click-on-non-interactive by-type))
      :empty-interactive-element (vec (:empty-interactive-element by-type))
      :missing-accessible-name (->> (concat (:missing-accessible-name by-type) unreferenced-ids unnamed-separators)
@@ -2100,13 +2147,14 @@
      :repeated-accessible-name (vec (:repeated-accessible-name by-type))
      :aria-live-contradicts-role (vec (:aria-live-contradicts-role by-type))}))
 
-(defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
+(defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex button-missing-type on-click-on-non-interactive
                                empty-interactive-element missing-accessible-name
                                repeated-accessible-name aria-live-contradicts-role
                                aria-hidden-focusable nested-interactive-element
                                label-not-associated aria-label-beside-visible-label]}]
   [["Img missing alt:" (count img-alt-missing)]
    ["Invalid tabindex:" (count invalid-tabindex)]
+   ["Button missing type:" (count button-missing-type)]
    ["Onclick on non-interactive:" (count on-click-on-non-interactive)]
    ["Empty interactive element:" (count empty-interactive-element)]
    ["Missing accessible name:" (count missing-accessible-name)]
@@ -2117,13 +2165,14 @@
    ["Label not associated:" (count label-not-associated)]
    ["Aria-label beside visible label:" (count aria-label-beside-visible-label)]])
 
-(defn- failed?* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
+(defn- failed?* [{:keys [img-alt-missing invalid-tabindex button-missing-type on-click-on-non-interactive
                          empty-interactive-element missing-accessible-name
                          repeated-accessible-name aria-live-contradicts-role
                          aria-hidden-focusable nested-interactive-element
                          label-not-associated aria-label-beside-visible-label]}]
   (or (seq img-alt-missing)
       (seq invalid-tabindex)
+      (seq button-missing-type)
       (seq on-click-on-non-interactive)
       (seq empty-interactive-element)
       (seq missing-accessible-name)
@@ -2156,6 +2205,9 @@
      (str "tabindex must be 0 or a negative integer (WCAG 2.4.3). A positive value breaks the natural "
           "focus order and a non-integer may not make the element focusable; use 0, or -1 for focus "
           "from code only.")
+     :button-missing-type
+     (str "A :button with no :type is a submit button, so inside a form a click submits the form. Add "
+          ":type \"button\", or \"submit\" or \"reset\" when that is what it does.")
      :on-click-on-non-interactive
      (str "A mouse, pointer or touch handler sits on a non-interactive tag, so keyboard users cannot "
           "trigger it (WCAG 2.1.1). Use :button or :a with :href, or add a :role such as \"button\" "
@@ -2195,6 +2247,7 @@
     {:aria-hidden-focusable "aria-hidden-on-a-focusable-element"
      :aria-label-beside-visible-label "aria-label-beside-visible-label"
      :aria-live-contradicts-role "aria-live-contradicts-role"
+     :button-missing-type "button-missing-type"
      :empty-interactive-element "empty-interactive-element"
      :img-alt-missing "img-missing-alt"
      :invalid-tabindex "invalid-tabindex"
@@ -2206,6 +2259,7 @@
   (rule->tier [_]
     {:img-alt-missing :bugs
      :invalid-tabindex :bugs
+     :button-missing-type :bugs
      :on-click-on-non-interactive :bugs
      :empty-interactive-element :bugs
      :missing-accessible-name :bugs
