@@ -613,7 +613,7 @@
   literal, and a map-building call as the call would where it stands. Naming a form
   costs nothing either way. Every other symbol stays `:non-map`."
   [vec-loc]
-  (let [second-child (some-> vec-loc z/down z/right)
+  (let [second-child (second (parser/written-child-locs vec-loc))
         with-slot (fn [info]
                     (cond-> info
                       (contains? attrs-slot-kinds (:kind info)) (assoc :slot second-child)))
@@ -763,7 +763,7 @@
   body child than it is props."
   [vec-loc]
   (let [{:keys [kind slot]} (attrs-info vec-loc)
-        second-child (some-> vec-loc z/down z/right)]
+        second-child (second (parser/written-child-locs vec-loc))]
     (or slot
         (when (and (= :dynamic kind)
                    (= :list (some-> second-child z/tag))

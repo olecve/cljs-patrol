@@ -104,6 +104,61 @@
     (or (invalid-tabindex-value? (get attrs :tab-index))
         (invalid-tabindex-value? (get attrs :tabIndex)))))
 
+(def ^:private button-types
+  "The values a button's `type` may take, compared in lower case as HTML does."
+  #{"button" "submit" "reset"})
+
+(declare cannot-be-props? element-shell? markup-vector? names-unreadable-props? written-value)
+
+(defn- type-reading
+  "Read the `:type` that `attrs` give a button: `:missing`, `:valid`, `:invalid` or `:unknown`.
+
+  Reagent omits a nil or false attribute, so the button then has no type. A string or a
+  keyword is a literal type, checked as HTML checks it; a number, a boolean or a character
+  is a literal that is never a button type. A symbol or a computed value cannot be read."
+  [attrs]
+  (let [value (written-value attrs :type)]
+    (cond
+      (= ::absent value) :missing
+      (= ::non-literal value) :unknown
+      (or (string? value) (keyword? value)) (if (contains? button-types (str/lower-case (name value)))
+                                              :valid
+                                              :invalid)
+      (or (number? value) (boolean? value) (char? value)) :invalid
+      :else :unknown)))
+
+(defn- button-missing-type?
+  "True when a button has no valid `:type`.
+
+  A button with no type submits the form it sits in. On the `:button` keyword tag, a
+  literal or fully readable map with no `:type`, or no props at all, counts; so does a
+  literal value that is not `button`, `submit` or `reset`. A built map with unreadable
+  parts counts only for such a value among its settled keys, since a part may set the type.
+  A component the aliases resolve to `:button` is assumed to set its own default type, so
+  there only an invalid value counts. A data path such as `[:button :primary]`, a Garden
+  selector and a shell its callers fill are not markup."
+  [{:keys [kind]
+    :as info} loc tag ns-info]
+  (when (= :button tag)
+    (let [reading (some-> (settled-attrs info) type-reading)]
+      (if (= :button (some-> loc z/down parser/raw hiccup/parse-tag))
+        (and (case kind
+               :absent true
+               :non-map (not (names-unreadable-props? loc info))
+               :map (contains? #{:missing :invalid} reading)
+               :dynamic-map (= :invalid reading)
+               false)
+             (markup-vector? info loc)
+             (not (element-shell? loc ns-info)))
+        (= :invalid reading)))))
+
+(defn- button-label-snippet
+  "Return the snippet of a button's last child, which tells two long buttons in one file apart."
+  [loc]
+  (let [children (rest (parser/written-child-locs loc))]
+    (when (< 1 (count children))
+      (source-snippet (last children)))))
+
 (def ^:private non-interactive-tags
   "HTML tags that carry no built-in click / keyboard semantics.
   Attaching a mouse / pointer interaction to these without a :role hint or
@@ -917,12 +972,14 @@
   `attrs-info` answers `:non-map` both for `[:button \"Save\"]`, which really carries no
   attrs, and for `[:button props \"Save\"]`, where a symbol nothing in the file defines
   may name a map holding the very way out being called missing."
-  [loc]
-  (let [second-child (some-> loc z/down z/right)]
-    (and (some? second-child)
-         (= :token (z/tag second-child))
-         (some? (parser/sym-name second-child))
-         (not= :map (:kind (hiccup/attrs-info loc))))))
+  ([loc] (names-unreadable-props? loc (hiccup/attrs-info loc)))
+  ([loc info]
+   (let [second-child (second (parser/written-child-locs loc))]
+     (and (some? second-child)
+          (= :token (z/tag second-child))
+          (some? (parser/sym-name second-child))
+          (not= :map (:kind info))
+          (not (some-> (hiccup/resolved-value second-child) cannot-be-props?))))))
 
 (defn- focusable-loc? [loc ns-info component-aliases]
   (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
@@ -1201,7 +1258,9 @@
     :absent true
     :map (and (some? attrs) (not (has-accessible-name? attrs)) (not (aria-hidden? attrs)))
     :non-map (and (some? (some-> loc z/down parser/raw hiccup/parse-tag))
-                  (cannot-be-props? (z/right (z/down loc))))
+                  (let [child (second (parser/written-child-locs loc))]
+                    (or (cannot-be-props? child)
+                        (boolean (some-> (hiccup/resolved-value child) cannot-be-props?)))))
     false))
 
 (defn- missing-accessible-name? [{:keys [kind attrs]
@@ -1507,6 +1566,50 @@
 (def ^:private dom-attr-keys
   #{:class :className :id :style :for :html-for :htmlFor :title :role :hidden :key :ref :tab-index :tabIndex})
 
+(def ^:private path-taking-heads
+  "Functions whose argument after the collection is a path or a key, never markup."
+  #{"get" "get-in" "assoc-in" "update-in" "dissoc" "contains?" "select-keys"})
+
+(def ^:private event-taking-heads
+  "The re-frame functions whose first argument is an event or a query, never markup."
+  #{"dispatch" "dispatch-sync" "subscribe"})
+
+(def ^:private first-threads
+  "Threads that put the threaded value first.
+
+  In a step of one, the step's own first argument is the one after the collection."
+  #{"->" "some->"})
+
+(defn- argument-index
+  "Return the position of loc in its parent list, the head being 0, or nil."
+  [loc parent]
+  (->> parent
+       parser/written-child-locs
+       (keep-indexed #(when (identical? (z/node loc) (z/node %2)) %1))
+       first))
+
+(defn- data-vector?
+  "True when a vector spelled like an element is data: a path, a key or an event.
+
+  A keyword right after the tag is one, since as markup it would render the keyword's text.
+  So is the path or key argument of `get-in`, `assoc-in`, `get` and the like, also as a step
+  of `->` or `some->` or after `assoc-in` or `update-in` in `swap!`, and the event of
+  `dispatch` or `subscribe`. A value argument, such as the one `assoc` or `reset!` stores,
+  may be markup."
+  [loc]
+  (or (boolean (some-> (second (parser/written-child-locs loc)) parser/kw-node?))
+      (let [parent (z/up loc)
+            head (some-> parent z/down parser/sym-name)
+            index (when (= :list (some-> parent z/tag)) (argument-index loc parent))
+            children (some-> parent parser/written-child-locs vec)
+            threaded? (contains? first-threads (some-> parent z/up z/down parser/sym-name))]
+        (boolean
+         (and index
+              (or (and (contains? path-taking-heads head) (= index (if threaded? 1 2)))
+                  (and (= "swap!" head) (= 3 index)
+                       (contains? #{"assoc-in" "update-in"} (some-> (get children 2) parser/sym-name)))
+                  (and (contains? event-taking-heads head) (= 1 index))))))))
+
 (defn- names-a-dom-attr?
   "True when a literal props map carries something only markup would carry.
   A Malli entry's properties — `{:optional true}` — carry none of it."
@@ -1516,32 +1619,51 @@
                        (some #(str/starts-with? (name k) %) dom-attr-prefixes)))
                  (keys attrs))))
 
-(defn- renders-something?
-  "True when the label's body holds anything only markup holds.
+(defn- names-a-string?
+  "True when `loc` is a symbol that a `let` or a same-file `def` binds to a string, as a caption often is."
+  [loc]
+  (and (= :token (z/tag loc))
+       (some? (parser/sym-name loc))
+       (literal-string-loc? (hiccup/resolved-value loc))))
 
-  A string written out is markup, and so is a nested vector, unless it is a Malli schema all
-  through: `[:label [:maybe :string]]` is an entry. Metadata on the vector is looked through.
-  A lone symbol is what a Malli entry puts there, `[:label string?]`, and what a caption is
-  called, so it settles nothing."
+(defn- selector-block?
+  "True when the vector holds a nested `[:& …]` block, which only a Garden selector has."
+  [loc]
+  (some #(and (= :vector (z/tag %))
+              (some-> % z/down parser/raw (str/starts-with? ":&")))
+        (rest (parser/written-child-locs loc))))
+
+(defn- renders-something?
+  "True when the element's body holds anything only markup holds.
+
+  A string written out is markup, and so is a symbol a `let` or a `def` binds to a string,
+  and a nested vector, unless it is a Malli schema all through: `[:label [:maybe :string]]`
+  is an entry. Metadata on the vector is looked through. Any other lone symbol is what a
+  Malli entry puts there, `[:label string?]`, and what a caption is called, so it settles
+  nothing."
   [loc]
   (boolean (some #(or (literal-string-loc? %)
+                      (names-a-string? %)
                       (and (= :vector (z/tag (heads/unwrap-meta %))) (not (hiccup/malli-schema-vector? %))))
                  (body-locs loc))))
 
-(defn- hiccup-label?
-  "True when a `[:label …]` vector is markup rather than a Malli entry.
+(defn- markup-vector?
+  "True when a vector whose tag is also a common data key, such as `[:label …]` or `[:button …]`, is markup.
 
-  Both are spelled the same way, so the tag cannot settle it and neither can props alone:
+  A Malli entry, a data path and a Garden rule are spelled the same way, so the tag cannot settle it and neither can props alone:
   `[:label {:optional true} string?]` is a schema entry carrying properties. What only markup
   has is a DOM attribute, or a body holding a string or a nested vector that is no Malli
   schema all through. A props call counts too, but only over a body child that is no such
   schema: `[:label (my-schema)]` is an entry whose schema is computed, and it renders nothing.
   A `#_` form is no child. A quoted form is a child only after a props call or a built map."
   [{:keys [kind attrs]} loc]
-  (or (and (= :map kind) (some? attrs) (names-a-dom-attr? attrs))
-      (and (contains? #{:dynamic :dynamic-map} kind)
-           (some #(not (or (= :uneval (z/tag %)) (hiccup/malli-schema-vector? %))) (body-locs loc)))
-      (renders-something? loc)))
+  (and
+   (not (selector-block? loc))
+   (or (and (= :map kind) (some? attrs) (names-a-dom-attr? attrs))
+       (and (not (data-vector? loc))
+            (or (and (contains? #{:dynamic :dynamic-map} kind)
+                     (some #(not (or (= :uneval (z/tag %)) (hiccup/malli-schema-vector? %))) (body-locs loc)))
+                (renders-something? loc))))))
 
 (defn- label-props
   "Return the label's props when `for` can be answered for, or `::unknown`.
@@ -1551,12 +1673,13 @@
   hold anything — unlike a props *call*, which is shared between call sites and so could
   only return a constant `for`, pointing every label it renders at one element. That last
   is the one case answered without proof, and deliberately."
-  [{:keys [kind attrs]} loc]
+  [{:keys [kind attrs]
+    :as info} loc]
   (cond
-    (= :dynamic kind) (if (names-unreadable-props? loc) ::unknown {})
+    (= :dynamic kind) (if (names-unreadable-props? loc info) ::unknown {})
     (and (= :map kind) (some? attrs)) attrs
     (= :dynamic-map kind) (if (some #(attr-written? (or attrs {}) %) label-for-keys) attrs ::unknown)
-    (contains? #{:absent :non-map} kind) (if (names-unreadable-props? loc) ::unknown {})
+    (contains? #{:absent :non-map} kind) (if (names-unreadable-props? loc info) ::unknown {})
     :else ::unknown))
 
 (defn- label-body-verdict
@@ -1597,7 +1720,7 @@
   name, however much a sighted reader takes it for the field's label."
   [info tag loc ns-info component-aliases]
   (and (= :label tag)
-       (hiccup-label? info loc)
+       (markup-vector? info loc)
        (let [props (label-props info loc)]
          (and (not= ::unknown props)
               (not (some #(attr-written? props %) label-for-keys))
@@ -2002,6 +2125,11 @@
                        (invalid-tabindex? info)
                        (conj (assoc base :type :invalid-tabindex))
 
+                       (button-missing-type? info loc tag ns-info)
+                       (conj (let [label (button-label-snippet loc)]
+                               (cond-> (assoc base :type :button-missing-type)
+                                 label (assoc :inner-form label))))
+
                        (on-click-on-non-interactive? info tag)
                        (conj (assoc base :type :on-click-on-non-interactive))
 
@@ -2088,6 +2216,7 @@
                                             (dissoc :unnamed?)))))]
     {:img-alt-missing (vec (:img-alt-missing by-type))
      :invalid-tabindex (vec (:invalid-tabindex by-type))
+     :button-missing-type (vec (:button-missing-type by-type))
      :on-click-on-non-interactive (vec (:on-click-on-non-interactive by-type))
      :empty-interactive-element (vec (:empty-interactive-element by-type))
      :missing-accessible-name (->> (concat (:missing-accessible-name by-type) unreferenced-ids unnamed-separators)
@@ -2100,13 +2229,14 @@
      :repeated-accessible-name (vec (:repeated-accessible-name by-type))
      :aria-live-contradicts-role (vec (:aria-live-contradicts-role by-type))}))
 
-(defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
+(defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex button-missing-type on-click-on-non-interactive
                                empty-interactive-element missing-accessible-name
                                repeated-accessible-name aria-live-contradicts-role
                                aria-hidden-focusable nested-interactive-element
                                label-not-associated aria-label-beside-visible-label]}]
   [["Img missing alt:" (count img-alt-missing)]
    ["Invalid tabindex:" (count invalid-tabindex)]
+   ["Button missing type:" (count button-missing-type)]
    ["Onclick on non-interactive:" (count on-click-on-non-interactive)]
    ["Empty interactive element:" (count empty-interactive-element)]
    ["Missing accessible name:" (count missing-accessible-name)]
@@ -2117,13 +2247,14 @@
    ["Label not associated:" (count label-not-associated)]
    ["Aria-label beside visible label:" (count aria-label-beside-visible-label)]])
 
-(defn- failed?* [{:keys [img-alt-missing invalid-tabindex on-click-on-non-interactive
+(defn- failed?* [{:keys [img-alt-missing invalid-tabindex button-missing-type on-click-on-non-interactive
                          empty-interactive-element missing-accessible-name
                          repeated-accessible-name aria-live-contradicts-role
                          aria-hidden-focusable nested-interactive-element
                          label-not-associated aria-label-beside-visible-label]}]
   (or (seq img-alt-missing)
       (seq invalid-tabindex)
+      (seq button-missing-type)
       (seq on-click-on-non-interactive)
       (seq empty-interactive-element)
       (seq missing-accessible-name)
@@ -2156,6 +2287,9 @@
      (str "tabindex must be 0 or a negative integer (WCAG 2.4.3). A positive value breaks the natural "
           "focus order and a non-integer may not make the element focusable; use 0, or -1 for focus "
           "from code only.")
+     :button-missing-type
+     (str "A :button with no :type is a submit button, so inside a form a click submits the form. Add "
+          ":type \"button\", or \"submit\" or \"reset\" when that is what it does.")
      :on-click-on-non-interactive
      (str "A mouse, pointer or touch handler sits on a non-interactive tag, so keyboard users cannot "
           "trigger it (WCAG 2.1.1). Use :button or :a with :href, or add a :role such as \"button\" "
@@ -2195,6 +2329,7 @@
     {:aria-hidden-focusable "aria-hidden-on-a-focusable-element"
      :aria-label-beside-visible-label "aria-label-beside-visible-label"
      :aria-live-contradicts-role "aria-live-contradicts-role"
+     :button-missing-type "button-missing-type"
      :empty-interactive-element "empty-interactive-element"
      :img-alt-missing "img-missing-alt"
      :invalid-tabindex "invalid-tabindex"
@@ -2206,6 +2341,7 @@
   (rule->tier [_]
     {:img-alt-missing :bugs
      :invalid-tabindex :bugs
+     :button-missing-type :bugs
      :on-click-on-non-interactive :bugs
      :empty-interactive-element :bugs
      :missing-accessible-name :bugs

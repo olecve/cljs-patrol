@@ -129,6 +129,7 @@
    [:input {:aria-label "H" :data-testid "hidden-role" :role "button" :type "hidden"}]
    [:span {:aria-label "Kept"}
     [:button {:data-testid "plain-in-span"} [:span "Plain"]]]
+   [:button {:data-testid "plain-past-discard"} [:span #_{:class "old"} "Past"]]
    [:div (merge {:class "c"} x)
     [:button {:data-testid "in-dynamic-div"} "Dyn"]]
    [:button {:aria-label "Spaced" :data-testid "inner  space"}]
