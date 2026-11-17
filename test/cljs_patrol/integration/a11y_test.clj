@@ -1,5 +1,6 @@
 (ns cljs-patrol.integration.a11y-test
   (:require
+   [cljs-patrol.baseline :as baseline]
    [cljs-patrol.core :as core]
    [cljs-patrol.groups.a11y :as a11y]
    [clojure.string :as str]
@@ -1779,7 +1780,6 @@
 
     (testing "flags a button that submits by default"
       (doseq [[definition shape] [["no-props" "a text child and no props"]
-                                  ["bare-button" "no children at all"]
                                   ["no-type" "a literal map with no :type"]
                                   ["class-shorthand" "a :button.class tag"]
                                   ["id-shorthand" "a :button#id tag"]
@@ -1795,7 +1795,9 @@
     (testing "flags a literal type that is not a button type"
       (doseq [[definition shape] [["invalid-string" "a string"]
                                   ["invalid-keyword" "a keyword"]
-                                  ["built-invalid" "a value set last on a built map"]]]
+                                  ["built-invalid" "a value set last on a built map"]
+                                  ["numeric-type" "a number"]
+                                  ["number-before-label" "a symbol bound to a number holds no props"]]]
         (is (contains? flagged definition)
             shape)))
 
@@ -1817,16 +1819,41 @@
                                   ["text-input" "an input, whose :type is not a button type"]
                                   ["data-path" "a [:button :primary] data path"]
                                   ["selector" "a Garden selector with a nested [:& …] block"]
-                                  ["button-shell" "a shell its caller fills with a type"]]]
+                                  ["button-shell" "a shell its caller fills with a type"]
+                                  ["bare-button" "no children, which a [:button] data path shares"]
+                                  ["symbol-bound-props" "a symbol bound to another symbol"]
+                                  ["chained-props" "a symbol bound to a symbol that names a typed map"]
+                                  ["discarded-before-map" "a typed map after #_"]
+                                  ["malli-entry" "a Malli entry with properties"]
+                                  ["malli-nested" "a Malli entry with a nested schema"]
+                                  ["plain-selector" "a Garden rule with only CSS properties"]
+                                  ["one-key-path" "a one-key data path"]]]
         (is (not (contains? flagged definition))
             shape)))
 
     (testing "flags exactly those"
-      (is (= 14 (count found))))
+      (is (= 17 (count found))))
 
-    (testing "keeps two buttons that differ only in their label apart"
-      (is (= "\"Save\"" (->> found (filter #(= 6 (:row %))) first :inner-form))
-          "the label snippet of a button with props joins the identity"))))
+    (testing "leaves other rules quiet on props a symbol passes on"
+      (let [result (first group-results)
+            in-fixture (fn [k] (->> (get result k)
+                                    (filter #(str/ends-with? (:file %) "button_types.cljs"))
+                                    flagged-definitions))]
+        (is (not (contains? (in-fixture :label-not-associated) "symbol-bound-label"))
+            "label-not-associated")
+        (is (not (contains? (in-fixture :aria-hidden-focusable) "symbol-bound-hidden"))
+            "aria-hidden-focusable")))
+
+    (testing "keeps two buttons that differ only past the snippet cut apart"
+      (let [names (definitions-by-row "test-projects/a11y-app/src/blogapp/button_types.cljs")
+            identity-of (fn [definition]
+                          (some #(when (= definition (get names (:row %)))
+                                   (baseline/issue->identity :button-missing-type %))
+                                found))]
+        (is (= (:form (identity-of "long-save")) (:form (identity-of "long-delete")))
+            "both snippets run past the cut")
+        (is (not= (identity-of "long-save") (identity-of "long-delete"))
+            "the label snippet tells them apart")))))
 
 (deftest button-missing-type-alias-fixture-test
   (let [group (a11y/make-group {:component-aliases {'blogapp.ui/button :button}})
@@ -1849,4 +1876,4 @@
             shape)))
 
     (testing "adds only those to the keyword-tag findings"
-      (is (= 16 (count found))))))
+      (is (= 19 (count found))))))

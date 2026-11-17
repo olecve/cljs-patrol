@@ -69,7 +69,8 @@
   A rule reporting a container adds `:inner-form`, the snippet of the element found
   inside it, because the collapse above is rare only for element-level rules: a wrapper's
   own snippet runs past the truncation nearly every time, so two differing only past the
-  cut would be one identity."
+  cut would be one identity. `button-missing-type` adds its label's snippet the same way,
+  since a button's props often run past the cut too."
   #{:aria-live-contradicts-role
     :empty-interactive-element
     :repeated-accessible-name

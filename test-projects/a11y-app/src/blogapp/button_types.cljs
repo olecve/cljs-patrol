@@ -74,3 +74,29 @@
 (defn- button-shell [f] [:button {:on-click f}])
 
 (defn filled-shell [f] (let [[tag attrs] (button-shell f)] [tag (assoc attrs :type "button") "Save"]))
+
+(defn symbol-bound-props [props] (let [p props] [:button p "Save"]))
+
+(defn chained-props [] (let [base {:type "button"} p base] [:button p "Save"]))
+
+(defn discarded-before-map [] [:button #_{:class "x"} {:type "button"} "Save"])
+
+(defn malli-entry [x] (validate [:map [:button {:optional true} :string]] x))
+
+(defn malli-nested [x] (validate [:map [:button [:map [:label :string]]]] x))
+
+(defn plain-selector [] (css [:button {:border "none"}]))
+
+(defn one-key-path [m] (get-in m [:button]))
+
+(defn numeric-type [] [:button {:type 1} "Save"])
+
+(defn symbol-bound-label [props] (let [p props] [:label p "Name"]))
+
+(defn symbol-bound-hidden [props] (let [p props] [:div {:aria-hidden true} [:button p "x"]]))
+
+(defn long-save [f] [:button {:class "toolbar-action toolbar-action--primary toolbar-action--wide toolbar-action--with-icon toolbar-action--in-dialog-footer" :on-click f} "Save"])
+
+(defn long-delete [f] [:button {:class "toolbar-action toolbar-action--primary toolbar-action--wide toolbar-action--with-icon toolbar-action--in-dialog-footer" :on-click f} "Delete"])
+
+(defn number-before-label [] (let [n 3] [:button n "Save"]))

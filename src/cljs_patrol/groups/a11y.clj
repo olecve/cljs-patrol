@@ -108,7 +108,7 @@
   "The values a button's `type` may take, compared in lower case as HTML does."
   #{"button" "submit" "reset"})
 
-(declare element-shell? names-unreadable-props? written-value)
+(declare element-shell? markup-vector? names-unreadable-props? written-value)
 
 (defn- type-reading
   "Read the `:type` that `attrs` give a button: `:missing`, `:valid`, `:invalid` or `:unknown`.
@@ -122,19 +122,29 @@
       (or (string? value) (keyword? value)) (if (contains? button-types (str/lower-case (name value)))
                                               :valid
                                               :invalid)
+      (or (number? value) (boolean? value) (char? value)) :invalid
       :else :unknown)))
 
-(defn- keyword-props-slot?
-  "True when a keyword follows the tag, as in `[:button :primary]`: a data path, not markup."
-  [loc]
-  (boolean (some-> (second (parser/written-child-locs loc)) parser/kw-node?)))
-
 (defn- selector-block?
-  "True when the vector holds a nested `[:& …]` block, as a Garden selector does, so it is CSS rather than markup."
+  "True when the vector holds a nested `[:& …]` block, which only a Garden selector has."
   [loc]
   (some #(and (= :vector (z/tag %))
               (some-> % z/down parser/raw (str/starts-with? ":&")))
         (rest (parser/written-child-locs loc))))
+
+(defn- names-a-string?
+  "True when a body child is a symbol that a `let` or a same-file `def` binds to a string."
+  [loc]
+  (and (= :token (z/tag loc))
+       (some? (parser/sym-name loc))
+       (string? (some-> (hiccup/resolved-value loc) (#(when (= :token (z/tag %)) (z/sexpr %)))))))
+
+(defn- markup-button?
+  "True when a `[:button …]` vector is markup, not a data path, a Malli entry or a Garden rule."
+  [info loc]
+  (and (not (selector-block? loc))
+       (or (markup-vector? info loc)
+           (some names-a-string? (rest (parser/written-child-locs loc))))))
 
 (defn- button-missing-type?
   "True when a button has no valid `:type`.
@@ -151,8 +161,7 @@
   (when (= :button tag)
     (let [reading (some-> (settled-attrs info) type-reading)]
       (if (= :button (some-> loc z/down parser/raw hiccup/parse-tag))
-        (and (not (keyword-props-slot? loc))
-             (not (selector-block? loc))
+        (and (markup-button? info loc)
              (not (element-shell? loc ns-info))
              (case kind
                :absent true
@@ -977,6 +986,16 @@
   (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
              (interactive-content? (hiccup/attrs-info loc) tag))))
 
+(defn- names-a-literal?
+  "True when `loc` is a symbol that a `let` or a same-file `def` binds to a literal string, number or keyword.
+
+  Such a symbol holds no props. A symbol bound to another symbol, or to a call, still may."
+  [loc]
+  (let [value (hiccup/resolved-value loc)]
+    (and (= :token (some-> value z/tag))
+         (let [v (try (z/sexpr value) (catch Exception _ nil))]
+           (or (string? v) (number? v) (keyword? v))))))
+
 (defn- names-unreadable-props?
   "True when the element's second child may name props this cannot read.
   `attrs-info` answers `:non-map` both for `[:button \"Save\"]`, which really carries no
@@ -987,8 +1006,8 @@
     (and (some? second-child)
          (= :token (z/tag second-child))
          (some? (parser/sym-name second-child))
-         (not= :token (some-> (hiccup/resolved-value second-child) z/tag))
-         (not= :map (:kind (hiccup/attrs-info loc))))))
+         (not= :map (:kind (hiccup/attrs-info loc)))
+         (not (names-a-literal? second-child)))))
 
 (defn- focusable-loc? [loc ns-info component-aliases]
   (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
@@ -1594,10 +1613,10 @@
                       (and (= :vector (z/tag (heads/unwrap-meta %))) (not (hiccup/malli-schema-vector? %))))
                  (body-locs loc))))
 
-(defn- hiccup-label?
-  "True when a `[:label …]` vector is markup rather than a Malli entry.
+(defn- markup-vector?
+  "True when a vector whose tag is also a common data key, such as `[:label …]` or `[:button …]`, is markup.
 
-  Both are spelled the same way, so the tag cannot settle it and neither can props alone:
+  A Malli entry, a data path and a Garden rule are spelled the same way, so the tag cannot settle it and neither can props alone:
   `[:label {:optional true} string?]` is a schema entry carrying properties. What only markup
   has is a DOM attribute, or a body holding a string or a nested vector that is no Malli
   schema all through. A props call counts too, but only over a body child that is no such
@@ -1663,7 +1682,7 @@
   name, however much a sighted reader takes it for the field's label."
   [info tag loc ns-info component-aliases]
   (and (= :label tag)
-       (hiccup-label? info loc)
+       (markup-vector? info loc)
        (let [props (label-props info loc)]
          (and (not= ::unknown props)
               (not (some #(attr-written? props %) label-for-keys))
@@ -2069,8 +2088,9 @@
                        (conj (assoc base :type :invalid-tabindex))
 
                        (button-missing-type? info loc tag ns-info)
-                       (conj (cond-> (assoc base :type :button-missing-type)
-                               (button-label-snippet loc) (assoc :inner-form (button-label-snippet loc))))
+                       (conj (let [label (button-label-snippet loc)]
+                               (cond-> (assoc base :type :button-missing-type)
+                                 label (assoc :inner-form label))))
 
                        (on-click-on-non-interactive? info tag)
                        (conj (assoc base :type :on-click-on-non-interactive))
