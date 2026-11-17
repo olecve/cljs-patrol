@@ -339,7 +339,19 @@
                                   ["thread-into-macro-step" "a value threaded into a doto step"]
                                   ["library-let-read" "a binding of a project's own let macro"]
                                   ["doc-def" "a def value after a docstring"]
-                                  ["let-value-symbol" "inline on a symbol a let binds to a read name"]]]
+                                  ["let-value-symbol" "inline on a symbol a let binds to a read name"]
+                                  ["project-doto" "a project's own m/doto, which may thread like doto"]
+                                  ["are-binding-read" "a value are pastes into an interop read"]
+                                  ["are-value-read" "inline on a value are pastes into an interop read"]
+                                  ["make-multi" "the last form of each arity"]
+                                  ["letfn-tail-read" "the last form of a letfn function"]
+                                  ["schema-load" "an arglist hint of a project's own m/defn"]
+                                  ["async-name-read" "the name async binds"]
+                                  ["namespaced-keys-read" "a namespaced :keys entry, which binds the bare name"]
+                                  ["with-redefs-tail-read" "the last form of with-redefs"]
+                                  ["testing-tail-read" "the last form of testing"]
+                                  ["project-with-macro-tail-read" "the last form of a project's own with- macro"]
+                                  ["time-tail-read" "the last form of time, a core macro"]]]
         (is (not (contains? flagged definition))
             shape)))
 
@@ -363,7 +375,6 @@
                                   ["read-only-when-discarded" "a read only inside #_"]
                                   ["read-only-in-comment" "a read only inside (comment …)"]
                                   ["namespaced-namesake" "other/el, which is not the local el"]
-                                  ["project-doto" "a project's own m/doto, a plain call"]
                                   ["read-with-its-own-map-tag" "a binding whose only read carries ^{:tag js}"]
                                   ["read-with-its-own-named-tag" "a binding whose only read carries ^js/HTMLElement"]
                                   ["interop-argument-only" "a binding read only as an interop argument, not its target"]
@@ -374,15 +385,21 @@
             shape)))
 
     (testing "flags exactly those"
-      (is (= 11 (count found))))))
+      (is (= 10 (count found))))))
 
 (deftest js-hint-in-test-reader-conditional-test
   (let [flagged (->> (:js-hint-in-test (result))
                      (filter #(str/ends-with? (:file %) "js_hints_cljc_test.cljc"))
                      (map (comp str :test))
                      set)]
-    (is (= #{"clj-branch-read" "cljr-branch-read" "default-beside-cljs-read"} flagged)
-        "a read only in a branch for another platform, which shadow-cljs never compiles, under :refer :all")))
+    (is (= #{"clj-branch-read" "cljr-branch-read" "branch-use-unread"} flagged)
+        "a read only in a branch for another platform, which shadow-cljs never compiles, under :refer :all")
+    (is (not (contains? flagged "default-beside-cljs-read"))
+        "the reader takes :default when it comes first")
+    (is (not (contains? flagged "custom-feature-read"))
+        "a build may add :node to its reader features")
+    (is (not (contains? flagged "branch-use-read"))
+        "a use in the :cljs branch is where the conditional stands")))
 
 (def ^:private paths-fixture-dir "test-projects/tests-paths-app")
 

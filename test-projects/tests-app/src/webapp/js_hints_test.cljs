@@ -232,3 +232,42 @@
     (load-canvas)
     (catch :default ^js e
       (is (some? e)))))
+
+(deftest are-binding-read
+  (let [^js el (load-canvas)]
+    (are [x] (= 1 (.-pendingOp x)) el)))
+
+(deftest are-value-read
+  (are [x] (= 1 (.-pendingOp x)) ^js (load-canvas)))
+
+(defn- make-multi
+  ([] ^js (load-canvas))
+  ([x] ^js (load-canvas x)))
+
+(deftest letfn-tail-read
+  (letfn [(make [] ^js (load-canvas))]
+    (is (= 1 (.-pendingOp (make))))))
+
+(m/defn schema-load ^js [] (load-canvas))
+
+(deftest async-name-read
+  (async ^js done
+    (.call done nil)))
+
+(deftest namespaced-keys-read
+  (let [{:keys [^js ui/panel]} {:ui/panel (load-canvas)}]
+    (is (= 1 (.-pendingOp panel)))))
+
+(deftest with-redefs-tail-read
+  (is (= 1 (.-pendingOp (with-redefs [load-canvas load-canvas] ^js (load-canvas))))))
+
+(deftest testing-tail-read
+  (let [el (testing "x" ^js (load-canvas))]
+    (is (= 1 (.-pendingOp el)))))
+
+(deftest project-with-macro-tail-read
+  (let [el (m/with-canvas ^js (load-canvas))]
+    (is (= 1 (.-pendingOp el)))))
+
+(deftest time-tail-read
+  (is (= 1 (.-pendingOp (time ^js (load-canvas))))))

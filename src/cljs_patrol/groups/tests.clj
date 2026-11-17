@@ -295,43 +295,72 @@
   #{"deftype" "defrecord"})
 
 (def ^:private passing-heads
-  "Core forms that can hand a value on, bind it, or read it through interop.
+  "Names of forms outside Clojure's own core that can hand a value on, bind it, or read it.
 
   A value written as one of their arguments may reach an interop call, so a hint on it is
-  left alone. Every `def`-like form counts too."
-  #{"if" "if-not" "when" "when-not" "do" "let" "let*" "loop" "letfn" "binding" "when-let" "if-let"
-    "when-some" "if-some" "when-first" "cond" "condp" "case" "and" "or" "->" "->>" "some->" "some->>"
-    "cond->" "cond->>" "as->" "doto" "fn" "fn*" "try" "catch" "finally" "doseq" "for" "dotimes" "this-as"
-    "reify" "specify" "specify!" "extend-type" "extend-protocol" "comment" "quote"})
+  left alone. A head counts by its name, qualified or not. Core macros and special forms
+  count through [[core-macro?]], and every name that starts with `def` or `with-` counts too,
+  so `s/defn` and `m/with-canvas` do."
+  #{"this-as" "specify" "specify!" "catch" "finally" "are" "async" "testing" "go" "go-loop" "alt!"})
 
-(defn- head-kind
-  "Return what the list at `loc` opens with: `:interop`, `:passing`, `:core-fn`, `:other`, or nil.
+(defn- core-macro?
+  "True if the core name `core-name` is a macro or a special form, read from Clojure's own core."
+  [core-name]
+  (let [sym (symbol core-name)]
+    (or (special-symbol? sym)
+        (boolean (some-> (ns-resolve 'clojure.core sym) meta :macro)))))
 
-  A bare name the resolver cannot place is read as core's, so a form under `:refer :all` is
-  still seen: here an unknown head makes the rule leave a hint alone, never flag it."
+(defn- passing-name? [head-name]
+  (or (contains? passing-heads head-name)
+      (str/starts-with? head-name "def")
+      (str/starts-with? head-name "with-")))
+
+(defn- letfn-spec?
+  "True if the list at `loc` is a function spec in the bindings of `letfn`, not a call."
+  [loc]
+  (let [bindings (z/up loc)]
+    (and (= :vector (some-> bindings z/tag))
+         (= "letfn" (some-> bindings z/up z/down parser/sym-name)))))
+
+(defn- resolve-head-kind [loc ns-info]
+  (let [head (z/down loc)
+        head-name (parser/sym-name head)
+        core-name (some-> (heads/resolve-head loc ns-info) (as-> s (when (= "cljs.core" (namespace s)) (name s))))
+        bare-name (when (and head-name (= head-name (parser/raw head))) head-name)
+        known-name (or core-name bare-name)]
+    (cond
+      (letfn-spec? loc) [:passing nil]
+      (parser/kw-node? head) [:other nil]
+      (nil? head-name) [:passing nil]
+      (str/starts-with? head-name ".") [:interop nil]
+      (or (passing-name? head-name)
+          (and known-name (core-macro? known-name))
+          (core-macro? head-name)) [:passing known-name]
+      core-name [:core-fn core-name]
+      :else [:other nil])))
+
+(defn- head-info
+  "Return `[kind name]` for what the list at `loc` opens with, or nil when loc is no list.
+
+  The kind is `:interop`, `:passing`, `:core-fn` or `:other`, and the name is the core name
+  the head reads as, when it has one. A bare name the resolver cannot place is read as
+  core's, so a form under `:refer :all` is still seen: an unknown head only makes the rule
+  leave a hint alone, never flag it."
   [loc ns-info]
   (when (#{:list :fn} (some-> loc z/tag))
-    (let [head (some-> loc z/down)
-          head-text (some-> head parser/raw)
-          bare-name (when (and (= :token (some-> head z/tag)) (parser/sym-name head)
-                               (not (str/includes? head-text "/")))
-                      head-text)
-          core-name (some-> (heads/resolve-head loc ns-info) (as-> s (when (= "cljs.core" (namespace s)) (name s))))
-          known-name (or core-name bare-name)]
-      (cond
-        (nil? (parser/sym-name head)) :other
-        (str/starts-with? (parser/sym-name head) ".") :interop
-        (and known-name (or (contains? passing-heads known-name) (str/starts-with? known-name "def"))) :passing
-        core-name :core-fn
-        :else :other))))
+    (let [^IdentityHashMap memo @(parser/file-state ::head-info (IdentityHashMap.))]
+      (or (.get memo (z/node loc))
+          (let [info (resolve-head-kind loc ns-info)]
+            (.put memo (z/node loc) info)
+            info)))))
+
+(defn- head-kind [loc ns-info]
+  (first (head-info loc ns-info)))
 
 (defn- core-head
-  "Return the bare or core name the list at `loc` opens with, or nil for a qualified project head."
+  "Return the core name the list at `loc` opens with, or nil."
   [loc ns-info]
-  (when (#{:passing :core-fn} (head-kind loc ns-info))
-    (let [head (z/down loc)]
-      (or (some-> (heads/resolve-head loc ns-info) (as-> s (when (= "cljs.core" (namespace s)) (name s))))
-          (parser/raw head)))))
+  (second (head-info loc ns-info)))
 
 (defn- code-index
   "Return the position of loc among its parent's children, `#_` forms left out."
@@ -350,14 +379,13 @@
                (#{"?" "?@"} (some-> reader z/down parser/raw)))
       (some-> loc z/left parser/raw))))
 
-(defn- compiled-branch?
-  "True if a reader conditional branch with `platform` is the one shadow-cljs compiles.
+(def ^:private other-platforms
+  "Reader conditional features of platforms other than ClojureScript.
 
-  That is `:cljs`, or `:default` when the conditional has no `:cljs` branch."
-  [loc platform]
-  (or (= ":cljs" platform)
-      (and (= ":default" platform)
-           (not-any? #(= ":cljs" (parser/raw %)) (parser/child-locs (z/up loc))))))
+  A branch for one of them never compiles under shadow-cljs. Any other feature may: the
+  reader takes the first one that matches, `:default` always does, and a build can add its
+  own `:reader-features`."
+  #{":clj" ":cljr" ":clr" ":bb" ":lpy" ":cljd" ":jank"})
 
 (defn- compiled-code?
   "True unless loc sits in code that shadow-cljs never compiles.
@@ -374,7 +402,7 @@
                            platform (reader-conditional-branch current)]
                        (cond
                          (nil? parent) true
-                         (and platform (not (compiled-branch? current platform))) false
+                         (contains? other-platforms platform) false
                          (#{:uneval :quote} (z/tag parent)) false
                          (#{:unquote :unquote-splicing} (z/tag parent)) (recur parent true)
                          (= :syntax-quote (z/tag parent)) (when unquoted? (recur parent false))
@@ -468,12 +496,14 @@
   (let [parent (z/up outer)]
     (case (some-> parent z/tag)
       (:list :fn)
-      (let [index (code-index outer)]
-        (and (pos? index)
-             (case (head-kind parent ns-info)
-               :interop (> index 1)
-               (:core-fn :other) true
-               false)))
+      (if (reader-conditional-branch outer)
+        (harmless-position? (outermost-meta (z/up parent)) ns-info)
+        (let [index (code-index outer)]
+          (and (pos? index)
+               (case (head-kind parent ns-info)
+                 :interop (> index 1)
+                 (:core-fn :other) true
+                 false))))
 
       (:vector :set :map)
       (let [container (outermost-meta parent)
@@ -528,7 +558,7 @@
     (boolean
      (if scope
        (and (= :token (z/tag hinted))
-            (name-unread? (parser/raw hinted) scope hinted ns-info))
+            (name-unread? (parser/sym-name hinted) scope hinted ns-info))
        (and (not (#{:vector :map} (some-> outer z/up z/tag)))
             (harmless-position? outer ns-info))))))
 

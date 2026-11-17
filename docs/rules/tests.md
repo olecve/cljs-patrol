@@ -205,14 +205,18 @@ A use is harmless when it is an argument of a plain function call other than the
 `(fake-event el)`, `(js/getComputedStyle el)` or `(.valid GapCursor el)`; an element of a literal collection in such a
 place, or of a `#js` literal; or a use that carries a tag of its own, such as `(.-p ^js el)`. Code that shadow-cljs
 never compiles does not count, and a hint there is not checked: `#_`, a quoted form, a syntax-quoted form outside `~`,
-`(comment …)`, and a reader conditional branch for another platform than `:cljs` (or `:default` when there is no
-`:cljs`). Names compare as written, so `other/el` is not the local `el`, and a project's own `m/doto` is a plain call.
+`(comment …)`, and a reader conditional branch for another platform, such as `:clj`, `:cljr` or `:bb`. A `:default` or a
+custom feature branch counts as compiled, since the reader may take it. A use inside a `:cljs` branch stands where the
+conditional stands. Names compare as written, so `other/el` is not the local `el`.
 
-The rule leaves a hint alone wherever the value can be handed on: as an argument of `if`, `let`, `do`, a thread,
-`binding`, `as->` or any `def`-like form; as the last form of a body; as a `def` value; or in a collection right after a
-head it does not know, which could be the bindings of a macro such as `p/let`. A bare core name the resolver cannot
-place, for example under `:refer :all`, is read as core's. So the rule also leaves some hints that nothing reads, such
-as a `defmethod` arglist or a hint on a `binding` value.
+The rule leaves a hint alone wherever the value can be handed on: as an argument of a core macro or special form, such
+as `if`, `let`, `do`, a thread, `binding`, `as->`, `with-redefs` or `time`; of `are`, `async`, `testing` or `this-as`;
+of any head named `def…` or `with-…`, or named like a core macro, qualified or not, such as `s/defn` or `m/doto`; as the
+last form of a body or an arity, also in `letfn`; as a `def` value; or in a collection right after a head it does not
+know, which could be the bindings of a macro such as `p/let`. A plain call is any other head: a project or library
+function, a `js/` global, a constructor, or a core function. A bare core name the resolver cannot place, for example
+under `:refer :all`, is read as core's. So the rule also leaves some hints that nothing reads, such as a `defmethod`
+arglist or a hint on a `binding` value.
 
 The rule cannot tell when shadow-cljs would print no warning anyway. It skips the warning for property names it knows
 from its externs, such as the DOM's `width`, `textContent`, `value` or `focus`, and for a value it already types as JS,
