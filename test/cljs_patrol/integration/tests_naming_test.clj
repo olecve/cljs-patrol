@@ -264,17 +264,17 @@
           "a this-as binding read by .."))
 
     (testing "leaves every other tag alone"
-      (is (not (by-row 108))
-          "^js/Foo names a type rather than asking for inference")
       (is (not (by-row 109))
-          "^clj")
+          "^js/Foo names a type rather than asking for inference")
       (is (not (by-row 110))
+          "^clj")
+      (is (not (by-row 111))
           "^boolean"))
 
     (testing "says nothing about text that merely reads like a hint"
       (is (not-any? #(= "\"^js\"" (:form %)) found)
           "a string containing ^js")
-      (is (not (by-row 102))
+      (is (not (by-row 101))
           "a comment containing ^js"))
 
     (testing "says nothing about a form that does not render"
@@ -298,6 +298,43 @@
              (:hint (first found)))))
 
     (testing "flags exactly the unread hints"
+      (is (= 7 (count (remove #(str/ends-with? (:file %) "js_hints_test.cljs") found)))))))
+
+(deftest js-hint-in-test-reading-shapes-test
+  (let [found (filter #(str/ends-with? (:file %) "js_hints_test.cljs") (:js-hint-in-test (result)))
+        flagged (set (map (comp str :test) found))]
+
+    (testing "leaves a hint that shadow-cljs reads"
+      (doseq [[definition shape] [["stacked-def" "a return hint under ^:private"]
+                                  ["stacked-defn" "a defn return hint under ^:private"]
+                                  ["multi-arity" "arglist hints of a multi-arity defn"]
+                                  ["reify-fake" "a reify method parameter read by .-type"]
+                                  ["FakeNode" "a deftype field read by .-x"]
+                                  ["hint-on-interop-call" "a hint on the interop call itself"]
+                                  ["thread-last-read" "->> with a bare interop step"]
+                                  ["some-thread-read" "some-> with an interop step"]
+                                  ["cond-thread-read" "cond-> with an interop step"]
+                                  ["as-thread-read" "an as-> name read by .-x"]
+                                  ["doto-later-step" "doto where the interop step is not the first"]
+                                  ["alias-read" "a local bound to the hinted local, read by .-x"]
+                                  ["as-thread-inline-read" "inline on the value an as-> name takes"]
+                                  ["cond-thread-last-read" "cond->> with a bare interop step"]
+                                  ["destructured-read" "a destructured key read outside its map"]]]
+        (is (not (contains? flagged definition))
+            shape)))
+
+    (testing "flags a hint that nothing reads"
+      (doseq [[definition shape] [["handle-unread-return" "a defmethod arglist, which no caller reads"]
+                                  ["inline-fn-return" "an inline fn arglist"]
+                                  ["inline-arg-hint" "an inline hint on a plain call argument"]
+                                  ["read-only-when-discarded" "a read only inside #_"]
+                                  ["read-only-in-comment" "a read only inside (comment …)"]
+                                  ["namespaced-namesake" "other/el, which is not the local el"]
+                                  ["hinted-vector-value" "a def's vector value, which is not an arglist"]]]
+        (is (contains? flagged definition)
+            shape)))
+
+    (testing "flags exactly those"
       (is (= 7 (count found))))))
 
 (def ^:private paths-fixture-dir "test-projects/tests-paths-app")

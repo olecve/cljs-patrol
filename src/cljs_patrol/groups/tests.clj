@@ -272,30 +272,95 @@
              (identical? (z/node loc) (some-> (hiccup/literal-map parent) :tag z/node)))
         (z/up parent)))))
 
-(def ^:private hinted-binding-heads
-  "Forms whose bindings a `^js` hint can sit on, so the scope a hinted name is read in."
-  #{"let" "loop" "when-let" "if-let" "when-some" "if-some" "when-first" "doseq" "for" "binding"
-    "fn" "fn*" "defn" "defn-" "defmethod" "letfn" "this-as"})
+(def ^:private binding-vector-heads
+  "Forms whose bindings vector pairs a name with the value it takes.
 
-(def ^:private hint-reading-threads
-  "Threading heads that put their first argument in the target slot of an interop step."
-  #{"->" "some->" "doto"})
+  A name bound to a hinted local there carries the hint on."
+  #{"let" "loop" "when-let" "if-let" "when-some" "if-some" "binding"})
+
+(def ^:private return-hint-heads
+  "Definitions whose callers read a return hint.
+
+  A hint on the defined name or on an arglist types what a call returns."
+  #{"def" "defonce" "defn" "defn-"})
+
+(def ^:private first-step-threads
+  "Threads that put the threaded value in the target slot of a list step."
+  #{"->" "some->"})
+
+(def ^:private last-step-threads
+  "Threads that put the threaded value last, so only a bare interop symbol step reads it."
+  #{"->>" "some->>"})
 
 (defn- interop-head? [head]
   (and head (str/starts-with? head ".")))
 
+(defn- interop-symbol? [loc]
+  (and (= :token (z/tag loc)) (interop-head? (parser/sym-name loc))))
+
+(defn- interop-call? [loc]
+  (and (#{:list :fn} (z/tag loc)) (interop-head? (some-> loc z/down parser/sym-name))))
+
 (defn- interop-step? [loc]
-  (case (z/tag loc)
-    :token (interop-head? (parser/sym-name loc))
-    :list (interop-head? (some-> loc z/down parser/sym-name))
-    false))
+  (or (interop-symbol? loc) (interop-call? loc)))
+
+(defn- every-other [locs]
+  (take-nth 2 locs))
+
+(defn- reads-threaded-value?
+  "True if the thread headed by `head` reads its first argument through interop.
+
+  `steps` are the forms after that argument."
+  [head steps]
+  (cond
+    (contains? first-step-threads head) (some-> (first steps) interop-step?)
+    (contains? last-step-threads head) (some-> (first steps) interop-symbol?)
+    (= "doto" head) (some interop-step? steps)
+    (= "cond->" head) (some interop-step? (every-other (rest steps)))
+    (= "cond->>" head) (some interop-symbol? (every-other (rest steps)))
+    :else false))
+
+(defn- compiled-code?
+  "True unless loc sits in code that never compiles.
+
+  That is a quoted or discarded form, or a `(comment …)` block."
+  [loc]
+  (not (or (hiccup/inside-unrendered-form? loc)
+           (some? (enclosing-list-head loc #{"quote" "comment"})))))
+
+(defn- outermost-meta
+  "Return the outermost metadata node wrapped around loc, or loc itself.
+
+  `^:private ^js x` nests one metadata node inside the other, so the place a hinted form
+  sits in its parent is the place of the outermost one."
+  [loc]
+  (loop [current loc]
+    (let [parent (z/up current)]
+      (if (and (= :meta (some-> parent z/tag))
+               (identical? (z/node current) (some-> parent z/down z/rightmost z/node)))
+        (recur parent)
+        current))))
+
+(declare name-read?)
+
+(defn- as-thread-name-read?
+  "True if `loc` starts an `as->` whose name an interop call reads.
+
+  The name takes the threaded value and its tag."
+  [loc seen]
+  (let [parent (z/up loc)
+        [head-loc value-loc name-loc] (some-> parent parser/written-child-locs)]
+    (and (= "as->" (some-> head-loc parser/sym-name))
+         (identical? (z/node loc) (some-> value-loc z/node))
+         (some? name-loc)
+         (name-read? (parser/raw name-loc) parent name-loc seen))))
 
 (defn- interop-target?
   "True if `loc` is the value an interop call reads.
 
-  That is the target of `(.f x)`, `(.-p x)`, `(.. x -p)` and `(. x f)`, and the first
-  argument of `->` or `some->` when the next step is an interop call, or of `doto` when any
-  step is."
+  That is the target of `(.f x)`, `(.-p x)`, `(.. x -p)` and `(. x f)`, also inside a `#(…)`
+  literal, and the threaded value of a thread whose next step, or any step for `doto` and
+  `cond->`, is an interop call."
   [loc]
   (let [parent (z/up loc)
         [head-loc target-loc & steps] (some-> parent parser/written-child-locs)
@@ -303,65 +368,99 @@
     (and (#{:list :fn} (some-> parent z/tag))
          (identical? (z/node loc) (some-> target-loc z/node))
          (or (interop-head? head)
-             (and (contains? hint-reading-threads head)
-                  (if (= "doto" head)
-                    (some interop-step? steps)
-                    (some-> (first steps) interop-step?)))))))
+             (boolean (reads-threaded-value? head steps))))))
+
+(defn- alias-name
+  "Return the name that a let-like binding gives `loc` as its value, or nil."
+  [loc]
+  (let [bindings (z/up loc)
+        pairs (some-> bindings parser/written-child-locs)
+        index (first (keep-indexed #(when (identical? (z/node loc) (z/node %2)) %1) pairs))]
+    (when (and (= :vector (some-> bindings z/tag))
+               (contains? binding-vector-heads (some-> bindings z/up z/down parser/sym-name))
+               index
+               (odd? index))
+      (some-> (nth pairs (dec index)) parser/raw))))
+
+(defn- occurrence-read?
+  "True if the written occurrence `loc` of a hinted name is read through interop.
+
+  It is read directly, through an `as->` name, or through a local bound to it."
+  [loc scope seen]
+  (or (interop-target? loc)
+      (as-thread-name-read? loc seen)
+      (boolean (when-let [alias (alias-name loc)]
+                 (name-read? alias scope nil seen)))))
+
+(defn- name-read?
+  "True if an interop call reads the local `sym-text` in compiled code in `scope`.
+
+  The occurrence at `binding-loc` does not count. Names compare as written, so `other/el` is not the local `el`. `seen` stops a chain of
+  aliases that refers back to itself."
+  [sym-text scope binding-loc seen]
+  (when-not (contains? seen sym-text)
+    (let [seen (conj seen sym-text)]
+      (boolean
+       (some #(and (= :token (z/tag %))
+                   (= sym-text (parser/raw %))
+                   (not (and binding-loc (identical? (z/node %) (z/node binding-loc))))
+                   (compiled-code? %)
+                   (occurrence-read? (outermost-meta %) scope seen))
+             (parser/descendant-locs scope))))))
 
 (defn- hinted-form [hint-loc]
   (some-> hint-loc z/down z/rightmost))
 
-(defn- written-occurrence
-  "Return the loc that stands for a symbol where it is written.
-
-  That is its `^js` wrapper when the symbol is hinted inline, the symbol itself otherwise."
-  [sym-loc]
-  (let [parent (z/up sym-loc)]
-    (if (and (= :meta (some-> parent z/tag))
-             (identical? (z/node sym-loc) (some-> (hinted-form parent) z/node)))
-      parent
-      sym-loc)))
-
-(defn- binding-scope [hint-loc]
-  (loop [current (z/up hint-loc)]
-    (cond
-      (nil? current) nil
-      (and (= :list (z/tag current))
-           (contains? hinted-binding-heads (some-> current z/down parser/sym-name)))
-      current
-      :else (recur (z/up current)))))
-
 (defn- return-hint?
   "True if the hint names what a definition returns, which its callers read.
 
-  Such a hint sits on the defined name or on an arglist."
+  Such a hint sits on the name a `def` or `defn` defines, or on an arglist of a `defn`,
+  in a single or a multi-arity form."
   [hint-loc]
-  (let [parent (z/up hint-loc)
-        head (some-> parent z/down parser/sym-name)]
-    (and (= :list (some-> parent z/tag))
-         head
-         (or (str/starts-with? head "def") (= "fn" head))
-         (or (identical? (z/node hint-loc) (some-> parent z/down z/right z/node))
-             (= :vector (some-> (hinted-form hint-loc) z/tag))))))
+  (let [outer (outermost-meta hint-loc)
+        parent (z/up outer)
+        head-of #(some-> % z/down parser/sym-name)
+        defining? #(contains? return-hint-heads (head-of %))
+        arglist? (= :vector (some-> (hinted-form hint-loc) z/tag))]
+    (boolean
+     (or (and (defining? parent)
+              (or (identical? (z/node outer) (some-> parent z/down z/right z/node))
+                  (and arglist? (not= "def" (head-of parent)))))
+         (and arglist?
+              (= :list (some-> parent z/tag))
+              (identical? (z/node outer) (some-> parent z/down z/node))
+              (#{"defn" "defn-"} (head-of (z/up parent))))))))
+
+(defn- binding-hint?
+  "True if the hint sits where a name is bound.
+
+  That is a bindings or params vector, destructuring, or the name of `this-as`. Elsewhere a hinted symbol is a use, and the hint types that one use."
+  [hint-loc]
+  (let [outer (outermost-meta hint-loc)
+        parent (z/up outer)]
+    (or (#{:vector :map} (some-> parent z/tag))
+        (and (= "this-as" (some-> parent z/down parser/sym-name))
+             (identical? (z/node outer) (some-> parent z/down z/right z/node))))))
 
 (defn- hint-read?
   "True if a `^js` hint changes what shadow-cljs infers.
 
-  The hinted value is read by an interop call, so without the hint the compiler prints an
-  `:infer-warning`. An inline hint is read when its expression is the target itself. A hint on a bound name
-  is read when that name is an interop target anywhere in the form that binds it. Shadowing
-  is not tracked, so an inner binding of the same name can keep a hint that nothing reads."
+  shadow-cljs prints an `:infer-warning` for an interop call on a value it cannot type,
+  and the hint is what types it. A hint on a bound name is read when an interop call reads
+  that name, or a local bound to it, anywhere in the top-level form. A hint on an interop
+  call types what the call returns. Any other inline hint is read only when its own value
+  is the target. Shadowing is not tracked."
   [hint-loc]
   (let [hinted (hinted-form hint-loc)
-        hinted-name (parser/sym-name hinted)]
-    (or (return-hint? hint-loc)
-        (interop-target? hint-loc)
-        (boolean
-         (when-let [scope (and hinted-name (binding-scope hint-loc))]
-           (some #(and (not (identical? (z/node %) (z/node hinted)))
-                       (= hinted-name (parser/sym-name %))
-                       (interop-target? (written-occurrence %)))
-                 (parser/descendant-locs scope)))))))
+        outer (outermost-meta hint-loc)]
+    (boolean
+     (or (return-hint? hint-loc)
+         (interop-call? hinted)
+         (interop-target? outer)
+         (as-thread-name-read? outer #{})
+         (and (binding-hint? hint-loc)
+              (some? (parser/sym-name hinted))
+              (name-read? (parser/raw hinted) (parser/top-level-loc hint-loc) hinted #{}))))))
 
 (defn- js-hint-finding
   "Build the finding for a `^js` hint.
@@ -558,8 +657,8 @@
           "around assertions, or as a guard that can skip them. Write a table of inputs and expected "
           "values and walk it with doseq.")
      :js-hint-in-test
-     (str "A ^js type hint in a test namespace does nothing, because a test build never runs "
-          ":advanced optimizations. Remove it.")
+     (str "A ^js type hint on a value that no interop call reads changes nothing: shadow-cljs reads a hint "
+          "only to type the target of an interop call. Remove it.")
      :literal-constant-assertion
      (str "An assertion compares a string literal with the constant defined as that same string, so it repeats the "
           "definition. Assert on what the code does with the constant instead.")

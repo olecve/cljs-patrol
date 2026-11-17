@@ -166,14 +166,14 @@ reads.
 **Left alone:**
 
 ```clojure
-;; left alone: .-width reads el, so the hint stops an :infer-warning
-(deftest width
-  (let [^js el (render-chart)]
-    (is (= 10 (.-width el)))))
+;; left alone: .getObjects reads canvas, so the hint stops an :infer-warning
+(deftest objects
+  (let [^js canvas (load-canvas)]
+    (is (= 4 (count (.getObjects canvas))))))
 
 ;; left alone: inline on the target of the interop call
-(deftest label
-  (is (= "Save" (.-textContent ^js (render-chart)))))
+(deftest first-object
+  (is (some? (first (.getObjects ^js (load-canvas))))))
 
 ;; left alone: threaded into a property read
 (deftest pending-op
@@ -187,18 +187,32 @@ reads.
 <details>
 <summary>Details</summary>
 
-A `^js` type hint tells shadow-cljs that a value is a JS object, so it can infer the externs for the interop calls on
-it. shadow-cljs reads the hint in every build, not only under `:advanced`: when an interop call reads a value it cannot
-type, it prints an `:infer-warning` ("Cannot infer target type") in a test build too. So a hint on a value that an
-interop call reads keeps the build log clean, and the rule leaves it. A hint on a value that nothing reads through
-interop changes nothing, and the rule flags it.
+A `^js` type hint tells shadow-cljs that a value is a JS object. shadow-cljs reads the hint in every build, not only
+under `:advanced`: when an interop call reads a value it cannot type, it prints an `:infer-warning` ("Cannot infer
+target type"), in a test build too. So a hint on a value that an interop call reads can keep the build log clean, and
+the rule leaves it. A hint on a value that nothing reads through interop changes nothing, and the rule flags it.
 
-A hint counts as read when the hinted value is the target of `(.f x)`, `(.-p x)`, `(.. x -p)` or `(. x f)`; when it is
-the first argument of `->` or `some->` and the next step is an interop call; or when it is the first argument of `doto`
-and any step is. A hint on a bound name — a `let`, `loop` or `doseq` binding, a `defn` or `fn` parameter, map or vector
-destructuring, or `this-as` — counts as read when that name is an interop target anywhere in the form that binds it. A
-hint on a defined name or on an arglist names what a definition returns, which its callers read, so it is left alone.
-Shadowing is not tracked: an inner binding of the same name that an interop call reads keeps an outer hint.
+What counts as read:
+
+- The hinted value is the target of `(.f x)`, `(.-p x)`, `(.. x -p)` or `(. x f)`, also inside a `#(…)` literal.
+- The hinted value is threaded into an interop step: the next step of `->` or `some->`, a bare `.-p` or `.f` next step
+  of `->>` or `some->>`, any step of `doto` or `cond->`, a bare interop step of `cond->>`, or the name of `as->` when an
+  interop call reads it.
+- The hint is on an interop call itself, `^js (.-value x)`, which types what the call returns.
+- A hint on a bound name — a `let`, `loop` or `doseq` binding, a parameter of `fn`, `defn`, `reify` or `deftype`, a
+  `deftype` field, destructuring, or `this-as` — when an interop call reads that name anywhere in the top-level form, or
+  reads a local that a `let`-like binding binds to it.
+- A hint on the name a `def` or `defn` defines, or on a `defn` arglist (single or multi-arity), in any order with other
+  metadata. Callers read it as the type of what a call returns. A `defmethod` or inline `fn` arglist is not one.
+
+Reads in code that never compiles do not count: inside `#_`, a quoted form or `(comment …)`. Names compare as written,
+so `other/el` is not the local `el`. Shadowing is not tracked: an inner binding of the same name that an interop call
+reads keeps an outer hint. Any other inline hint, such as one on a plain call argument, is flagged unless its own value
+is the target.
+
+The rule cannot tell when shadow-cljs would print no warning anyway. It skips the warning for property names it knows
+from its externs, such as the DOM's `width`, `textContent`, `value` or `focus`. So a hint read only through such a name
+changes nothing, but the rule leaves it, because it reads no externs.
 
 Both spellings count — `^js` and `^{:tag js}`. Left alone: `^js/Foo`, which names a type rather than asking for
 inference, and `^clj`, `^boolean`, `^:private` and every other tag; the symbol `js` anywhere but the tag slot, so
