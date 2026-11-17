@@ -65,7 +65,8 @@
              "finds-agree-box" "finds-query-input" "finds-find-input" "finds-pick-input" "finds-go-input"
              "finds-country-select" "finds-tags-select" "finds-sized-select" "finds-settings-dialog"
              "finds-all-picked-buttons" "finds-send-button-past-discarded-id" "finds-listed-box" "finds-size-one"
-             "finds-plain-in-span" "finds-plain-past-discard" "finds-inner-space" "finds-hidden-false" "finds-list-nil" "finds-in-component"
+             "finds-plain-in-span" "finds-plain-past-discard"
+             "finds-inner-space" "finds-hidden-false" "finds-list-nil" "finds-in-component"
              "finds-built-key-free" "finds-other-one" "finds-kw-elsewhere"
              "finds-in-open-dialog" "finds-size-zero" "finds-multiple-zero" "finds-mid-a-end" "finds-hidden-nil"
              "finds-with-break" "finds-uneval-child"}

@@ -1798,7 +1798,11 @@
                                   ["built-invalid" "a value set last on a built map"]
                                   ["numeric-type" "a number"]
                                   ["number-before-label" "a symbol bound to a number holds no props"]
-                                  ["multi-line-symbol-label" "a symbol bound to a multi-line string"]]]
+                                  ["multi-line-symbol-label" "a symbol bound to a multi-line string"]
+                                  ["malli-title" "a Malli entry with a :title, which reads as markup as for a label"]
+                                  ["keyed-in-for" "a :key and a computed label"]
+                                  ["id-only" "an :id and a label parameter"]
+                                  ["style-only" "a :style and a text parameter"]]]
         (is (contains? flagged definition)
             shape)))
 
@@ -1837,12 +1841,16 @@
                                   ["nested-path" "a keyword after the tag, then a vector"]
                                   ["string-key-path" "a get-in path whose key names a string"]
                                   ["string-assoc-path" "an assoc-in path with a string key"]
-                                  ["malli-title" "a Malli entry with a :title property"]]]
+                                  ["threaded-path" "an update-in path in a some-> thread"]
+                                  ["thread-first-path" "a get-in path in a -> thread"]
+                                  ["swap-path" "an assoc-in path passed through swap!"]
+                                  ["dispatched-event" "a dispatched event"]
+                                  ["get-key" "a vector key passed to get"]]]
         (is (not (contains? flagged definition))
             shape)))
 
     (testing "flags exactly those"
-      (is (= 18 (count found))))
+      (is (= 22 (count found))))
 
     (testing "leaves other rules quiet on props a symbol passes on"
       (let [result (first group-results)
@@ -1856,7 +1864,11 @@
         (is (not (contains? (in-fixture :label-not-associated) "garden-label"))
             "a Garden [:label …] rule is no label")
         (is (contains? (in-fixture :missing-accessible-name) "discarded-before-text")
-            "a #_ props map names nothing, so the text after it is read")))
+            "a #_ props map names nothing, so the text after it is read")
+        (is (contains? (in-fixture :missing-accessible-name) "symbol-text-area")
+            "a symbol bound to text holds no props, so it names nothing")
+        (is (not (contains? (in-fixture :label-not-associated) "label-path"))
+            "an assoc-in path is no label")))
 
     (testing "keeps two buttons that differ only past the snippet cut apart"
       (let [names (definitions-by-row "test-projects/a11y-app/src/blogapp/button_types.cljs")
@@ -1891,4 +1903,4 @@
             shape)))
 
     (testing "adds only those to the keyword-tag findings"
-      (is (= 20 (count found))))))
+      (is (= 24 (count found))))))

@@ -108,8 +108,7 @@
   "The values a button's `type` may take, compared in lower case as HTML does."
   #{"button" "submit" "reset"})
 
-(declare cannot-be-props? element-shell? markup-vector? names-a-dom-attr? names-unreadable-props? renders-something?
-         schema-property-keys written-value)
+(declare cannot-be-props? element-shell? markup-vector? names-unreadable-props? written-value)
 
 (defn- type-reading
   "Read the `:type` that `attrs` give a button: `:missing`, `:valid`, `:invalid` or `:unknown`.
@@ -128,31 +127,6 @@
       (or (number? value) (boolean? value) (char? value)) :invalid
       :else :unknown)))
 
-(def ^:private path-taking-heads
-  "Core functions whose second argument is a path of keys, never markup."
-  #{"get-in" "assoc-in" "update-in" "select-keys"})
-
-(defn- path-argument?
-  "True when the vector at `loc` is the path argument of `get-in`, `assoc-in`, `update-in` or `select-keys`."
-  [loc]
-  (let [parent (z/up loc)]
-    (and (= :list (some-> parent z/tag))
-         (contains? path-taking-heads (some-> parent z/down parser/sym-name))
-         (identical? (z/node loc) (some-> (nth (parser/written-child-locs parent) 2 nil) z/node)))))
-
-(defn- markup-button?
-  "True when a `[:button …]` vector is markup, not a data path, a Malli entry or a Garden rule.
-
-  A keyword right after the tag is a data path: as markup it would render the keyword's text."
-  [info loc]
-  (and (not (some-> (second (parser/written-child-locs loc)) parser/kw-node?))
-       (not (path-argument? loc))
-       (markup-vector? info loc)
-       (or (not= :map (:kind info))
-           (nil? (:attrs info))
-           (names-a-dom-attr? (:attrs info) schema-property-keys)
-           (renders-something? loc))))
-
 (defn- button-missing-type?
   "True when a button has no valid `:type`.
 
@@ -170,11 +144,11 @@
       (if (= :button (some-> loc z/down parser/raw hiccup/parse-tag))
         (and (case kind
                :absent true
-               :non-map (not (names-unreadable-props? loc))
+               :non-map (not (names-unreadable-props? loc info))
                :map (contains? #{:missing :invalid} reading)
                :dynamic-map (= :invalid reading)
                false)
-             (markup-button? info loc)
+             (markup-vector? info loc)
              (not (element-shell? loc ns-info)))
         (= :invalid reading)))))
 
@@ -998,13 +972,14 @@
   `attrs-info` answers `:non-map` both for `[:button \"Save\"]`, which really carries no
   attrs, and for `[:button props \"Save\"]`, where a symbol nothing in the file defines
   may name a map holding the very way out being called missing."
-  [loc]
-  (let [second-child (second (parser/written-child-locs loc))]
-    (and (some? second-child)
-         (= :token (z/tag second-child))
-         (some? (parser/sym-name second-child))
-         (not= :map (:kind (hiccup/attrs-info loc)))
-         (not (some-> (hiccup/resolved-value second-child) cannot-be-props?)))))
+  ([loc] (names-unreadable-props? loc (hiccup/attrs-info loc)))
+  ([loc info]
+   (let [second-child (second (parser/written-child-locs loc))]
+     (and (some? second-child)
+          (= :token (z/tag second-child))
+          (some? (parser/sym-name second-child))
+          (not= :map (:kind info))
+          (not (some-> (hiccup/resolved-value second-child) cannot-be-props?))))))
 
 (defn- focusable-loc? [loc ns-info component-aliases]
   (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
@@ -1283,7 +1258,9 @@
     :absent true
     :map (and (some? attrs) (not (has-accessible-name? attrs)) (not (aria-hidden? attrs)))
     :non-map (and (some? (some-> loc z/down parser/raw hiccup/parse-tag))
-                  (cannot-be-props? (second (parser/written-child-locs loc))))
+                  (let [child (second (parser/written-child-locs loc))]
+                    (or (cannot-be-props? child)
+                        (boolean (some-> (hiccup/resolved-value child) cannot-be-props?)))))
     false))
 
 (defn- missing-accessible-name? [{:keys [kind attrs]
@@ -1589,21 +1566,31 @@
 (def ^:private dom-attr-keys
   #{:class :className :id :style :for :html-for :htmlFor :title :role :hidden :key :ref :tab-index :tabIndex})
 
-(def ^:private schema-property-keys
-  "DOM attribute names a Malli entry's properties also take, so they prove no markup on their own."
-  #{:id :style :title :hidden :key})
+(def ^:private data-taking-heads
+  "Functions whose vector arguments are paths, keys or events, never markup."
+  #{"get" "get-in" "assoc" "assoc-in" "update" "update-in" "dissoc" "contains?" "select-keys" "swap!" "reset!"
+    "dispatch" "dispatch-sync" "subscribe"})
+
+(defn- data-vector?
+  "True when a vector spelled like an element is data: a path, a key or an event.
+
+  A keyword right after the tag is one, since as markup it would render the keyword's text.
+  So is an argument of `get-in`, `assoc-in`, `swap!`, `dispatch`, `subscribe` and the like,
+  also as a step of a thread."
+  [loc]
+  (or (some-> (second (parser/written-child-locs loc)) parser/kw-node?)
+      (let [parent (z/up loc)]
+        (and (= :list (some-> parent z/tag))
+             (contains? data-taking-heads (some-> parent z/down parser/sym-name))))))
 
 (defn- names-a-dom-attr?
   "True when a literal props map carries something only markup would carry.
-  A Malli entry's properties — `{:optional true}` — carry none of it. Given `ignored`, those
-  keys prove nothing."
-  ([attrs] (names-a-dom-attr? attrs #{}))
-  ([attrs ignored]
-   (boolean (some (fn [k]
-                    (and (not (contains? ignored k))
-                         (or (contains? dom-attr-keys k)
-                             (some #(str/starts-with? (name k) %) dom-attr-prefixes))))
-                  (keys attrs)))))
+  A Malli entry's properties — `{:optional true}` — carry none of it."
+  [attrs]
+  (boolean (some (fn [k]
+                   (or (contains? dom-attr-keys k)
+                       (some #(str/starts-with? (name k) %) dom-attr-prefixes)))
+                 (keys attrs))))
 
 (defn- names-a-string?
   "True when `loc` is a symbol that a `let` or a same-file `def` binds to a string, as a caption often is."
@@ -1620,12 +1607,13 @@
         (rest (parser/written-child-locs loc))))
 
 (defn- renders-something?
-  "True when the label's body holds anything only markup holds.
+  "True when the element's body holds anything only markup holds.
 
-  A string written out is markup, and so is a nested vector, unless it is a Malli schema all
-  through: `[:label [:maybe :string]]` is an entry. Metadata on the vector is looked through.
-  A lone symbol is what a Malli entry puts there, `[:label string?]`, and what a caption is
-  called, so it settles nothing."
+  A string written out is markup, and so is a symbol a `let` or a `def` binds to a string,
+  and a nested vector, unless it is a Malli schema all through: `[:label [:maybe :string]]`
+  is an entry. Metadata on the vector is looked through. Any other lone symbol is what a
+  Malli entry puts there, `[:label string?]`, and what a caption is called, so it settles
+  nothing."
   [loc]
   (boolean (some #(or (literal-string-loc? %)
                       (names-a-string? %)
@@ -1644,6 +1632,7 @@
   [{:keys [kind attrs]} loc]
   (and
    (not (selector-block? loc))
+   (not (data-vector? loc))
    (or (and (= :map kind) (some? attrs) (names-a-dom-attr? attrs))
        (and (contains? #{:dynamic :dynamic-map} kind)
             (some #(not (or (= :uneval (z/tag %)) (hiccup/malli-schema-vector? %))) (body-locs loc)))
@@ -1657,12 +1646,13 @@
   hold anything — unlike a props *call*, which is shared between call sites and so could
   only return a constant `for`, pointing every label it renders at one element. That last
   is the one case answered without proof, and deliberately."
-  [{:keys [kind attrs]} loc]
+  [{:keys [kind attrs]
+    :as info} loc]
   (cond
-    (= :dynamic kind) (if (names-unreadable-props? loc) ::unknown {})
+    (= :dynamic kind) (if (names-unreadable-props? loc info) ::unknown {})
     (and (= :map kind) (some? attrs)) attrs
     (= :dynamic-map kind) (if (some #(attr-written? (or attrs {}) %) label-for-keys) attrs ::unknown)
-    (contains? #{:absent :non-map} kind) (if (names-unreadable-props? loc) ::unknown {})
+    (contains? #{:absent :non-map} kind) (if (names-unreadable-props? loc info) ::unknown {})
     :else ::unknown))
 
 (defn- label-body-verdict

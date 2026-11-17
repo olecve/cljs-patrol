@@ -129,3 +129,23 @@ all")
 (defn garden-label [] (css [:label {:color "red"} [:&:hover {:color "blue"}]]))
 
 (defn discarded-before-text [] [:textarea #_{:aria-label "Draft"} "draft"])
+
+(defn threaded-path [db] (let [k "primary"] (some-> db (update-in [:button k] inc))))
+
+(defn thread-first-path [db] (-> db (get-in [:button "label"])))
+
+(defn swap-path [state] (let [id "x"] (swap! state assoc-in [:button id] true)))
+
+(defn dispatched-event [] (dispatch [:button "Save"]))
+
+(defn get-key [m] (get m [:button "a"]))
+
+(defn keyed-in-for [xs] (for [x xs] [:button {:key (:id x)} (:name x)]))
+
+(defn id-only [label] [:button {:id "save"} label])
+
+(defn style-only [text] [:button {:style {:color "red"}} text])
+
+(defn label-path [db] (let [lang "en"] (assoc-in db [:label lang] "x")))
+
+(defn symbol-text-area [] (let [t "draft"] [:textarea t]))
