@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.0.57] - 2026-11-17
+
+* Read the text of a same-file component for a button's name, and skip aria-hidden text by @olecve in https://github.com/olecve/cljs-patrol/pull/154
+* Let a commented docs example span blank lines by @olecve in https://github.com/olecve/cljs-patrol/pull/155
+* Run every rule docs code block as a test, and record why by @olecve in https://github.com/olecve/cljs-patrol/pull/156
+* Flag a ^js hint in test code only when no interop call reads the value by @olecve in https://github.com/olecve/cljs-patrol/pull/157
+* Flag a literal button with no valid type by @olecve in https://github.com/olecve/cljs-patrol/pull/158
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.56...v0.0.57
+
 ## [v0.0.56] - 2026-11-16
 
 **Breaking:** the spade rule `defattrs-in-merge` is now `defattrs-as-data` (#148). Baseline entries under the old key read as fixed, and the same findings come back under the new key until the next `--baseline-write --allow-new`. `--fail-on defattrs-in-merge` is now an unknown token: use `--fail-on defattrs-as-data`.
