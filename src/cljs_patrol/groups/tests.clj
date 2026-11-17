@@ -272,6 +272,97 @@
              (identical? (z/node loc) (some-> (hiccup/literal-map parent) :tag z/node)))
         (z/up parent)))))
 
+(def ^:private hinted-binding-heads
+  "Forms whose bindings a `^js` hint can sit on, so the scope a hinted name is read in."
+  #{"let" "loop" "when-let" "if-let" "when-some" "if-some" "when-first" "doseq" "for" "binding"
+    "fn" "fn*" "defn" "defn-" "defmethod" "letfn" "this-as"})
+
+(def ^:private hint-reading-threads
+  "Threading heads that put their first argument in the target slot of an interop step."
+  #{"->" "some->" "doto"})
+
+(defn- interop-head? [head]
+  (and head (str/starts-with? head ".")))
+
+(defn- interop-step? [loc]
+  (case (z/tag loc)
+    :token (interop-head? (parser/sym-name loc))
+    :list (interop-head? (some-> loc z/down parser/sym-name))
+    false))
+
+(defn- interop-target?
+  "True if `loc` is the value an interop call reads.
+
+  That is the target of `(.f x)`, `(.-p x)`, `(.. x -p)` and `(. x f)`, and the first
+  argument of `->` or `some->` when the next step is an interop call, or of `doto` when any
+  step is."
+  [loc]
+  (let [parent (z/up loc)
+        [head-loc target-loc & steps] (some-> parent parser/written-child-locs)
+        head (some-> head-loc parser/sym-name)]
+    (and (#{:list :fn} (some-> parent z/tag))
+         (identical? (z/node loc) (some-> target-loc z/node))
+         (or (interop-head? head)
+             (and (contains? hint-reading-threads head)
+                  (if (= "doto" head)
+                    (some interop-step? steps)
+                    (some-> (first steps) interop-step?)))))))
+
+(defn- hinted-form [hint-loc]
+  (some-> hint-loc z/down z/rightmost))
+
+(defn- written-occurrence
+  "Return the loc that stands for a symbol where it is written.
+
+  That is its `^js` wrapper when the symbol is hinted inline, the symbol itself otherwise."
+  [sym-loc]
+  (let [parent (z/up sym-loc)]
+    (if (and (= :meta (some-> parent z/tag))
+             (identical? (z/node sym-loc) (some-> (hinted-form parent) z/node)))
+      parent
+      sym-loc)))
+
+(defn- binding-scope [hint-loc]
+  (loop [current (z/up hint-loc)]
+    (cond
+      (nil? current) nil
+      (and (= :list (z/tag current))
+           (contains? hinted-binding-heads (some-> current z/down parser/sym-name)))
+      current
+      :else (recur (z/up current)))))
+
+(defn- return-hint?
+  "True if the hint names what a definition returns, which its callers read.
+
+  Such a hint sits on the defined name or on an arglist."
+  [hint-loc]
+  (let [parent (z/up hint-loc)
+        head (some-> parent z/down parser/sym-name)]
+    (and (= :list (some-> parent z/tag))
+         head
+         (or (str/starts-with? head "def") (= "fn" head))
+         (or (identical? (z/node hint-loc) (some-> parent z/down z/right z/node))
+             (= :vector (some-> (hinted-form hint-loc) z/tag))))))
+
+(defn- hint-read?
+  "True if a `^js` hint changes what shadow-cljs infers.
+
+  The hinted value is read by an interop call, so without the hint the compiler prints an
+  `:infer-warning`. An inline hint is read when its expression is the target itself. A hint on a bound name
+  is read when that name is an interop target anywhere in the form that binds it. Shadowing
+  is not tracked, so an inner binding of the same name can keep a hint that nothing reads."
+  [hint-loc]
+  (let [hinted (hinted-form hint-loc)
+        hinted-name (parser/sym-name hinted)]
+    (or (return-hint? hint-loc)
+        (interop-target? hint-loc)
+        (boolean
+         (when-let [scope (and hinted-name (binding-scope hint-loc))]
+           (some #(and (not (identical? (z/node %) (z/node hinted)))
+                       (= hinted-name (parser/sym-name %))
+                       (interop-target? (written-occurrence %)))
+                 (parser/descendant-locs scope)))))))
+
 (defn- js-hint-finding
   "Build the finding for a `^js` hint.
 
@@ -288,15 +379,16 @@
      :file file
      :row row
      :col col
-     :hint "Remove the hint — nothing reads it in a build that is not :advanced."}))
+     :hint "Remove the hint — no interop call reads this value, so shadow-cljs has nothing to infer."}))
 
 (defn- js-hint-in-test
-  "Return the finding for a `^js` hint written in a test namespace, or nil."
+  "Return the finding for a `^js` hint in a test namespace that no interop call reads, or nil."
   [paths loc ns-info file]
   (when (test-file? paths ns-info file)
     (when-let [hint-loc (js-type-hint loc)]
       (when-not (or (hiccup/inside-unrendered-form? hint-loc)
-                    (inside-written-out-quote? hint-loc))
+                    (inside-written-out-quote? hint-loc)
+                    (hint-read? hint-loc))
         (js-hint-finding hint-loc (parser/enclosing-definition-name hint-loc) file)))))
 
 (defn- leading-article-finding [loc file]

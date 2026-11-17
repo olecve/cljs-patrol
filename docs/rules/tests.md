@@ -148,33 +148,62 @@ reported too. That is deliberate: it is a var deref whichever it is, and the fix
 
 ### `^js` hint in test
 
-`js-hint-in-test` · cleanup · config [`:paths`](#test-paths) — A `^js` hint in test code, where nothing reads it.
+`js-hint-in-test` · cleanup · config [`:paths`](#test-paths) — A `^js` hint in test code on a value that no interop call
+reads.
 
 ```clojure
 ;; flagged
+(deftest chart-renders
+  (let [^js el (render-chart)]
+    (is (some? el))))
+
+;; fix
+(deftest chart-renders
+  (let [el (render-chart)]
+    (is (some? el))))
+```
+
+**Left alone:**
+
+```clojure
+;; left alone: .-width reads el, so the hint stops an :infer-warning
 (deftest width
   (let [^js el (render-chart)]
     (is (= 10 (.-width el)))))
 
-;; fix
-(deftest width
-  (let [el (render-chart)]
-    (is (= 10 (.-width el)))))
+;; left alone: inline on the target of the interop call
+(deftest label
+  (is (= "Save" (.-textContent ^js (render-chart)))))
+
+;; left alone: threaded into a property read
+(deftest pending-op
+  (let [^js el (render-chart)]
+    (is (= "2" (-> el .-dataset .-pendingOp)))))
+
+;; left alone: a hint on what a helper returns, which its callers read
+(defn- ^js load-canvas [] (render-chart))
 ```
 
 <details>
 <summary>Details</summary>
 
-A `^js` type hint written in test code. The hint exists so shadow-cljs infers an extern and the Closure compiler leaves
-a JS interop property name alone under `:advanced` optimizations (shadow-cljs User's Guide, 14.2.1 _Externs Inference_).
-A test build never runs `:advanced`, so nothing reads the hint and nothing would change if it were not there. Remove it.
+A `^js` type hint tells shadow-cljs that a value is a JS object, so it can infer the externs for the interop calls on
+it. shadow-cljs reads the hint in every build, not only under `:advanced`: when an interop call reads a value it cannot
+type, it prints an `:infer-warning` ("Cannot infer target type") in a test build too. So a hint on a value that an
+interop call reads keeps the build log clean, and the rule leaves it. A hint on a value that nothing reads through
+interop changes nothing, and the rule flags it.
 
-Both spellings count — `^js` and `^{:tag js}` — wherever they are written: a `defn` or `fn` parameter, a `let`, `loop`
-or `doseq` binding, map or vector destructuring, or inline on an expression (`(.-textContent ^js %)`). Left alone:
-`^js/Foo`, which names a type rather than asking for inference, and `^clj`, `^boolean`, `^:private` and every other tag;
-the symbol `js` anywhere but the tag slot, so `^:private js` and `^{:doc js}` are not hints; and anything inside a
-quoted or discarded form. Only test code is read: a hint in source can be load-bearing, and only a release build's infer
-warnings can say which.
+A hint counts as read when the hinted value is the target of `(.f x)`, `(.-p x)`, `(.. x -p)` or `(. x f)`; when it is
+the first argument of `->` or `some->` and the next step is an interop call; or when it is the first argument of `doto`
+and any step is. A hint on a bound name — a `let`, `loop` or `doseq` binding, a `defn` or `fn` parameter, map or vector
+destructuring, or `this-as` — counts as read when that name is an interop target anywhere in the form that binds it. A
+hint on a defined name or on an arglist names what a definition returns, which its callers read, so it is left alone.
+Shadowing is not tracked: an inner binding of the same name that an interop call reads keeps an outer hint.
+
+Both spellings count — `^js` and `^{:tag js}`. Left alone: `^js/Foo`, which names a type rather than asking for
+inference, and `^clj`, `^boolean`, `^:private` and every other tag; the symbol `js` anywhere but the tag slot, so
+`^:private js` and `^{:doc js}` are not hints; and anything inside a quoted or discarded form. Only test code is read:
+in source, the rule leaves every hint alone.
 
 </details>
 

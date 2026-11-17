@@ -221,21 +221,47 @@
   (let [found (:js-hint-in-test (result))
         by-row (frequencies (map :row found))]
 
-    (testing "flags the hint wherever it is written"
-      (is (= 1 (by-row 92))
-          "a let binding")
+    (testing "flags a hint that no interop call reads, wherever it is written"
       (is (= 1 (by-row 93))
-          "a map destructuring key")
+          "a map destructuring key read only by a keyword lookup")
       (is (= 2 (by-row 94))
-          "both hints in a vector destructuring")
+          "both hints in a vector destructuring, read by nothing")
       (is (= 1 (by-row 95))
           "the ^{:tag js} spelling")
-      (is (= 1 (by-row 96))
-          "inline on an argument")
-      (is (= 1 (by-row 97))
-          "inline on a nested expression")
-      (is (= 1 (by-row 100))
-          "a defn parameter in a test helper"))
+      (is (= 1 (by-row 132))
+          "a let binding read only by a plain call")
+      (is (= 1 (by-row 138))
+          "inline on an argument of a plain call")
+      (is (= 1 (by-row 145))
+          "a defn parameter read only by a plain call"))
+
+    (testing "leaves a hint that an interop call reads, because it stops an :infer-warning"
+      (is (not (by-row 92))
+          "a let binding read by .-textContent")
+      (is (not (by-row 96))
+          "inline on the target of .-textContent")
+      (is (not (by-row 97))
+          "inline on the target of ..")
+      (is (not (by-row 100))
+          "a defn parameter read by .-value")
+      (is (not (by-row 128))
+          "a let binding read by a method call")
+      (is (not (by-row 129))
+          "a let binding threaded into a property read")
+      (is (not (by-row 130))
+          "a let binding that doto passes to a method call")
+      (is (not (by-row 131))
+          "a let binding read through the . special form")
+      (is (not (by-row 140))
+          "a hint on the defined name, which callers read")
+      (is (not (by-row 148))
+          "a hint on an arglist, which callers read")
+      (is (not (by-row 151))
+          "a let binding read by a method call inside a #() literal")
+      (is (not (by-row 152))
+          "inline on the target of a property read inside a #() literal")
+      (is (not (by-row 143))
+          "a this-as binding read by .."))
 
     (testing "leaves every other tag alone"
       (is (not (by-row 108))
@@ -268,11 +294,11 @@
           "a hint in source can be load-bearing"))
 
     (testing "names the hint and what to do"
-      (is (= "Remove the hint — nothing reads it in a build that is not :advanced."
+      (is (= "Remove the hint — no interop call reads this value, so shadow-cljs has nothing to infer."
              (:hint (first found)))))
 
-    (testing "flags exactly the hints"
-      (is (= 8 (count found))))))
+    (testing "flags exactly the unread hints"
+      (is (= 7 (count found))))))
 
 (def ^:private paths-fixture-dir "test-projects/tests-paths-app")
 

@@ -123,3 +123,31 @@
 #_(deftest discarded-hint
     (let [^js gone (.-x r)]
       (is (= 1 gone))))
+
+(deftest js-hints-read-by-interop
+  (let [^js canvas (load-canvas)
+        ^js threaded (load-canvas)
+        ^js dotted (load-canvas)
+        ^js special (load-canvas)
+        ^js unread (load-canvas)]
+    (is (= 1 (count (.getObjects canvas))))
+    (is (= 1 (-> threaded .-dataset .-pendingOp)))
+    (doto dotted (.focus))
+    (is (= 1 (. special -width)))
+    (is (= 1 (count unread)))
+    (is (= 1 (count ^js (load-canvas))))))
+
+(defn- ^js load-canvas [] (js/Object.))
+
+(defn- this-as-hint []
+  (this-as ^js el (.. el -dataset -pendingOp)))
+
+(defn- unread-param [^js el]
+  (str el))
+
+(defn- load-image ^js [] (js/Object.))
+
+(deftest js-hints-read-inside-a-fn-literal
+  (let [^js block (load-canvas)]
+    (is (= ["P"] (mapv #(.-tagName ^js %) [block])))
+    (is (= 1 (count (filter #(.dispatchEvent block %) [1]))))))
