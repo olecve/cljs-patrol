@@ -7,7 +7,9 @@
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [rewrite-clj.node :as n]
-   [rewrite-clj.zip :as z]))
+   [rewrite-clj.zip :as z])
+  (:import
+   (java.util IdentityHashMap)))
 
 (def ^:private deftest-heads
   "Forms that define a test var.
@@ -272,25 +274,43 @@
              (identical? (z/node loc) (some-> (hiccup/literal-map parent) :tag z/node)))
         (z/up parent)))))
 
-(def ^:private binding-vector-heads
-  "Forms whose bindings vector pairs a name with the value it takes.
+(def ^:private let-heads
+  "Forms whose bindings vector pairs a name with the value it takes, and the name with its tag."
+  #{"let" "loop" "when-let" "if-let" "when-some" "if-some" "when-first"})
 
-  A name bound to a hinted local there carries the hint on."
-  #{"let" "loop" "when-let" "if-let" "when-some" "if-some" "binding"})
+(def ^:private loop-heads
+  "Forms whose bindings vector binds names to elements of a collection."
+  #{"doseq" "for"})
+
+(def ^:private params-heads
+  "Forms whose first vector, or the first vector of each arity, is a params vector."
+  #{"fn" "fn*" "defn" "defn-" "defmethod" "defmacro"})
+
+(def ^:private method-heads
+  "Forms whose method lists open with a name and a params vector."
+  #{"reify" "deftype" "defrecord" "extend-type" "extend-protocol" "specify" "specify!"})
+
+(def ^:private field-heads
+  "Forms whose second argument is a vector of fields."
+  #{"deftype" "defrecord"})
 
 (def ^:private return-hint-heads
-  "Definitions whose callers read a return hint.
-
-  A hint on the defined name or on an arglist types what a call returns."
+  "Definitions whose callers read a hint on the defined name as the type of the value."
   #{"def" "defonce" "defn" "defn-"})
 
-(def ^:private first-step-threads
-  "Threads that put the threaded value in the target slot of a list step."
-  #{"->" "some->"})
+(def ^:private reading-heads
+  "Core forms this rule reads the shape of, resolved so a project's own `m/doto` is not one."
+  (into #{}
+        (map #(symbol "cljs.core" %))
+        (concat let-heads loop-heads params-heads method-heads return-hint-heads
+                ["->" "some->" "->>" "some->>" "doto" "cond->" "cond->>" "as->" "this-as" "catch" "try"
+                 "comment" "quote"])))
 
-(def ^:private last-step-threads
-  "Threads that put the threaded value last, so only a bare interop symbol step reads it."
-  #{"->>" "some->>"})
+(defn- core-head
+  "Return the core name the list at `loc` opens with, among those this rule reads, or nil."
+  [loc ns-info]
+  (when (#{:list :fn} (some-> loc z/tag))
+    (some-> (heads/resolve-head loc ns-info reading-heads) name)))
 
 (defn- interop-head? [head]
   (and head (str/starts-with? head ".")))
@@ -301,32 +321,56 @@
 (defn- interop-call? [loc]
   (and (#{:list :fn} (z/tag loc)) (interop-head? (some-> loc z/down parser/sym-name))))
 
+(defn- bare-interop-step?
+  "True if a step of a last-position thread puts the value in the target slot.
+
+  That is `.-p` or `(.-p)`: an interop step with no arguments of its own."
+  [loc]
+  (or (interop-symbol? loc)
+      (and (interop-call? loc) (= 1 (count (parser/written-child-locs loc))))))
+
 (defn- interop-step? [loc]
   (or (interop-symbol? loc) (interop-call? loc)))
-
-(defn- every-other [locs]
-  (take-nth 2 locs))
 
 (defn- reads-threaded-value?
   "True if the thread headed by `head` reads its first argument through interop.
 
   `steps` are the forms after that argument."
   [head steps]
-  (cond
-    (contains? first-step-threads head) (some-> (first steps) interop-step?)
-    (contains? last-step-threads head) (some-> (first steps) interop-symbol?)
-    (= "doto" head) (some interop-step? steps)
-    (= "cond->" head) (some interop-step? (every-other (rest steps)))
-    (= "cond->>" head) (some interop-symbol? (every-other (rest steps)))
-    :else false))
+  (case head
+    ("->" "some->") (some-> (first steps) interop-step?)
+    ("->>" "some->>") (some-> (first steps) bare-interop-step?)
+    "doto" (some interop-step? steps)
+    "cond->" (some interop-step? (take-nth 2 (rest steps)))
+    "cond->>" (some bare-interop-step? (take-nth 2 (rest steps)))
+    false))
+
+(defn- reader-conditional-branch
+  "Return the platform keyword of the reader conditional branch `loc` is, or nil."
+  [loc]
+  (let [branches (z/up loc)
+        reader (some-> branches z/up)]
+    (when (and (= :reader-macro (some-> reader z/tag))
+               (#{"?" "?@"} (some-> reader z/down parser/raw)))
+      (some-> loc z/left parser/raw))))
 
 (defn- compiled-code?
-  "True unless loc sits in code that never compiles.
+  "True unless loc sits in code that shadow-cljs never compiles.
 
-  That is a quoted or discarded form, or a `(comment …)` block."
-  [loc]
-  (not (or (hiccup/inside-unrendered-form? loc)
-           (some? (enclosing-list-head loc #{"quote" "comment"})))))
+  That is `#_`, a quoted form or a syntax-quoted one outside `~`, a `(comment …)` block, and
+  a `#?(:clj …)` branch."
+  [loc ns-info]
+  (loop [current loc
+         unquoted? false]
+    (let [parent (z/up current)]
+      (cond
+        (nil? parent) true
+        (#{:uneval :quote} (z/tag parent)) false
+        (#{:unquote :unquote-splicing} (z/tag parent)) (recur parent true)
+        (= :syntax-quote (z/tag parent)) (when unquoted? (recur parent false))
+        (#{"comment" "quote"} (core-head parent ns-info)) false
+        (= ":clj" (reader-conditional-branch current)) false
+        :else (recur parent unquoted?)))))
 
 (defn- outermost-meta
   "Return the outermost metadata node wrapped around loc, or loc itself.
@@ -341,126 +385,178 @@
         (recur parent)
         current))))
 
-(declare name-read?)
+(defn- js-hinted?
+  "True if `outer`, the outermost metadata around a form, carries a `^js` hint."
+  [outer]
+  (some #(and (= :meta (z/tag %)) (js-type-hint (z/down %))) (take-while #(= :meta (z/tag %))
+                                                                         (iterate #(some-> % z/down z/rightmost) outer))))
 
-(defn- as-thread-name-read?
-  "True if `loc` starts an `as->` whose name an interop call reads.
+(defn- child-index [loc]
+  (count (take-while some? (iterate z/left (z/left loc)))))
 
-  The name takes the threaded value and its tag."
-  [loc seen]
-  (let [parent (z/up loc)
-        [head-loc value-loc name-loc] (some-> parent parser/written-child-locs)]
-    (and (= "as->" (some-> head-loc parser/sym-name))
-         (identical? (z/node loc) (some-> value-loc z/node))
-         (some? name-loc)
-         (name-read? (parser/raw name-loc) parent name-loc seen))))
+(defn- first-vector-child? [loc parent]
+  (identical? (z/node loc) (some->> parent
+                                    parser/written-child-locs
+                                    (filter #(= :vector (z/tag (heads/unwrap-meta %))))
+                                    first
+                                    z/node)))
+
+(defn- params-vector?
+  "True if the vector `outer` sits where a params or fields vector of a binding form goes."
+  [outer ns-info]
+  (let [parent (z/up outer)
+        head (core-head parent ns-info)
+        grand-head (core-head (some-> parent z/up) ns-info)]
+    (boolean
+     (or (and (contains? params-heads head) (first-vector-child? outer parent))
+         (and (contains? field-heads head) (= 2 (child-index outer)))
+         (and (= :list (some-> parent z/tag))
+              (or (and (contains? params-heads grand-head)
+                       (identical? (z/node outer) (some-> parent z/down z/node)))
+                  (and (contains? method-heads grand-head)
+                       (first-vector-child? outer parent))))))))
+
+(defn- bindings-vector?
+  "True if the vector `outer` is the bindings vector of a `let`-like form or of `doseq` or `for`."
+  [outer ns-info]
+  (let [head (core-head (z/up outer) ns-info)]
+    (and (or (contains? let-heads head) (contains? loop-heads head))
+         (= 1 (child-index outer)))))
+
+(defn- binding-scope
+  "Return the form a hint on a bound name scopes over, or nil when the hint binds no name.
+
+  The name is bound when it sits in a params, fields or bindings vector, also inside
+  destructuring there, or as the name of `this-as` or `catch`."
+  [outer ns-info]
+  (let [parent (z/up outer)
+        head (core-head parent ns-info)]
+    (if (and (contains? #{"this-as" "catch"} head)
+             (= (if (= "catch" head) 2 1) (child-index outer)))
+      parent
+      (loop [element outer]
+        (let [container (z/up element)]
+          (cond
+            (not (#{:vector :map} (some-> container z/tag))) nil
+            (and (= :vector (z/tag container)) (params-vector? (outermost-meta container) ns-info))
+            (some-> (outermost-meta container) z/up)
+            (and (= :vector (z/tag container)) (bindings-vector? container ns-info))
+            (when (even? (child-index element)) (z/up container))
+            :else (recur container)))))))
+
+(defn- top-level [loc]
+  (last (take-while some? (iterate z/up loc))))
+
+(defn- name-occurrences
+  "Return the locs where the symbol `sym-text` is written in `scope`, one walk per scope and file."
+  [sym-text scope]
+  (let [^IdentityHashMap by-scope @(parser/file-state ::name-occurrences (IdentityHashMap.))
+        index (or (.get by-scope (z/node scope))
+                  (let [built (->> scope
+                                   parser/descendant-locs
+                                   (filter #(= :token (z/tag %)))
+                                   (group-by parser/raw))]
+                    (.put by-scope (z/node scope) built)
+                    built))]
+    (get index sym-text)))
+
+(declare value-read?)
+
+(defn- name-read?
+  "True if an interop call reads the local `sym-text`, bound at `binding-loc`, in compiled code in `scope`.
+
+  Names compare as written, so `other/el` is not the local `el`. A read that carries its own `^js` does not
+  need the binding's. `seen` stops a chain of locals that refers back to itself."
+  [sym-text scope binding-loc ns-info seen]
+  (when-not (contains? seen [sym-text (z/node scope)])
+    (let [seen (conj seen [sym-text (z/node scope)])]
+      (boolean
+       (some #(let [outer (outermost-meta %)]
+                (and (not (identical? (z/node %) (z/node binding-loc)))
+                     (not (and (not (identical? outer %)) (js-hinted? outer)))
+                     (compiled-code? % ns-info)
+                     (value-read? outer ns-info seen)))
+             (name-occurrences sym-text scope))))))
 
 (defn- interop-target?
   "True if `loc` is the value an interop call reads.
 
   That is the target of `(.f x)`, `(.-p x)`, `(.. x -p)` and `(. x f)`, also inside a `#(…)`
-  literal, and the threaded value of a thread whose next step, or any step for `doto` and
-  `cond->`, is an interop call."
-  [loc]
+  literal, and the threaded value of a thread whose step puts it in the target slot."
+  [loc ns-info]
   (let [parent (z/up loc)
-        [head-loc target-loc & steps] (some-> parent parser/written-child-locs)
-        head (some-> head-loc parser/sym-name)]
+        [head-loc target-loc & steps] (some-> parent parser/written-child-locs)]
     (and (#{:list :fn} (some-> parent z/tag))
          (identical? (z/node loc) (some-> target-loc z/node))
-         (or (interop-head? head)
-             (boolean (reads-threaded-value? head steps))))))
+         (or (interop-head? (some-> head-loc parser/sym-name))
+             (boolean (reads-threaded-value? (core-head parent ns-info) steps))))))
 
-(defn- alias-name
-  "Return the name that a let-like binding gives `loc` as its value, or nil."
-  [loc]
-  (let [bindings (z/up loc)
-        pairs (some-> bindings parser/written-child-locs)
-        index (first (keep-indexed #(when (identical? (z/node loc) (z/node %2)) %1) pairs))]
-    (when (and (= :vector (some-> bindings z/tag))
-               (contains? binding-vector-heads (some-> bindings z/up z/down parser/sym-name))
-               index
-               (odd? index))
-      (some-> (nth pairs (dec index)) parser/raw))))
+(defn- bound-name-read?
+  "True if `loc` is the value a name is bound to, and an interop call reads that name.
 
-(defn- occurrence-read?
-  "True if the written occurrence `loc` of a hinted name is read through interop.
+  The name is a `let`-like binding, a `def` or `defonce` var, or an `as->` name, which only the
+  first step reads before it is bound again."
+  [loc ns-info seen]
+  (let [parent (z/up loc)
+        head (core-head parent ns-info)
+        index (child-index loc)]
+    (cond
+      (and (= :vector (some-> parent z/tag)) (bindings-vector? parent ns-info)
+           (contains? let-heads (core-head (z/up parent) ns-info)) (odd? index))
+      (let [name-loc (heads/unwrap-meta (z/left loc))]
+        (and (= :token (z/tag name-loc))
+             (name-read? (parser/raw name-loc) (z/up parent) name-loc ns-info seen)))
 
-  It is read directly, through an `as->` name, or through a local bound to it."
-  [loc scope seen]
-  (or (interop-target? loc)
-      (as-thread-name-read? loc seen)
-      (boolean (when-let [alias (alias-name loc)]
-                 (name-read? alias scope nil seen)))))
+      (and (#{"def" "defonce"} head) (= 2 index))
+      (let [name-loc (heads/unwrap-meta (z/left loc))]
+        (name-read? (parser/raw name-loc) (top-level loc) name-loc ns-info seen))
 
-(defn- name-read?
-  "True if an interop call reads the local `sym-text` in compiled code in `scope`.
+      (and (= "as->" head) (= 1 index))
+      (let [name-loc (z/right loc)
+            first-step (some-> name-loc z/right)]
+        (and first-step
+             (name-read? (parser/raw name-loc) first-step name-loc ns-info seen)))
 
-  The occurrence at `binding-loc` does not count. Names compare as written, so `other/el` is not the local `el`. `seen` stops a chain of
-  aliases that refers back to itself."
-  [sym-text scope binding-loc seen]
-  (when-not (contains? seen sym-text)
-    (let [seen (conj seen sym-text)]
-      (boolean
-       (some #(and (= :token (z/tag %))
-                   (= sym-text (parser/raw %))
-                   (not (and binding-loc (identical? (z/node %) (z/node binding-loc))))
-                   (compiled-code? %)
-                   (occurrence-read? (outermost-meta %) scope seen))
-             (parser/descendant-locs scope))))))
+      :else false)))
 
-(defn- hinted-form [hint-loc]
-  (some-> hint-loc z/down z/rightmost))
+(defn- value-read?
+  "True if the value written at `loc` is read through interop, where it stands or through a name bound to it."
+  [loc ns-info seen]
+  (or (interop-target? loc ns-info)
+      (bound-name-read? loc ns-info seen)))
 
 (defn- return-hint?
   "True if the hint names what a definition returns, which its callers read.
 
-  Such a hint sits on the name a `def` or `defn` defines, or on an arglist of a `defn`,
-  in a single or a multi-arity form."
-  [hint-loc]
-  (let [outer (outermost-meta hint-loc)
-        parent (z/up outer)
-        head-of #(some-> % z/down parser/sym-name)
-        defining? #(contains? return-hint-heads (head-of %))
-        arglist? (= :vector (some-> (hinted-form hint-loc) z/tag))]
+  Such a hint sits on the name a `def` or `defn` defines, or on an arglist of a `defn`, in a
+  single or a multi-arity form."
+  [outer hinted ns-info]
+  (let [parent (z/up outer)
+        head (core-head parent ns-info)]
     (boolean
-     (or (and (defining? parent)
-              (or (identical? (z/node outer) (some-> parent z/down z/right z/node))
-                  (and arglist? (not= "def" (head-of parent)))))
-         (and arglist?
-              (= :list (some-> parent z/tag))
-              (identical? (z/node outer) (some-> parent z/down z/node))
-              (#{"defn" "defn-"} (head-of (z/up parent))))))))
-
-(defn- binding-hint?
-  "True if the hint sits where a name is bound.
-
-  That is a bindings or params vector, destructuring, or the name of `this-as`. Elsewhere a hinted symbol is a use, and the hint types that one use."
-  [hint-loc]
-  (let [outer (outermost-meta hint-loc)
-        parent (z/up outer)]
-    (or (#{:vector :map} (some-> parent z/tag))
-        (and (= "this-as" (some-> parent z/down parser/sym-name))
-             (identical? (z/node outer) (some-> parent z/down z/right z/node))))))
+     (or (and (contains? return-hint-heads head) (= 1 (child-index outer)))
+         (and (= :vector (z/tag hinted))
+              (#{"defn" "defn-"} (or head (core-head (some-> parent z/up) ns-info)))
+              (params-vector? outer ns-info))))))
 
 (defn- hint-read?
   "True if a `^js` hint changes what shadow-cljs infers.
 
-  shadow-cljs prints an `:infer-warning` for an interop call on a value it cannot type,
-  and the hint is what types it. A hint on a bound name is read when an interop call reads
-  that name, or a local bound to it, anywhere in the top-level form. A hint on an interop
-  call types what the call returns. Any other inline hint is read only when its own value
-  is the target. Shadowing is not tracked."
-  [hint-loc]
-  (let [hinted (hinted-form hint-loc)
-        outer (outermost-meta hint-loc)]
+  shadow-cljs prints an `:infer-warning` for an interop call on a value it cannot type, and
+  the hint is what types it. A hint on a bound name is read when an interop call reads that
+  name, or a local bound to it, in the form that binds it. Any other hint types the value it
+  is written on, and is read when that value is an interop target or is bound to a name that
+  is. Shadowing is not tracked."
+  [hint-loc ns-info]
+  (let [outer (outermost-meta hint-loc)
+        hinted (heads/unwrap-meta hint-loc)
+        scope (binding-scope outer ns-info)]
     (boolean
-     (or (return-hint? hint-loc)
-         (interop-call? hinted)
-         (interop-target? outer)
-         (as-thread-name-read? outer #{})
-         (and (binding-hint? hint-loc)
-              (some? (parser/sym-name hinted))
-              (name-read? (parser/raw hinted) (parser/top-level-loc hint-loc) hinted #{}))))))
+     (cond
+       (return-hint? outer hinted ns-info) true
+       scope (and (= :token (z/tag hinted))
+                  (name-read? (parser/raw hinted) scope hinted ns-info #{}))
+       :else (value-read? outer ns-info #{})))))
 
 (defn- js-hint-finding
   "Build the finding for a `^js` hint.
@@ -485,9 +581,8 @@
   [paths loc ns-info file]
   (when (test-file? paths ns-info file)
     (when-let [hint-loc (js-type-hint loc)]
-      (when-not (or (hiccup/inside-unrendered-form? hint-loc)
-                    (inside-written-out-quote? hint-loc)
-                    (hint-read? hint-loc))
+      (when (and (compiled-code? hint-loc ns-info)
+                 (not (hint-read? hint-loc ns-info)))
         (js-hint-finding hint-loc (parser/enclosing-definition-name hint-loc) file)))))
 
 (defn- leading-article-finding [loc file]

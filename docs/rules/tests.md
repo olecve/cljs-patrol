@@ -195,20 +195,24 @@ the rule leaves it. A hint on a value that nothing reads through interop changes
 What counts as read:
 
 - The hinted value is the target of `(.f x)`, `(.-p x)`, `(.. x -p)` or `(. x f)`, also inside a `#(…)` literal.
-- The hinted value is threaded into an interop step: the next step of `->` or `some->`, a bare `.-p` or `.f` next step
-  of `->>` or `some->>`, any step of `doto` or `cond->`, a bare interop step of `cond->>`, or the name of `as->` when an
-  interop call reads it.
-- The hint is on an interop call itself, `^js (.-value x)`, which types what the call returns.
-- A hint on a bound name — a `let`, `loop` or `doseq` binding, a parameter of `fn`, `defn`, `reify` or `deftype`, a
-  `deftype` field, destructuring, or `this-as` — when an interop call reads that name anywhere in the top-level form, or
-  reads a local that a `let`-like binding binds to it.
+- The hinted value is threaded into an interop step: the next step of `->` or `some->`; a next step of `->>` or
+  `some->>` that is `.-p`, `.f` or an interop call with no arguments, such as `(.-p)`; any step of `doto` or `cond->`;
+  such a bare step of `cond->>`.
+- The hinted value is bound to a name that an interop call reads: a `let`-like binding, a `def` or `defonce` var, or an
+  `as->` name, which only the first step reads before it is bound again. This is how `(let [el ^js (load)] (.-p el))`
+  and `(let [v ^js (.-value x)] (.-p v))` stay.
+- A hint on a bound name — a `let`, `loop` or `doseq` binding, a parameter of `fn`, `defn`, `defmethod`, `reify` or
+  `deftype`, a `deftype` field, destructuring, or the name of `this-as` or `catch` — when an interop call reads that
+  name, or a local bound to it, in the form that binds it.
 - A hint on the name a `def` or `defn` defines, or on a `defn` arglist (single or multi-arity), in any order with other
   metadata. Callers read it as the type of what a call returns. A `defmethod` or inline `fn` arglist is not one.
 
-Reads in code that never compiles do not count: inside `#_`, a quoted form or `(comment …)`. Names compare as written,
-so `other/el` is not the local `el`. Shadowing is not tracked: an inner binding of the same name that an interop call
-reads keeps an outer hint. Any other inline hint, such as one on a plain call argument, is flagged unless its own value
-is the target.
+A hint in code that shadow-cljs never compiles is not checked, and a read there does not count: inside `#_`, a quoted
+form, a syntax-quoted form outside `~`, `(comment …)`, or a `#?(:clj …)` branch. Names compare as written, so `other/el`
+is not the local `el`, and a project's own `m/doto` is not `doto`. A read that carries its own `^js` does not need the
+binding's hint. A hint on a use inside a vector or map literal, `[^js el]`, types only that use. `binding` gives a
+dynamic var no tag, so it carries no hint on. Shadowing is not tracked: an inner binding of the same name that an
+interop call reads keeps an outer hint.
 
 The rule cannot tell when shadow-cljs would print no warning anyway. It skips the warning for property names it knows
 from its externs, such as the DOM's `width`, `textContent`, `value` or `focus`. So a hint read only through such a name

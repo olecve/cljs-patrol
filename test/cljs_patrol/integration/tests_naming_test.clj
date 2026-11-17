@@ -218,7 +218,8 @@
           "two reads in one test still collapse, which no stable key can split"))))
 
 (deftest js-hint-in-test-fixture-test
-  (let [found (:js-hint-in-test (result))
+  (let [all-found (:js-hint-in-test (result))
+        found (filter #(str/ends-with? (:file %) "naming_test.cljs") all-found)
         by-row (frequencies (map :row found))]
 
     (testing "flags a hint that no interop call reads, wherever it is written"
@@ -233,11 +234,11 @@
       (is (= 1 (by-row 138))
           "inline on an argument of a plain call")
       (is (= 1 (by-row 145))
-          "a defn parameter read only by a plain call"))
+          "a defn parameter read only by a plain call")
+      (is (= 1 (by-row 92))
+          "a let binding whose only read carries its own ^js"))
 
     (testing "leaves a hint that an interop call reads, because it stops an :infer-warning"
-      (is (not (by-row 92))
-          "a let binding read by .-textContent")
       (is (not (by-row 96))
           "inline on the target of .-textContent")
       (is (not (by-row 97))
@@ -290,7 +291,7 @@
           "^{:doc js} — js is a map value under :doc, not :tag"))
 
     (testing "says nothing in a production namespace"
-      (is (not-any? #(str/ends-with? (:file %) "views.cljs") found)
+      (is (not-any? #(str/ends-with? (:file %) "views.cljs") all-found)
           "a hint in source can be load-bearing"))
 
     (testing "names the hint and what to do"
@@ -298,7 +299,7 @@
              (:hint (first found)))))
 
     (testing "flags exactly the unread hints"
-      (is (= 7 (count (remove #(str/ends-with? (:file %) "js_hints_test.cljs") found)))))))
+      (is (= 8 (count found))))))
 
 (deftest js-hint-in-test-reading-shapes-test
   (let [found (filter #(str/ends-with? (:file %) "js_hints_test.cljs") (:js-hint-in-test (result)))
@@ -310,7 +311,6 @@
                                   ["multi-arity" "arglist hints of a multi-arity defn"]
                                   ["reify-fake" "a reify method parameter read by .-type"]
                                   ["FakeNode" "a deftype field read by .-x"]
-                                  ["hint-on-interop-call" "a hint on the interop call itself"]
                                   ["thread-last-read" "->> with a bare interop step"]
                                   ["some-thread-read" "some-> with an interop step"]
                                   ["cond-thread-read" "cond-> with an interop step"]
@@ -319,7 +319,16 @@
                                   ["alias-read" "a local bound to the hinted local, read by .-x"]
                                   ["as-thread-inline-read" "inline on the value an as-> name takes"]
                                   ["cond-thread-last-read" "cond->> with a bare interop step"]
-                                  ["destructured-read" "a destructured key read outside its map"]]]
+                                  ["destructured-read" "a destructured key read outside its map"]
+                                  ["inline-let-value-read" "inline on a let value whose name .-pendingOp reads"]
+                                  ["init-def" "inline on a def value whose var .-pendingOp reads"]
+                                  ["interop-call-result-read" "a hint on an interop call whose bound result is read"]
+                                  ["MutableNode" "a deftype field hint written before ^:mutable"]
+                                  ["catch-read" "a catch name read by .-response"]
+                                  ["thread-last-call-step-read" "->> with an interop call step and no arguments"]
+                                  ["cond-thread-last-call-step-read" "cond->> with an interop call step"]
+                                  ["comment-hint" "a hint inside a (comment …) block"]
+                                  ["unquoted-read" "a read under ~ inside a syntax-quote"]]]
         (is (not (contains? flagged definition))
             shape)))
 
@@ -330,12 +339,29 @@
                                   ["read-only-when-discarded" "a read only inside #_"]
                                   ["read-only-in-comment" "a read only inside (comment …)"]
                                   ["namespaced-namesake" "other/el, which is not the local el"]
-                                  ["hinted-vector-value" "a def's vector value, which is not an arglist"]]]
+                                  ["hinted-vector-value" "a def's vector value, which is not an arglist"]
+                                  ["hint-on-interop-call" "a hint on an interop call whose result nothing reads"]
+                                  ["vector-literal-use" "inline on a use inside a vector literal"]
+                                  ["body-vector-not-alias" "a body vector under let is not a binding"]
+                                  ["dynamic-binding" "binding gives a dynamic var no tag"]
+                                  ["as-thread-rebound" "an as-> name read only after it is bound again"]
+                                  ["hinted-defonce-value" "a defonce vector value"]
+                                  ["body-vector" "a vector in a defn body"]
+                                  ["project-doto" "a project's own m/doto"]
+                                  ["rebound-name-not-read" "a name bound again, which is not a value"]]]
         (is (contains? flagged definition)
             shape)))
 
     (testing "flags exactly those"
-      (is (= 7 (count found))))))
+      (is (= 16 (count found))))))
+
+(deftest js-hint-in-test-reader-conditional-test
+  (let [flagged (->> (:js-hint-in-test (result))
+                     (filter #(str/ends-with? (:file %) "js_hints_cljc_test.cljc"))
+                     (map (comp str :test))
+                     set)]
+    (is (= #{"clj-branch-read"} flagged)
+        "a read only in the :clj branch, which shadow-cljs never compiles")))
 
 (def ^:private paths-fixture-dir "test-projects/tests-paths-app")
 
