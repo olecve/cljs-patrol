@@ -39,3 +39,7 @@
 (deftest branch-use-unread
   (let [^js el (load-canvas)]
     (is (some? #?(:cljs el :clj nil)))))
+
+(deftest absent-branch-before-target
+  (let [^js el (load-canvas)]
+    (is (= 1 (.-pendingOp #?(:clj nil) el)))))

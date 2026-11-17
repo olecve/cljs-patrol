@@ -1,6 +1,8 @@
 (ns webapp.js-hints-test
   (:require [cljs.test :refer [deftest is]]
-            [webapp.macros :as m]))
+            [webapp.macros :as m]
+            [webapp.utils :refer-macros [click!]])
+  (:require-macros [webapp.focus :as mm]))
 
 (defn- load-canvas [] (js/Object.))
 
@@ -271,3 +273,19 @@
 
 (deftest time-tail-read
   (is (= 1 (.-pendingOp (time ^js (load-canvas))))))
+
+(deftest macro-alias-read
+  (let [^js el (load-canvas)]
+    (mm/focus! el)))
+
+(deftest referred-macro-read
+  (let [^js el (load-canvas)]
+    (click! el)))
+
+(deftest cljs-only-macro-read
+  (let [^js el (load-canvas)]
+    (simple-benchmark [x el] (.-foo x) 10)))
+
+(deftest nil-tag-read
+  (let [^js el (load-canvas)]
+    (is (= 1 (.-pendingOp ^{:tag nil} el)))))

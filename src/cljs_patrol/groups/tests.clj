@@ -301,14 +301,30 @@
   left alone. A head counts by its name, qualified or not. Core macros and special forms
   count through [[core-macro?]], and every name that starts with `def` or `with-` counts too,
   so `s/defn` and `m/with-canvas` do."
-  #{"this-as" "specify" "specify!" "catch" "finally" "are" "async" "testing" "go" "go-loop" "alt!"})
+  #{"this-as" "specify" "specify!" "simple-benchmark" "exists?" "implements?" "satisfies?" "goog-define"
+    "unsafe-cast" "are" "async" "testing" "go" "go-loop" "alt!"})
+
+(def ^:private core-macro-names
+  "Names of Clojure's own core macros, read once from its public vars."
+  (into #{}
+        (keep (fn [[sym core-var]] (when (:macro (meta core-var)) (name sym))))
+        (ns-publics 'clojure.core)))
 
 (defn- core-macro?
-  "True if the core name `core-name` is a macro or a special form, read from Clojure's own core."
+  "True if `core-name` names a core macro or a special form."
   [core-name]
-  (let [sym (symbol core-name)]
-    (or (special-symbol? sym)
-        (boolean (some-> (ns-resolve 'clojure.core sym) meta :macro)))))
+  (or (contains? core-macro-names core-name)
+      (special-symbol? (symbol core-name))))
+
+(defn- macro-head?
+  "True if the ns form names the head `head-text` as a macro.
+
+  That is a `:refer-macros` or `:require-macros` refer, or an alias of a macro namespace."
+  [head-text ns-info]
+  (let [[alias head-name] (if (str/includes? head-text "/") (str/split head-text #"/" 2) [nil head-text])]
+    (if alias
+      (contains? (:macro-aliases ns-info) alias)
+      (contains? (:macro-refers ns-info) head-name))))
 
 (defn- passing-name? [head-name]
   (or (contains? passing-heads head-name)
@@ -334,8 +350,8 @@
       (nil? head-name) [:passing nil]
       (str/starts-with? head-name ".") [:interop nil]
       (or (passing-name? head-name)
-          (and known-name (core-macro? known-name))
-          (core-macro? head-name)) [:passing known-name]
+          (core-macro? head-name)
+          (macro-head? (parser/raw head) ns-info)) [:passing known-name]
       core-name [:core-fn core-name]
       :else [:other nil])))
 
@@ -358,16 +374,32 @@
   (first (head-info loc ns-info)))
 
 (defn- core-head
-  "Return the core name the list at `loc` opens with, or nil."
+  "Return the name the list at `loc` opens with when it reads as a core form, or nil.
+
+  That is the core name a head resolves to, or the bare written name of an unqualified head the resolver cannot place,
+  read as core's on purpose."
   [loc ns-info]
   (second (head-info loc ns-info)))
 
+(declare other-platforms)
+
+(defn- read-as-nothing?
+  "True if shadow-cljs reads the form at `loc` as nothing.
+
+  That is `#_`, or a reader conditional whose every branch is for another platform."
+  [loc]
+  (or (= :uneval (z/tag loc))
+      (and (= :reader-macro (z/tag loc))
+           (= "?" (some-> loc z/down parser/raw))
+           (every? #(contains? other-platforms (parser/raw %))
+                   (take-nth 2 (some-> loc z/down z/right parser/child-locs))))))
+
 (defn- code-index
-  "Return the position of loc among its parent's children, `#_` forms left out."
+  "Return the position of loc among its parent's children, as shadow-cljs reads them."
   [loc]
   (->> (iterate z/left (z/left loc))
        (take-while some?)
-       (remove #(= :uneval (z/tag %)))
+       (remove read-as-nothing?)
        count))
 
 (defn- reader-conditional-branch
@@ -430,7 +462,8 @@
   (let [tag-loc (z/down meta-loc)]
     (case (z/tag tag-loc)
       :token (boolean (re-matches #"js(/.+)?" (parser/raw tag-loc)))
-      :map (some? (:tag (hiccup/literal-map tag-loc)))
+      :map (let [tag (some-> (hiccup/literal-map tag-loc) :tag parser/raw)]
+             (boolean (and tag (not= "nil" tag))))
       false)))
 
 (defn- own-tag?

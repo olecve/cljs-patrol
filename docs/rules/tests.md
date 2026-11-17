@@ -211,12 +211,12 @@ conditional stands. Names compare as written, so `other/el` is not the local `el
 
 The rule leaves a hint alone wherever the value can be handed on: as an argument of a core macro or special form, such
 as `if`, `let`, `do`, a thread, `binding`, `as->`, `with-redefs` or `time`; of `are`, `async`, `testing` or `this-as`;
-of any head named `def…` or `with-…`, or named like a core macro, qualified or not, such as `s/defn` or `m/doto`; as the
-last form of a body or an arity, also in `letfn`; as a `def` value; or in a collection right after a head it does not
-know, which could be the bindings of a macro such as `p/let`. A plain call is any other head: a project or library
-function, a `js/` global, a constructor, or a core function. A bare core name the resolver cannot place, for example
-under `:refer :all`, is read as core's. So the rule also leaves some hints that nothing reads, such as a `defmethod`
-arglist or a hint on a `binding` value.
+of any head named `def…` or `with-…`, or named like a core macro, qualified or not, or that the ns form names as a macro
+through `:refer-macros` or `:require-macros`, such as `s/defn` or `m/doto`; as the last form of a body or an arity, also
+in `letfn`; as a `def` value; or in a collection right after a head it does not know, which could be the bindings of a
+macro such as `p/let`. A plain call is any other head: a project or library function, a `js/` global, a constructor, or
+a core function. A bare core name the resolver cannot place, for example under `:refer :all`, is read as core's. So the
+rule also leaves some hints that nothing reads, such as a `defmethod` arglist or a hint on a `binding` value.
 
 The rule cannot tell when shadow-cljs would print no warning anyway. It skips the warning for property names it knows
 from its externs, such as the DOM's `width`, `textContent`, `value` or `focus`, and for a value it already types as JS,

@@ -351,7 +351,11 @@
                                   ["with-redefs-tail-read" "the last form of with-redefs"]
                                   ["testing-tail-read" "the last form of testing"]
                                   ["project-with-macro-tail-read" "the last form of a project's own with- macro"]
-                                  ["time-tail-read" "the last form of time, a core macro"]]]
+                                  ["time-tail-read" "the last form of time, a core macro"]
+                                  ["macro-alias-read" "an argument of a :require-macros alias"]
+                                  ["referred-macro-read" "an argument of a :refer-macros name"]
+                                  ["cljs-only-macro-read" "a binding of simple-benchmark, a cljs-only macro"]
+                                  ["nil-tag-read" "a read whose own ^{:tag nil} gives no tag"]]]
         (is (not (contains? flagged definition))
             shape)))
 
@@ -399,7 +403,9 @@
     (is (not (contains? flagged "custom-feature-read"))
         "a build may add :node to its reader features")
     (is (not (contains? flagged "branch-use-read"))
-        "a use in the :cljs branch is where the conditional stands")))
+        "a use in the :cljs branch is where the conditional stands")
+    (is (not (contains? flagged "absent-branch-before-target"))
+        "a :clj-only conditional reads as nothing, so el stays the interop target")))
 
 (def ^:private paths-fixture-dir "test-projects/tests-paths-app")
 
