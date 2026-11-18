@@ -50,7 +50,7 @@ directly.
 (defclass mark-style []
   {:background :yellow})
 
-(defn mark [decoration from to] (.inline decoration from to #js {:class (mark-style)}))
+(defn mark [from to] (.inline Decoration from to #js {:class (mark-style)}))
 ```
 
 <details>
@@ -59,8 +59,8 @@ directly.
 A use is the whole props map when the call is the only value of `:class` in a map with no other keys, and nothing
 changes or merges that map. `merge`, `into`, `assoc` and the other core functions that
 [`defattrs-as-data`](spade.md#defattrs-as-data) reads change or merge it, and so does `reagent.core/merge-props`. A map
-under a tag, such as a `#js` object, is not a props map: it takes the class string. A use inside a `#_` form does not
-count, but the rule needs at least one use outside `#_`.
+that becomes a JS object, a `#js` literal or the argument of `clj->js`, is not a props map: it takes the class string. A
+use inside a `#_` form does not count, but the rule needs at least one use outside `#_`.
 
 </details>
 

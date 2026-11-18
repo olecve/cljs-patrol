@@ -89,6 +89,10 @@
   "Functions that merge a `{:class …}` map with other props, so the map is not the whole props map."
   #{'reagent.core/merge-props})
 
+(def ^:private js-object-heads
+  "Functions that turn a `{:class …}` map into a JS object, so the map is not a props map."
+  #{'cljs.core/clj->js})
+
 (def ^:private map-reading-names
   "The names of the heads that can read a call as a map, whatever namespace they resolve to."
   (into #{"->"} (map name) (concat whole-reading-heads target-reading-heads)))
@@ -228,10 +232,16 @@
     (keyword referred-ns op-raw)
     (parser/resolve-sym op-raw ns-name aliases)))
 
-(defn- tagged-map?
-  "True when the map at `loc` is a tagged literal, such as a `#js` object, which takes the class string, not props."
-  [loc]
-  (= :reader-macro (some-> loc z/up z/tag)))
+(defn- js-object?
+  "True when the map at `loc` becomes a JS object, which takes the class string, not props: a `#js` literal or the
+  argument of `clj->js`."
+  [loc ns-info]
+  (let [parent (z/up (heads/site loc))]
+    (case (some-> parent z/tag)
+      :reader-macro (= "js" (parser/raw (z/down parent)))
+      :list (and (= "clj->js" (parser/sym-name (z/down parent)))
+                 (contains? js-object-heads (heads/resolve-head parent ns-info js-object-heads)))
+      false)))
 
 (defn- class-only-map-call?
   "True when the call at `loc` is the only value of a `:class` map, and nothing changes or merges that map."
@@ -246,7 +256,7 @@
                          (class-only-map? parent))
                     (z/up parent))]
     (and class-map
-         (not (tagged-map? class-map))
+         (not (js-object? class-map ns-info))
          (not (read-as-data? class-map ns-info))
          (not (merged-class-map? class-map ns-info)))))
 
