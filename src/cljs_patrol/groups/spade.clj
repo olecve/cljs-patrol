@@ -228,6 +228,11 @@
     (keyword referred-ns op-raw)
     (parser/resolve-sym op-raw ns-name aliases)))
 
+(defn- tagged-map?
+  "True when the map at `loc` is a tagged literal, such as a `#js` object, which takes the class string, not props."
+  [loc]
+  (= :reader-macro (some-> loc z/up z/tag)))
+
 (defn- class-only-map-call?
   "True when the call at `loc` is the only value of a `:class` map, and nothing changes or merges that map."
   [loc ns-info]
@@ -241,6 +246,7 @@
                          (class-only-map? parent))
                     (z/up parent))]
     (and class-map
+         (not (tagged-map? class-map))
          (not (read-as-data? class-map ns-info))
          (not (merged-class-map? class-map ns-info)))))
 

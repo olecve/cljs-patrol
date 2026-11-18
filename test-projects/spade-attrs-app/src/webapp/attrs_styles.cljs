@@ -65,6 +65,7 @@
 (defclass assoc-fix-class [] {:padding "8px"})
 (defclass discarded-class [] {:padding "8px"})
 (defclass merge-props-class [] {:padding "8px"})
+(defclass js-object-class [] {:padding "8px"})
 (defclass live-and-discarded-class [] {:padding "8px"})
 (defclass discarded-other-use-class [] {:padding "8px"})
 (defclass meta-key-class [] {:padding "8px"})

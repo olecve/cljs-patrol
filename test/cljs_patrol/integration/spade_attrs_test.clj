@@ -110,6 +110,8 @@
         "defclass used only inside a discarded form")
     (is (not-any? #(= "merge-props-class" (name (:kw %))) (:defclass-as-sole-attr reagent-result))
         "defclass fix in a class map that merge-props merges")
+    (is (not-any? #(= "js-object-class" (name (:kw %))) (:defclass-as-sole-attr reagent-result))
+        "defclass in a #js object, which needs the class string")
     (is (every? (->> reagent-result :defclass-as-sole-attr (map (comp name :kw)) set)
                 ["live-and-discarded-class" "discarded-other-use-class"])
         "defclass used whole, also inside a discarded form")))

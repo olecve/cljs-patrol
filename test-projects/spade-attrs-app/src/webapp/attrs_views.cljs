@@ -38,6 +38,7 @@
    #_[:div {:class (styles/discarded-class)}]
    [:div {:class (styles/merge-props-class)}]
    [:div (r/merge-props {:class (styles/merge-props-class)} props)]
+   (.inline js/Decoration 0 1 #js {:class (styles/js-object-class)})
    [:div {:class (styles/live-and-discarded-class)}]
    #_[:div {:class (styles/live-and-discarded-class)}]
    [:div {:class (styles/discarded-other-use-class)}]
