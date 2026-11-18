@@ -233,8 +233,9 @@
     (parser/resolve-sym op-raw ns-name aliases)))
 
 (defn- js-object?
-  "True when the map at `loc` becomes a JS object, which takes the class string, not props: a `#js` literal or the
-  argument of `clj->js`."
+  "True when the map at `loc` becomes a JS object, which takes the class string, not props.
+
+  That is a `#js` literal, or the argument of `clj->js`."
   [loc ns-info]
   (let [parent (z/up (heads/site loc))]
     (case (some-> parent z/tag)
