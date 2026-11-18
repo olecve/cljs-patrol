@@ -8,5 +8,8 @@
 (defn shared-props-view []
   [:div #?(:cljs (styles/reader-conditional-props-attrs) :clj {})])
 
+(defn shared-class-view []
+  [:div #?(:cljs {:class (styles/reader-conditional-class)} :clj {})])
+
 (defn shared-cache-view [cache]
   [:div (-> cache #?(:cljs (get (styles/reader-conditional-step-key-attrs)) :clj nil))])
