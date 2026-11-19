@@ -11,13 +11,6 @@
   (:import
    (java.util IdentityHashMap)))
 
-(def ^:private deftest-heads
-  "Forms that define a test var.
-
-  `deftest-` is cljs.test's private variant, and a project's own wrapper macro is named
-  here only when it is spelled the same way — nothing resolves a macro across namespaces."
-  #{"deftest" "deftest-"})
-
 (def ^:private leading-articles
   "Articles that carry nothing at the front of an identifier.
 
@@ -623,17 +616,16 @@
         (js-hint-finding hint-loc (parser/enclosing-definition-name hint-loc) file)))))
 
 (defn- leading-article-finding [loc file]
-  (when (contains? deftest-heads (some-> loc z/down parser/sym-name))
-    (when-let [name-loc (parser/declared-name-loc loc)]
-      (when-let [test-name (parser/sym-name name-loc)]
-        (when-let [article (leading-article test-name)]
-          {:kw (symbol test-name)
-           :type :deftest-leading-article
-           :article article
-           :file file
-           :row (parser/position-row name-loc)
-           :hint (str "Drop the leading \"" article "-\": "
-                      (subs test-name (inc (count article))))})))))
+  (when-let [name-loc (parser/test-name-loc loc)]
+    (when-let [test-name (parser/sym-name name-loc)]
+      (when-let [article (leading-article test-name)]
+        {:kw (symbol test-name)
+         :type :deftest-leading-article
+         :article article
+         :file file
+         :row (parser/position-row name-loc)
+         :hint (str "Drop the leading \"" article "-\": "
+                    (subs test-name (inc (count article))))}))))
 
 (def ^:private no-ns-name
   "The namespace `parser` gives a file without an `ns` form, which every such file shares."

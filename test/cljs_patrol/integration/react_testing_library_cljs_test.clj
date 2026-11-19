@@ -106,6 +106,77 @@
                    first)))
       "a test id built by a call with no literal part may be any id"))
 
+(deftest test-id-query-on-role-reads-what-a-test-may-render-test
+  (let [findings (->> (core/run "test-projects/react-testing-library-cljs-app/src/shared_ids"
+                                [react-testing-library-cljs/group])
+                      :group-results
+                      first
+                      :test-id-query-on-role
+                      (map (juxt :test :form))
+                      set)]
+    (is (contains? findings ["finds-first-and-last-by-test-id" "(s/get-by-test-id \"first\")"])
+        "first button and \"first\" string in other tests' bodies, in this file and another, are not on this test's screen")
+    (is (contains? findings ["finds-first-and-last-by-test-id" "(s/get-by-test-id \"last\")"])
+        "last button in another file's test body is not on this test's screen, though a runner requires every test")
+    (is (contains? findings ["finds-save-in-a-component" "(s/get-by-test-id \"save\")"])
+        "element outside every test, in a component the test renders, still counts")
+    (is (not-any? #(= "get-open-button" (first %)) findings)
+        "lookup outside a test reads the whole run, so the second Open button a test renders keeps it alone")
+    (is (not-any? #(= "closes-from-the-toolbar" (first %)) findings)
+        "defmethod outside a test body, in a test file, may render in any test")
+    (is (not-any? #(= "submits-from-the-second-button" (first %)) findings)
+        "second Submit button in the lookup's own test body keeps it alone")
+    (is (contains? findings ["confirms-privately" "(s/get-by-test-id \"ok\")"])
+        "clojure.test's deftest- is a test too, so another test's OK button is not on its screen")
+    (is (contains? findings ["agrees-in-cljs" "(s/get-by-test-id \"yes\")"])
+        "test in a reader conditional is a test too, so another test's Yes button is not on its screen")
+    (is (contains? findings ["goes-with-metadata" "(s/get-by-test-id \"go\")"])
+        "test wrapped in metadata is a test too, so another test's Go button is not on its screen")
+    (is (not-any? #(= "keeps-from-the-second-button" (first %)) findings)
+        "helper next to a test in a reader conditional is outside it, so its Keep button counts")
+    (is (contains? findings ["stores" "(s/get-by-test-id \"store\")"])
+        "test of the same name in another reader conditional branch is another test")
+    (is (contains? findings ["finds-the-literal-id" "(s/get-by-test-id \"built\")"])
+        "id another test's body may build is not on this test's screen")
+    (is (not-any? #(= "finds-an-id-it-may-build" (first %)) findings)
+        "id the lookup's own test body may build keeps it alone")
+    (is (not-any? #(= "draws-without-cleanup" (first %)) findings)
+        "test that renders without render! may still show what another test left, so it reads the whole run")
+    (is (contains? findings ["checks" "(s/get-by-test-id \"check\")"])
+        "test of the same name on the same line, in another reader conditional branch, is another test")
+    (is (contains? findings ["nested-check" "(s/get-by-test-id \"nest\")"])
+        "test inside a defn is still a test, so another test's body changes nothing")
+    (is (not-any? #(= "paints-after-render" (first %)) findings)
+        "Paint button another test draws without render! stays on screen, since cleanup leaves it")
+    (is (not-any? #(= "looks-before-render" (first %)) findings)
+        "lookup before its test's render! still sees what earlier tests left, so it reads the whole run")
+    (is (not-any? #(= "renders-only-in-a-discard" (first %)) findings)
+        "render! inside #_ never runs, so the test reads the whole run")
+    (is (not-any? #(= "renders-only-in-a-comment" (first %)) findings)
+        "render! inside (comment …) never runs, so the test reads the whole run")
+    (is (empty? (filter #(contains? #{"renders-in-a-later-fn" "renders-in-a-branch" "renders-in-a-clj-branch"} (first %))
+                        findings))
+        "render! in a fn, a branch or a :clj branch may not run first, so the test reads the whole run")
+    (is (contains? findings ["renders-in-a-binding" "(s/get-by-test-id \"bound\")"])
+        "render! in a let binding runs first")
+    (is (contains? findings ["renders-in-a-testing-block" "(s/get-by-test-id \"grouped\")"])
+        "render! in a testing block runs first")
+    (is (contains? findings ["renders-in-a-try" "(s/get-by-test-id \"tried\")"])
+        "render! in a try body runs first")
+    (is (not-any? #(= "looks-inside-the-render" (first %)) findings)
+        "lookup in render!'s own arguments runs before it, so the test reads the whole run")))
+
+(deftest test-id-query-on-role-findings-follow-file-and-row-test
+  (let [findings (->> (core/run "test-projects/react-testing-library-cljs-app/src/shared_ids"
+                                [react-testing-library-cljs/group])
+                      :group-results
+                      first
+                      :test-id-query-on-role)]
+    (is (= (distinct (map :file findings)) (dedupe (map :file findings)))
+        "findings of one file come together")
+    (is (every? #(apply <= (map :row %)) (vals (group-by :file findings)))
+        "findings of one file follow its rows")))
+
 (defn- configured-findings [config]
   (->> (core/run "test-projects/react-testing-library-cljs-app/src/configured"
                  [(react-testing-library-cljs/make-group config)])

@@ -3,10 +3,13 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
+   [cljs-patrol.heads :as heads]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
-   [rewrite-clj.zip :as z]))
+   [rewrite-clj.zip :as z])
+  (:import
+   (java.util IdentityHashMap)))
 
 (def ^:private library-namespaces
   "Namespaces holding the library's lookups: `get-by-*`, `query-by-*` and `find-by-*`, and their `-all-` forms.
@@ -447,24 +450,90 @@
        (keep string-value)
        vec))
 
+(def ^:private cleaning-renders
+  "Renders that empty what Testing Library mounted before they render."
+  #{'react-testing-library-cljs.reagent.render/render!})
+
+(def ^:private statement-heads
+  "Forms whose body runs each form in turn, unconditionally, so a render in one runs before what follows."
+  #{"testing" "let" "do" "try" "binding" "with-redefs"})
+
+(defn- runs-unconditionally?
+  "True when `loc` runs whenever the test `test-loc` runs.
+
+  That holds when every form between them is one of [[statement-heads]], or a vector directly in one, such
+  as a `let` binding vector."
+  [loc test-loc]
+  (let [test-node (z/node test-loc)
+        statement-form? #(and (= :list (z/tag %)) (contains? statement-heads (some-> % z/down parser/sym-name)))]
+    (loop [current (z/up loc)]
+      (cond
+        (nil? current) false
+        (identical? test-node (z/node current)) true
+        (statement-form? current) (recur (z/up current))
+        (and (= :vector (z/tag current)) (some-> (z/up current) statement-form?)) (recur (z/up current))
+        :else false))))
+
+(defn- render-positions
+  "Return where the renders from [[cleaning-renders]] that run whenever the test `test-loc` runs end.
+
+  A render inside `#_`, a quote, a `(comment …)`, a branch or a function may not run, so it does
+  not count. The answer is kept for each test of the file."
+  [test-loc ns-info]
+  (let [^IdentityHashMap memo @(parser/file-state ::render-positions (IdentityHashMap.))
+        node (z/node test-loc)]
+    (if (.containsKey memo node)
+      (.get memo node)
+      (let [positions (->> (parser/descendant-locs test-loc)
+                           (filter #(and (= :list (z/tag %))
+                                         (heads/resolve-head % ns-info cleaning-renders)
+                                         (runs-unconditionally? % test-loc)))
+                           (mapv #(second (parser/position-span %))))]
+        (.put memo node positions)
+        positions))))
+
+(defn- key-of-test
+  "Key the test `test-loc` by where its name is written, when it renders with [[cleaning-renders]], or nil.
+
+  Such a test's DOM is gone once the next one renders, so its body can stay out of another test's
+  evidence; any other test's body stays in."
+  [test-loc ns-info]
+  (when (seq (render-positions test-loc ns-info))
+    (parser/position (parser/test-name-loc test-loc))))
+
+(defn- test-key
+  "Key the test whose body holds `loc` by where its name is written, when it renders with `render!`, or nil."
+  [loc ns-info]
+  (some-> (parser/enclosing-test-loc loc) (key-of-test ns-info)))
+
+(defn- lookup-test-key
+  "Key the test a lookup at `loc` reads only its own body in, or nil.
+
+  That is a test whose render from [[cleaning-renders]] runs, and ends, before the lookup, so a lookup
+  in the render's own arguments, which runs first, does not count."
+  [loc ns-info]
+  (when-let [test-loc (parser/enclosing-test-loc loc)]
+    (let [lookup-position (parser/position loc)]
+      (when (some #(neg? (compare % lookup-position)) (render-positions test-loc ns-info))
+        (key-of-test test-loc ns-info)))))
+
 (defn- built-test-id
   "Record what a `:data-testid` given as a call, or a name a binding sets to one, may build.
 
   A `str` builds an id starting with its first argument and ending with its last, when those
   are literals, and holding every literal between. Any other call may build an id holding any
   literal written in it, and one with none may build any id."
-  [value-loc file]
+  [value-loc ns-info file]
   (let [arguments (when (= "str" (some-> value-loc z/down parser/sym-name))
                     (remove #(= :uneval (z/tag %)) (parser/right-siblings (z/down value-loc))))]
-    (if (seq arguments)
-      {:type ::built-test-id
-       :prefix (or (string-value (first arguments)) "")
-       :suffix (if (next arguments) (or (string-value (last arguments)) "") "")
-       :middle (->> arguments butlast rest (keep string-value) vec)
-       :file file}
-      {:type ::built-test-id
-       :fragments (string-fragments value-loc)
-       :file file})))
+    (assoc (if (seq arguments)
+             {:prefix (or (string-value (first arguments)) "")
+              :suffix (if (next arguments) (or (string-value (last arguments)) "") "")
+              :middle (->> arguments butlast rest (keep string-value) vec)}
+             {:fragments (string-fragments value-loc)})
+           :type ::built-test-id
+           :file file
+           :deftest (test-key value-loc ns-info))))
 
 (defn- may-build?
   "True when a built test id recorded by [[built-test-id]] may be `id`."
@@ -473,10 +542,11 @@
     (and (str/starts-with? id prefix) (str/ends-with? id suffix) (every? #(str/includes? id %) middle))
     (or (empty? fragments) (boolean (some #(str/includes? id %) fragments)))))
 
-(defn- mention [id file]
+(defn- mention [id loc ns-info file]
   {:type ::test-id-mention
    :id (normalize-test-id id)
-   :file file})
+   :file file
+   :deftest (test-key loc ns-info)})
 
 (defn- token-usage
   "Find what the token at loc records: a mention of a test id it may be, a built test id, or nil.
@@ -492,18 +562,18 @@
       value
       (when-not (and (= :list (some-> parent z/tag))
                      (identical? (z/node loc) (some-> (test-id-arguments parent ns-info) first z/node)))
-        (mention value file))
+        (mention value loc ns-info file))
 
       (and (= :quote (some-> parent z/tag)) (test-id-value? parent))
-      (mention (parser/raw loc) file)
+      (mention (parser/raw loc) loc ns-info file)
 
       (test-id-value? loc)
       (let [v (a11y/literal-sexpr loc)]
         (cond
-          (keyword? v) (mention (name v) file)
+          (keyword? v) (mention (name v) loc ns-info file)
           (symbol? v) (let [bound (hiccup/lexically-bound-value loc (parser/raw loc))]
                         (when (= :list (some-> bound z/tag))
-                          (built-test-id bound file))))))))
+                          (built-test-id bound ns-info file))))))))
 
 (defn- data-def-attr-test-id?
   "True when loc is the `:data-testid` value in a map that is a child of a vector in the value of a data `def`.
@@ -552,7 +622,8 @@
                                       (hidden-in-form? context loc)
                                       (hiccup/inside-unrendered-form? loc)
                                       (in-comment? loc))
-                         :file file)]
+                         :file file
+                         :deftest (test-key loc ns-info))]
          :dynamics []}))))
 
 (defn- test-id-lookup
@@ -567,6 +638,7 @@
          :kw (symbol (second (library-lookup loc ns-info)))
          :form (parser/normalize-form (parser/raw loc))
          :test (parser/enclosing-definition-name loc)
+         :deftest (lookup-test-key loc ns-info)
          :file file
          :row (parser/position-row loc)}))))
 
@@ -579,40 +651,73 @@
     (str "Its element sits in a Malli schema at " file ":" row ", which reads as markup because of " schema-part
          ". Move that part into its own def or function, so the schema reads as data.")))
 
+(def ^:private evidence-merges
+  "Combine the code outside every test with one test's body: counts add up, element and id lists join."
+  {:id->mention-count #(merge-with + %1 %2)
+   :id->elements #(merge-with into %1 %2)
+   :role+name->test-ids #(merge-with into %1 %2)
+   :built into})
+
+(defn- test-id-evidence
+  "Index what `usages` say about test ids: their mentions, the elements that carry them, and the built ids."
+  [usages]
+  (let [by-type (group-by :type usages)
+        role-elements (by-type ::role-element)]
+    {:id->mention-count (frequencies (map :id (by-type ::test-id-mention)))
+     :id->elements (group-by :test-id (remove :hidden? role-elements))
+     :role+name->test-ids (->> role-elements
+                               (group-by (juxt :role :name))
+                               (into {} (map (fn [[k elements]] [k (set (map :test-id elements))]))))
+     :built (vec (by-type ::built-test-id))}))
+
+(defn- merge-evidence
+  "Index what the code outside every test and one test's body say together; an index key with no way to combine fails."
+  [a b]
+  (reduce-kv (fn [merged k v] (assoc merged k ((evidence-merges k) v (get b k)))) {} a))
+
 (defn- find-test-id-queries-on-role
   "Keep the lookups of `usages` whose test id only elements a role query finds alone carry.
 
-  Every mention of the id in `usages-in-run` has to be the test id of a visible element with
-  one role and literal name, so a component prop, a constant, a hidden element or one with no
-  role or name leaves the lookup alone; so does a built id that may be it. The role and name
-  have to belong to no element without that test id, or the role query would find that one too."
+  A lookup in a test whose `render!` runs before it reads its own test's body and everything outside
+  the bodies of tests that render with `render!`, since that render cleans up what they mounted; any
+  other lookup reads the whole run. Every mention of the
+  id there has to be the test id of a visible element with one role and literal name, so a component
+  prop, a constant, a hidden element or one with no role or name leaves the lookup alone; so does a
+  built id that may be it. The role and name have to belong to no element without that test id, or
+  the role query would find that one too."
   [usages usages-in-run]
-  (let [by-type (group-by :type usages-in-run)
-        id->mention-count (frequencies (map :id (by-type ::test-id-mention)))
-        role-elements (by-type ::role-element)
-        id->elements (group-by :test-id (remove :hidden? role-elements))
-        role+name->test-ids (->> role-elements
-                                 (group-by (juxt :role :name))
-                                 (into {} (map (fn [[k elements]] [k (set (map :test-id elements))]))))
-        built (by-type ::built-test-id)
-        may-be-built? (fn [id] (some #(may-build? % id) built))]
-    (->> usages
-         (filter #(= ::test-id-lookup (:type %)))
-         (keep (fn [{:keys [id]
-                     :as lookup}]
-                 (let [elements (get id->elements id)
-                       role+names (set (map (juxt :role :name) elements))
-                       [role] (first role+names)]
-                   (when (and (= (count elements) (get id->mention-count id))
-                              (= 1 (count role+names))
-                              (= #{id} (get role+name->test-ids (first role+names)))
-                              (not (may-be-built? id)))
-                     (-> lookup
-                         (dissoc :type :id)
-                         (assoc :type :test-id-query-on-role
-                                :hint (str "Query it by role \"" role "\" and its name."))
-                         (hiccup/add-note (schema-element-note elements)))))))
-         vec)))
+  (let [lookups-by-test (->> usages
+                             (filter #(= ::test-id-lookup (:type %)))
+                             (map-indexed #(assoc %2 ::order %1))
+                             (group-by (juxt :file :deftest)))
+        test-keys (->> lookups-by-test keys (filter second) set)
+        shared (delay (test-id-evidence (remove :deftest usages-in-run)))
+        test-usages (delay (group-by (juxt :file :deftest)
+                                     (filter #(contains? test-keys [(:file %) (:deftest %)]) usages-in-run)))
+        whole-run (delay (merge-evidence @shared (test-id-evidence (filter :deftest usages-in-run))))]
+    (->> lookups-by-test
+         (mapcat (fn [[[_ deftest :as test-key] lookups]]
+                   (let [{:keys [id->mention-count id->elements role+name->test-ids built]}
+                         (if deftest
+                           (merge-evidence @shared (test-id-evidence (get @test-usages test-key)))
+                           @whole-run)]
+                     (keep (fn [{:keys [id]
+                                 :as lookup}]
+                             (let [elements (get id->elements id)
+                                   role+names (set (map (juxt :role :name) elements))
+                                   [role] (first role+names)]
+                               (when (and (= (count elements) (get id->mention-count id))
+                                          (= 1 (count role+names))
+                                          (= #{id} (get role+name->test-ids (first role+names)))
+                                          (not (some #(may-build? % id) built)))
+                                 (-> lookup
+                                     (dissoc :type :id :deftest)
+                                     (assoc :type :test-id-query-on-role
+                                            :hint (str "Query it by role \"" role "\" and its name."))
+                                     (hiccup/add-note (schema-element-note elements))))))
+                           lookups))))
+         (sort-by ::order)
+         (mapv #(dissoc % ::order)))))
 
 (defn- handle-list [loc ns-info file]
   (when-not (hiccup/inside-unrendered-form? loc)
@@ -621,7 +726,7 @@
           usages (keep identity [(test-id-lookup loc ns-info file)
                                  (when (and (= ":data-testid" (some-> (z/left loc) parser/raw))
                                             (not (data-def-attr-test-id? loc)))
-                                   (built-test-id loc file))])]
+                                   (built-test-id loc ns-info file))])]
       (when (or finding (seq usages))
         {:decls (if finding [finding] [])
          :usages (vec usages)

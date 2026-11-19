@@ -13,6 +13,7 @@
     Writer)
    (java.util
     HashMap
+    IdentityHashMap
     Map)
    (java.util.concurrent
     Callable
@@ -83,6 +84,19 @@
     (if (= :meta (some-> loc z/tag))
       (recur (some-> loc z/down z/rightmost))
       loc)))
+
+(def ^:private deftest-heads
+  "Forms that define a test var.
+
+  `deftest-` is clojure.test's private variant. A project's own wrapper macro is named here only
+  when it is spelled the same way — nothing resolves a macro across namespaces."
+  #{"deftest" "deftest-"})
+
+(defn test-name-loc
+  "Return the zloc of the name a test form at `loc` defines, or nil when `loc` is no test form."
+  [loc]
+  (when (and (= :list (some-> loc z/tag)) (contains? deftest-heads (some-> loc z/down sym-name)))
+    (declared-name-loc loc)))
 
 (defn top-level-loc
   "Return the top-level form holding loc, or loc itself when it is one."
@@ -438,6 +452,40 @@
           (.put memo k state)
           state))
     (atom initial)))
+
+(defn enclosing-test-loc
+  "Return the test form whose body holds `loc`, or nil.
+
+  The nearest enclosing test form counts, also inside metadata, a reader conditional or any
+  other form, and a helper written next to a test stays outside it. While a file is read, every
+  form the walk passes keeps the node of its test, so the next token under it skips the test checks
+  on the way up to that node; from a sub-zipper, which does not hold the test, that walk ends at
+  its root and finds none."
+  [loc]
+  (let [^IdentityHashMap memo @(file-state ::enclosing-test (IdentityHashMap.))
+        ancestor-of (fn [from test-node]
+                      (some #(when (identical? test-node (z/node %)) %) (take-while some? (iterate z/up from))))]
+    (loop [current (some-> loc z/up)
+           previous nil
+           passed []]
+      (let [node (some-> current z/node)]
+        (cond
+          (nil? current)
+          (do (when (= :forms (some-> previous z/tag))
+                (doseq [n passed] (.put memo n nil)))
+              nil)
+
+          (.containsKey memo node)
+          (let [test-node (.get memo node)]
+            (doseq [n passed] (.put memo n test-node))
+            (some->> test-node (ancestor-of current)))
+
+          (test-name-loc current)
+          (do (doseq [n (conj passed node)] (.put memo n node))
+              current)
+
+          :else
+          (recur (z/up current) current (conj passed node)))))))
 
 (defn- parse-file
   "Read file and its ns form, or warn and return nil for a file the reader cannot parse."

@@ -101,6 +101,32 @@
            (select-keys ns-info [:aliases :refers :macro-aliases :macro-refers]))
         "keeps require-macros and refer-macros names out of aliases and refers")))
 
+(defn- test-name-around [loc]
+  (some-> (parser/enclosing-test-loc loc) parser/test-name-loc parser/sym-name))
+
+(defn- sub-zipper-and-file-locs
+  "Return the same string token reached through a sub-zipper of a test's body and through the file."
+  []
+  (let [inner-vector (-> (z/of-string "(deftest saves [:div [:b \"x\"]])") z/down z/right z/right)]
+    [(-> (z/subzip inner-vector) z/down z/right z/down z/right)
+     (-> inner-vector z/down z/right z/down z/right)]))
+
+(deftest enclosing-test-loc-reads-a-sub-zipper-before-the-file
+  (binding [parser/*file-memo* (java.util.HashMap.)]
+    (let [[in-sub in-file] (sub-zipper-and-file-locs)]
+      (is (nil? (parser/enclosing-test-loc in-sub))
+          "sub-zipper holds no test")
+      (is (= "saves" (test-name-around in-file))
+          "file still finds its test after the sub-zipper"))))
+
+(deftest enclosing-test-loc-reads-the-file-before-a-sub-zipper
+  (binding [parser/*file-memo* (java.util.HashMap.)]
+    (let [[in-sub in-file] (sub-zipper-and-file-locs)]
+      (is (= "saves" (test-name-around in-file))
+          "file finds its test")
+      (is (nil? (parser/enclosing-test-loc in-sub))
+          "sub-zipper holds no test though the file's answer is kept"))))
+
 (defn- memo-probe
   "Build a group that records, for every vector, the memo in force and whether a style declaration encloses it."
   [seen]

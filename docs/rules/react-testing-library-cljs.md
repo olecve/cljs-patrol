@@ -122,12 +122,26 @@ a role query could find by its role and name.
    [icon]])
 (deftest send-test (.click (s/get-by-test-id "send-button")))
 
+;; another test's Save button is not on this test's screen
+(deftest save-test
+  (render! [:button {:data-testid "save"} "Save"])
+  (.click (s/get-by-test-id "save")))
+(deftest other-save-test
+  (render! [:button "Save"]))
+
 ;; fix
 (defn send-button []
   [:button {:aria-label "Send"
             :data-testid "send-button"}
    [icon]])
 (deftest send-test (.click (s/get-by-role "button" {:name "Send"})))
+
+;; the Save button found by its role and name
+(deftest save-test
+  (render! [:button {:data-testid "save"} "Save"])
+  (.click (s/get-by-role "button" {:name "Save"})))
+(deftest other-save-test
+  (render! [:button "Save"]))
 ```
 
 **Left alone:**
@@ -146,6 +160,11 @@ a role query could find by its role and name.
 ;; a component decides where the id goes
 (defn banner [] [design-icon {:data-testid "banner-icon"}])
 (deftest banner-test (.click (s/get-by-test-id "banner-icon")))
+
+;; the same test renders a second Save button
+(deftest two-saves-test
+  (render! [:div [:button "Save"] [:button {:data-testid "save"} "Save"]])
+  (.click (s/get-by-test-id "save")))
 ```
 
 <details>
@@ -157,9 +176,9 @@ and for those a test id is the only way in, so the rule never asks for a test id
 scan can prove a role query finds.
 
 Flagged: a `get-by-*`, `query-by-*` or `find-by-*` test id lookup, `-all-` forms included, given a literal string and
-nothing after it, when every other mention of that string in the files the run reads, source and tests alike, is the
-`:data-testid` of an element written out with a literal attrs map, an HTML one or one
-[`:test-id-elements`](#test-id-elements) names, that has:
+nothing after it, when every other mention of that string in what the test may render is the `:data-testid` of an
+element written out with a literal attrs map, an HTML one or one [`:test-id-elements`](#test-id-elements) names, that
+has:
 
 - a role a query finds it by: a written `:role` such as `"dialog"` or `"tab"`, or else a `:button`, an `:a` with an
   `:href` string, a `:textarea`, a `:select` (`combobox`, or `listbox` with `:multiple true` or a `:size` of 1 or more),
@@ -168,18 +187,26 @@ nothing after it, when every other mention of that string in the files the run r
 - a literal name: a non-blank `:aria-label` string, a `:value` string on a button, submit or reset input, or, for a role
   named by its content such as a button or a link, the text it renders when every child is a literal string or an
   element rendering one
-- a role and name no other element written out in the run has without that test id, so a role query finds one element
+- a role and name no other element it may render has without that test id, so a role query finds one element
 - nothing that may hide it: `:hidden`, `:aria-hidden`, or a `:style` with `display: none` or `visibility: hidden` in any
   case or spacing, on the element or on an element around it in the same form, a component's literal props included, nor
   a closed `:dialog`, a `:template` or a `:datalist` around it
 
-A test id is compared after trimming and collapsing whitespace, as Testing Library's default normalizer does. The hint
-names the role.
+What a test may render, when react-testing-library-cljs's `render!` runs in it before the lookup, is its own body and
+everything outside the bodies of other tests that render with `render!`: that render empties what they mounted. Such a
+`render!` sits in the test's body itself, or in a `testing`, `let`, `do`, `try`, `binding` or `with-redefs` there,
+before the lookup; one in a function, a branch, `#_` or `(comment …)` may not run first. A test is a `deftest` or
+`deftest-` form, `deftest-` being clojure.test's or a project's own macro of that name, also inside metadata, a reader
+conditional or another form; a helper written next to it stays outside it. Any other lookup, such as one in a helper or
+in a test that renders another way, reads the whole run. Known limit: a test that calls `render!` and also mounts markup
+another way, such as with `reagent.dom/render`, leaves that markup behind, yet its body still drops out of other tests'
+evidence. A test id is compared after trimming and collapsing whitespace, as Testing Library's default normalizer does.
+The hint names the role.
 
 Left alone, since a role query could then miss what the test id finds, or find something else:
 
-- a test id built at run time, one no element in the run sets as a literal, and a lookup with options after the id, such
-  as `{:exact false}`
+- a test id built at run time, one no element it may render sets as a literal, and a lookup with options after the id,
+  such as `{:exact false}`
 - any other mention of the string: a component's props (its own `:data-testid` may land on any element inside it, unless
   [`:test-id-elements`](#test-id-elements) names it), a map built with `merge` or `assoc`, a constant, a second element
   with no role or another role, a keyword or quoted test id, and one inside `#_` or `(comment …)`
@@ -191,7 +218,7 @@ Left alone, since a role query could then miss what the test id finds, or find s
 - an element with no literal name: an icon-only button, text beside a component or a call, an `:aria-label` written as
   an expression, an `:aria-labelledby` (the id it points at may not exist), a `:title` (Testing Library ignores it for
   some roles), and an input named by a `<label>` elsewhere
-- a role and name another element in the run shares without that test id, such as two "Save" buttons. A vector in the
+- a role and name another element it may render shares without that test id, such as two "Save" buttons. A vector in the
   value of a [data `def`](../rules.md#data-defs), such as the Malli entry `[:button {:aria-label "Save"} :string]`, is
   no element, so it shares no role and name, and its `:data-testid` value, written out or built, is no mention. Every
   other test id string in a data `def`, such as one in `[:enum "save-button"]` or in `{:default "open-button"}`, still
