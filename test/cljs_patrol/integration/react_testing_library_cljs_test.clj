@@ -106,6 +106,23 @@
                    first)))
       "a test id built by a call with no literal part may be any id"))
 
+(deftest test-id-query-on-role-reads-what-a-test-may-render-test
+  (let [findings (->> (core/run "test-projects/react-testing-library-cljs-app/src/sharedids"
+                                [react-testing-library-cljs/group])
+                      :group-results
+                      first
+                      :test-id-query-on-role
+                      (map (juxt :test :form))
+                      set)]
+    (is (contains? findings ["finds-first-and-last-by-test-id" "(s/get-by-test-id \"first\")"])
+        "a \"first\" string in another test file is no mention of this test's id")
+    (is (contains? findings ["finds-first-and-last-by-test-id" "(s/get-by-test-id \"last\")"])
+        "a \"Last\" button without the id in another test file is not on this test's screen")
+    (is (contains? findings ["finds-save-through-panel" "(s/get-by-test-id \"save\")"])
+        "element in a namespace the test requires through another, even with a bare-symbol require")
+    (is (contains? findings ["finds-save-without-ns" "(react-testing-library-cljs.screen/get-by-test-id \"save\")"])
+        "file with no ns form reads the whole run")))
+
 (defn- configured-findings [config]
   (->> (core/run "test-projects/react-testing-library-cljs-app/src/configured"
                  [(react-testing-library-cljs/make-group config)])

@@ -579,34 +579,65 @@
     (str "Its element sits in a Malli schema at " file ":" row ", which reads as markup because of " schema-part
          ". Move that part into its own def or function, so the schema reads as data.")))
 
+(defn- test-id-evidence
+  "Index what `usages` say about test ids: their mentions, the elements that carry them, and the built ids."
+  [usages]
+  (let [by-type (group-by :type usages)
+        role-elements (by-type ::role-element)]
+    {:id->mention-count (frequencies (map :id (by-type ::test-id-mention)))
+     :id->elements (group-by :test-id (remove :hidden? role-elements))
+     :role+name->test-ids (->> role-elements
+                               (group-by (juxt :role :name))
+                               (into {} (map (fn [[k elements]] [k (set (map :test-id elements))]))))
+     :built (by-type ::built-test-id)}))
+
+(defn- rendered-files
+  "Return the files a test in `file` may render: the file and those of the namespaces it requires.
+
+  The requires are followed through other namespaces too. Nil when `file` has no ns form, so its
+  evidence is the whole run."
+  [{:keys [file->ns ns->files ns->requires]} file]
+  (when-let [start (file->ns file)]
+    (loop [pending [start]
+           seen #{start}]
+      (if-let [current (first pending)]
+        (let [new-nss (remove seen (get ns->requires current))]
+          (recur (into (vec (rest pending)) new-nss) (into seen new-nss)))
+        (into #{file} (mapcat ns->files) seen)))))
+
 (defn- find-test-id-queries-on-role
   "Keep the lookups of `usages` whose test id only elements a role query finds alone carry.
 
-  Every mention of the id in `usages-in-run` has to be the test id of a visible element with
-  one role and literal name, so a component prop, a constant, a hidden element or one with no
-  role or name leaves the lookup alone; so does a built id that may be it. The role and name
-  have to belong to no element without that test id, or the role query would find that one too."
+  The evidence for a lookup is what the files a test there may render hold: its own file and the
+  namespaces it requires, directly or through others (see [[rendered-files]]). Another test file
+  renders nothing this test sees, so its ids and elements change nothing here. Every mention of the
+  id in that evidence has to be the test id of a visible element with one role and literal name,
+  so a component prop, a constant, a hidden element or one with no role or name leaves the lookup
+  alone; so does a built id that may be it. The role and name have to belong to no element without
+  that test id, or the role query would find that one too."
   [usages usages-in-run]
-  (let [by-type (group-by :type usages-in-run)
-        id->mention-count (frequencies (map :id (by-type ::test-id-mention)))
-        role-elements (by-type ::role-element)
-        id->elements (group-by :test-id (remove :hidden? role-elements))
-        role+name->test-ids (->> role-elements
-                                 (group-by (juxt :role :name))
-                                 (into {} (map (fn [[k elements]] [k (set (map :test-id elements))]))))
-        built (by-type ::built-test-id)
-        may-be-built? (fn [id] (some #(may-build? % id) built))]
+  (let [namespaces (filter #(= ::namespace (:type %)) usages-in-run)
+        ns-index {:file->ns (into {} (map (juxt :file :ns)) namespaces)
+                  :ns->files (update-vals (group-by :ns namespaces) #(set (map :file %)))
+                  :ns->requires (into {} (map (juxt :ns :requires)) namespaces)}
+        usages-by-file (group-by :file usages-in-run)
+        evidence-for (memoize (fn [file]
+                                (test-id-evidence
+                                 (if-let [files (rendered-files ns-index file)]
+                                   (mapcat usages-by-file files)
+                                   usages-in-run))))]
     (->> usages
          (filter #(= ::test-id-lookup (:type %)))
-         (keep (fn [{:keys [id]
+         (keep (fn [{:keys [id file]
                      :as lookup}]
-                 (let [elements (get id->elements id)
+                 (let [{:keys [id->mention-count id->elements role+name->test-ids built]} (evidence-for file)
+                       elements (get id->elements id)
                        role+names (set (map (juxt :role :name) elements))
                        [role] (first role+names)]
                    (when (and (= (count elements) (get id->mention-count id))
                               (= 1 (count role+names))
                               (= #{id} (get role+name->test-ids (first role+names)))
-                              (not (may-be-built? id)))
+                              (not (some #(may-build? % id) built)))
                      (-> lookup
                          (dissoc :type :id)
                          (assoc :type :test-id-query-on-role
@@ -614,11 +645,21 @@
                          (hiccup/add-note (schema-element-note elements)))))))
          vec)))
 
+(defn- namespace-usage
+  "Record the namespace an ns form at `loc` names and the namespaces it requires, or nil."
+  [loc ns-info file]
+  (when (= "ns" (some-> loc z/down parser/sym-name))
+    {:type ::namespace
+     :ns (:ns-name ns-info)
+     :requires (:requires ns-info #{})
+     :file file}))
+
 (defn- handle-list [loc ns-info file]
   (when-not (hiccup/inside-unrendered-form? loc)
     (let [finding (or (get-by-presence-finding loc ns-info file)
                       (lookup-helper-finding loc ns-info file))
-          usages (keep identity [(test-id-lookup loc ns-info file)
+          usages (keep identity [(namespace-usage loc ns-info file)
+                                 (test-id-lookup loc ns-info file)
                                  (when (and (= ":data-testid" (some-> (z/left loc) parser/raw))
                                             (not (data-def-attr-test-id? loc)))
                                    (built-test-id loc file))])]

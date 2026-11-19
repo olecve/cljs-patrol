@@ -227,9 +227,9 @@
               :else (recur (drop 2 pairs) as-alias refers macro-refers))))))))
 
 (defn- parse-ns-form
-  "Return the ns name, and the aliases and refers its `:require` and `:require-macros` clauses write.
+  "Return the ns name, the namespaces it requires, and the aliases and refers its `:require` and `:require-macros` clauses write.
 
-  {:ns-name str :aliases {alias-str full-ns-str} :refers {refer-name-str full-ns-str}
+  {:ns-name str :requires #{full-ns-str} :aliases {alias-str full-ns-str} :refers {refer-name-str full-ns-str}
    :macro-aliases {…} :macro-refers {…}}. Macro aliases and refers are kept apart, so a
   `:require-macros` alias never replaces the `:require` alias of the same name."
   [ns-sexpr]
@@ -252,8 +252,14 @@
                                     (map (fn [r] [r full-ns]) (get parsed refers-key))))
                           requires))
         requires (requires-in :require)
-        macro-requires (requires-in :require-macros)]
+        macro-requires (requires-in :require-macros)
+        bare-requires (for [clause (rest ns-sexpr)
+                            :when (and (seq? clause) (= :require (first clause)))
+                            req (rest clause)
+                            :when (symbol? req)]
+                        (str req))]
     {:ns-name (str (second ns-sexpr))
+     :requires (into (set (map :full-ns requires)) bare-requires)
      :aliases (aliases-of requires)
      :refers (refers-of requires :refers)
      :macro-aliases (aliases-of macro-requires)

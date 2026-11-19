@@ -157,9 +157,9 @@ and for those a test id is the only way in, so the rule never asks for a test id
 scan can prove a role query finds.
 
 Flagged: a `get-by-*`, `query-by-*` or `find-by-*` test id lookup, `-all-` forms included, given a literal string and
-nothing after it, when every other mention of that string in the files the run reads, source and tests alike, is the
-`:data-testid` of an element written out with a literal attrs map, an HTML one or one
-[`:test-id-elements`](#test-id-elements) names, that has:
+nothing after it, when every other mention of that string in the files the test may render is the `:data-testid` of an
+element written out with a literal attrs map, an HTML one or one [`:test-id-elements`](#test-id-elements) names, that
+has:
 
 - a role a query finds it by: a written `:role` such as `"dialog"` or `"tab"`, or else a `:button`, an `:a` with an
   `:href` string, a `:textarea`, a `:select` (`combobox`, or `listbox` with `:multiple true` or a `:size` of 1 or more),
@@ -168,13 +168,15 @@ nothing after it, when every other mention of that string in the files the run r
 - a literal name: a non-blank `:aria-label` string, a `:value` string on a button, submit or reset input, or, for a role
   named by its content such as a button or a link, the text it renders when every child is a literal string or an
   element rendering one
-- a role and name no other element written out in the run has without that test id, so a role query finds one element
+- a role and name no other element in those files has without that test id, so a role query finds one element
 - nothing that may hide it: `:hidden`, `:aria-hidden`, or a `:style` with `display: none` or `visibility: hidden` in any
   case or spacing, on the element or on an element around it in the same form, a component's literal props included, nor
   a closed `:dialog`, a `:template` or a `:datalist` around it
 
-A test id is compared after trimming and collapsing whitespace, as Testing Library's default normalizer does. The hint
-names the role.
+The files a test may render are its own file and those of the namespaces it requires, directly or through other
+namespaces. Another test file renders nothing this test sees, so its strings and elements change nothing here. A file
+with no `ns` form reads every file of the run. A test id is compared after trimming and collapsing whitespace, as
+Testing Library's default normalizer does. The hint names the role.
 
 Left alone, since a role query could then miss what the test id finds, or find something else:
 

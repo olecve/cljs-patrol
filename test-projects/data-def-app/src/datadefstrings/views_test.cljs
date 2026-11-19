@@ -1,6 +1,7 @@
 (ns datadefstrings.views-test
   (:require
    [cljs.test :refer [deftest]]
+   [datadefstrings.views]
    [react-testing-library-cljs.screen :as s]))
 
 (deftest ok-save-button-by-test-id

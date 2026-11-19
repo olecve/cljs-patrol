@@ -2,7 +2,8 @@
   (:require
    [cljs.test :refer [deftest is]]
    [react-testing-library-cljs.screen :as s]
-   [react-testing-library-cljs.within :as within]))
+   [react-testing-library-cljs.within :as within]
+   [webapp.test-id-views]))
 
 (deftest finds-send-button
   (.click (s/get-by-test-id "send-button")))
