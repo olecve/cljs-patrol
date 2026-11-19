@@ -37,3 +37,12 @@
                        :type :button}
               "Grouped"])
     (is (some? (s/get-by-test-id "grouped")))))
+
+(deftest renders-in-a-try
+  (try
+    (render! [:button {:data-testid "tried"
+                       :type :button}
+              "Tried"])
+    (is (some? (s/get-by-test-id "tried")))
+    (finally
+      (js/console.log "done"))))

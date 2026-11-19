@@ -31,6 +31,8 @@
             [:button {:type :button}
              "Bound"]
             [:button {:type :button}
-             "Grouped"]])
+             "Grouped"]
+            [:button {:type :button}
+             "Tried"]])
   (is (some? (s/get-by-role "button" {:name "Last"}))
       "first"))

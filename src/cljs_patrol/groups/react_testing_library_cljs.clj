@@ -456,7 +456,7 @@
 
 (def ^:private statement-heads
   "Forms whose body runs each form in turn, unconditionally, so a render in one runs before what follows."
-  #{"testing" "let" "do" "binding" "with-redefs"})
+  #{"testing" "let" "do" "try" "binding" "with-redefs"})
 
 (defn- runs-unconditionally?
   "True when `loc` runs whenever the test `test-loc` runs.
