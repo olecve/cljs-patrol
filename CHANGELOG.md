@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.58] - 2026-11-19
+
+* Leave alone a defclass used in a tagged map such as a #js object by @olecve in https://github.com/olecve/cljs-patrol/pull/159
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.57...v0.0.58
+
 ## [v0.0.57] - 2026-11-17
 
 * Read the text of a same-file component for a button's name, and skip aria-hidden text by @olecve in https://github.com/olecve/cljs-patrol/pull/154
