@@ -29,6 +29,12 @@
    [:div (cond-> props (get (styles/cond-test-get-attrs) :x) (assoc :id id))]
    (map #(merge (styles/fn-literal-attrs) %) cache)])
 
+(defn js-object-views []
+  [(.inline js/Decoration 0 1 #js {:class (styles/js-object-class)})
+   (clj->js {:class (styles/clj-js-class)})
+   [:div #ui/props {:class (styles/custom-tag-class)}]
+   #js ^:m {:class (styles/js-meta-class)}])
+
 (defn class-fix-views [props id]
   [:div
    [:div {:class (styles/merged-fix-class)}]
