@@ -461,7 +461,8 @@
 (defn- runs-unconditionally?
   "True when `loc` runs whenever the test `test-loc` runs.
 
-  That holds when every form between them is one of [[statement-heads]], or the binding vector of one."
+  That holds when every form between them is one of [[statement-heads]], or a vector directly in one, such
+  as a `let` binding vector."
   [loc test-loc]
   (let [test-node (z/node test-loc)
         statement-form? #(and (= :list (z/tag %)) (contains? statement-heads (some-> % z/down parser/sym-name)))]
@@ -474,7 +475,7 @@
         :else false))))
 
 (defn- render-positions
-  "Return where the test `test-loc` calls a render from [[cleaning-renders]] that runs whenever the test does.
+  "Return where the renders from [[cleaning-renders]] that run whenever the test `test-loc` runs end.
 
   A render inside `#_`, a quote, a `(comment …)`, a branch or a function may not run, so it does
   not count. The answer is kept for each test of the file."
@@ -487,19 +488,9 @@
                            (filter #(and (= :list (z/tag %))
                                          (heads/resolve-head % ns-info cleaning-renders)
                                          (runs-unconditionally? % test-loc)))
-                           (mapv parser/position))]
+                           (mapv #(second (parser/position-span %))))]
         (.put memo node positions)
         positions))))
-
-(defn- file-has-test?
-  "True when the file holding `loc` writes a test form anywhere; the answer is kept for the file."
-  [loc]
-  (let [state (parser/file-state ::has-test? ::unknown)]
-    (if (= ::unknown @state)
-      (reset! state (boolean (some parser/test-name-loc
-                                   (take-while (complement z/end?)
-                                               (iterate z/next (z/leftmost (parser/top-level-loc loc)))))))
-      @state)))
 
 (defn- key-of-test
   "Key the test `test-loc` by where its name is written, when it renders with [[cleaning-renders]], or nil.
@@ -511,15 +502,15 @@
     (parser/position (parser/test-name-loc test-loc))))
 
 (defn- test-key
-  "Key the test whose body holds `loc`, as [[key-of-test]] does, or nil."
+  "Key the test whose body holds `loc` by where its name is written, when it renders with `render!`, or nil."
   [loc ns-info]
-  (when (file-has-test? loc)
-    (some-> (parser/enclosing-test-loc loc) (key-of-test ns-info))))
+  (some-> (parser/enclosing-test-loc loc) (key-of-test ns-info)))
 
 (defn- lookup-test-key
   "Key the test a lookup at `loc` reads only its own body in, or nil.
 
-  That is a test whose render from [[cleaning-renders]] runs before the lookup."
+  That is a test whose render from [[cleaning-renders]] runs, and ends, before the lookup, so a lookup
+  in the render's own arguments, which runs first, does not count."
   [loc ns-info]
   (when-let [test-loc (parser/enclosing-test-loc loc)]
     (let [lookup-position (parser/position loc)]

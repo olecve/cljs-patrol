@@ -458,8 +458,8 @@
 
   The nearest enclosing test form counts, also inside metadata, a reader conditional or any
   other form, and a helper written next to a test stays outside it. While a file is read, every
-  form the walk passes keeps the node of its test, so the next token under it stops there and
-  only walks up to that node; from a sub-zipper, which does not hold the test, that walk ends at
+  form the walk passes keeps the node of its test, so the next token under it skips the test checks
+  on the way up to that node; from a sub-zipper, which does not hold the test, that walk ends at
   its root and finds none."
   [loc]
   (let [^IdentityHashMap memo @(file-state ::enclosing-test (IdentityHashMap.))

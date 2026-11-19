@@ -162,7 +162,9 @@
     (is (contains? findings ["renders-in-a-testing-block" "(s/get-by-test-id \"grouped\")"])
         "render! in a testing block runs first")
     (is (contains? findings ["renders-in-a-try" "(s/get-by-test-id \"tried\")"])
-        "render! in a try body runs first")))
+        "render! in a try body runs first")
+    (is (not-any? #(= "looks-inside-the-render" (first %)) findings)
+        "lookup in render!'s own arguments runs before it, so the test reads the whole run")))
 
 (deftest test-id-query-on-role-findings-follow-file-and-row-test
   (let [findings (->> (core/run "test-projects/react-testing-library-cljs-app/src/shared_ids"

@@ -46,3 +46,10 @@
     (is (some? (s/get-by-test-id "tried")))
     (finally
       (js/console.log "done"))))
+
+(deftest looks-inside-the-render
+  (render! [:div
+            [:button {:data-testid "inside"
+                      :type :button}
+             "Inside"]
+            (str (s/query-by-test-id "inside"))]))
