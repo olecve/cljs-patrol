@@ -589,43 +589,43 @@
      :role+name->test-ids (->> role-elements
                                (group-by (juxt :role :name))
                                (into {} (map (fn [[k elements]] [k (set (map :test-id elements))]))))
-     :built (by-type ::built-test-id)}))
+     :built (vec (by-type ::built-test-id))}))
 
-(defn- rendered-files
-  "Return the files a test in `file` may render: the file and those of the namespaces it requires.
+(defn- merge-evidence [a b]
+  {:id->mention-count (merge-with + (:id->mention-count a) (:id->mention-count b))
+   :id->elements (merge-with into (:id->elements a) (:id->elements b))
+   :role+name->test-ids (merge-with into (:role+name->test-ids a) (:role+name->test-ids b))
+   :built (into (:built a) (:built b))})
 
-  The requires are followed through other namespaces too. Nil when `file` has no ns form, so its
-  evidence is the whole run."
-  [{:keys [file->ns ns->files ns->requires]} file]
-  (when-let [start (file->ns file)]
-    (loop [pending [start]
-           seen #{start}]
-      (if-let [current (first pending)]
-        (let [new-nss (remove seen (get ns->requires current))]
-          (recur (into (vec (rest pending)) new-nss) (into seen new-nss)))
-        (into #{file} (mapcat ns->files) seen)))))
+(defn- unrequired-files
+  "Return the files whose namespace no file of the run requires, such as test files.
+
+  Nothing renders such a file but its own tests. A file with no readable ns form is never one."
+  [usages-in-run]
+  (let [namespaces (filter #(= ::namespace (:type %)) usages-in-run)
+        required (into #{} (mapcat :requires) namespaces)]
+    (into #{} (comp (filter :ns) (remove #(required (:ns %))) (map :file)) namespaces)))
 
 (defn- find-test-id-queries-on-role
   "Keep the lookups of `usages` whose test id only elements a role query finds alone carry.
 
-  The evidence for a lookup is what the files a test there may render hold: its own file and the
-  namespaces it requires, directly or through others (see [[rendered-files]]). Another test file
-  renders nothing this test sees, so its ids and elements change nothing here. Every mention of the
-  id in that evidence has to be the test id of a visible element with one role and literal name,
-  so a component prop, a constant, a hidden element or one with no role or name leaves the lookup
-  alone; so does a built id that may be it. The role and name have to belong to no element without
-  that test id, or the role query would find that one too."
+  The evidence for a lookup is every file some namespace requires, and the lookup's own file.
+  A file no namespace requires, such as another test file, renders only in its own tests, so its
+  strings and elements change nothing here. Every mention of the id in that evidence has to be the
+  test id of a visible element with one role and literal name, so a component prop, a constant, a
+  hidden element or one with no role or name leaves the lookup alone; so does a built id that may
+  be it. The role and name have to belong to no element without that test id, or the role query
+  would find that one too."
   [usages usages-in-run]
-  (let [namespaces (filter #(= ::namespace (:type %)) usages-in-run)
-        ns-index {:file->ns (into {} (map (juxt :file :ns)) namespaces)
-                  :ns->files (update-vals (group-by :ns namespaces) #(set (map :file %)))
-                  :ns->requires (into {} (map (juxt :ns :requires)) namespaces)}
-        usages-by-file (group-by :file usages-in-run)
+  (let [unrequired (unrequired-files usages-in-run)
+        {own-usages true
+         required-usages false} (group-by #(contains? unrequired (:file %)) usages-in-run)
+        required-evidence (test-id-evidence required-usages)
+        own-usages-by-file (group-by :file own-usages)
         evidence-for (memoize (fn [file]
-                                (test-id-evidence
-                                 (if-let [files (rendered-files ns-index file)]
-                                   (mapcat usages-by-file files)
-                                   usages-in-run))))]
+                                (if (contains? unrequired file)
+                                  (merge-evidence required-evidence (test-id-evidence (own-usages-by-file file)))
+                                  required-evidence)))]
     (->> usages
          (filter #(= ::test-id-lookup (:type %)))
          (keep (fn [{:keys [id file]
@@ -645,21 +645,21 @@
                          (hiccup/add-note (schema-element-note elements)))))))
          vec)))
 
-(defn- namespace-usage
-  "Record the namespace an ns form at `loc` names and the namespaces it requires, or nil."
-  [loc ns-info file]
-  (when (= "ns" (some-> loc z/down parser/sym-name))
-    {:type ::namespace
-     :ns (:ns-name ns-info)
-     :requires (:requires ns-info #{})
-     :file file}))
+(defn- handle-file
+  "Record the namespace of the file and the namespaces it requires; no namespace when its ns form is missing or unreadable."
+  [_zloc {:keys [ns-name requires]} file]
+  {:decls []
+   :usages [{:type ::namespace
+             :ns (when (not= "unknown" ns-name) ns-name)
+             :requires (or requires #{})
+             :file file}]
+   :dynamics []})
 
 (defn- handle-list [loc ns-info file]
   (when-not (hiccup/inside-unrendered-form? loc)
     (let [finding (or (get-by-presence-finding loc ns-info file)
                       (lookup-helper-finding loc ns-info file))
-          usages (keep identity [(namespace-usage loc ns-info file)
-                                 (test-id-lookup loc ns-info file)
+          usages (keep identity [(test-id-lookup loc ns-info file)
                                  (when (and (= ":data-testid" (some-> (z/left loc) parser/raw))
                                             (not (data-def-attr-test-id? loc)))
                                    (built-test-id loc file))])]
@@ -682,7 +682,8 @@
   group/RuleGroup
   (group-id [_] :react-testing-library-cljs)
   (group-name [_] "react-testing-library-cljs")
-  (parse-handlers [_] {:handle-list handle-list
+  (parse-handlers [_] {:handle-file handle-file
+                       :handle-list handle-list
                        :handle-token handle-token
                        :handle-vector (fn [loc ns-info file] (handle-vector test-id-elements loc ns-info file))})
   (analyze [_ data] (analyze* data))

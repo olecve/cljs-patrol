@@ -119,9 +119,15 @@
     (is (contains? findings ["finds-first-and-last-by-test-id" "(s/get-by-test-id \"last\")"])
         "a \"Last\" button without the id in another test file is not on this test's screen")
     (is (contains? findings ["finds-save-through-panel" "(s/get-by-test-id \"save\")"])
-        "element in a namespace the test requires through another, even with a bare-symbol require")
+        "element in a namespace the test requires through another, with a bare-symbol require")
     (is (contains? findings ["finds-save-without-ns" "(react-testing-library-cljs.screen/get-by-test-id \"save\")"])
-        "file with no ns form reads the whole run")))
+        "file with no ns form reads every required file")
+    (is (not-any? #(= "get-open-button" (first %)) findings)
+        "helper lookup sees the second Open button a page it does not require renders")
+    (is (not-any? #(= "closes-from-the-toolbar" (first %)) findings)
+        "page a defmethod registers, required only by the app, still counts")
+    (is (not-any? #(= "edits-by-test-id" (first %)) findings)
+        "Edit button in a file with no ns form may render anywhere, so it still counts")))
 
 (defn- configured-findings [config]
   (->> (core/run "test-projects/react-testing-library-cljs-app/src/configured"

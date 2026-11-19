@@ -173,15 +173,15 @@ has:
   case or spacing, on the element or on an element around it in the same form, a component's literal props included, nor
   a closed `:dialog`, a `:template` or a `:datalist` around it
 
-The files a test may render are its own file and those of the namespaces it requires, directly or through other
-namespaces. Another test file renders nothing this test sees, so its strings and elements change nothing here. A file
-with no `ns` form reads every file of the run. A test id is compared after trimming and collapsing whitespace, as
+The files a test may render are its own file and every file some namespace of the run requires. A file nothing requires,
+such as another test file, renders only in its own tests, so its strings and elements change nothing here. A file with
+an unreadable `ns` form, or none, counts as required. A test id is compared after trimming and collapsing whitespace, as
 Testing Library's default normalizer does. The hint names the role.
 
 Left alone, since a role query could then miss what the test id finds, or find something else:
 
-- a test id built at run time, one no element in the run sets as a literal, and a lookup with options after the id, such
-  as `{:exact false}`
+- a test id built at run time, one no element in those files sets as a literal, and a lookup with options after the id,
+  such as `{:exact false}`
 - any other mention of the string: a component's props (its own `:data-testid` may land on any element inside it, unless
   [`:test-id-elements`](#test-id-elements) names it), a map built with `merge` or `assoc`, a constant, a second element
   with no role or another role, a keyword or quoted test id, and one inside `#_` or `(comment …)`
@@ -193,9 +193,9 @@ Left alone, since a role query could then miss what the test id finds, or find s
 - an element with no literal name: an icon-only button, text beside a component or a call, an `:aria-label` written as
   an expression, an `:aria-labelledby` (the id it points at may not exist), a `:title` (Testing Library ignores it for
   some roles), and an input named by a `<label>` elsewhere
-- a role and name another element in the run shares without that test id, such as two "Save" buttons. A vector in the
-  value of a [data `def`](../rules.md#data-defs), such as the Malli entry `[:button {:aria-label "Save"} :string]`, is
-  no element, so it shares no role and name, and its `:data-testid` value, written out or built, is no mention. Every
+- a role and name another element in those files shares without that test id, such as two "Save" buttons. A vector in
+  the value of a [data `def`](../rules.md#data-defs), such as the Malli entry `[:button {:aria-label "Save"} :string]`,
+  is no element, so it shares no role and name, and its `:data-testid` value, written out or built, is no mention. Every
   other test id string in a data `def`, such as one in `[:enum "save-button"]` or in `{:default "open-button"}`, still
   counts as a mention
 - an element that may be hidden: `:hidden`, `:aria-hidden` or a `:style` written as an expression count, and so does an

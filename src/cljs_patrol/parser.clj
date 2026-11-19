@@ -204,6 +204,28 @@
         {:kw nil
          :dynamic? true}))))
 
+(defn- reader-conditional-forms
+  "Return the forms of every branch of a `#?` or `#?@` written in an ns form, or nil.
+
+  rewrite-clj gives such a form as `(read-string \"#?(…)\")`."
+  [form]
+  (when (and (seq? form) (= 'read-string (first form)) (string? (second form)))
+    (let [conditional (try (read-string {:read-cond :preserve} (second form))
+                           (catch Exception _ nil))]
+      (when (reader-conditional? conditional)
+        (let [forms (take-nth 2 (rest (:form conditional)))]
+          (if (:splicing? conditional) (mapcat identity forms) forms))))))
+
+(defn- required-namespaces
+  "Return the namespaces the `:require` and `:use` clauses of `ns-sexpr` name, in every reader conditional branch."
+  [ns-sexpr]
+  (set (for [clause (rest ns-sexpr)
+             :when (and (seq? clause) (#{:require :use} (first clause)))
+             req (mapcat #(or (reader-conditional-forms %) [%]) (rest clause))
+             :let [ns-sym (if (vector? req) (first req) req)]
+             :when (symbol? ns-sym)]
+         (str ns-sym))))
+
 (defn- parse-require [req-vec]
   (when (vector? req-vec)
     (when-let [ns-sym (first req-vec)]
@@ -252,14 +274,9 @@
                                     (map (fn [r] [r full-ns]) (get parsed refers-key))))
                           requires))
         requires (requires-in :require)
-        macro-requires (requires-in :require-macros)
-        bare-requires (for [clause (rest ns-sexpr)
-                            :when (and (seq? clause) (= :require (first clause)))
-                            req (rest clause)
-                            :when (symbol? req)]
-                        (str req))]
+        macro-requires (requires-in :require-macros)]
     {:ns-name (str (second ns-sexpr))
-     :requires (into (set (map :full-ns requires)) bare-requires)
+     :requires (required-namespaces ns-sexpr)
      :aliases (aliases-of requires)
      :refers (refers-of requires :refers)
      :macro-aliases (aliases-of macro-requires)
