@@ -175,8 +175,10 @@ has:
 
 What a test may render is the code outside every `deftest` in the run, and its own `deftest` body. Another test's body,
 in this file or another, renders nothing this test sees, so its strings and elements change nothing here. A lookup
-outside any `deftest`, such as in a helper, reads the whole run. A test id is compared after trimming and collapsing
-whitespace, as Testing Library's default normalizer does. The hint names the role.
+outside any `deftest`, such as in a helper, reads the whole run. This takes the DOM to be cleaned up after each test, as
+Testing Library's `cleanup` does; without it, a role query also meets what earlier tests left behind. A test id is
+compared after trimming and collapsing whitespace, as Testing Library's default normalizer does. The hint names the
+role.
 
 Left alone, since a role query could then miss what the test id finds, or find something else:
 

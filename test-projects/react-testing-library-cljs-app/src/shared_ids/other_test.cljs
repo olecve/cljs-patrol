@@ -4,9 +4,13 @@
    [react-testing-library-cljs.reagent.render :refer [render!]]
    [react-testing-library-cljs.screen :as s]))
 
-(deftest finds-last-by-role
+(deftest finds-buttons-by-role
   (render! [:div
             [:button {:type :button}
-             "Last"]])
+             "Last"]
+            [:button {:type :button}
+             "OK"]
+            [:button {:type :button}
+             "Yes"]])
   (is (some? (s/get-by-role "button" {:name "Last"}))
       "first"))

@@ -3,10 +3,13 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
+   [cljs-patrol.groups.tests :as tests]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
-   [rewrite-clj.zip :as z]))
+   [rewrite-clj.zip :as z])
+  (:import
+   (java.util IdentityHashMap)))
 
 (def ^:private library-namespaces
   "Namespaces holding the library's lookups: `get-by-*`, `query-by-*` and `find-by-*`, and their `-all-` forms.
@@ -447,16 +450,33 @@
        (keep string-value)
        vec))
 
+(defn- deftest-name
+  "Return the name the top-level form `top` defines when it is a test, or nil.
+
+  A test written in a reader conditional, `#?(:cljs (deftest …))`, counts too; one holding several
+  tests reads as the first of them, with every body in it."
+  [top]
+  (let [test-loc? #(and (= :list (z/tag %)) (contains? tests/deftest-heads (some-> % z/down parser/sym-name)))
+        test-loc (case (z/tag top)
+                   :list (when (test-loc? top) top)
+                   :reader-macro (first (filter test-loc? (parser/descendant-locs top)))
+                   nil)]
+    (some-> test-loc parser/declared-name-loc parser/sym-name)))
+
 (defn- enclosing-deftest
-  "Return the name of the top-level `deftest` around `loc`, or nil.
+  "Return the name of the test whose top-level form holds `loc`, or nil.
 
   A test renders only what its own body and the code outside every test render, so the test is
-  the unit a test id's evidence is read in."
+  the unit a test id's evidence is read in. The answer is kept for each top-level form of the file."
   [loc]
-  (let [top (last (take-while #(and % (not= :forms (z/tag %))) (iterate z/up loc)))]
-    (when (and (= :list (some-> top z/tag))
-               (= "deftest" (some-> top z/down parser/sym-name)))
-      (some-> (parser/declared-name-loc top) parser/sym-name))))
+  (let [top (parser/top-level-loc loc)
+        ^IdentityHashMap memo @(parser/file-state ::deftest-names (IdentityHashMap.))
+        node (z/node top)]
+    (if (.containsKey memo node)
+      (.get memo node)
+      (let [test-name (deftest-name top)]
+        (.put memo node test-name)
+        test-name))))
 
 (defn- built-test-id
   "Record what a `:data-testid` given as a call, or a name a binding sets to one, may build.
@@ -595,6 +615,13 @@
     (str "Its element sits in a Malli schema at " file ":" row ", which reads as markup because of " schema-part
          ". Move that part into its own def or function, so the schema reads as data.")))
 
+(def ^:private evidence-merges
+  "How two indexes of [[test-id-evidence]] combine, for each of its keys."
+  {:id->mention-count #(merge-with + %1 %2)
+   :id->elements #(merge-with into %1 %2)
+   :role+name->test-ids #(merge-with into %1 %2)
+   :built into})
+
 (defn- test-id-evidence
   "Index what `usages` say about test ids: their mentions, the elements that carry them, and the built ids."
   [usages]
@@ -607,11 +634,10 @@
                                (into {} (map (fn [[k elements]] [k (set (map :test-id elements))]))))
      :built (vec (by-type ::built-test-id))}))
 
-(defn- merge-evidence [a b]
-  {:id->mention-count (merge-with + (:id->mention-count a) (:id->mention-count b))
-   :id->elements (merge-with into (:id->elements a) (:id->elements b))
-   :role+name->test-ids (merge-with into (:role+name->test-ids a) (:role+name->test-ids b))
-   :built (into (:built a) (:built b))})
+(defn- merge-evidence
+  "Combine two indexes of [[test-id-evidence]]; a key with no entry in [[evidence-merges]] fails."
+  [a b]
+  (reduce-kv (fn [merged k v] (assoc merged k ((evidence-merges k) v (get b k)))) {} a))
 
 (defn- find-test-id-queries-on-role
   "Keep the lookups of `usages` whose test id only elements a role query finds alone carry.

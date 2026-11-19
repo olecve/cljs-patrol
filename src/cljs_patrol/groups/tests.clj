@@ -11,7 +11,7 @@
   (:import
    (java.util IdentityHashMap)))
 
-(def ^:private deftest-heads
+(def deftest-heads
   "Forms that define a test var.
 
   `deftest-` is cljs.test's private variant, and a project's own wrapper macro is named

@@ -115,15 +115,21 @@
                       (map (juxt :test :form))
                       set)]
     (is (contains? findings ["finds-first-and-last-by-test-id" "(s/get-by-test-id \"first\")"])
-        "First button and \"first\" string in other tests' bodies, in this file and another, are not on this test's screen")
+        "first button and \"first\" string in other tests' bodies, in this file and another, are not on this test's screen")
     (is (contains? findings ["finds-first-and-last-by-test-id" "(s/get-by-test-id \"last\")"])
-        "Last button in another file's test body is not on this test's screen, though a runner requires every test")
+        "last button in another file's test body is not on this test's screen, though a runner requires every test")
     (is (contains? findings ["finds-save-in-a-component" "(s/get-by-test-id \"save\")"])
         "element outside every test, in a component the test renders, still counts")
     (is (not-any? #(= "get-open-button" (first %)) findings)
         "lookup outside a test reads the whole run, so the second Open button a test renders keeps it alone")
     (is (not-any? #(= "closes-from-the-toolbar" (first %)) findings)
-        "defmethod outside a test body, in a test file, may render in any test")))
+        "defmethod outside a test body, in a test file, may render in any test")
+    (is (not-any? #(= "submits-from-the-second-button" (first %)) findings)
+        "second Submit button in the lookup's own test body keeps it alone")
+    (is (contains? findings ["confirms-privately" "(s/get-by-test-id \"ok\")"])
+        "deftest- is a test too, so another test's OK button is not on its screen")
+    (is (contains? findings ["agrees-in-cljs" "(s/get-by-test-id \"yes\")"])
+        "test in a reader conditional is a test too, so another test's Yes button is not on its screen")))
 
 (defn- configured-findings [config]
   (->> (core/run "test-projects/react-testing-library-cljs-app/src/configured"
