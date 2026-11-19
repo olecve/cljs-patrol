@@ -33,8 +33,7 @@
   [(.inline js/Decoration 0 1 #js {:class (styles/js-object-class)})
    (clj->js {:class (styles/clj-js-class)})
    [:div #ui/props {:class (styles/custom-tag-class)}]
-   (let [clj->js identity]
-     [:div (clj->js {:class (styles/local-clj-js-class)})])])
+   #js ^:m {:class (styles/js-meta-class)}])
 
 (defn class-fix-views [props id]
   [:div

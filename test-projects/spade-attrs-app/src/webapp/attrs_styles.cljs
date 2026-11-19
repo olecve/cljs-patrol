@@ -68,7 +68,7 @@
 (defclass js-object-class [] {:padding "8px"})
 (defclass clj-js-class [] {:padding "8px"})
 (defclass custom-tag-class [] {:padding "8px"})
-(defclass local-clj-js-class [] {:padding "8px"})
+(defclass js-meta-class [] {:padding "8px"})
 (defclass reader-conditional-class [] {:padding "8px"})
 (defclass live-and-discarded-class [] {:padding "8px"})
 (defclass discarded-other-use-class [] {:padding "8px"})
