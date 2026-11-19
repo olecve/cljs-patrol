@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.59] - 2026-11-19
+
+* Leave other tests' bodies out of a test id lookup's evidence by @olecve in https://github.com/olecve/cljs-patrol/pull/160
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.58...v0.0.59
+
 ## [v0.0.58] - 2026-11-19
 
 * Leave alone a defclass used in a tagged map such as a #js object by @olecve in https://github.com/olecve/cljs-patrol/pull/159
