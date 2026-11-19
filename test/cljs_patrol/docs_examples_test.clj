@@ -44,6 +44,7 @@
        " [spade.core :refer [defclass defattrs]]"
        " [clojure.string :as str]"
        " [clojure.test :refer [deftest is testing]]"
+       " [react-testing-library-cljs.reagent.render :refer [render!]]"
        " [react-testing-library-cljs.screen :as s]"
        " [app.styles.focus-rings :as focus-rings]"
        " [app.theme.button :as button-theme]"

@@ -139,7 +139,13 @@
     (is (contains? findings ["finds-the-literal-id" "(s/get-by-test-id \"built\")"])
         "id another test's body may build is not on this test's screen")
     (is (not-any? #(= "finds-an-id-it-may-build" (first %)) findings)
-        "id the lookup's own test body may build keeps it alone")))
+        "id the lookup's own test body may build keeps it alone")
+    (is (not-any? #(= "draws-without-cleanup" (first %)) findings)
+        "test that renders without render! may still show what another test left, so it reads the whole run")
+    (is (contains? findings ["checks" "(s/get-by-test-id \"check\")"])
+        "test of the same name on the same line, in another reader conditional branch, is another test")
+    (is (contains? findings ["nested-check" "(s/get-by-test-id \"nest\")"])
+        "test inside a defn is still a test, so another test's body changes nothing")))
 
 (deftest test-id-query-on-role-findings-follow-file-and-row
   (let [findings (:test-id-query-on-role (result))]

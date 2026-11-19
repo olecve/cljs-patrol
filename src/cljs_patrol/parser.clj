@@ -88,9 +88,8 @@
 (def ^:private deftest-heads
   "Forms that define a test var.
 
-  `deftest-` is clojure.test's private variant, which a `.cljc` test may use. A project's own
-  wrapper macro is named here only when it is spelled the same way — nothing resolves a macro
-  across namespaces."
+  `deftest-` is clojure.test's private variant. A project's own wrapper macro is named here only
+  when it is spelled the same way — nothing resolves a macro across namespaces."
   #{"deftest" "deftest-"})
 
 (defn test-name-loc
@@ -459,11 +458,13 @@
 
   The nearest enclosing test form counts, also inside metadata, a reader conditional or any
   other form, and a helper written next to a test stays outside it. While a file is read, every
-  form the walk passes keeps its answer, so the next token under it stops there."
+  form the walk passes keeps its answer, so the next token under it stops there; a walk that ends
+  short of the file's root, as in a sub-zipper, keeps nothing."
   [loc]
   (let [state (file-state ::enclosing-test nil)
         ^IdentityHashMap memo (or @state (reset! state (IdentityHashMap.)))]
     (loop [current (some-> loc z/up)
+           previous nil
            passed []]
       (let [node (some-> current z/node)
             known? (and node (.containsKey memo node))
@@ -471,11 +472,17 @@
                      (nil? current) nil
                      known? (.get memo node)
                      :else (test-name-loc current))]
-        (if (or (nil? current) known? answer)
+        (cond
+          (and (nil? current) (not= :forms (some-> previous z/tag)))
+          nil
+
+          (or (nil? current) known? answer)
           (do (doseq [n (cond-> passed (and current (not known?)) (conj node))]
                 (.put memo n answer))
               answer)
-          (recur (z/up current) (conj passed node)))))))
+
+          :else
+          (recur (z/up current) current (conj passed node)))))))
 
 (defn- parse-file
   "Read file and its ns form, or warn and return nil for a file the reader cannot parse."

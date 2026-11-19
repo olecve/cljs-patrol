@@ -13,6 +13,8 @@
             [:button {:type :button}
              "Yes"]
             [:button {:type :button}
-             "Go"]])
+             "Go"]
+            [:button {:type :button}
+             "Draw"]])
   (is (some? (s/get-by-role "button" {:name "Last"}))
       "first"))

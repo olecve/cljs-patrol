@@ -3,6 +3,7 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
+   [cljs-patrol.heads :as heads]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
@@ -448,10 +449,25 @@
        vec))
 
 (defn- test-key
-  "Name the test whose body holds `loc` by its name and row, so two tests of one name stay apart, or nil."
+  "Name the test whose body holds `loc` by its name and where that is written, so two tests of one name stay apart, or nil."
   [loc]
   (when-let [name-loc (parser/enclosing-test-loc loc)]
-    [(parser/sym-name name-loc) (parser/position-row name-loc)]))
+    (let [{:keys [row col]} (meta (z/node name-loc))]
+      [(parser/sym-name name-loc) row col])))
+
+(def ^:private cleaning-renders
+  "Renders that empty the DOM before they render, so a test using one sees only what it renders itself."
+  #{'react-testing-library-cljs.reagent.render/render!})
+
+(defn- renders-after-cleanup?
+  "True when the test around `loc` calls a render that empties the DOM first."
+  [loc ns-info]
+  (when-let [test-loc (some->> (parser/enclosing-test-loc loc)
+                               (iterate z/up)
+                               (take-while some?)
+                               (some #(when (parser/test-name-loc %) %)))]
+    (some #(and (= :list (z/tag %)) (heads/resolve-head % ns-info cleaning-renders))
+          (parser/descendant-locs test-loc))))
 
 (defn- built-test-id
   "Record what a `:data-testid` given as a call, or a name a binding sets to one, may build.
@@ -577,7 +593,7 @@
          :kw (symbol (second (library-lookup loc ns-info)))
          :form (parser/normalize-form (parser/raw loc))
          :test (parser/enclosing-definition-name loc)
-         :deftest (test-key loc)
+         :deftest (when (renders-after-cleanup? loc ns-info) (test-key loc))
          :file file
          :row (parser/position-row loc)}))))
 
@@ -625,7 +641,7 @@
   the role query would find that one too."
   [usages usages-in-run]
   (let [lookups-by-test (group-by (juxt :file :deftest) (filter #(= ::test-id-lookup (:type %)) usages))
-        test-keys (set (filter second (keys lookups-by-test)))
+        test-keys (->> lookups-by-test keys (filter second) set)
         shared (delay (test-id-evidence (remove :deftest usages-in-run)))
         test-usages (delay (group-by (juxt :file :deftest)
                                      (filter #(contains? test-keys [(:file %) (:deftest %)]) usages-in-run)))
