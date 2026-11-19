@@ -7,7 +7,9 @@
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
-   [rewrite-clj.zip :as z]))
+   [rewrite-clj.zip :as z])
+  (:import
+   (java.util IdentityHashMap)))
 
 (def ^:private library-namespaces
   "Namespaces holding the library's lookups: `get-by-*`, `query-by-*` and `find-by-*`, and their `-all-` forms.
@@ -448,26 +450,50 @@
        (keep string-value)
        vec))
 
-(defn- test-key
-  "Name the test whose body holds `loc` by its name and where that is written, so two tests of one name stay apart, or nil."
-  [loc]
-  (when-let [name-loc (parser/enclosing-test-loc loc)]
-    (let [{:keys [row col]} (meta (z/node name-loc))]
-      [(parser/sym-name name-loc) row col])))
-
 (def ^:private cleaning-renders
-  "Renders that empty the DOM before they render, so a test using one sees only what it renders itself."
+  "Renders that empty what Testing Library mounted before they render."
   #{'react-testing-library-cljs.reagent.render/render!})
 
-(defn- renders-after-cleanup?
-  "True when the test around `loc` calls a render that empties the DOM first."
+(defn- render-positions
+  "Return where `test-loc` calls a render from [[cleaning-renders]], outside `#_`, quotes and `(comment …)`.
+
+  The answer is kept for each test of the file."
+  [test-loc ns-info]
+  (let [state (parser/file-state ::render-positions nil)
+        ^IdentityHashMap memo (or @state (reset! state (IdentityHashMap.)))
+        node (z/node test-loc)]
+    (if (.containsKey memo node)
+      (.get memo node)
+      (let [positions (->> (parser/descendant-locs test-loc)
+                           (filter #(and (= :list (z/tag %))
+                                         (heads/resolve-head % ns-info cleaning-renders)
+                                         (not (hiccup/inside-unrendered-form? %))
+                                         (not (in-comment? %))))
+                           (mapv parser/position))]
+        (.put memo node positions)
+        positions))))
+
+(defn- test-key
+  "Name the test whose body holds `loc` when that test renders with [[cleaning-renders]], or nil.
+
+  Such a test's DOM is gone once the next one renders, so its body can stay out of another test's
+  evidence; any other test's body stays in. The name comes with where it is written, so two tests
+  of one name stay apart."
   [loc ns-info]
-  (when-let [test-loc (some->> (parser/enclosing-test-loc loc)
-                               (iterate z/up)
-                               (take-while some?)
-                               (some #(when (parser/test-name-loc %) %)))]
-    (some #(and (= :list (z/tag %)) (heads/resolve-head % ns-info cleaning-renders))
-          (parser/descendant-locs test-loc))))
+  (when-let [test-loc (parser/enclosing-test-loc loc)]
+    (when (seq (render-positions test-loc ns-info))
+      (let [name-loc (parser/test-name-loc test-loc)]
+        [(parser/sym-name name-loc) (parser/position name-loc)]))))
+
+(defn- lookup-test-key
+  "Name the test a lookup at `loc` reads only its own body in, or nil.
+
+  That is a test whose render from [[cleaning-renders]] comes before the lookup."
+  [loc ns-info]
+  (when-let [test-loc (parser/enclosing-test-loc loc)]
+    (let [lookup-position (parser/position loc)]
+      (when (some #(neg? (compare % lookup-position)) (render-positions test-loc ns-info))
+        (test-key loc ns-info)))))
 
 (defn- built-test-id
   "Record what a `:data-testid` given as a call, or a name a binding sets to one, may build.
@@ -475,7 +501,7 @@
   A `str` builds an id starting with its first argument and ending with its last, when those
   are literals, and holding every literal between. Any other call may build an id holding any
   literal written in it, and one with none may build any id."
-  [value-loc file]
+  [value-loc ns-info file]
   (let [arguments (when (= "str" (some-> value-loc z/down parser/sym-name))
                     (remove #(= :uneval (z/tag %)) (parser/right-siblings (z/down value-loc))))]
     (if (seq arguments)
@@ -484,11 +510,11 @@
        :suffix (if (next arguments) (or (string-value (last arguments)) "") "")
        :middle (->> arguments butlast rest (keep string-value) vec)
        :file file
-       :deftest (test-key value-loc)}
+       :deftest (test-key value-loc ns-info)}
       {:type ::built-test-id
        :fragments (string-fragments value-loc)
        :file file
-       :deftest (test-key value-loc)})))
+       :deftest (test-key value-loc ns-info)})))
 
 (defn- may-build?
   "True when a built test id recorded by [[built-test-id]] may be `id`."
@@ -497,11 +523,11 @@
     (and (str/starts-with? id prefix) (str/ends-with? id suffix) (every? #(str/includes? id %) middle))
     (or (empty? fragments) (boolean (some #(str/includes? id %) fragments)))))
 
-(defn- mention [id loc file]
+(defn- mention [id loc ns-info file]
   {:type ::test-id-mention
    :id (normalize-test-id id)
    :file file
-   :deftest (test-key loc)})
+   :deftest (test-key loc ns-info)})
 
 (defn- token-usage
   "Find what the token at loc records: a mention of a test id it may be, a built test id, or nil.
@@ -517,18 +543,18 @@
       value
       (when-not (and (= :list (some-> parent z/tag))
                      (identical? (z/node loc) (some-> (test-id-arguments parent ns-info) first z/node)))
-        (mention value loc file))
+        (mention value loc ns-info file))
 
       (and (= :quote (some-> parent z/tag)) (test-id-value? parent))
-      (mention (parser/raw loc) loc file)
+      (mention (parser/raw loc) loc ns-info file)
 
       (test-id-value? loc)
       (let [v (a11y/literal-sexpr loc)]
         (cond
-          (keyword? v) (mention (name v) loc file)
+          (keyword? v) (mention (name v) loc ns-info file)
           (symbol? v) (let [bound (hiccup/lexically-bound-value loc (parser/raw loc))]
                         (when (= :list (some-> bound z/tag))
-                          (built-test-id bound file))))))))
+                          (built-test-id bound ns-info file))))))))
 
 (defn- data-def-attr-test-id?
   "True when loc is the `:data-testid` value in a map that is a child of a vector in the value of a data `def`.
@@ -578,7 +604,7 @@
                                       (hiccup/inside-unrendered-form? loc)
                                       (in-comment? loc))
                          :file file
-                         :deftest (test-key loc))]
+                         :deftest (test-key loc ns-info))]
          :dynamics []}))))
 
 (defn- test-id-lookup
@@ -593,7 +619,7 @@
          :kw (symbol (second (library-lookup loc ns-info)))
          :form (parser/normalize-form (parser/raw loc))
          :test (parser/enclosing-definition-name loc)
-         :deftest (when (renders-after-cleanup? loc ns-info) (test-key loc))
+         :deftest (lookup-test-key loc ns-info)
          :file file
          :row (parser/position-row loc)}))))
 
@@ -640,7 +666,10 @@
   built id that may be it. The role and name have to belong to no element without that test id, or
   the role query would find that one too."
   [usages usages-in-run]
-  (let [lookups-by-test (group-by (juxt :file :deftest) (filter #(= ::test-id-lookup (:type %)) usages))
+  (let [lookups-by-test (->> usages
+                             (filter #(= ::test-id-lookup (:type %)))
+                             (map-indexed #(assoc %2 ::order %1))
+                             (group-by (juxt :file :deftest)))
         test-keys (->> lookups-by-test keys (filter second) set)
         shared (delay (test-id-evidence (remove :deftest usages-in-run)))
         test-usages (delay (group-by (juxt :file :deftest)
@@ -667,8 +696,8 @@
                                             :hint (str "Query it by role \"" role "\" and its name."))
                                      (hiccup/add-note (schema-element-note elements))))))
                            lookups))))
-         (sort-by (juxt :file :row))
-         vec)))
+         (sort-by ::order)
+         (mapv #(dissoc % ::order)))))
 
 (defn- handle-list [loc ns-info file]
   (when-not (hiccup/inside-unrendered-form? loc)
@@ -677,7 +706,7 @@
           usages (keep identity [(test-id-lookup loc ns-info file)
                                  (when (and (= ":data-testid" (some-> (z/left loc) parser/raw))
                                             (not (data-def-attr-test-id? loc)))
-                                   (built-test-id loc file))])]
+                                   (built-test-id loc ns-info file))])]
       (when (or finding (seq usages))
         {:decls (if finding [finding] [])
          :usages (vec usages)

@@ -454,32 +454,36 @@
     (atom initial)))
 
 (defn enclosing-test-loc
-  "Return the zloc of the name of the test whose body holds `loc`, or nil.
+  "Return the test form whose body holds `loc`, or nil.
 
   The nearest enclosing test form counts, also inside metadata, a reader conditional or any
   other form, and a helper written next to a test stays outside it. While a file is read, every
-  form the walk passes keeps its answer, so the next token under it stops there; a walk that ends
-  short of the file's root, as in a sub-zipper, keeps nothing."
+  form the walk passes keeps the node of its test, so the next token under it stops there and
+  only walks up to that node; from a sub-zipper, which does not hold the test, that walk ends at
+  its root and finds none."
   [loc]
   (let [state (file-state ::enclosing-test nil)
-        ^IdentityHashMap memo (or @state (reset! state (IdentityHashMap.)))]
+        ^IdentityHashMap memo (or @state (reset! state (IdentityHashMap.)))
+        ancestor-of (fn [from test-node]
+                      (some #(when (identical? test-node (z/node %)) %) (take-while some? (iterate z/up from))))]
     (loop [current (some-> loc z/up)
            previous nil
            passed []]
-      (let [node (some-> current z/node)
-            known? (and node (.containsKey memo node))
-            answer (cond
-                     (nil? current) nil
-                     known? (.get memo node)
-                     :else (test-name-loc current))]
+      (let [node (some-> current z/node)]
         (cond
-          (and (nil? current) (not= :forms (some-> previous z/tag)))
-          nil
+          (nil? current)
+          (do (when (= :forms (some-> previous z/tag))
+                (doseq [n passed] (.put memo n nil)))
+              nil)
 
-          (or (nil? current) known? answer)
-          (do (doseq [n (cond-> passed (and current (not known?)) (conj node))]
-                (.put memo n answer))
-              answer)
+          (.containsKey memo node)
+          (let [test-node (.get memo node)]
+            (doseq [n passed] (.put memo n test-node))
+            (some->> test-node (ancestor-of current)))
+
+          (test-name-loc current)
+          (do (doseq [n (conj passed node)] (.put memo n node))
+              current)
 
           :else
           (recur (z/up current) current (conj passed node)))))))

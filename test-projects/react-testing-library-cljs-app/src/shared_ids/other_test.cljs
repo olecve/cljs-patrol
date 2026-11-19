@@ -15,6 +15,12 @@
             [:button {:type :button}
              "Go"]
             [:button {:type :button}
-             "Draw"]])
+             "Draw"]
+            [:button {:type :button}
+             "Early"]
+            [:button {:type :button}
+             "Late"]
+            [:button {:type :button}
+             "Noted"]])
   (is (some? (s/get-by-role "button" {:name "Last"}))
       "first"))

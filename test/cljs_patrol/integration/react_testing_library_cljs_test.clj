@@ -145,12 +145,26 @@
     (is (contains? findings ["checks" "(s/get-by-test-id \"check\")"])
         "test of the same name on the same line, in another reader conditional branch, is another test")
     (is (contains? findings ["nested-check" "(s/get-by-test-id \"nest\")"])
-        "test inside a defn is still a test, so another test's body changes nothing")))
+        "test inside a defn is still a test, so another test's body changes nothing")
+    (is (not-any? #(= "paints-after-render" (first %)) findings)
+        "Paint button another test draws without render! stays on screen, since cleanup leaves it")
+    (is (not-any? #(= "looks-before-render" (first %)) findings)
+        "lookup before its test's render! still sees what earlier tests left, so it reads the whole run")
+    (is (not-any? #(= "renders-only-in-a-discard" (first %)) findings)
+        "render! inside #_ never runs, so the test reads the whole run")
+    (is (not-any? #(= "renders-only-in-a-comment" (first %)) findings)
+        "render! inside (comment …) never runs, so the test reads the whole run")))
 
 (deftest test-id-query-on-role-findings-follow-file-and-row
-  (let [findings (:test-id-query-on-role (result))]
-    (is (= (sort-by (juxt :file :row) findings) findings)
-        "findings come in file and row order")))
+  (let [findings (->> (core/run "test-projects/react-testing-library-cljs-app/src/shared_ids"
+                                [react-testing-library-cljs/group])
+                      :group-results
+                      first
+                      :test-id-query-on-role)]
+    (is (= (distinct (map :file findings)) (dedupe (map :file findings)))
+        "findings of one file come together")
+    (is (every? #(apply <= (map :row %)) (vals (group-by :file findings)))
+        "findings of one file follow its rows")))
 
 (defn- configured-findings [config]
   (->> (core/run "test-projects/react-testing-library-cljs-app/src/configured"
