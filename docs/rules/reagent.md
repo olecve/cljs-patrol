@@ -59,8 +59,8 @@ directly.
 A use is the whole props map when the call is the only value of `:class` in a map with no other keys, and nothing
 changes or merges that map. `merge`, `into`, `assoc` and the other core functions that
 [`defattrs-as-data`](spade.md#defattrs-as-data) reads change or merge it, and so does `reagent.core/merge-props`. A map
-under a tag, such as a `#js` object, does not count: the tag reader reads the literal map, so a call cannot take its
-place. A use inside a `#_` form does not count, but the rule needs at least one use outside `#_`.
+under a tag does not count: a tag reader may need the literal map, as `#js` does, and the rule cannot tell what a
+custom reader accepts. A use inside a `#_` form does not count, but the rule needs at least one use outside `#_`.
 
 </details>
 
