@@ -192,14 +192,16 @@ has:
   case or spacing, on the element or on an element around it in the same form, a component's literal props included, nor
   a closed `:dialog`, a `:template` or a `:datalist` around it
 
-What a test may render is the code outside every `deftest` in the run, and its own `deftest` body. Another test's body,
-in this file or another, renders nothing this test sees, so its strings and elements change nothing here. A test is a
-`deftest` or `deftest-` form, `deftest-` being clojure.test's or a project's own macro of that name, also inside
-metadata, a reader conditional or another form; a helper written next to it stays outside it. A lookup outside any test,
-such as in a helper, reads the whole run. Only a test that calls react-testing-library-cljs's `render!`, which empties
-the DOM before it renders, is read this way; a test that renders another way may still show what earlier tests left
-behind, so its lookup reads the whole run. A test id is compared after trimming and collapsing whitespace, as Testing
-Library's default normalizer does. The hint names the role.
+What a test may render, when react-testing-library-cljs's `render!` runs in it before the lookup, is its own body and
+everything outside the bodies of other tests that render with `render!`: that render empties what they mounted. Such a
+`render!` sits in the test's body itself, or in a `testing`, `let`, `do`, `binding` or `with-redefs` there, before the
+lookup; one in a function, a branch, `#_` or `(comment …)` may not run first. A test is a `deftest` or `deftest-` form,
+`deftest-` being clojure.test's or a project's own macro of that name, also inside metadata, a reader conditional or
+another form; a helper written next to it stays outside it. Any other lookup, such as one in a helper or in a test that
+renders another way, reads the whole run. Known limit: a test that calls `render!` and also mounts markup another way,
+such as with `reagent.dom/render`, leaves that markup behind, yet its body still drops out of other tests' evidence. A
+test id is compared after trimming and collapsing whitespace, as Testing Library's default normalizer does. The hint
+names the role.
 
 Left alone, since a role query could then miss what the test id finds, or find something else:
 

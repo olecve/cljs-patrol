@@ -21,6 +21,16 @@
             [:button {:type :button}
              "Late"]
             [:button {:type :button}
-             "Noted"]])
+             "Noted"]
+            [:button {:type :button}
+             "Hook"]
+            [:button {:type :button}
+             "Branch"]
+            [:button {:type :button}
+             "Clj"]
+            [:button {:type :button}
+             "Bound"]
+            [:button {:type :button}
+             "Grouped"]])
   (is (some? (s/get-by-role "button" {:name "Last"}))
       "first"))

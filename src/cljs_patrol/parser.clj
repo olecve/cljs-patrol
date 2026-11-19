@@ -462,8 +462,7 @@
   only walks up to that node; from a sub-zipper, which does not hold the test, that walk ends at
   its root and finds none."
   [loc]
-  (let [state (file-state ::enclosing-test nil)
-        ^IdentityHashMap memo (or @state (reset! state (IdentityHashMap.)))
+  (let [^IdentityHashMap memo @(file-state ::enclosing-test (IdentityHashMap.))
         ancestor-of (fn [from test-node]
                       (some #(when (identical? test-node (z/node %)) %) (take-while some? (iterate z/up from))))]
     (loop [current (some-> loc z/up)

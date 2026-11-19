@@ -454,46 +454,77 @@
   "Renders that empty what Testing Library mounted before they render."
   #{'react-testing-library-cljs.reagent.render/render!})
 
-(defn- render-positions
-  "Return where `test-loc` calls a render from [[cleaning-renders]], outside `#_`, quotes and `(comment …)`.
+(def ^:private statement-heads
+  "Forms whose body runs each form in turn, unconditionally, so a render in one runs before what follows."
+  #{"testing" "let" "do" "binding" "with-redefs"})
 
-  The answer is kept for each test of the file."
+(defn- runs-unconditionally?
+  "True when `loc` runs whenever the test `test-loc` runs.
+
+  That holds when every form between them is one of [[statement-heads]], or the binding vector of one."
+  [loc test-loc]
+  (let [test-node (z/node test-loc)
+        statement-form? #(and (= :list (z/tag %)) (contains? statement-heads (some-> % z/down parser/sym-name)))]
+    (loop [current (z/up loc)]
+      (cond
+        (nil? current) false
+        (identical? test-node (z/node current)) true
+        (statement-form? current) (recur (z/up current))
+        (and (= :vector (z/tag current)) (some-> (z/up current) statement-form?)) (recur (z/up current))
+        :else false))))
+
+(defn- render-positions
+  "Return where the test `test-loc` calls a render from [[cleaning-renders]] that runs whenever the test does.
+
+  A render inside `#_`, a quote, a `(comment …)`, a branch or a function may not run, so it does
+  not count. The answer is kept for each test of the file."
   [test-loc ns-info]
-  (let [state (parser/file-state ::render-positions nil)
-        ^IdentityHashMap memo (or @state (reset! state (IdentityHashMap.)))
+  (let [^IdentityHashMap memo @(parser/file-state ::render-positions (IdentityHashMap.))
         node (z/node test-loc)]
     (if (.containsKey memo node)
       (.get memo node)
       (let [positions (->> (parser/descendant-locs test-loc)
                            (filter #(and (= :list (z/tag %))
                                          (heads/resolve-head % ns-info cleaning-renders)
-                                         (not (hiccup/inside-unrendered-form? %))
-                                         (not (in-comment? %))))
+                                         (runs-unconditionally? % test-loc)))
                            (mapv parser/position))]
         (.put memo node positions)
         positions))))
 
-(defn- test-key
-  "Name the test whose body holds `loc` when that test renders with [[cleaning-renders]], or nil.
+(defn- file-has-test?
+  "True when the file holding `loc` writes a test form anywhere; the answer is kept for the file."
+  [loc]
+  (let [state (parser/file-state ::has-test? ::unknown)]
+    (if (= ::unknown @state)
+      (reset! state (boolean (some parser/test-name-loc
+                                   (take-while (complement z/end?)
+                                               (iterate z/next (z/leftmost (parser/top-level-loc loc)))))))
+      @state)))
+
+(defn- key-of-test
+  "Key the test `test-loc` by where its name is written, when it renders with [[cleaning-renders]], or nil.
 
   Such a test's DOM is gone once the next one renders, so its body can stay out of another test's
-  evidence; any other test's body stays in. The name comes with where it is written, so two tests
-  of one name stay apart."
+  evidence; any other test's body stays in."
+  [test-loc ns-info]
+  (when (seq (render-positions test-loc ns-info))
+    (parser/position (parser/test-name-loc test-loc))))
+
+(defn- test-key
+  "Key the test whose body holds `loc`, as [[key-of-test]] does, or nil."
   [loc ns-info]
-  (when-let [test-loc (parser/enclosing-test-loc loc)]
-    (when (seq (render-positions test-loc ns-info))
-      (let [name-loc (parser/test-name-loc test-loc)]
-        [(parser/sym-name name-loc) (parser/position name-loc)]))))
+  (when (file-has-test? loc)
+    (some-> (parser/enclosing-test-loc loc) (key-of-test ns-info))))
 
 (defn- lookup-test-key
-  "Name the test a lookup at `loc` reads only its own body in, or nil.
+  "Key the test a lookup at `loc` reads only its own body in, or nil.
 
-  That is a test whose render from [[cleaning-renders]] comes before the lookup."
+  That is a test whose render from [[cleaning-renders]] runs before the lookup."
   [loc ns-info]
   (when-let [test-loc (parser/enclosing-test-loc loc)]
     (let [lookup-position (parser/position loc)]
       (when (some #(neg? (compare % lookup-position)) (render-positions test-loc ns-info))
-        (test-key loc ns-info)))))
+        (key-of-test test-loc ns-info)))))
 
 (defn- built-test-id
   "Record what a `:data-testid` given as a call, or a name a binding sets to one, may build.
@@ -504,17 +535,14 @@
   [value-loc ns-info file]
   (let [arguments (when (= "str" (some-> value-loc z/down parser/sym-name))
                     (remove #(= :uneval (z/tag %)) (parser/right-siblings (z/down value-loc))))]
-    (if (seq arguments)
-      {:type ::built-test-id
-       :prefix (or (string-value (first arguments)) "")
-       :suffix (if (next arguments) (or (string-value (last arguments)) "") "")
-       :middle (->> arguments butlast rest (keep string-value) vec)
-       :file file
-       :deftest (test-key value-loc ns-info)}
-      {:type ::built-test-id
-       :fragments (string-fragments value-loc)
-       :file file
-       :deftest (test-key value-loc ns-info)})))
+    (assoc (if (seq arguments)
+             {:prefix (or (string-value (first arguments)) "")
+              :suffix (if (next arguments) (or (string-value (last arguments)) "") "")
+              :middle (->> arguments butlast rest (keep string-value) vec)}
+             {:fragments (string-fragments value-loc)})
+           :type ::built-test-id
+           :file file
+           :deftest (test-key value-loc ns-info))))
 
 (defn- may-build?
   "True when a built test id recorded by [[built-test-id]] may be `id`."
@@ -659,8 +687,9 @@
 (defn- find-test-id-queries-on-role
   "Keep the lookups of `usages` whose test id only elements a role query finds alone carry.
 
-  A lookup in a `deftest` reads the code outside every test and its own test's body, since another
-  test's body renders nothing it sees; any other lookup reads the whole run. Every mention of the
+  A lookup in a test whose `render!` runs before it reads its own test's body and everything outside
+  the bodies of tests that render with `render!`, since that render cleans up what they mounted; any
+  other lookup reads the whole run. Every mention of the
   id there has to be the test id of a visible element with one role and literal name, so a component
   prop, a constant, a hidden element or one with no role or name leaves the lookup alone; so does a
   built id that may be it. The role and name have to belong to no element without that test id, or
@@ -674,7 +703,7 @@
         shared (delay (test-id-evidence (remove :deftest usages-in-run)))
         test-usages (delay (group-by (juxt :file :deftest)
                                      (filter #(contains? test-keys [(:file %) (:deftest %)]) usages-in-run)))
-        whole-run (delay (test-id-evidence usages-in-run))]
+        whole-run (delay (merge-evidence @shared (test-id-evidence (filter :deftest usages-in-run))))]
     (->> lookups-by-test
          (mapcat (fn [[[_ deftest :as test-key] lookups]]
                    (let [{:keys [id->mention-count id->elements role+name->test-ids built]}

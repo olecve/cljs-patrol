@@ -153,9 +153,16 @@
     (is (not-any? #(= "renders-only-in-a-discard" (first %)) findings)
         "render! inside #_ never runs, so the test reads the whole run")
     (is (not-any? #(= "renders-only-in-a-comment" (first %)) findings)
-        "render! inside (comment …) never runs, so the test reads the whole run")))
+        "render! inside (comment …) never runs, so the test reads the whole run")
+    (is (empty? (filter #(contains? #{"renders-in-a-later-fn" "renders-in-a-branch" "renders-in-a-clj-branch"} (first %))
+                        findings))
+        "render! in a fn, a branch or a :clj branch may not run first, so the test reads the whole run")
+    (is (contains? findings ["renders-in-a-binding" "(s/get-by-test-id \"bound\")"])
+        "render! in a let binding runs first")
+    (is (contains? findings ["renders-in-a-testing-block" "(s/get-by-test-id \"grouped\")"])
+        "render! in a testing block runs first")))
 
-(deftest test-id-query-on-role-findings-follow-file-and-row
+(deftest test-id-query-on-role-findings-follow-file-and-row-test
   (let [findings (->> (core/run "test-projects/react-testing-library-cljs-app/src/shared_ids"
                                 [react-testing-library-cljs/group])
                       :group-results
