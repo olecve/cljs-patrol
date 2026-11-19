@@ -3,13 +3,10 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
-   [cljs-patrol.groups.tests :as tests]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
-   [rewrite-clj.zip :as z])
-  (:import
-   (java.util IdentityHashMap)))
+   [rewrite-clj.zip :as z]))
 
 (def ^:private library-namespaces
   "Namespaces holding the library's lookups: `get-by-*`, `query-by-*` and `find-by-*`, and their `-all-` forms.
@@ -450,33 +447,15 @@
        (keep string-value)
        vec))
 
-(defn- deftest-name
-  "Return the name the top-level form `top` defines when it is a test, or nil.
-
-  A test written in a reader conditional, `#?(:cljs (deftest …))`, counts too; one holding several
-  tests reads as the first of them, with every body in it."
-  [top]
-  (let [test-loc? #(and (= :list (z/tag %)) (contains? tests/deftest-heads (some-> % z/down parser/sym-name)))
-        test-loc (case (z/tag top)
-                   :list (when (test-loc? top) top)
-                   :reader-macro (first (filter test-loc? (parser/descendant-locs top)))
-                   nil)]
-    (some-> test-loc parser/declared-name-loc parser/sym-name)))
-
 (defn- enclosing-deftest
-  "Return the name of the test whose top-level form holds `loc`, or nil.
+  "Return the name of the test whose body holds `loc`, or nil.
 
   A test renders only what its own body and the code outside every test render, so the test is
-  the unit a test id's evidence is read in. The answer is kept for each top-level form of the file."
+  the unit a test id's evidence is read in. A test wrapped in metadata, a reader conditional or
+  any other form counts, and a helper written next to it stays outside it."
   [loc]
-  (let [top (parser/top-level-loc loc)
-        ^IdentityHashMap memo @(parser/file-state ::deftest-names (IdentityHashMap.))
-        node (z/node top)]
-    (if (.containsKey memo node)
-      (.get memo node)
-      (let [test-name (deftest-name top)]
-        (.put memo node test-name)
-        test-name))))
+  (some #(some-> (parser/test-name-loc %) parser/sym-name)
+        (take-while some? (iterate z/up (z/up loc)))))
 
 (defn- built-test-id
   "Record what a `:data-testid` given as a call, or a name a binding sets to one, may build.
@@ -651,7 +630,7 @@
   [usages usages-in-run]
   (let [shared (test-id-evidence (remove :deftest usages-in-run))
         by-test (group-by (juxt :file :deftest) (filter :deftest usages-in-run))
-        whole-run (delay (test-id-evidence usages-in-run))]
+        whole-run (delay (merge-evidence shared (test-id-evidence (filter :deftest usages-in-run))))]
     (->> usages
          (filter #(= ::test-id-lookup (:type %)))
          (group-by (juxt :file :deftest))
@@ -675,6 +654,7 @@
                                             :hint (str "Query it by role \"" role "\" and its name."))
                                      (hiccup/add-note (schema-element-note elements))))))
                            lookups))))
+         (sort-by (juxt :file :row))
          vec)))
 
 (defn- handle-list [loc ns-info file]

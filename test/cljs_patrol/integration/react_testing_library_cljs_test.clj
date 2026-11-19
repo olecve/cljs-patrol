@@ -129,7 +129,16 @@
     (is (contains? findings ["confirms-privately" "(s/get-by-test-id \"ok\")"])
         "deftest- is a test too, so another test's OK button is not on its screen")
     (is (contains? findings ["agrees-in-cljs" "(s/get-by-test-id \"yes\")"])
-        "test in a reader conditional is a test too, so another test's Yes button is not on its screen")))
+        "test in a reader conditional is a test too, so another test's Yes button is not on its screen")
+    (is (contains? findings ["goes-with-metadata" "(s/get-by-test-id \"go\")"])
+        "test wrapped in metadata is a test too, so another test's Go button is not on its screen")
+    (is (not-any? #(= "keeps-from-the-second-button" (first %)) findings)
+        "helper next to a test in a reader conditional is outside it, so its Keep button counts")))
+
+(deftest test-id-query-on-role-findings-follow-file-and-row
+  (let [findings (:test-id-query-on-role (result))]
+    (is (= (sort-by (juxt :file :row) findings) findings)
+        "findings come in file and row order")))
 
 (defn- configured-findings [config]
   (->> (core/run "test-projects/react-testing-library-cljs-app/src/configured"

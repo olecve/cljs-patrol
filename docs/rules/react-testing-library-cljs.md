@@ -122,12 +122,26 @@ a role query could find by its role and name.
    [icon]])
 (deftest send-test (.click (s/get-by-test-id "send-button")))
 
+;; another test's Save button is not on this test's screen
+(deftest save-test
+  (render! [:button {:data-testid "save"} "Save"])
+  (.click (s/get-by-test-id "save")))
+(deftest other-save-test
+  (render! [:button "Save"]))
+
 ;; fix
 (defn send-button []
   [:button {:aria-label "Send"
             :data-testid "send-button"}
    [icon]])
 (deftest send-test (.click (s/get-by-role "button" {:name "Send"})))
+
+;; the Save button found by its role and name
+(deftest save-test
+  (render! [:button {:data-testid "save"} "Save"])
+  (.click (s/get-by-role "button" {:name "Save"})))
+(deftest other-save-test
+  (render! [:button "Save"]))
 ```
 
 **Left alone:**
@@ -146,6 +160,11 @@ a role query could find by its role and name.
 ;; a component decides where the id goes
 (defn banner [] [design-icon {:data-testid "banner-icon"}])
 (deftest banner-test (.click (s/get-by-test-id "banner-icon")))
+
+;; the same test renders a second Save button
+(deftest two-saves-test
+  (render! [:div [:button "Save"] [:button {:data-testid "save"} "Save"]])
+  (.click (s/get-by-test-id "save")))
 ```
 
 <details>
@@ -174,9 +193,11 @@ has:
   a closed `:dialog`, a `:template` or a `:datalist` around it
 
 What a test may render is the code outside every `deftest` in the run, and its own `deftest` body. Another test's body,
-in this file or another, renders nothing this test sees, so its strings and elements change nothing here. A lookup
-outside any `deftest`, such as in a helper, reads the whole run. This takes the DOM to be cleaned up after each test, as
-Testing Library's `cleanup` does; without it, a role query also meets what earlier tests left behind. A test id is
+in this file or another, renders nothing this test sees, so its strings and elements change nothing here. A test is a
+`deftest` or `deftest-` form, also inside metadata, a reader conditional or another form; a helper written next to it
+stays outside it. A lookup outside any test, such as in a helper, reads the whole run. This takes the DOM to be empty
+when each test starts: react-testing-library-cljs's `render!` cleans up before it renders, and a test that renders
+another way has to call `cleanup` itself, or a role query also meets what earlier tests left behind. A test id is
 compared after trimming and collapsing whitespace, as Testing Library's default normalizer does. The hint names the
 role.
 

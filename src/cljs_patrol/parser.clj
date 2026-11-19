@@ -84,6 +84,19 @@
       (recur (some-> loc z/down z/rightmost))
       loc)))
 
+(def deftest-heads
+  "Forms that define a test var.
+
+  `deftest-` is cljs.test's private variant, and a project's own wrapper macro is named
+  here only when it is spelled the same way — nothing resolves a macro across namespaces."
+  #{"deftest" "deftest-"})
+
+(defn test-name-loc
+  "Return the zloc of the name a test form at `loc` defines, or nil when `loc` is no test form."
+  [loc]
+  (when (and (= :list (some-> loc z/tag)) (contains? deftest-heads (some-> loc z/down sym-name)))
+    (declared-name-loc loc)))
+
 (defn top-level-loc
   "Return the top-level form holding loc, or loc itself when it is one."
   [loc]
