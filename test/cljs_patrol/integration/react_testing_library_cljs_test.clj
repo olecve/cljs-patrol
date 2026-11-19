@@ -107,7 +107,7 @@
       "a test id built by a call with no literal part may be any id"))
 
 (deftest test-id-query-on-role-reads-what-a-test-may-render-test
-  (let [findings (->> (core/run "test-projects/react-testing-library-cljs-app/src/sharedids"
+  (let [findings (->> (core/run "test-projects/react-testing-library-cljs-app/src/shared_ids"
                                 [react-testing-library-cljs/group])
                       :group-results
                       first
@@ -115,19 +115,15 @@
                       (map (juxt :test :form))
                       set)]
     (is (contains? findings ["finds-first-and-last-by-test-id" "(s/get-by-test-id \"first\")"])
-        "a \"first\" string in another test file is no mention of this test's id")
+        "First button and \"first\" string in other tests' bodies, in this file and another, are not on this test's screen")
     (is (contains? findings ["finds-first-and-last-by-test-id" "(s/get-by-test-id \"last\")"])
-        "a \"Last\" button without the id in another test file is not on this test's screen")
-    (is (contains? findings ["finds-save-through-panel" "(s/get-by-test-id \"save\")"])
-        "element in a namespace the test requires through another, with a bare-symbol require")
-    (is (contains? findings ["finds-save-without-ns" "(react-testing-library-cljs.screen/get-by-test-id \"save\")"])
-        "file with no ns form reads every required file")
+        "Last button in another file's test body is not on this test's screen, though a runner requires every test")
+    (is (contains? findings ["finds-save-in-a-component" "(s/get-by-test-id \"save\")"])
+        "element outside every test, in a component the test renders, still counts")
     (is (not-any? #(= "get-open-button" (first %)) findings)
-        "helper lookup sees the second Open button a page it does not require renders")
+        "lookup outside a test reads the whole run, so the second Open button a test renders keeps it alone")
     (is (not-any? #(= "closes-from-the-toolbar" (first %)) findings)
-        "page a defmethod registers, required only by the app, still counts")
-    (is (not-any? #(= "edits-by-test-id" (first %)) findings)
-        "Edit button in a file with no ns form may render anywhere, so it still counts")))
+        "defmethod outside a test body, in a test file, may render in any test")))
 
 (defn- configured-findings [config]
   (->> (core/run "test-projects/react-testing-library-cljs-app/src/configured"

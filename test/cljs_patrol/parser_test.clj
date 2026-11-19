@@ -101,15 +101,6 @@
            (select-keys ns-info [:aliases :refers :macro-aliases :macro-refers]))
         "keeps require-macros and refer-macros names out of aliases and refers")))
 
-(deftest ns-info-lists-every-required-namespace
-  (is (= #{"app.events" "app.ui" "app.views" "app.server" "app.a" "app.b" "app.legacy"}
-         (:requires (parser/find-ns-info (z/of-string "(ns app.test
-  (:require [app.events :as e] app.ui
-            #?(:cljs [app.views] :clj [app.server])
-            #?@(:cljs [[app.a] [app.b]]))
-  (:use [app.legacy :only [f]]))"))))
-      "takes bare symbols, every reader conditional branch, splices and :use clauses"))
-
 (defn- memo-probe
   "Build a group that records, for every vector, the memo in force and whether a style declaration encloses it."
   [seen]

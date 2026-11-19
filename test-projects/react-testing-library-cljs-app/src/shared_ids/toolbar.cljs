@@ -1,4 +1,4 @@
-(ns sharedids.toolbar)
+(ns shared-ids.toolbar)
 
 (defn toolbar []
   [:button {:data-testid "close"

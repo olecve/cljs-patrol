@@ -1,4 +1,4 @@
-(ns sharedids.button-row)
+(ns shared-ids.button-row)
 
 (defn button-row []
   [:div

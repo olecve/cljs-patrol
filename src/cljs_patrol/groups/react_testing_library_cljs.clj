@@ -447,6 +447,17 @@
        (keep string-value)
        vec))
 
+(defn- enclosing-deftest
+  "Return the name of the top-level `deftest` around `loc`, or nil.
+
+  A test renders only what its own body and the code outside every test render, so the test is
+  the unit a test id's evidence is read in."
+  [loc]
+  (let [top (last (take-while #(and % (not= :forms (z/tag %))) (iterate z/up loc)))]
+    (when (and (= :list (some-> top z/tag))
+               (= "deftest" (some-> top z/down parser/sym-name)))
+      (some-> (parser/declared-name-loc top) parser/sym-name))))
+
 (defn- built-test-id
   "Record what a `:data-testid` given as a call, or a name a binding sets to one, may build.
 
@@ -461,10 +472,12 @@
        :prefix (or (string-value (first arguments)) "")
        :suffix (if (next arguments) (or (string-value (last arguments)) "") "")
        :middle (->> arguments butlast rest (keep string-value) vec)
-       :file file}
+       :file file
+       :deftest (enclosing-deftest value-loc)}
       {:type ::built-test-id
        :fragments (string-fragments value-loc)
-       :file file})))
+       :file file
+       :deftest (enclosing-deftest value-loc)})))
 
 (defn- may-build?
   "True when a built test id recorded by [[built-test-id]] may be `id`."
@@ -473,10 +486,11 @@
     (and (str/starts-with? id prefix) (str/ends-with? id suffix) (every? #(str/includes? id %) middle))
     (or (empty? fragments) (boolean (some #(str/includes? id %) fragments)))))
 
-(defn- mention [id file]
+(defn- mention [id loc file]
   {:type ::test-id-mention
    :id (normalize-test-id id)
-   :file file})
+   :file file
+   :deftest (enclosing-deftest loc)})
 
 (defn- token-usage
   "Find what the token at loc records: a mention of a test id it may be, a built test id, or nil.
@@ -492,15 +506,15 @@
       value
       (when-not (and (= :list (some-> parent z/tag))
                      (identical? (z/node loc) (some-> (test-id-arguments parent ns-info) first z/node)))
-        (mention value file))
+        (mention value loc file))
 
       (and (= :quote (some-> parent z/tag)) (test-id-value? parent))
-      (mention (parser/raw loc) file)
+      (mention (parser/raw loc) loc file)
 
       (test-id-value? loc)
       (let [v (a11y/literal-sexpr loc)]
         (cond
-          (keyword? v) (mention (name v) file)
+          (keyword? v) (mention (name v) loc file)
           (symbol? v) (let [bound (hiccup/lexically-bound-value loc (parser/raw loc))]
                         (when (= :list (some-> bound z/tag))
                           (built-test-id bound file))))))))
@@ -552,7 +566,8 @@
                                       (hidden-in-form? context loc)
                                       (hiccup/inside-unrendered-form? loc)
                                       (in-comment? loc))
-                         :file file)]
+                         :file file
+                         :deftest (enclosing-deftest loc))]
          :dynamics []}))))
 
 (defn- test-id-lookup
@@ -567,6 +582,7 @@
          :kw (symbol (second (library-lookup loc ns-info)))
          :form (parser/normalize-form (parser/raw loc))
          :test (parser/enclosing-definition-name loc)
+         :deftest (enclosing-deftest loc)
          :file file
          :row (parser/position-row loc)}))))
 
@@ -597,63 +613,43 @@
    :role+name->test-ids (merge-with into (:role+name->test-ids a) (:role+name->test-ids b))
    :built (into (:built a) (:built b))})
 
-(defn- unrequired-files
-  "Return the files whose namespace no file of the run requires, such as test files.
-
-  Nothing renders such a file but its own tests. A file with no readable ns form is never one."
-  [usages-in-run]
-  (let [namespaces (filter #(= ::namespace (:type %)) usages-in-run)
-        required (into #{} (mapcat :requires) namespaces)]
-    (into #{} (comp (filter :ns) (remove #(required (:ns %))) (map :file)) namespaces)))
-
 (defn- find-test-id-queries-on-role
   "Keep the lookups of `usages` whose test id only elements a role query finds alone carry.
 
-  The evidence for a lookup is every file some namespace requires, and the lookup's own file.
-  A file no namespace requires, such as another test file, renders only in its own tests, so its
-  strings and elements change nothing here. Every mention of the id in that evidence has to be the
-  test id of a visible element with one role and literal name, so a component prop, a constant, a
-  hidden element or one with no role or name leaves the lookup alone; so does a built id that may
-  be it. The role and name have to belong to no element without that test id, or the role query
-  would find that one too."
+  A lookup in a `deftest` reads the code outside every test and its own test's body, since another
+  test's body renders nothing it sees; any other lookup reads the whole run. Every mention of the
+  id there has to be the test id of a visible element with one role and literal name, so a component
+  prop, a constant, a hidden element or one with no role or name leaves the lookup alone; so does a
+  built id that may be it. The role and name have to belong to no element without that test id, or
+  the role query would find that one too."
   [usages usages-in-run]
-  (let [unrequired (unrequired-files usages-in-run)
-        {own-usages true
-         required-usages false} (group-by #(contains? unrequired (:file %)) usages-in-run)
-        required-evidence (test-id-evidence required-usages)
-        own-usages-by-file (group-by :file own-usages)
-        evidence-for (memoize (fn [file]
-                                (if (contains? unrequired file)
-                                  (merge-evidence required-evidence (test-id-evidence (own-usages-by-file file)))
-                                  required-evidence)))]
+  (let [shared (test-id-evidence (remove :deftest usages-in-run))
+        by-test (group-by (juxt :file :deftest) (filter :deftest usages-in-run))
+        whole-run (delay (test-id-evidence usages-in-run))]
     (->> usages
          (filter #(= ::test-id-lookup (:type %)))
-         (keep (fn [{:keys [id file]
-                     :as lookup}]
-                 (let [{:keys [id->mention-count id->elements role+name->test-ids built]} (evidence-for file)
-                       elements (get id->elements id)
-                       role+names (set (map (juxt :role :name) elements))
-                       [role] (first role+names)]
-                   (when (and (= (count elements) (get id->mention-count id))
-                              (= 1 (count role+names))
-                              (= #{id} (get role+name->test-ids (first role+names)))
-                              (not (some #(may-build? % id) built)))
-                     (-> lookup
-                         (dissoc :type :id)
-                         (assoc :type :test-id-query-on-role
-                                :hint (str "Query it by role \"" role "\" and its name."))
-                         (hiccup/add-note (schema-element-note elements)))))))
+         (group-by (juxt :file :deftest))
+         (mapcat (fn [[[_ deftest :as test-key] lookups]]
+                   (let [{:keys [id->mention-count id->elements role+name->test-ids built]}
+                         (if deftest
+                           (merge-evidence shared (test-id-evidence (get by-test test-key)))
+                           @whole-run)]
+                     (keep (fn [{:keys [id]
+                                 :as lookup}]
+                             (let [elements (get id->elements id)
+                                   role+names (set (map (juxt :role :name) elements))
+                                   [role] (first role+names)]
+                               (when (and (= (count elements) (get id->mention-count id))
+                                          (= 1 (count role+names))
+                                          (= #{id} (get role+name->test-ids (first role+names)))
+                                          (not (some #(may-build? % id) built)))
+                                 (-> lookup
+                                     (dissoc :type :id :deftest)
+                                     (assoc :type :test-id-query-on-role
+                                            :hint (str "Query it by role \"" role "\" and its name."))
+                                     (hiccup/add-note (schema-element-note elements))))))
+                           lookups))))
          vec)))
-
-(defn- handle-file
-  "Record the namespace of the file and the namespaces it requires; no namespace when its ns form is missing or unreadable."
-  [_zloc {:keys [ns-name requires]} file]
-  {:decls []
-   :usages [{:type ::namespace
-             :ns (when (not= "unknown" ns-name) ns-name)
-             :requires (or requires #{})
-             :file file}]
-   :dynamics []})
 
 (defn- handle-list [loc ns-info file]
   (when-not (hiccup/inside-unrendered-form? loc)
@@ -682,8 +678,7 @@
   group/RuleGroup
   (group-id [_] :react-testing-library-cljs)
   (group-name [_] "react-testing-library-cljs")
-  (parse-handlers [_] {:handle-file handle-file
-                       :handle-list handle-list
+  (parse-handlers [_] {:handle-list handle-list
                        :handle-token handle-token
                        :handle-vector (fn [loc ns-info file] (handle-vector test-id-elements loc ns-info file))})
   (analyze [_ data] (analyze* data))

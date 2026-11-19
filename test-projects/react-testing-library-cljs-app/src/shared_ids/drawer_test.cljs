@@ -1,4 +1,4 @@
-(ns sharedids.drawer-test
+(ns shared-ids.drawer-test
   (:require
    [cljs.test :refer [deftest is]]
    [react-testing-library-cljs.reagent.render :refer [render!]]
@@ -14,3 +14,8 @@
              "Last"]])
   (is (some? (s/get-by-test-id "first")))
   (is (some? (s/get-by-test-id "last"))))
+
+(deftest renders-a-first-button-without-an-id
+  (render! [:button {:type :button}
+            "First"])
+  (is (some? (s/get-by-role "button" {:name "First"}))))

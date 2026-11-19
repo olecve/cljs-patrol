@@ -204,28 +204,6 @@
         {:kw nil
          :dynamic? true}))))
 
-(defn- reader-conditional-forms
-  "Return the forms of every branch of a `#?` or `#?@` written in an ns form, or nil.
-
-  rewrite-clj gives such a form as `(read-string \"#?(…)\")`."
-  [form]
-  (when (and (seq? form) (= 'read-string (first form)) (string? (second form)))
-    (let [conditional (try (read-string {:read-cond :preserve} (second form))
-                           (catch Exception _ nil))]
-      (when (reader-conditional? conditional)
-        (let [forms (take-nth 2 (rest (:form conditional)))]
-          (if (:splicing? conditional) (mapcat identity forms) forms))))))
-
-(defn- required-namespaces
-  "Return the namespaces the `:require` and `:use` clauses of `ns-sexpr` name, in every reader conditional branch."
-  [ns-sexpr]
-  (set (for [clause (rest ns-sexpr)
-             :when (and (seq? clause) (#{:require :use} (first clause)))
-             req (mapcat #(or (reader-conditional-forms %) [%]) (rest clause))
-             :let [ns-sym (if (vector? req) (first req) req)]
-             :when (symbol? ns-sym)]
-         (str ns-sym))))
-
 (defn- parse-require [req-vec]
   (when (vector? req-vec)
     (when-let [ns-sym (first req-vec)]
@@ -249,9 +227,9 @@
               :else (recur (drop 2 pairs) as-alias refers macro-refers))))))))
 
 (defn- parse-ns-form
-  "Return the ns name, the namespaces it requires, and the aliases and refers its `:require` and `:require-macros` clauses write.
+  "Return the ns name, and the aliases and refers its `:require` and `:require-macros` clauses write.
 
-  {:ns-name str :requires #{full-ns-str} :aliases {alias-str full-ns-str} :refers {refer-name-str full-ns-str}
+  {:ns-name str :aliases {alias-str full-ns-str} :refers {refer-name-str full-ns-str}
    :macro-aliases {…} :macro-refers {…}}. Macro aliases and refers are kept apart, so a
   `:require-macros` alias never replaces the `:require` alias of the same name."
   [ns-sexpr]
@@ -276,7 +254,6 @@
         requires (requires-in :require)
         macro-requires (requires-in :require-macros)]
     {:ns-name (str (second ns-sexpr))
-     :requires (required-namespaces ns-sexpr)
      :aliases (aliases-of requires)
      :refers (refers-of requires :refers)
      :macro-aliases (aliases-of macro-requires)

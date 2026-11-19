@@ -157,7 +157,7 @@ and for those a test id is the only way in, so the rule never asks for a test id
 scan can prove a role query finds.
 
 Flagged: a `get-by-*`, `query-by-*` or `find-by-*` test id lookup, `-all-` forms included, given a literal string and
-nothing after it, when every other mention of that string in the files the test may render is the `:data-testid` of an
+nothing after it, when every other mention of that string in what the test may render is the `:data-testid` of an
 element written out with a literal attrs map, an HTML one or one [`:test-id-elements`](#test-id-elements) names, that
 has:
 
@@ -168,19 +168,19 @@ has:
 - a literal name: a non-blank `:aria-label` string, a `:value` string on a button, submit or reset input, or, for a role
   named by its content such as a button or a link, the text it renders when every child is a literal string or an
   element rendering one
-- a role and name no other element in those files has without that test id, so a role query finds one element
+- a role and name no other element it may render has without that test id, so a role query finds one element
 - nothing that may hide it: `:hidden`, `:aria-hidden`, or a `:style` with `display: none` or `visibility: hidden` in any
   case or spacing, on the element or on an element around it in the same form, a component's literal props included, nor
   a closed `:dialog`, a `:template` or a `:datalist` around it
 
-The files a test may render are its own file and every file some namespace of the run requires. A file nothing requires,
-such as another test file, renders only in its own tests, so its strings and elements change nothing here. A file with
-an unreadable `ns` form, or none, counts as required. A test id is compared after trimming and collapsing whitespace, as
-Testing Library's default normalizer does. The hint names the role.
+What a test may render is the code outside every `deftest` in the run, and its own `deftest` body. Another test's body,
+in this file or another, renders nothing this test sees, so its strings and elements change nothing here. A lookup
+outside any `deftest`, such as in a helper, reads the whole run. A test id is compared after trimming and collapsing
+whitespace, as Testing Library's default normalizer does. The hint names the role.
 
 Left alone, since a role query could then miss what the test id finds, or find something else:
 
-- a test id built at run time, one no element in those files sets as a literal, and a lookup with options after the id,
+- a test id built at run time, one no element it may render sets as a literal, and a lookup with options after the id,
   such as `{:exact false}`
 - any other mention of the string: a component's props (its own `:data-testid` may land on any element inside it, unless
   [`:test-id-elements`](#test-id-elements) names it), a map built with `merge` or `assoc`, a constant, a second element
@@ -193,9 +193,9 @@ Left alone, since a role query could then miss what the test id finds, or find s
 - an element with no literal name: an icon-only button, text beside a component or a call, an `:aria-label` written as
   an expression, an `:aria-labelledby` (the id it points at may not exist), a `:title` (Testing Library ignores it for
   some roles), and an input named by a `<label>` elsewhere
-- a role and name another element in those files shares without that test id, such as two "Save" buttons. A vector in
-  the value of a [data `def`](../rules.md#data-defs), such as the Malli entry `[:button {:aria-label "Save"} :string]`,
-  is no element, so it shares no role and name, and its `:data-testid` value, written out or built, is no mention. Every
+- a role and name another element it may render shares without that test id, such as two "Save" buttons. A vector in the
+  value of a [data `def`](../rules.md#data-defs), such as the Malli entry `[:button {:aria-label "Save"} :string]`, is
+  no element, so it shares no role and name, and its `:data-testid` value, written out or built, is no mention. Every
   other test id string in a data `def`, such as one in `[:enum "save-button"]` or in `{:default "open-button"}`, still
   counts as a mention
 - an element that may be hidden: `:hidden`, `:aria-hidden` or a `:style` written as an expression count, and so does an

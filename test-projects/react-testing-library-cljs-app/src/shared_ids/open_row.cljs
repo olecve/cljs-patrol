@@ -1,4 +1,4 @@
-(ns sharedids.open-row)
+(ns shared-ids.open-row)
 
 (defn open-row []
   [:button {:data-testid "open"

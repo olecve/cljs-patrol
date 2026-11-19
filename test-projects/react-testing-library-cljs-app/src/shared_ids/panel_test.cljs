@@ -1,10 +1,10 @@
-(ns sharedids.panel-test
+(ns shared-ids.panel-test
   (:require
    [cljs.test :refer [deftest is]]
    [react-testing-library-cljs.reagent.render :refer [render!]]
    [react-testing-library-cljs.screen :as s]
-   [sharedids.panel :refer [panel]]))
+   [shared-ids.button-row :refer [button-row]]))
 
-(deftest finds-save-through-panel
-  (render! [panel])
+(deftest finds-save-in-a-component
+  (render! [button-row])
   (is (some? (s/get-by-test-id "save"))))
