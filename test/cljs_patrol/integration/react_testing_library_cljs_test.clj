@@ -127,13 +127,19 @@
     (is (not-any? #(= "submits-from-the-second-button" (first %)) findings)
         "second Submit button in the lookup's own test body keeps it alone")
     (is (contains? findings ["confirms-privately" "(s/get-by-test-id \"ok\")"])
-        "deftest- is a test too, so another test's OK button is not on its screen")
+        "clojure.test's deftest- is a test too, so another test's OK button is not on its screen")
     (is (contains? findings ["agrees-in-cljs" "(s/get-by-test-id \"yes\")"])
         "test in a reader conditional is a test too, so another test's Yes button is not on its screen")
     (is (contains? findings ["goes-with-metadata" "(s/get-by-test-id \"go\")"])
         "test wrapped in metadata is a test too, so another test's Go button is not on its screen")
     (is (not-any? #(= "keeps-from-the-second-button" (first %)) findings)
-        "helper next to a test in a reader conditional is outside it, so its Keep button counts")))
+        "helper next to a test in a reader conditional is outside it, so its Keep button counts")
+    (is (contains? findings ["stores" "(s/get-by-test-id \"store\")"])
+        "test of the same name in another reader conditional branch is another test")
+    (is (contains? findings ["finds-the-literal-id" "(s/get-by-test-id \"built\")"])
+        "id another test's body may build is not on this test's screen")
+    (is (not-any? #(= "finds-an-id-it-may-build" (first %)) findings)
+        "id the lookup's own test body may build keeps it alone")))
 
 (deftest test-id-query-on-role-findings-follow-file-and-row
   (let [findings (:test-id-query-on-role (result))]

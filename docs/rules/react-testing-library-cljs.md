@@ -194,12 +194,12 @@ has:
 
 What a test may render is the code outside every `deftest` in the run, and its own `deftest` body. Another test's body,
 in this file or another, renders nothing this test sees, so its strings and elements change nothing here. A test is a
-`deftest` or `deftest-` form, also inside metadata, a reader conditional or another form; a helper written next to it
-stays outside it. A lookup outside any test, such as in a helper, reads the whole run. This takes the DOM to be empty
-when each test starts: react-testing-library-cljs's `render!` cleans up before it renders, and a test that renders
-another way has to call `cleanup` itself, or a role query also meets what earlier tests left behind. A test id is
-compared after trimming and collapsing whitespace, as Testing Library's default normalizer does. The hint names the
-role.
+`deftest`, or clojure.test's `deftest-` in a `.cljc` file, also inside metadata, a reader conditional or another form; a
+helper written next to it stays outside it. A lookup outside any test, such as in a helper, reads the whole run. This
+takes the DOM to be empty when each test starts: react-testing-library-cljs's `render!` cleans up before it renders, and
+a test that renders another way has to call `cleanup` itself, or a role query also meets what earlier tests left behind.
+A test id is compared after trimming and collapsing whitespace, as Testing Library's default normalizer does. The hint
+names the role.
 
 Left alone, since a role query could then miss what the test id finds, or find something else:
 

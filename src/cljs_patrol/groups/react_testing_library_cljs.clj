@@ -447,15 +447,11 @@
        (keep string-value)
        vec))
 
-(defn- enclosing-deftest
-  "Return the name of the test whose body holds `loc`, or nil.
-
-  A test renders only what its own body and the code outside every test render, so the test is
-  the unit a test id's evidence is read in. A test wrapped in metadata, a reader conditional or
-  any other form counts, and a helper written next to it stays outside it."
+(defn- test-key
+  "Name the test whose body holds `loc` by its name and row, so two tests of one name stay apart, or nil."
   [loc]
-  (some #(some-> (parser/test-name-loc %) parser/sym-name)
-        (take-while some? (iterate z/up (z/up loc)))))
+  (when-let [name-loc (parser/enclosing-test-loc loc)]
+    [(parser/sym-name name-loc) (parser/position-row name-loc)]))
 
 (defn- built-test-id
   "Record what a `:data-testid` given as a call, or a name a binding sets to one, may build.
@@ -472,11 +468,11 @@
        :suffix (if (next arguments) (or (string-value (last arguments)) "") "")
        :middle (->> arguments butlast rest (keep string-value) vec)
        :file file
-       :deftest (enclosing-deftest value-loc)}
+       :deftest (test-key value-loc)}
       {:type ::built-test-id
        :fragments (string-fragments value-loc)
        :file file
-       :deftest (enclosing-deftest value-loc)})))
+       :deftest (test-key value-loc)})))
 
 (defn- may-build?
   "True when a built test id recorded by [[built-test-id]] may be `id`."
@@ -489,7 +485,7 @@
   {:type ::test-id-mention
    :id (normalize-test-id id)
    :file file
-   :deftest (enclosing-deftest loc)})
+   :deftest (test-key loc)})
 
 (defn- token-usage
   "Find what the token at loc records: a mention of a test id it may be, a built test id, or nil.
@@ -566,7 +562,7 @@
                                       (hiccup/inside-unrendered-form? loc)
                                       (in-comment? loc))
                          :file file
-                         :deftest (enclosing-deftest loc))]
+                         :deftest (test-key loc))]
          :dynamics []}))))
 
 (defn- test-id-lookup
@@ -581,7 +577,7 @@
          :kw (symbol (second (library-lookup loc ns-info)))
          :form (parser/normalize-form (parser/raw loc))
          :test (parser/enclosing-definition-name loc)
-         :deftest (enclosing-deftest loc)
+         :deftest (test-key loc)
          :file file
          :row (parser/position-row loc)}))))
 
@@ -595,7 +591,7 @@
          ". Move that part into its own def or function, so the schema reads as data.")))
 
 (def ^:private evidence-merges
-  "How two indexes of [[test-id-evidence]] combine, for each of its keys."
+  "Combine the code outside every test with one test's body: counts add up, element and id lists join."
   {:id->mention-count #(merge-with + %1 %2)
    :id->elements #(merge-with into %1 %2)
    :role+name->test-ids #(merge-with into %1 %2)
@@ -614,7 +610,7 @@
      :built (vec (by-type ::built-test-id))}))
 
 (defn- merge-evidence
-  "Combine two indexes of [[test-id-evidence]]; a key with no entry in [[evidence-merges]] fails."
+  "Index what the code outside every test and one test's body say together; an index key with no way to combine fails."
   [a b]
   (reduce-kv (fn [merged k v] (assoc merged k ((evidence-merges k) v (get b k)))) {} a))
 
@@ -628,16 +624,17 @@
   built id that may be it. The role and name have to belong to no element without that test id, or
   the role query would find that one too."
   [usages usages-in-run]
-  (let [shared (test-id-evidence (remove :deftest usages-in-run))
-        by-test (group-by (juxt :file :deftest) (filter :deftest usages-in-run))
-        whole-run (delay (merge-evidence shared (test-id-evidence (filter :deftest usages-in-run))))]
-    (->> usages
-         (filter #(= ::test-id-lookup (:type %)))
-         (group-by (juxt :file :deftest))
+  (let [lookups-by-test (group-by (juxt :file :deftest) (filter #(= ::test-id-lookup (:type %)) usages))
+        test-keys (set (filter second (keys lookups-by-test)))
+        shared (delay (test-id-evidence (remove :deftest usages-in-run)))
+        test-usages (delay (group-by (juxt :file :deftest)
+                                     (filter #(contains? test-keys [(:file %) (:deftest %)]) usages-in-run)))
+        whole-run (delay (test-id-evidence usages-in-run))]
+    (->> lookups-by-test
          (mapcat (fn [[[_ deftest :as test-key] lookups]]
                    (let [{:keys [id->mention-count id->elements role+name->test-ids built]}
                          (if deftest
-                           (merge-evidence shared (test-id-evidence (get by-test test-key)))
+                           (merge-evidence @shared (test-id-evidence (get @test-usages test-key)))
                            @whole-run)]
                      (keep (fn [{:keys [id]
                                  :as lookup}]

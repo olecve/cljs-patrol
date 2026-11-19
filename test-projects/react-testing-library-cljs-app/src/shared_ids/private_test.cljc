@@ -1,6 +1,6 @@
 (ns shared-ids.private-test
   (:require
-   [cljs.test :refer [deftest- is]]
+   [clojure.test :refer [deftest- is]]
    [react-testing-library-cljs.reagent.render :refer [render!]]
    [react-testing-library-cljs.screen :as s]))
 
