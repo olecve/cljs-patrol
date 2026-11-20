@@ -80,9 +80,9 @@ or a `:refer`, or by naming the namespace in full, so a function of another name
 A call of a helper counts as the lookup when the helper is a top-level `defn` or `defn-` of the same file whose one
 arity returns a single `get-by-*` or `get-all-by-*` lookup. The finding then names the helper and the `query-by-*`
 lookup it should return. Not followed: a helper inside another form, such as a `do`, a reader conditional, a
-`(comment …)` or `#_` code; a helper of another namespace; and a name the file defines more than once, with any
-`def`-like form at any depth outside `#_` or quoted code, since which definition a call reaches depends on what runs
-first.
+`(comment …)` or `#_` code; a helper of another namespace; and a name the file defines more than once, with `def`,
+`defn`, `defn-`, `defonce`, `defmulti` or `defmacro` at any depth outside `#_` or quoted code, since which definition a
+call reaches depends on what runs first.
 
 Left alone: a lookup the assertion reads further, such as its text, a property or a count of what `get-all-by-*` found,
 since that claims more than presence; a `query-by-*` or `find-by-*` lookup; and a lookup or an `is` whose name an
