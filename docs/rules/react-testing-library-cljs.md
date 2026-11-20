@@ -76,12 +76,13 @@ Reported when the expression of an `is` is the lookup itself, or the lookup unde
 or `(not (nil? …))`. The lookup is recognized by what its head resolves to through the namespace's `:require`, an alias
 or a `:refer`, or by naming the namespace in full, so a function of another namespace that happens to be called
 `get-by-role` is not this one. A call of a helper counts as the lookup when the helper is a `defn` or `defn-` of the
-same file, at any depth, whose body is one `get-by-*` or `get-all-by-*` lookup, as
-[`lookup-helper-name`](#lookup-helper-name) reads it; when the file defines the name again, the last definition counts.
-The finding then names the helper and the `query-by-*` lookup it should return. Left alone: a lookup the assertion reads
-further, such as its text, a property or a count of what `get-all-by-*` found, since that claims more than presence; a
-`query-by-*` or `find-by-*` lookup; and a lookup or an `is` whose name an enclosing form binds anew, a `let` or `fn`
-local, a `letfn` function, a `with-redefs` or a `binding`, since the name then may not be the library's.
+same file, at any depth outside quoted or `(comment …)` code, whose one arity returns a single `get-by-*` or
+`get-all-by-*` lookup. When the file defines the name again with `def`, `defn` or `defn-`, the last definition counts,
+so a later definition that does more replaces the helper. The finding then names the helper and the `query-by-*` lookup
+it should return. A helper of another namespace is not followed. Left alone: a lookup the assertion reads further, such
+as its text, a property or a count of what `get-all-by-*` found, since that claims more than presence; a `query-by-*` or
+`find-by-*` lookup; and a lookup or an `is` whose name an enclosing form binds anew, a `let` or `fn` local, a `letfn`
+function, a `with-redefs` or a `binding`, since the name then may not be the library's.
 
 </details>
 

@@ -163,21 +163,41 @@
               (= :list (z/tag child)) (cons child)))
           (parser/written-child-locs loc)))
 
-(defn- get-by-helpers
-  "Return {name fn-name} for the lookup helpers of the file `loc` sits in that return a throwing lookup, once per file.
+(def ^:private definition-heads
+  "Heads that define a var, so a later one replaces a helper of the same name."
+  #{"def" "defn" "defn-"})
 
-  A helper is read as [[lookup-helper]] reads it, at any depth. When a name is defined again,
-  the last definition counts, as it does when the file runs."
+(defn- uses-library?
+  "True when the namespace requires one of the library's lookup namespaces, by an alias or a refer."
+  [{:keys [aliases refers]}]
+  (boolean (some library-namespaces (concat (vals aliases) (vals refers)))))
+
+(defn- in-comment?
+  "True when a `(comment …)` form encloses `loc`, which only a REPL evaluates."
+  [loc]
+  (boolean (some #(and (= :list (z/tag %)) (= "comment" (some-> % z/down parser/sym-name)))
+                 (take-while some? (rest (iterate z/up loc))))))
+
+(defn- get-by-helpers
+  "Return {name fn-name} for the helpers of the file `loc` sits in whose one arity returns a throwing lookup, once per file.
+
+  Every `def`, `defn` and `defn-` at any depth counts, except in quoted, discarded or
+  `(comment …)` code, which never runs. A name defined again takes its last definition, as it
+  does when the file runs, so a later definition that is not such a helper removes it."
   [loc ns-info]
   (let [state (parser/file-state ::get-by-helpers nil)]
     (or @state
         (reset! state
                 (->> (written-lists (z/up (parser/top-level-loc loc)))
-                     (keep #(lookup-helper % ns-info))
-                     (reduce (fn [helpers {:keys [helper-name kind fn-name]}]
-                               (if (= "get" kind)
-                                 (assoc helpers helper-name fn-name)
-                                 (dissoc helpers helper-name)))
+                     (filter #(contains? definition-heads (some-> % z/down parser/sym-name)))
+                     (remove #(or (hiccup/inside-unrendered-form? %) (in-comment? %)))
+                     (reduce (fn [helpers form]
+                               (let [{:keys [kind fn-name]} (lookup-helper form ns-info)]
+                                 (if-let [helper-name (some-> (parser/declared-name-loc form) parser/sym-name)]
+                                   (if (= "get" kind)
+                                     (assoc helpers helper-name fn-name)
+                                     (dissoc helpers helper-name))
+                                   helpers)))
                              {}))))))
 
 (defn- presence-hint
@@ -186,7 +206,7 @@
   (let [all? (str/starts-with? fn-name "get-all-")]
     (if helper?
       (str head " returns " fn-name ", which throws on a miss, so this check never fails. Use a helper that returns "
-           (query-twin fn-name fn-name) (when all? ", inside seq") ".")
+           "query" (subs fn-name 3) (when all? ", inside seq") ".")
       (str head " throws on a miss, so this check never fails. Use "
            (cond->> (query-twin head fn-name) all? (format "(seq (%s …))")) "."))))
 
@@ -199,7 +219,7 @@
     (when-let [lookup (presence-checked-lookup loc)]
       (let [head (some-> lookup z/down parser/raw)
             library-fn (throwing-query lookup ns-info)
-            helper-fn (when (and (nil? library-fn) (= :list (z/tag lookup)) head (not (str/includes? head "/")))
+            helper-fn (when (and (nil? library-fn) (= :list (z/tag lookup)) head (uses-library? ns-info))
                         (get (get-by-helpers loc ns-info) head))]
         (when-let [fn-name (or library-fn helper-fn)]
           (when-not (or (rebound? lookup head) (rebound? loc (parser/raw (z/down loc))))
@@ -475,12 +495,6 @@
           (non-blank (read-attr attrs :value)))
         (when (contains? content-named-roles role)
           (non-blank (rendered-text context loc))))))
-
-(defn- in-comment?
-  "True when a `(comment …)` form encloses `loc`, which only a REPL evaluates."
-  [loc]
-  (boolean (some #(and (= :list (z/tag %)) (= "comment" (some-> % z/down parser/sym-name)))
-                 (take-while some? (rest (iterate z/up loc))))))
 
 (defn- role-and-name
   "Return the role and literal name of the element vector `loc`, or nil when it has no role or name the scan can read."

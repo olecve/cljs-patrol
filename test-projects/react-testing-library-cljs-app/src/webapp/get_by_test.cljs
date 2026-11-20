@@ -143,3 +143,21 @@
 
 (deftest ok-helper-redefined-as-query
   (is (some? (get-redefined))))
+
+(defn- get-replaced-by-def [] (s/get-by-role "dialog"))
+
+(def get-replaced-by-def (constantly nil))
+
+(comment
+  (defn- get-in-repl [] (s/get-by-role "dialog")))
+
+(def quoted-helper '(defn- get-quoted [] (s/get-by-role "dialog")))
+
+(deftest ok-helper-replaced-by-def
+  (is (some? (get-replaced-by-def))))
+
+(deftest ok-helper-only-in-comment
+  (is (some? (get-in-repl))))
+
+(deftest ok-helper-only-quoted
+  (is (some? (get-quoted))))
