@@ -183,7 +183,7 @@
 (defn- custom-property-name
   "Return the custom property a value reads when it is `var(--name)` and nothing else, `!important` left out, or nil."
   [text]
-  (second (re-matches #"var\(\s*(--[\w-]+)\s*\)" (without-important text))))
+  (second (re-matches #"(?i:var)\(\s*(--[\w-]+)\s*\)" (without-important text))))
 
 (defn- shadow-value
   "Classify a `:box-shadow` value: a reset, a custom property, a var, a string, a `str` or a Garden vector built in place.
@@ -191,11 +191,12 @@
   Nil for a value that paints no ring, a keyword such as `:none`, or that this cannot read."
   [value-loc ns-info]
   (case (z/tag value-loc)
-    :token (let [value (literal value-loc)]
+    :token (let [value (literal value-loc)
+                 property (when (string? value) (custom-property-name value))]
              (cond
                (and (string? value) (contains? reset-values (str/lower-case (without-important value)))) {:kind :reset}
-               (and (string? value) (custom-property-name value)) {:kind :custom-property
-                                                                   :name (custom-property-name value)}
+               property {:kind :custom-property
+                         :name property}
                (string? value) {:kind :string
                                 :tokens [value-loc]}
                (symbol? value) (if-let [resolved (resolve-symbol value ns-info)]
@@ -280,14 +281,16 @@
       (finding :focus-ring-missing-outline block key-loc decl-kw file
                (str "Set :outline " (pr-str (or expected default-outline)) " beside :box-shadow.")))))
 
+(defn- sorted-shadows
+  "Return the shadows sorted and each once, or nil when there are none."
+  [shadows]
+  (some->> shadows distinct (sort-by str) seq))
+
 (defn- candidates
   "Return the approved shadows the raw tokens and colors in the value stand in for, sorted and each once, or nil."
   [symbols strings {:keys [replaced-symbols replaced-colors]}]
-  (->> (concat (mapcat replaced-symbols symbols)
-               (keep (fn [[pattern shadow]] (when (some #(re-find pattern %) strings) shadow)) replaced-colors))
-       distinct
-       (sort-by str)
-       seq))
+  (sorted-shadows (concat (mapcat replaced-symbols symbols)
+                          (keep (fn [[pattern shadow]] (when (some #(re-find pattern %) strings) shadow)) replaced-colors))))
 
 (defn- use-hint
   "Name the shadows to use: \"Use a.\", or \"Use one or more of: a, b.\" when the raw values belong to several.
@@ -323,60 +326,90 @@
 (defn- file-root [loc]
   (last (take-while some? (iterate z/up loc))))
 
-(defn- scan-custom-properties
-  "Return {name [value-loc]} for every custom property, such as `\"--ring\"`, a literal map in the file sets."
-  [root]
-  (loop [current (z/subzip root)
-         found {}]
-    (cond
-      (z/end? current) found
-      (= :map (z/tag current)) (recur (z/next current)
-                                      (reduce (fn [acc [key-text _ value-loc]]
-                                                (cond-> acc
-                                                  (str/starts-with? key-text "--") (update key-text (fnil conj []) value-loc)))
-                                              found
-                                              (map-entries current)))
-      :else (recur (z/next current) found))))
+(defn- style-declaration? [loc]
+  (and (= :list (z/tag loc))
+       (contains? style-decl-fns (parser/sym-name (z/down loc)))))
 
-(defn- custom-property-values
-  "Return {name [value-loc]} for the file `loc` sits in, scanned once per file.
-
-  Every ring that reads a custom property asks the same question, so the scan is kept while the
-  file is read, keyed by the identity of its root node."
+(defn- written-maps
+  "Return every literal map under `loc`, itself included, leaving out `#_` discarded forms."
   [loc]
-  (let [root (file-root loc)
-        node (z/node root)
-        state (parser/file-state ::custom-properties {:cached-root nil
-                                                      :values {}})
-        {:keys [cached-root values]} @state]
-    (if (identical? node cached-root)
-      values
-      (let [scanned (scan-custom-properties root)]
-        (reset! state {:cached-root node
-                       :values scanned})
-        scanned))))
+  (cond->> (mapcat written-maps (parser/written-child-locs loc))
+    (= :map (z/tag loc)) (cons loc)))
+
+(defn- scan-custom-properties
+  "Return {name [{:value-loc … :declaration …}]} for every custom property, such as `\"--ring\"`, a style sets.
+
+  Only the literal maps of the file's `defclass`, `defattrs` and `defglobal` forms count, so a
+  map of other data, or one in `#_` discarded code or a `(comment …)` form, sets nothing."
+  [root]
+  (->> root
+       parser/written-child-locs
+       (filter style-declaration?)
+       (reduce (fn [found declaration]
+                 (let [declaration-name (parser/sym-name (parser/declared-name-loc declaration))]
+                   (->> declaration
+                        written-maps
+                        (mapcat map-entries)
+                        (reduce (fn [acc [key-text _ value-loc]]
+                                  (cond-> acc
+                                    (str/starts-with? key-text "--") (update key-text (fnil conj [])
+                                                                             {:value-loc value-loc
+                                                                              :declaration declaration-name})))
+                                found))))
+               {})))
+
+(defn- custom-property-settings
+  "Return the custom properties the file `loc` sits in sets, scanned once while the file is read."
+  [loc]
+  (let [state (parser/file-state ::custom-properties nil)]
+    (or @state (reset! state (scan-custom-properties (file-root loc))))))
 
 (defn- custom-property-verdict
-  "Judge `var(--name)` by every value the file sets `--name` to.
+  "Judge `var(--name)` by every value the file sets `--name` to, following a value that reads another custom property.
 
-  Accepted when each value is accepted on its own, a reset, or one this cannot read. A custom
-  property the file never sets is set somewhere this cannot see, and is accepted."
-  [loc shadow config ns-info]
-  (let [verdicts (for [value-loc (get (custom-property-values loc) (:name shadow))
-                       :let [value (shadow-value value-loc ns-info)]
-                       :when (and value (not (contains? #{:reset :local :custom-property} (:kind value))))]
-                   (shadow-verdict value config ns-info))]
-    {:accepted? (every? :accepted? verdicts)
-     :shadows (some->> (mapcat :shadows verdicts) distinct (sort-by str) seq)}))
+  Accepted when each value is accepted on its own, a reset, or a local this cannot read. A custom
+  property the file never sets is reported, since this cannot see what sets it. A property met
+  again on the way is accepted, so a cycle ends. `:by-hand` pairs each property set by hand with
+  the declarations that set it."
+  [settings property-name config ns-info seen]
+  (let [values (get settings property-name)]
+    (if (empty? values)
+      {:accepted? false}
+      (let [verdicts (for [{:keys [value-loc declaration]} values
+                           :let [value (shadow-value value-loc ns-info)]
+                           :when (and value (not (contains? #{:reset :local} (:kind value))))]
+                       (if (= :custom-property (:kind value))
+                         (if (contains? seen (:name value))
+                           {:accepted? true}
+                           (custom-property-verdict settings (:name value) config ns-info (conj seen (:name value))))
+                         (let [verdict (shadow-verdict value config ns-info)]
+                           (cond-> verdict
+                             (not (:accepted? verdict)) (assoc :by-hand [[property-name declaration]])))))]
+        {:accepted? (every? :accepted? verdicts)
+         :shadows (sorted-shadows (mapcat :shadows verdicts))
+         :by-hand (mapcat :by-hand verdicts)}))))
+
+(defn- by-hand-hint
+  "Name the declarations that set each custom property by hand.
+
+  Reads as \"--ring is set by hand in a, b.\", one sentence per property."
+  [by-hand]
+  (->> (group-by first by-hand)
+       (sort-by key)
+       (map (fn [[property-name pairs]]
+              (str property-name " is set by hand in " (->> pairs (map second) distinct (str/join ", ")) ".")))
+       (str/join " ")))
 
 (defn- raw-shadow-finding
   "Return a raw-shadow finding when a block's `:box-shadow` is not one of the approved shadows."
   [block key-loc shadow config ns-info decl-kw file]
-  (let [{:keys [accepted? shadows]} (if (= :custom-property (:kind shadow))
-                                      (custom-property-verdict key-loc shadow config ns-info)
-                                      (shadow-verdict shadow config ns-info))]
+  (let [{:keys [accepted? shadows by-hand]} (if (= :custom-property (:kind shadow))
+                                              (custom-property-verdict (custom-property-settings key-loc) (:name shadow)
+                                                                       config ns-info #{(:name shadow)})
+                                              (shadow-verdict shadow config ns-info))
+        hint (str/join " " (remove str/blank? [(some-> (seq by-hand) by-hand-hint) (some-> shadows use-hint)]))]
     (when-not accepted?
-      (finding :focus-ring-raw-shadow block key-loc decl-kw file (some-> shadows use-hint)))))
+      (finding :focus-ring-raw-shadow block key-loc decl-kw file (not-empty hint)))))
 
 (defn- block-findings [block config ns-info decl-kw file preset?]
   (when (seq (:states block))

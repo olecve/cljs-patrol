@@ -152,12 +152,14 @@ misses this call site. The `:box-shadow` of a focus block must be one of `:appro
 a `(str …)` or a Garden vector beside other parts, for a stacked outer and inner ring. A string, another var, and a
 `str` or a Garden vector without an approved shadow are reported.
 
-A `:box-shadow` that is a CSS custom property and nothing else, such as `"var(--ring)"`, is judged by the values the
-same file sets `"--ring"` to, in any literal map: in another declaration, a variant class, or the base map. It passes
-when each of them is an approved shadow, a reset, or a value the rule cannot read, such as a local or another custom
-property, and is reported when any of them is built by hand. A custom property the file never sets is set where the rule
-cannot see, in another file or at runtime, and is left alone. One with a fallback, `"var(--ring, 0 0 0 2px #00f)"`, is a
-string like any other and is reported.
+A `:box-shadow` that is a CSS custom property and nothing else, such as `"var(--ring)"`, with `var` in any case, is
+judged by the values the same file sets `"--ring"` to in the literal maps of its `defclass`, `defattrs` and `defglobal`
+forms: in another declaration, a variant class, or the base map. Maps of other data, and code in `#_` or a `(comment …)`
+form, set nothing. It passes when each value is an approved shadow, a reset, or a local the rule cannot read. A value
+that reads another custom property is followed to the values the file sets that one to, until the chain comes back to a
+property it has met. It is reported when any value is built by hand, and the finding names the declarations that set it
+so. A custom property the file never sets is set where the rule cannot see, in another file or at runtime, and is
+reported as before. One with a fallback, `"var(--ring, 0 0 0 2px #00f)"`, is a string like any other and is reported.
 
 When `:approved-shadows` maps an approved shadow to the raw values it replaces, a value holding one of them is reported
 even inside a stacked ring. The finding names the shadows to use by their fully qualified names. For
