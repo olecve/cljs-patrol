@@ -85,12 +85,14 @@
              :mutants 2
              :killed 1
              :survived 1
+             :no-coverage 0
              :unviable 0
              :timeout 0}
             {:def "b"
              :mutants 2
              :killed 0
              :survived 0
+             :no-coverage 0
              :unviable 1
              :timeout 1}]
            (:definitions summary)))
@@ -163,7 +165,8 @@
 (def ^:private target-source
   (str "(ns cljs-patrol.dev.mutate-test.target)\n"
        "(defn ^:checked positive? [x] (> x 0))\n"
-       "(defn label [x] (if (positive? x) :up :down))\n"))
+       "(defn label [x] (if (positive? x) :up :down))\n"
+       "(defn unused [x] (when x 1))\n"))
 
 (def ^:private target-tests
   (str "(ns cljs-patrol.dev.mutate-test.target-test (:require [clojure.test :refer [deftest is]]"
@@ -189,14 +192,16 @@
 (deftest run-kills-and-keeps-mutants-and-restores-the-namespace
   (with-target target-tests
     (fn []
-      (let [{:keys [totals]} (run-target {})]
-        (is (= {:mutants 2
+      (let [{:keys [totals not-covered]} (run-target {})]
+        (is (= ["unused"] not-covered))
+        (is (= {:mutants 3
                 :killed 1
                 :survived 1
+                :no-coverage 1
                 :unviable 0
                 :timeout 0}
                totals)
-            "boundary at 0 is never tested, so > -> >= survives and if -> if-not is killed"))
+            "boundary at 0 is never tested, so > -> >= survives; no test calls unused"))
       (is (true? (:checked (meta (ns-resolve 'cljs-patrol.dev.mutate-test.target 'positive?)))))
       (is (= :up ((ns-resolve 'cljs-patrol.dev.mutate-test.target 'label) 1))
           "original code is back after the run"))))
@@ -235,3 +240,72 @@
         "file the merge base lacks counts in full")
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No git commit named nope"
                           (mutate/lines-since (str file) "nope")))))
+
+(deftest coverage-records-calls-made-on-worker-threads
+  (with-target (str target-tests
+                    "(deftest on-thread (let [p (promise)]"
+                    " (.start (Thread. #(deliver p (target/label 0))))"
+                    " (is (= :down @p))))\n")
+    (fn []
+      (let [{:keys [tests recorded]} (mutate/coverage 'cljs-patrol.dev.mutate-test.target
+                                                      ["positive?" "label" "unused"]
+                                                      ['cljs-patrol.dev.mutate-test.target-test]
+                                                      10000)
+            test-var #(ns-resolve 'cljs-patrol.dev.mutate-test.target-test %)]
+        (is (= #{"positive?" "label" "unused"} recorded))
+        (is (= #{(test-var 'labels) (test-var 'on-thread)} (get tests "label"))
+            "call on a raw thread is recorded")
+        (is (nil? (get tests "unused")))
+        (is (= :up ((ns-resolve 'cljs-patrol.dev.mutate-test.target 'label) 1))
+            "vars are restored")
+        (is (fn? (:test (meta (test-var 'labels))))
+            "tests are restored")))))
+
+(deftest killed-mutant-shows-its-definition-is-reached
+  (is (= [:killed :survived]
+         (map :outcome (:mutants (mutate/summarize {:defs-in-scope ["a"]
+                                                    :results [{:def "a"
+                                                               :outcome :failed}
+                                                              {:def "a"
+                                                               :outcome :no-coverage}]}))))
+      "passing mutant of a definition a test reached is a survivor, not uncovered"))
+
+(deftest exit-code-counts-mutants-without-coverage
+  (is (= 1 (mutate/exit-code {:totals {:survived 0
+                                       :no-coverage 1}}))))
+
+(defmulti ^:private dispatcher identity)
+
+(defn- counter ^long [^long n] (inc n))
+
+(defn- partly-hinted
+  ([^long n _] n)
+  ([x] x))
+
+(deftest wrappable-means-a-plain-function
+  (is (true? (mutate/wrappable? #'mutate/exit-code)))
+  (is (false? (mutate/wrappable? #'dispatcher))
+      "multimethod")
+  (is (false? (mutate/wrappable? #'counter))
+      "primitive hint")
+  (is (false? (mutate/wrappable? #'partly-hinted))
+      "primitive hint on one parameter of one arity")
+  (is (false? (mutate/wrappable? #'source))
+      "data"))
+
+(deftest not-covered-definitions-and-covered-score
+  (let [{:keys [not-covered score covered-score]}
+        (mutate/summarize {:defs-in-scope ["a" "b"]
+                           :results [{:def "a"
+                                      :outcome :failed}
+                                     {:def "a"
+                                      :outcome :passed}
+                                     {:def "b"
+                                      :outcome :no-coverage}
+                                     {:def "b"
+                                      :outcome :unviable}]})]
+    (is (= ["b"] not-covered)
+        "definition with an uncovered mutant is named, whatever its other outcomes")
+    (is (< (abs (- score 1/3)) 1e-9))
+    (is (== 1/2 (rationalize covered-score))
+        "covered score leaves uncovered mutants out")))
