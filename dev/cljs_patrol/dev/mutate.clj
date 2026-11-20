@@ -318,12 +318,15 @@
   recorded, :reached-outside, the names called while no test ran, such as from a fixture, and
   :hooked?, true when a test namespace runs its tests through `test-ns-hook`. The running test
   is kept where every thread sees it, since the code under test may run on worker threads, and
-  the tests run one at a time. A call made without the var, such as through a value the
-  namespace stored when it loaded, is not seen."
+  the tests run one at a time. A call is recorded under every test that is running, so a test
+  that calls another one, inside its own `binding` or `with-redefs`, is selected too. A call
+  made without the var, such as through a value the namespace stored when it loaded, is not
+  seen, and a call that a background thread makes after its test ended goes to the test that
+  runs then."
   [target def-names test-nss timeout-ms]
   (let [calls (atom {})
         reached-outside (atom #{})
-        current-test (atom nil)
+        running-tests (atom [])
         vars (->> def-names
                   distinct
                   (keep (fn [def-name]
@@ -332,17 +335,17 @@
                   vec)
         tests (mapv (fn [v] [v (:test (meta v))]) (test-vars-of test-nss))
         record (fn [def-name]
-                 (if-let [test-var @current-test]
-                   (when-not (contains? (get @calls def-name) test-var)
-                     (swap! calls update def-name (fnil conj #{}) test-var))
-                   (when-not (contains? @reached-outside def-name)
-                     (swap! reached-outside conj def-name))))]
+                 (let [running @running-tests]
+                   (if (seq running)
+                     (when-not (every? (get @calls def-name #{}) running)
+                       (swap! calls update def-name (fnil into #{}) running))
+                     (when-not (contains? @reached-outside def-name)
+                       (swap! reached-outside conj def-name)))))]
     (try
       (doseq [[test-var test-fn] tests]
         (alter-meta! test-var assoc :test (fn []
-                                            (let [outer @current-test]
-                                              (reset! current-test test-var)
-                                              (try (test-fn) (finally (reset! current-test outer)))))))
+                                            (swap! running-tests conj test-var)
+                                            (try (test-fn) (finally (swap! running-tests pop))))))
       (doseq [[def-name v original] vars]
         (alter-var-root v (constantly (fn [& args]
                                         (record def-name)
@@ -351,12 +354,25 @@
              :tests @calls
              :recorded (set (map first vars))
              :reached-outside @reached-outside
-             :hooked? (boolean (some #(contains? (ns-interns %) 'test-ns-hook) test-nss)))
+             :hooked? (boolean (some #(contains? (ns-interns %) 'test-ns-hook) test-nss))
+             :test-count (count tests))
       (finally
         (doseq [[_ v original] vars]
           (alter-var-root v (constantly original)))
         (doseq [[test-var test-fn] tests]
           (alter-meta! test-var assoc :test test-fn))))))
+
+(defn- default-timeout-ms
+  "Return the timeout for a run that took `ms` without a mutation: 1.5 times as long, plus 2 s."
+  [ms]
+  (long (+ 2000 (* 1.5 ms))))
+
+(defn- timed
+  "Call `run!`, which returns a test run, and add how many milliseconds it took as :ms."
+  [run!]
+  (let [started (System/nanoTime)
+        run (run!)]
+    (assoc run :ms (/ (- (System/nanoTime) started) 1e6))))
 
 (def ^:private stuck-grace-ms
   "How long an interrupted test thread may take to end before the run counts it as stuck."
@@ -377,26 +393,25 @@
   :every} when every test must run, and {:kind :stuck} when the tests that call it keep running
   past the timeout without any mutation. Every test runs when selection is off, when the
   definition could not be recorded, when something called it outside a test, when a test
-  namespace orders its tests with `test-ns-hook`, and when its tests fail on their own, since
+  namespace orders its tests with `test-ns-hook`, when every test calls it anyway, and when its
+  tests fail on their own, since
   one may rely on what an earlier test left behind. That last check runs once for each
   definition, on the unmutated namespace, and its time sets the subset's timeout unless one was
   given."
   [{:keys [test-nss timeout-ms fixed-timeout? select? covered plans]} def-name]
-  (let [{:keys [tests recorded reached-outside hooked?]} covered
+  (let [{:keys [tests recorded reached-outside hooked? test-count]} covered
         def-tests (get tests def-name)
         decide (fn []
                  (cond
                    (or (not (contains? recorded def-name)) (contains? reached-outside def-name)) {:kind :every}
                    (empty? def-tests) {:kind :uncovered}
-                   (or hooked? (not select?)) {:kind :every}
-                   :else (let [started (System/nanoTime)
-                               {:keys [outcome thread]} (run-tests test-nss timeout-ms def-tests)
-                               ms (/ (- (System/nanoTime) started) 1e6)]
+                   (or hooked? (not select?) (= test-count (count def-tests))) {:kind :every}
+                   :else (let [{:keys [outcome thread ms]} (timed #(run-tests test-nss timeout-ms def-tests))]
                            (cond
                              (stuck? thread) {:kind :stuck}
                              (= :passed outcome) {:kind :subset
                                                   :tests def-tests
-                                                  :timeout-ms (if fixed-timeout? timeout-ms (long (+ 2000 (* 1.5 ms))))}
+                                                  :timeout-ms (if fixed-timeout? timeout-ms (default-timeout-ms ms))}
                              :else {:kind :every}))))]
     (or (get @plans def-name)
         (get (swap! plans assoc def-name (decide)) def-name))))
@@ -454,28 +469,26 @@
   only the recording makes the tests fail, such as a test that compares a function with the one
   a value stored, or makes them run past a timeout that was given, the tests run again without
   it. The run then goes on without test selection, times its mutants by that plain run, and
-  the note says so."
+  the note says so. A recorded run whose thread still runs after its timeout stops everything,
+  since the plain run would share its state."
   [target def-names test-nss timeout-ms]
   (let [limit (or timeout-ms baseline-limit-ms)
-        timed (fn [run!]
-                (let [started (System/nanoTime)
-                      run (run!)]
-                  (assoc run :ms (/ (- (System/nanoTime) started) 1e6))))
-        too-slow (setup-error (str "The tests ran past " limit " ms before any mutation. Raise --timeout."))
-        recorded-run (timed #(coverage target def-names test-nss limit))]
-    (if (= :passed (:outcome recorded-run))
-      {:ms (:ms recorded-run)
-       :covered (select-keys recorded-run [:tests :recorded :reached-outside :hooked?])}
-      (let [_ (when (and (= :timeout (:outcome recorded-run)) (not timeout-ms))
-                (throw too-slow))
-            plain-run (timed #(run-tests test-nss limit))]
-        (case (:outcome plain-run)
-          :passed {:ms (:ms plain-run)
-                   :covered {:recorded #{}}
-                   :note (str "Recording which tests call each function made the tests fail or run too long, so every"
-                              " mutant runs every test and none is reported as having no coverage.")}
-          :timeout (throw too-slow)
-          (throw (setup-error (str "The tests fail before any mutation; fix them first.\n" (:output plain-run)))))))))
+        too-slow #(setup-error (str "The tests ran past " limit " ms before any mutation. Raise --timeout."))
+        {:keys [outcome thread]
+         :as recorded-run} (timed #(coverage target def-names test-nss limit))]
+    (cond
+      (= :passed outcome) {:ms (:ms recorded-run)
+                           :covered (select-keys recorded-run [:tests :recorded :reached-outside :hooked? :test-count])}
+      (or (stuck? thread) (and (= :timeout outcome) (not timeout-ms))) (throw (too-slow))
+      :else (let [plain-run (timed #(run-tests test-nss limit))]
+              (case (:outcome plain-run)
+                :passed {:ms (:ms plain-run)
+                         :covered {:recorded #{}}
+                         :note (str "Recording which tests call each function made the tests fail or run too long, so"
+                                    " every mutant runs every test and none is reported as having no coverage.")}
+                :timeout (throw (too-slow))
+                (throw (setup-error (str "The tests fail before any mutation; fix them first.\n"
+                                         (:output plain-run)))))))))
 
 (defn- outcome-key [outcome]
   (case outcome
@@ -636,11 +649,14 @@
                                                                                          (lines-since file since))})
         {:keys [ms covered note]} (when (seq selected)
                                     (baseline target (distinct (map :def selected)) test-nss timeout))
-        timeout-ms (when ms (or timeout (long (+ 2000 (* 1.5 ms)))))
+        timeout-ms (when ms (or timeout (default-timeout-ms ms)))
         _ (println (format "%d mutants of %s against %s%s%s"
                            (count selected) target (str/join ", " test-nss)
                            (if since (str ", lines changed since " since) "")
-                           (if timeout-ms (str ", timeout " timeout-ms " ms") "")))
+                           (cond
+                             timeout (str ", timeout " timeout " ms")
+                             timeout-ms (str ", timeout " timeout-ms " ms for every test, less for selected tests")
+                             :else "")))
         plans (atom {})
         {:keys [results unreached stopped]} (run-all {:target target
                                                       :file (str file)

@@ -333,6 +333,8 @@
             "call from a fixture is reached outside a test")
         (is (contains? (get tests "label") (test-var 'all-labels))
             "call after a nested test returns is still the outer test's")
+        (is (= #{(test-var 'labels) (test-var 'all-labels)} (get tests "positive?"))
+            "call inside a nested test also belongs to the test that called it")
         (is (false? hooked?))))))
 
 (def ^:private state-tests
@@ -369,6 +371,8 @@
         (is (= {:kind :every} (mutate/test-plan (context covered) "positive?"))
             "definition reached outside a test runs every test")
         (is (= {:kind :uncovered} (mutate/test-plan (context covered) "never")))
+        (is (= {:kind :every} (mutate/test-plan (context (assoc covered :test-count 1)) "label"))
+            "definition every test calls runs every test, with no extra check")
         (is (= {:kind :every} (mutate/test-plan (context {:recorded #{}}) "label"))
             "definition not recorded runs every test")
         (is (= {:kind :every} (mutate/test-plan (context (assoc covered :hooked? true)) "label"))
