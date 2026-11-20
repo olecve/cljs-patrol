@@ -48,29 +48,36 @@
   Evaluating a mutant of one proves nothing, so they are not mutated."
   #{"defmacro" "defmulti" "defonce" "defprotocol" "defrecord" "deftype"})
 
-(defn- reader-conditional-feature
-  "Return the feature keyword the branch at `loc` of a `#?` reader conditional is read for, or nil."
+(defn- read-branch
+  "Return the form a `#?` or `#?@` reader conditional at `loc` gives Clojure: the first `:clj` or `:default` branch."
   [loc]
-  (let [branches (z/up loc)]
-    (when (and (= :list (some-> branches z/tag))
-               (= :reader-macro (some-> branches z/up z/tag))
-               (= "?" (some-> branches z/up z/down z/string)))
-      (some-> (z/left loc) z/sexpr))))
+  (when (and (= :reader-macro (z/tag loc)) (contains? #{"?" "?@"} (some-> loc z/down z/string)))
+    (some->> (some-> loc z/down z/right)
+             parser/written-child-locs
+             (partition 2)
+             (some (fn [[feature form]] (when (contains? #{:clj :default} (z/sexpr feature)) form))))))
+
+(defn- unread-branch?
+  "True when `loc` is a branch of a reader conditional that Clojure does not read, or one of its feature keywords."
+  [loc]
+  (let [conditional (some-> loc z/up z/up)]
+    (and (= :reader-macro (some-> conditional z/tag))
+         (not (identical? (z/node loc) (some-> (read-branch conditional) z/node))))))
 
 (defn- attr-map?
-  "True when `loc` is the attribute map of a definition, written before its parameter vector."
+  "True when `loc` is the attribute map of a `defn`, written after its name and before its parameter vector."
   [loc]
   (let [parent (z/up loc)]
     (and (= :map (z/tag loc))
          (= :list (some-> parent z/tag))
-         (contains? mutated-heads (parser/sym-name (z/down parent)))
+         (contains? #{"defn" "defn-"} (parser/sym-name (z/down parent)))
          (not-any? #(= :vector (z/tag %)) (take-while some? (iterate z/left loc))))))
 
 (defn- skipped?
   "True when `loc` holds no code a test reaches through this namespace.
 
-  That is metadata, a definition's attribute map, a `#_`, a quoted form, a `comment`, and a
-  reader-conditional branch for a platform other than Clojure."
+  That is metadata, a `defn`'s attribute map, a `#_`, a quoted form, a `comment`, and a
+  reader-conditional branch Clojure does not read."
   [loc]
   (some (fn [ancestor]
           (let [parent (z/up ancestor)]
@@ -78,8 +85,7 @@
                 (and (= :list (z/tag ancestor)) (= "comment" (parser/sym-name (z/down ancestor))))
                 (and (= :meta (some-> parent z/tag)) (identical? (z/node ancestor) (z/node (z/down parent))))
                 (attr-map? ancestor)
-                (when-let [feature (reader-conditional-feature ancestor)]
-                  (not (contains? #{:clj :default} feature))))))
+                (unread-branch? ancestor))))
         (take-while some? (iterate z/up loc))))
 
 (defn- replacement
@@ -95,34 +101,48 @@
         (some-> (parser/declared-name-loc loc) parser/sym-name))
       (str head "@" (first (parser/position loc)))))
 
+(defn- unwrapped
+  "Return the forms a top-level form at `loc` stands for, each with the top-level form it was written in.
+
+  Metadata in front of a form is peeled off, and a reader conditional gives the branch Clojure
+  reads, a splicing one each form of it."
+  [loc]
+  (case (z/tag loc)
+    :meta (map #(assoc % :wrapper loc) (unwrapped (z/rightmost (z/down loc))))
+    :reader-macro (when-let [branch (read-branch loc)]
+                    (if (and (= "?@" (z/string (z/down loc))) (= :vector (z/tag branch)))
+                      (mapcat unwrapped (parser/written-child-locs branch))
+                      (unwrapped branch)))
+    [{:loc loc}]))
+
 (defn top-level-forms
-  "Return {:loc … :head … :name … :kind …} for each top-level list of `source` but the ns form and `comment`.
+  "Return {:loc … :wrapper … :head … :name … :kind …} for each top-level form of `source` but `ns` and `comment`.
 
   `:kind` is :mutated for a definition evaluating again replaces, :loaded-once for one it does
-  not, and :other for any other form, whose effects would run again with every mutant."
+  not, and :other for any other form, whose effects would run again with every mutant. A form
+  under metadata keeps that metadata as its `:wrapper`."
   [source]
   (->> (z/of-string source)
        (iterate z/right)
        (take-while some?)
-       (keep (fn [loc]
+       (mapcat unwrapped)
+       (keep (fn [{:keys [loc]
+                   :as form}]
                (when (= :list (z/tag loc))
                  (let [head (parser/sym-name (z/down loc))]
                    (when-not (contains? #{"ns" "comment"} head)
-                     {:loc loc
-                      :head head
-                      :name (form-name loc head)
-                      :kind (cond
-                              (contains? mutated-heads head) :mutated
-                              (contains? loaded-once-heads head) :loaded-once
-                              :else :other)})))))))
+                     (assoc form
+                            :head head
+                            :name (form-name loc head)
+                            :kind (cond
+                                    (contains? mutated-heads head) :mutated
+                                    (contains? loaded-once-heads head) :loaded-once
+                                    :else :other)))))))))
 
 (defn- form-locs
-  "Return every loc inside the top-level form at `loc`, the form included."
+  "Return every loc inside the form at `loc`, the form included, in a zipper of that form alone."
   [loc]
-  (let [after (some-> (z/right loc) z/node)]
-    (->> loc
-         (iterate z/next)
-         (take-while #(and (not (z/end? %)) (not (identical? after (z/node %))))))))
+  (->> (z/subzip loc) (iterate z/next) (take-while (complement z/end?))))
 
 (defn mutants
   "Return a mutant for every swap the definitions among the top-level `forms` allow.
@@ -130,7 +150,7 @@
   Each is {:def … :row … :col … :from … :to … :form-loc … :mutant-loc …}; the mutated text of
   its form is built only when the mutant runs."
   [forms]
-  (for [{:keys [loc name kind]} forms
+  (for [{:keys [loc wrapper name kind]} forms
         :when (= :mutated kind)
         token (form-locs loc)
         :let [to (replacement token)]
@@ -142,6 +162,7 @@
      :from (z/string token)
      :to to
      :form-loc loc
+     :wrapper wrapper
      :mutant-loc token}))
 
 (defn changed-lines
@@ -165,7 +186,7 @@
 (defn- git [dir & args]
   (apply shell/sh "git" "-C" dir args))
 
-(defn- lines-since
+(defn lines-since
   "Return the lines of `file` that differ from where the current branch left git `ref`.
 
   The diff is taken against the merge base, so commits made on `ref` since then do not count
@@ -173,6 +194,8 @@
   [file ref]
   (let [dir (str (.getParentFile (io/file file)))
         path (str (io/file file))]
+    (when-not (= "true" (str/trim (:out (git dir "rev-parse" "--is-inside-work-tree"))))
+      (throw (setup-error (str file " is not in a git work tree, so -s cannot compare it."))))
     (when-not (zero? (:exit (git dir "rev-parse" "--verify" "--quiet" (str ref "^{commit}"))))
       (throw (setup-error (str "No git commit named " ref "."))))
     (let [{base-exit :exit
@@ -233,8 +256,9 @@
   "Run the test namespaces quietly in a thread of their own, and return {:outcome … :output … :thread …}.
 
   The outcome is :passed, :failed or :timeout. A failure is recorded before the run is cut
-  short, so an assertion that catches exceptions, such as `thrown?`, cannot hide it. A
-  timed-out thread is interrupted, but a loop that never checks for it keeps running."
+  short, so an assertion that catches exceptions, such as `thrown?`, cannot hide it, and a
+  run that failed before it timed out counts as failed. A timed-out thread is interrupted, but
+  a loop that never checks for it keeps running."
   [test-nss timeout-ms]
   (let [failed (atom false)
         output (java.io.StringWriter.)
@@ -250,6 +274,7 @@
                                     (deliver result
                                              (try
                                                (binding [t/*test-out* output
+                                                         *out* output
                                                          t/report report]
                                                  (apply t/run-tests test-nss))
                                                (if @failed :failed :passed)
@@ -261,7 +286,7 @@
       {:outcome @result
        :output (str output)}
       (do (.interrupt thread)
-          {:outcome :timeout
+          {:outcome (if @failed :failed :timeout)
            :thread thread}))))
 
 (def ^:private stuck-grace-ms
@@ -275,10 +300,17 @@
   a `def` whose value now fails, was caught by loading it, and is killed. A restore that fails
   is returned as :restore-error, since the namespace is then left mutated."
   [{:keys [target file test-nss timeout-ms]}
-   {:keys [form-loc mutant-loc to]
+   {:keys [form-loc wrapper mutant-loc to]
     :as mutant}]
-  (let [line (first (parser/position form-loc))
-        mutated-text (-> mutant-loc (z/replace (n/token-node to)) parser/top-level-loc z/string)
+  (let [line (first (parser/position (or wrapper form-loc)))
+        original (z/string form-loc)
+        in-wrapper (fn [form-text]
+                     (if wrapper
+                       (let [wrapper-text (z/string wrapper)
+                             start (str/last-index-of wrapper-text original)]
+                         (str (subs wrapper-text 0 start) form-text (subs wrapper-text (+ start (count original)))))
+                       form-text))
+        mutated-text (in-wrapper (-> mutant-loc (z/replace (n/token-node to)) z/root n/string))
         load-result (load-outcome #(load-text target mutated-text {:file file
                                                                    :line line}))
         result (if load-result
@@ -288,8 +320,8 @@
                      thread (assoc :stuck? (do (.join ^Thread thread (long stuck-grace-ms))
                                                (.isAlive ^Thread thread))))))]
     (try
-      (load-text target (z/string form-loc) {:file file
-                                             :line line})
+      (load-text target (in-wrapper original) {:file file
+                                               :line line})
       result
       (catch Throwable e
         (assoc result :restore-error (ex-message e))))))
@@ -326,7 +358,7 @@
   (let [by-def (group-by :def results)
         counts (outcome-counts results)
         scored (+ (:killed counts) (:survived counts))
-        unreached-set (set unreached)]
+        unreached-counts (frequencies (map :def unreached))]
     {:definitions (vec (for [def-name (distinct defs-in-scope)
                              :let [def-results (get by-def def-name)]
                              :when (seq def-results)]
@@ -334,12 +366,14 @@
                                 :def def-name
                                 :mutants (count def-results))))
      :not-mutated (->> defs-in-scope
-                       (remove #(or (contains? by-def %) (contains? unreached-set %)))
+                       (remove #(or (contains? by-def %) (contains? unreached-counts %)))
                        distinct
                        vec)
      :loaded-once (vec (distinct loaded-once))
      :other-forms (vec (distinct other-forms))
-     :unreached (vec (distinct unreached))
+     :unreached (vec (for [def-name (distinct (map :def unreached))]
+                       {:def def-name
+                        :mutants (get unreached-counts def-name)}))
      :totals (assoc counts :mutants (count results))
      :score (when (pos? scored) (double (/ (:killed counts) scored)))
      :mutants (mapv #(-> %
@@ -361,7 +395,7 @@
   (print-list (str "Not mutated, no operator " (if since "on the changed lines" "applies")) not-mutated)
   (print-list "Not mutated, loaded once" loaded-once)
   (print-list "Not mutated, not a definition" other-forms)
-  (print-list "Not reached, the run stopped early" unreached)
+  (print-list "Not reached, the run stopped early" (map #(str (:def %) " (" (:mutants %) " mutants)") unreached))
   (doseq [[outcome title] [[:survived "Survived"] [:unviable "Unviable, could not be read or compiled"]
                            [:timeout "Timed out"]]
           :let [shown (filter #(= outcome (:outcome %)) mutants)]
@@ -406,36 +440,31 @@
       {:results results}
       (let [{:keys [stuck? restore-error]
              :as result} (run-mutant context mutant)
-            results (conj results result)
-            unreached (->> more (map :def) (remove (set (map :def results))) distinct vec)]
+            results (conj results result)]
         (print (case (:outcome result) :passed "S" :failed "." :unviable "U" :timeout "T"))
         (flush)
         (cond
           stuck? {:results results
-                  :unreached unreached
+                  :unreached more
                   :stopped (str "the tests of the mutant at " (:row result) ":" (:col result) " still run after the"
                                 " timeout, and would disturb every later run. Fix the loop, or raise --timeout.")}
           restore-error {:results results
-                         :unreached unreached
+                         :unreached more
                          :stopped (str "restoring " (:def result) " failed, so the namespace stays mutated: "
                                        restore-error)}
           :else (recur more results))))))
 
-(defn mutate
-  "Mutate `target` against `test-nss`, print the report, write it to `report` when given, and return it."
-  [target test-nss {:keys [defs since timeout report]}]
-  (let [file (source-file target)
-        source (slurp file)
-        _ (try
-            (require target)
-            (run! require test-nss)
-            (catch Exception e
-              (throw (setup-error (str "Could not load the namespaces: " (ex-message e))))))
-        {:keys [defs-in-scope loaded-once other-forms selected]} (scope source {:defs defs
+(defn mutate-source
+  "Mutate `target`, whose `source` is loaded from `file`, against `test-nss`, print the report, and return it.
+
+  The tests must pass before any mutation, whether or not `timeout` is given. The report is
+  also written to `report` when given."
+  [target file source test-nss {:keys [defs since timeout report]}]
+  (let [{:keys [defs-in-scope loaded-once other-forms selected]} (scope source {:defs defs
                                                                                 :lines (when since
                                                                                          (lines-since file since))})
-        timeout-ms (when (seq selected)
-                     (or timeout (long (+ 2000 (* 1.5 (baseline-ms test-nss timeout))))))
+        baseline (when (seq selected) (baseline-ms test-nss timeout))
+        timeout-ms (when baseline (or timeout (long (+ 2000 (* 1.5 baseline)))))
         _ (println (format "%d mutants of %s against %s%s%s"
                            (count selected) target (str/join ", " test-nss)
                            (if since (str ", lines changed since " since) "")
@@ -459,6 +488,25 @@
                                                        :since since))))
       (println (str "Report written to " report)))
     summary))
+
+(defn mutate
+  "Mutate `target`, found on the classpath, against `test-nss`, as [[mutate-source]] does."
+  [target test-nss options]
+  (let [file (source-file target)]
+    (try
+      (require target)
+      (run! require test-nss)
+      (catch Exception e
+        (throw (setup-error (str "Could not load the namespaces: " (ex-message e))))))
+    (mutate-source target file (slurp file) test-nss options)))
+
+(defn exit-code
+  "Return 2 when the run stopped early, 1 when a mutant survived, and 0 otherwise."
+  [{:keys [totals stopped]}]
+  (cond
+    stopped 2
+    (pos? (:survived totals)) 1
+    :else 0))
 
 (def ^:private cli-options
   [["-t" "--test NS" "A test namespace to run, given once per namespace"
@@ -488,14 +536,10 @@
       (do (println (str/join "\n" (concat errors [usage summary])))
           (System/exit 2))
       (try
-        (let [{:keys [totals stopped]} (mutate target (:test options) {:defs (:def options)
-                                                                       :since (:since options)
-                                                                       :timeout (:timeout options)
-                                                                       :report (:report options)})]
-          (System/exit (cond
-                         stopped 2
-                         (pos? (:survived totals)) 1
-                         :else 0)))
+        (System/exit (exit-code (mutate target (:test options) {:defs (:def options)
+                                                                :since (:since options)
+                                                                :timeout (:timeout options)
+                                                                :report (:report options)})))
         (catch Throwable e
           (println (if (::setup (ex-data e)) (ex-message e) (str "The run failed: " e)))
           (System/exit 2))))))

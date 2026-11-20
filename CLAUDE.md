@@ -99,16 +99,17 @@ evaluates the original back. Each mutant ends as one of:
 - **unviable**: the mutated form could not be read or compiled. Not scored.
 - **timed out**: the tests ran longer than 1.5 times the first run plus 2 s (`--timeout` overrides it). Not scored. If
   its tests still run half a second after that, the run stops, since a looping thread would disturb every later run, and
-  the report names the definitions it did not reach. Run those with `-d` to get past it.
+  the report names the definitions whose mutants it did not reach, with how many. Run those with `-d` to get past it.
 
-Metadata, attribute maps, `comment` blocks, `#_`, quoted code and `#?` branches for other platforms are not mutated.
-Neither are `defmacro`, `defmulti`, `defonce`, `defprotocol`, `defrecord` and `deftype`, which Clojure keeps from the
-first load or other code captures then, nor top-level forms that are no definition, whose effects would run again with
-every mutant. The report has a row per definition with its counts, names what was not mutated and why, and lists every
-survivor, unviable and timed-out mutant with its source line. `-d` limits the run to named top-level definitions,
-`-s REF` to the lines the branch changed since it left a git ref, and `-r FILE` writes every mutant and its outcome to
-EDN. A run exits 0 when nothing survives, 1 when something does, and 2 when it cannot start or stops early. A value a
-`def` computes when the namespace loads keeps the original, so a mutant only it reaches survives.
+A definition under metadata or in the `#?` branch Clojure reads counts like any other. Metadata, attribute maps,
+`comment` blocks, `#_`, quoted code and `#?` branches Clojure does not read are not mutated. Neither are `defmacro`,
+`defmulti`, `defonce`, `defprotocol`, `defrecord` and `deftype`, which Clojure keeps from the first load or other code
+captures then, nor top-level forms that are no definition, whose effects would run again with every mutant. The report
+has a row per definition with its counts, names what was not mutated and why, and lists every survivor, unviable and
+timed-out mutant with its source line. `-d` limits the run to named top-level definitions, `-s REF` to the lines the
+branch changed since it left a git ref, and `-r FILE` writes every mutant and its outcome to EDN. A run exits 0 when
+nothing survives, 1 when something does, and 2 when it cannot start or stops early. A value a `def` computes when the
+namespace loads keeps the original, so a mutant only it reaches survives.
 
 ## Linting
 

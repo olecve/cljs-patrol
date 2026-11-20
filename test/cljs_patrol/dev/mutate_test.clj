@@ -1,6 +1,8 @@
 (ns cljs-patrol.dev.mutate-test
   (:require
    [cljs-patrol.dev.mutate :as mutate]
+   [clojure.java.io]
+   [clojure.java.shell]
    [clojure.test :refer [deftest is]]))
 
 (def ^:private source
@@ -78,7 +80,7 @@
                                              {:def "b"
                                               :outcome :timeout}]
                                    :loaded-once ["d (defmulti)"]
-                                   :unreached ["e"]})]
+                                   :unreached [{:def "e"}]})]
     (is (= [{:def "a"
              :mutants 2
              :killed 1
@@ -94,7 +96,9 @@
            (:definitions summary)))
     (is (= ["c"] (:not-mutated summary))
         "definition with no mutant is named, one never reached is not")
-    (is (= ["e"] (:unreached summary)))
+    (is (= [{:def "e"
+             :mutants 1}]
+           (:unreached summary)))
     (is (== 1/2 (rationalize (:score summary)))
         "unviable and timed-out mutants are not scored")))
 
@@ -133,3 +137,101 @@
     (is (= :failed (:outcome (mutate/run-tests ['cljs-patrol.dev.mutate-test.thrown] 10000)))
         "thrown? assertion that fails is recorded before its catch can swallow it")
     (finally (remove-ns 'cljs-patrol.dev.mutate-test.thrown))))
+
+(def ^:private wrapped-source
+  (str "(ns app.wrapped)\n"
+       "^:foo (defn tagged [] (when q 1))\n"
+       "#?(:clj (defn on-clj [] (when r 1)))\n"
+       "#?(:cljs (defn on-cljs [] (when r 1)))\n"
+       "(defn spliced [] #?@(:cljs [(when y 1)] :clj [(if z 1 2)]))\n"
+       "(defn defaulted [] #?(:clj (when a 1) :default (when b 2)))\n"
+       "(def table {:a (when x 1)})\n"
+       "#?@(:cljs [(defn cljs-only [] (when x 1))] :clj [(defn spliced-a [] (when x 1)) (defn spliced-b [] (if x 1 2))])\n"))
+
+(deftest mutants-read-forms-as-clojure-loads-them
+  (is (= [["tagged" 2 "when" "when-not"]
+          ["on-clj" 3 "when" "when-not"]
+          ["spliced" 5 "if" "if-not"]
+          ["defaulted" 6 "when" "when-not"]
+          ["table" 7 "when" "when-not"]
+          ["spliced-a" 8 "when" "when-not"]
+          ["spliced-b" 8 "if" "if-not"]]
+         (swaps-of (mutate/mutants (mutate/top-level-forms wrapped-source))))
+      (str "definition under metadata or in a clj branch kept; only branch Clojure reads mutated; a def's value"
+           " map is no attribute map")))
+
+(def ^:private target-source
+  (str "(ns cljs-patrol.dev.mutate-test.target)\n"
+       "(defn ^:checked positive? [x] (> x 0))\n"
+       "(defn label [x] (if (positive? x) :up :down))\n"))
+
+(def ^:private target-tests
+  (str "(ns cljs-patrol.dev.mutate-test.target-test (:require [clojure.test :refer [deftest is]]"
+       " [cljs-patrol.dev.mutate-test.target :as target]))\n"
+       "(deftest labels (is (= :up (target/label 1))))\n"))
+
+(defn- with-target [tests f]
+  (sample-ns 'cljs-patrol.dev.mutate-test.target)
+  (sample-ns 'cljs-patrol.dev.mutate-test.target-test)
+  (try
+    (mutate/load-text 'cljs-patrol.dev.mutate-test.target target-source)
+    (mutate/load-text 'cljs-patrol.dev.mutate-test.target-test tests)
+    (f)
+    (finally
+      (remove-ns 'cljs-patrol.dev.mutate-test.target)
+      (remove-ns 'cljs-patrol.dev.mutate-test.target-test))))
+
+(defn- run-target [options]
+  (binding [*out* (java.io.StringWriter.)]
+    (mutate/mutate-source 'cljs-patrol.dev.mutate-test.target "target.clj" target-source
+                          ['cljs-patrol.dev.mutate-test.target-test] options)))
+
+(deftest run-kills-and-keeps-mutants-and-restores-the-namespace
+  (with-target target-tests
+    (fn []
+      (let [{:keys [totals]} (run-target {})]
+        (is (= {:mutants 2
+                :killed 1
+                :survived 1
+                :unviable 0
+                :timeout 0}
+               totals)
+            "boundary at 0 is never tested, so > -> >= survives and if -> if-not is killed"))
+      (is (true? (:checked (meta (ns-resolve 'cljs-patrol.dev.mutate-test.target 'positive?)))))
+      (is (= :up ((ns-resolve 'cljs-patrol.dev.mutate-test.target 'label) 1))
+          "original code is back after the run"))))
+
+(deftest failing-tests-stop-the-run-before-any-mutation
+  (with-target (str target-tests "(deftest broken (is (= 1 2)))\n")
+    (fn []
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"The tests fail before any mutation"
+                            (run-target {:timeout 5000}))
+          "also with a timeout given"))))
+
+(deftest exit-code-tells-survivors-from-a-stopped-run
+  (is (= 0 (mutate/exit-code {:totals {:survived 0}})))
+  (is (= 1 (mutate/exit-code {:totals {:survived 2}})))
+  (is (= 2 (mutate/exit-code {:totals {:survived 2}
+                              :stopped "looping"}))))
+
+(defn- sh! [dir & args]
+  (let [{:keys [exit err]} (apply clojure.java.shell/sh (concat args [:dir dir]))]
+    (assert (zero? exit) err)))
+
+(deftest lines-since-reads-the-branch-changes-from-the-merge-base
+  (let [dir (.toFile (java.nio.file.Files/createTempDirectory "mutate" (make-array java.nio.file.attribute.FileAttribute 0)))
+        file (clojure.java.io/file dir "core.clj")]
+    (sh! dir "git" "init" "-q" "-b" "main")
+    (sh! dir "git" "config" "user.email" "t@example.com")
+    (sh! dir "git" "config" "user.name" "t")
+    (spit file "a\nb\nc\n")
+    (sh! dir "git" "add" ".")
+    (sh! dir "git" "commit" "-q" "-m" "base")
+    (sh! dir "git" "switch" "-q" "-c" "topic")
+    (spit file "a\nB\nc\n")
+    (is (= #{2} (mutate/lines-since (str file) "main")))
+    (spit (clojure.java.io/file dir "fresh.clj") "x\n")
+    (is (= :all-lines (mutate/lines-since (str (clojure.java.io/file dir "fresh.clj")) "main"))
+        "file the merge base lacks counts in full")
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No git commit named nope"
+                          (mutate/lines-since (str file) "nope")))))
