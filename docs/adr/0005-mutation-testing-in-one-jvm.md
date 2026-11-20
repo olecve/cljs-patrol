@@ -2,11 +2,13 @@
 
 ## Status
 
-Proposed, 2026-11-20
+Accepted, 2026-11-21 (proposed 2026-11-20)
 
 ## Outcome
 
-2026-11-21: the runner now runs only the tests that reach a mutant. The sections below keep the proposal as it was.
+2026-11-21: the runner now runs only the tests that reach a mutant, and the record is accepted. Its Confirmation holds:
+the runner's tests pass, two runs on focus-ring give the same 13 survivors, and `-s main` changes only the lines of the
+branch. At acceptance, the Decision and Revisit when sections are aligned with the code.
 
 - **Test selection.** The first test run records which tests call each function of the target, also from worker threads.
   Each mutant runs only those tests, with a timeout from their own run. Every test runs instead when a function cannot
@@ -21,7 +23,8 @@ Proposed, 2026-11-20
   score leaves the no-coverage mutants out.
 - **A known limit.** A test that only reads what another test wrote is not selected for the function that wrote it.
   `--all-tests` turns selection off for such a namespace.
-- **Speed.** On focus-ring, the selected tests are close to the whole suite, so a run takes about the same time.
+- **Speed.** On focus-ring, the selected tests are close to the whole suite: 171 mutants took 24 s before test selection
+  and 24 s after it.
 
 The second Revisit when condition, "the runner runs only the tests that reach a mutated definition", is now met.
 
@@ -56,12 +59,15 @@ A dev-only runner in this repository mutates the code under test in one warm JVM
 
 - **One form for each mutant.** The runner parses the target namespace with rewrite-clj. Each mutant swaps one operator
   in one `def`, `defn`, `defn-` or `defmethod`, such as `when` for `when-not`, `<` for `<=`, or `true` for `false`. The
-  runner evaluates the changed form over the namespace, runs the test namespaces, and evaluates the original form back.
-  Clojure calls a function through its var, so the tests run the changed code.
+  runner evaluates the changed form over the namespace, runs the tests, and evaluates the original form back. Clojure
+  calls a function through its var, so the tests run the changed code.
+- **Only the tests that reach a mutant.** The first test run records which tests call each function. Each mutant runs
+  those tests, timed by their own unmutated run. The Outcome lists when every test runs instead.
 - **Stop at the first failure.** One failing test is enough to kill a mutant. The runner records the failure before it
   ends the test run, so an assertion that catches exceptions, such as `thrown?`, cannot hide it.
-- **Four outcomes.** A mutant is killed, survived, unviable (it cannot be read or compiled), or timed out. The score is
-  the killed mutants divided by the killed and survived mutants. The other two outcomes are listed but not scored.
+- **Five outcomes.** A mutant is killed, survived, no coverage (no test calls its function), unviable (it cannot be read
+  or compiled), or timed out. The score is the killed mutants divided by the killed, survived and no-coverage mutants,
+  and the covered score leaves the no-coverage mutants out. The last two outcomes are listed but not scored.
 - **No mutants that prove nothing.** The runner does not change `defmacro`, `defmulti`, `defonce`, `defprotocol`,
   `defrecord` and `deftype`. Clojure keeps these forms from the first load, or other code captures them then, so a new
   version does not take effect. The runner also does not change a top-level form that is no definition, because its side
@@ -139,8 +145,6 @@ mutant for each run.
 
 - The runner is used outside this repository. Then move it to a project of its own, with copies of the five parser
   helpers.
-- The runner runs only the tests that reach a mutated definition, as cljest, PIT and Stryker do. Then update the
-  Decision and the report sections of this record.
 - Many survivors are functions that no test calls. Then add a mutant that replaces a whole function body with `nil`, as
   cargo-mutants does for Rust.
 - Clojure starts to evaluate `defmulti` or `defonce` again on a new load.

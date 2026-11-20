@@ -95,8 +95,9 @@ evaluates the original back. Pass every test namespace that exercises the target
 Every test runs instead when the function cannot be recorded (a `defmethod`, a `def` that holds data, or a function with
 a primitive type hint), when it is called from a fixture, when a test namespace has a `test-ns-hook`, when the selected
 tests fail on their own, and with `-a` (`--all-tests`). A test that only reads what another test wrote is not selected
-for the function that wrote it, so use `-a` for such a namespace. If recording the calls makes the tests fail, or run
-past a timeout given with `--timeout`, every mutant runs every test, and the report says so. Each mutant ends as one of:
+for the function that wrote it, and a call that a background thread makes after its test ended counts for the test
+running then, so use `-a` for such a namespace. If recording the calls makes the tests fail, or run past a timeout given
+with `--timeout`, every mutant runs every test, and the report says so. Each mutant ends as one of:
 
 - **killed**: a test failed, or the mutated form threw while it loaded. A failure is recorded before the run is cut
   short, so an assertion that catches exceptions, such as `thrown?`, cannot hide it.
@@ -108,9 +109,10 @@ past a timeout given with `--timeout`, every mutant runs every test, and the rep
 - **survived**: every test passed, so no test pins that branch. It may also be an equivalent mutant, such as `first` for
   `last` on a one-element list.
 - **unviable**: the mutated form could not be read or compiled. Not scored.
-- **timed out**: the tests ran longer than 1.5 times the first run plus 2 s (`--timeout` overrides it). Not scored. If
-  its tests still run half a second after that, the run stops, since a looping thread would disturb every later run, and
-  the report names the definitions whose mutants it did not reach, with how many. Run those with `-d` to get past it.
+- **timed out**: the tests ran longer than 1.5 times their own unmutated run plus 2 s, which is the first run for every
+  test and the plan check for a function's selected tests (`--timeout` overrides both). Not scored. If its tests still
+  run half a second after that, the run stops, since a looping thread would disturb every later run, and the report
+  names the definitions whose mutants it did not reach, with how many. Run those with `-d` to get past it.
 
 A definition under metadata or in the `#?` branch Clojure reads counts like any other. Metadata, attribute maps,
 `comment` blocks, `#_`, quoted code and `#?` branches Clojure does not read are not mutated. Neither are `defmacro`,
