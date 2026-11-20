@@ -155,30 +155,32 @@
   [head fn-name]
   (str (subs head 0 (- (count head) (count fn-name))) "query" (subs fn-name 3)))
 
-(def ^:private definition-heads
-  "Heads that define a var, so a later one replaces a helper of the same name."
-  #{"def" "defn" "defn-"})
+(defn- defined-name
+  "Return the name a `def`-like form at `loc` defines, such as a `defn`, `defonce` or `defmulti`, or nil."
+  [loc]
+  (when (and (= :list (z/tag loc)) (some-> loc z/down parser/sym-name (str/starts-with? "def")))
+    (some-> (parser/declared-name-loc loc) parser/sym-name)))
 
 (defn- get-by-helpers
   "Return {name fn-name} for the top-level helpers of the file `loc` sits in whose one arity returns a throwing lookup.
 
-  The file is read once. A name defined again at the top level with `def`, `defn` or `defn-`
-  takes its last definition, as it does when the file runs, so a later definition that is not
-  such a helper removes it."
+  The file is read once. A name the file defines more than once, with any `def`-like form at any
+  depth, is left out: which definition a call reaches then depends on what runs first."
   [loc ns-info]
   (let [state (parser/file-state ::get-by-helpers nil)]
     (or @state
-        (reset! state
-                (->> (parser/written-child-locs (z/up (parser/top-level-loc loc)))
-                     (filter #(contains? definition-heads (some-> % z/down parser/sym-name)))
-                     (reduce (fn [helpers form]
-                               (let [{:keys [kind fn-name]} (lookup-helper form ns-info)]
-                                 (if-let [helper-name (some-> (parser/declared-name-loc form) parser/sym-name)]
-                                   (if (= "get" kind)
-                                     (assoc helpers helper-name fn-name)
-                                     (dissoc helpers helper-name))
-                                   helpers)))
-                             {}))))))
+        (let [root (z/up (parser/top-level-loc loc))
+              definitions (->> (parser/descendant-locs root)
+                               (remove hiccup/inside-unrendered-form?)
+                               (keep defined-name)
+                               frequencies)]
+          (reset! state
+                  (into {}
+                        (keep (fn [form]
+                                (let [{:keys [helper-name kind fn-name]} (lookup-helper form ns-info)]
+                                  (when (and (= "get" kind) (= 1 (get definitions helper-name)))
+                                    [helper-name fn-name]))))
+                        (parser/written-child-locs root)))))))
 
 (defn- presence-hint
   "Name why a presence check on a throwing lookup never fails, and the `query-by-*` lookup to use instead."

@@ -141,7 +141,7 @@
 (deftest ok-helper-nested-in-do
   (is (some? (get-nested-dialog))))
 
-(deftest ok-helper-redefined-as-query
+(deftest ok-helper-defined-twice
   (is (some? (get-redefined))))
 
 (defn- get-replaced-by-def [] (s/get-by-role "dialog"))
@@ -161,3 +161,25 @@
 
 (deftest ok-helper-only-quoted
   (is (some? (get-quoted))))
+
+(defn- get-redefined-in-do [] (s/get-by-role "dialog"))
+
+(do
+  (defn- get-redefined-in-do [] nil))
+
+(defn- get-redefined-by-defonce [] (s/get-by-role "dialog"))
+
+(defonce get-redefined-by-defonce nil)
+
+(deftest ok-helper-redefined-in-do
+  (is (some? (get-redefined-in-do))))
+
+(deftest ok-helper-redefined-by-defonce
+  (is (some? (get-redefined-by-defonce))))
+
+(defn- get-with-discarded-copy [] (s/get-by-role "dialog"))
+
+#_(defn- get-with-discarded-copy [] nil)
+
+(deftest bad-some-helper-with-discarded-copy
+  (is (some? (get-with-discarded-copy))))

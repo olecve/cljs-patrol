@@ -28,7 +28,8 @@
              "bad-fully-qualified-get-by-role"
              "bad-lookup-also-bound-as-value"
              "bad-some-get-by-helper"
-             "bad-seq-get-all-by-helper"}
+             "bad-seq-get-all-by-helper"
+             "bad-some-helper-with-discarded-copy"}
            (fn-names-of findings))
         "only presence check on throwing lookup is reported")
     (is (= #{"s/get-by-role throws on a miss, so this check never fails. Use s/query-by-role."
