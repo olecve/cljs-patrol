@@ -8,6 +8,7 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
+   [cljs-patrol.style-blocks :as style-blocks]
    [clojure.string :as str]
    [rewrite-clj.zip :as z])
   (:import
@@ -180,15 +181,23 @@
    :tokens (mapcat value-tokens parts)
    :unreadable? (boolean (some #(unreadable-part? % ns-info) parts))})
 
+(defn- custom-property-name
+  "Return the custom property a value reads when it is `var(--name)` and nothing else, `!important` left out, or nil."
+  [text]
+  (second (re-matches #"(?i:var)\(\s*(--[\w-]+)\s*\)" (without-important text))))
+
 (defn- shadow-value
-  "Classify a `:box-shadow` value: a reset, a var, a string, a `str` or a Garden vector built in place.
+  "Classify a `:box-shadow` value: a reset, a custom property, a var, a string, a `str` or a Garden vector built in place.
 
   Nil for a value that paints no ring, a keyword such as `:none`, or that this cannot read."
   [value-loc ns-info]
   (case (z/tag value-loc)
-    :token (let [value (literal value-loc)]
+    :token (let [value (literal value-loc)
+                 property (when (string? value) (custom-property-name value))]
              (cond
                (and (string? value) (contains? reset-values (str/lower-case (without-important value)))) {:kind :reset}
+               property {:kind :custom-property
+                         :name property}
                (string? value) {:kind :string
                                 :tokens [value-loc]}
                (symbol? value) (if-let [resolved (resolve-symbol value ns-info)]
@@ -273,14 +282,16 @@
       (finding :focus-ring-missing-outline block key-loc decl-kw file
                (str "Set :outline " (pr-str (or expected default-outline)) " beside :box-shadow.")))))
 
+(defn- sorted-shadows
+  "Return the shadows sorted and each once, or nil when there are none."
+  [shadows]
+  (some->> shadows distinct (sort-by str) seq))
+
 (defn- candidates
   "Return the approved shadows the raw tokens and colors in the value stand in for, sorted and each once, or nil."
   [symbols strings {:keys [replaced-symbols replaced-colors]}]
-  (->> (concat (mapcat replaced-symbols symbols)
-               (keep (fn [[pattern shadow]] (when (some #(re-find pattern %) strings) shadow)) replaced-colors))
-       distinct
-       (sort-by str)
-       seq))
+  (sorted-shadows (concat (mapcat replaced-symbols symbols)
+                          (keep (fn [[pattern shadow]] (when (some #(re-find pattern %) strings) shadow)) replaced-colors))))
 
 (defn- use-hint
   "Name the shadows to use: \"Use a.\", or \"Use one or more of: a, b.\" when the raw values belong to several.
@@ -294,25 +305,187 @@
     (str "Use one or more of: " (str/join ", " shadows) ".")
     (str "Use " (first shadows) ".")))
 
-(defn- raw-shadow-finding
-  "Return a raw-shadow finding when a block's `:box-shadow` is not one of the approved shadows.
+(defn- shadow-verdict
+  "Judge a shadow against the approved ones: whether it is accepted, and the approved shadows its raw values stand in for.
 
   A `str` or a Garden vector holding an approved shadow is a stacked ring and accepted, unless
   it also holds a raw value an approved shadow replaces. One that holds a local or a call may
-  hold anything and is left alone."
-  [block key-loc shadow {:keys [approved-shadows]
-                         :as config} ns-info decl-kw file]
+  hold anything and is accepted."
+  [shadow {:keys [approved-shadows]
+           :as config} ns-info]
   (let [token-values (map literal (:tokens shadow))
         symbols (keep #(resolve-symbol % ns-info) token-values)
         strings (map compact-color-text (filter string? token-values))
-        shadows (candidates symbols strings config)
-        accepted? (and (nil? shadows)
-                       (case (:kind shadow)
-                         :var (contains? approved-shadows (:symbol shadow))
-                         (:str :composed) (or (boolean (some approved-shadows symbols)) (:unreadable? shadow))
-                         false))]
+        shadows (candidates symbols strings config)]
+    {:accepted? (and (nil? shadows)
+                     (case (:kind shadow)
+                       :var (contains? approved-shadows (:symbol shadow))
+                       (:str :composed) (or (boolean (some approved-shadows symbols)) (:unreadable? shadow))
+                       false))
+     :shadows shadows}))
+
+(defn- style-declaration? [loc]
+  (and (= :list (z/tag loc))
+       (contains? style-decl-fns (parser/sym-name (z/down loc)))))
+
+(def ^:private at-rule-fns #{"at-media" "at-supports"})
+
+(defn- declaration-style-maps
+  "Return the literal maps Spade reads as style bodies in a declaration, also inside an `at-media` or `at-supports` call."
+  [declaration]
+  (->> (parser/child-locs declaration)
+       (filter #(and (= :list (z/tag %)) (contains? at-rule-fns (parser/sym-name (z/down %)))))
+       (cons declaration)
+       (mapcat style-blocks/style-maps)
+       (map :map-loc)))
+
+(defn- clojurescript-branch
+  "Return the forms of the branch ClojureScript reads in a reader conditional, the first `:cljs` or `:default` one.
+
+  A splicing branch's vector is spread out."
+  [loc]
+  (let [splicing? (= "?@" (some-> loc z/down parser/raw))]
+    (when-let [form (some->> (parser/written-child-locs loc)
+                             (filter #(= :list (z/tag %)))
+                             first
+                             parser/written-child-locs
+                             (partition 2)
+                             (some (fn [[platform form]] (when (contains? #{:cljs :default} (literal platform)) form))))]
+      (if (and splicing? (= :vector (z/tag form)))
+        (parser/written-child-locs form)
+        [form]))))
+
+(defn- unwrapped-forms
+  "Return the forms a top-level form stands for: the ClojureScript branch of a reader conditional, or the form under metadata."
+  [loc]
+  (case (z/tag loc)
+    :reader-macro (mapcat unwrapped-forms (clojurescript-branch loc))
+    :meta (some-> (last (parser/written-child-locs loc)) unwrapped-forms)
+    [loc]))
+
+(defn- top-level-forms
+  "Return the file's top-level forms, unwrapped from reader conditionals and metadata."
+  [root]
+  (mapcat unwrapped-forms (parser/written-child-locs root)))
+
+(defn- scan-custom-properties
+  "Return {name [{:value-loc … :declaration …}]} for every custom property, such as `\"--ring\"`, a style sets.
+
+  Only the style maps of the file's top-level `defclass`, `defattrs` and `defglobal` forms count,
+  also in the ClojureScript branch of a top-level reader conditional. A map of other data, or
+  one in `#_` discarded code or a `(comment …)` form, sets nothing."
+  [root]
+  (->> (top-level-forms root)
+       (filter style-declaration?)
+       (reduce (fn [found declaration]
+                 (if-let [declaration-name (some-> (parser/declared-name-loc declaration) parser/sym-name)]
+                   (->> declaration
+                        declaration-style-maps
+                        (mapcat map-entries)
+                        (reduce (fn [acc [key-text _ value-loc]]
+                                  (cond-> acc
+                                    (str/starts-with? key-text "--") (update key-text (fnil conj [])
+                                                                             {:value-loc value-loc
+                                                                              :declaration declaration-name})))
+                                found))
+                   found))
+               {})))
+
+(defn- custom-property-settings
+  "Return the custom properties the file `loc` sits in sets, scanned once while the file is read."
+  [loc]
+  (let [state (parser/file-state ::custom-properties nil)]
+    (or @state (reset! state (scan-custom-properties (z/up (parser/top-level-loc loc)))))))
+
+(defn- combined-verdict
+  "Combine the verdicts of the values the file sets `property` to.
+
+  `:set?` tells whether a value reaches something other than a custom property, and `:cycles`
+  names the properties still being judged that a value leads back to. A property whose values
+  only lead back to itself is never given a value, so it counts as not set."
+  [property verdicts]
+  (let [cycles (disj (into #{} (mapcat :cycles) verdicts) property)
+        set? (boolean (some :set? verdicts))
+        unset (into #{} (mapcat :unset) verdicts)]
+    (if (and (not set?) (empty? cycles) (empty? unset))
+      {:accepted? false
+       :unset #{property}}
+      {:accepted? (every? :accepted? verdicts)
+       :cycles cycles
+       :off-preset (into #{} (mapcat :off-preset) verdicts)
+       :set? set?
+       :shadows (sorted-shadows (mapcat :shadows verdicts))
+       :unset unset})))
+
+(defn- custom-property-verdict
+  "Judge `var(--name)` by every value the file sets `--name` to, following a value that reads another custom property.
+
+  Accepted when each value is accepted on its own, a reset, or a local or a call this cannot
+  read. A custom property the file never sets, or whose values only read each other, is
+  reported, since this cannot see what sets it, and `:unset` names it. Each property is judged
+  once, and one met again while it is judged counts as accepted, so a cycle ends. `:off-preset`
+  pairs each property set to a value that is not accepted with the declarations that set it."
+  [settings property-name config ns-info]
+  (let [judged (atom {})
+        judge (fn judge [property]
+                (or (get @judged property)
+                    (do
+                      (swap! judged assoc property {:accepted? true
+                                                    :cycles #{property}})
+                      (let [values (get settings property)
+                            verdicts (for [{:keys [value-loc declaration]} values
+                                           :let [value (shadow-value value-loc ns-info)]]
+                                       (cond
+                                         (= :custom-property (:kind value)) (judge (:name value))
+                                         (or (nil? value) (contains? #{:reset :local} (:kind value))) {:accepted? true
+                                                                                                       :set? true}
+                                         :else (let [verdict (shadow-verdict value config ns-info)]
+                                                 (cond-> (assoc verdict :set? true)
+                                                   (not (:accepted? verdict)) (assoc :off-preset #{[property declaration]})))))
+                            verdict (if (empty? values)
+                                      {:accepted? false
+                                       :unset #{property}}
+                                      (combined-verdict property verdicts))]
+                        (swap! judged assoc property verdict)
+                        verdict))))]
+    (judge property-name)))
+
+(defn- file-custom-property-verdict
+  "Judge `var(--name)` in the file `loc` sits in, once per property while the file is read."
+  [loc property-name config ns-info]
+  (let [state (parser/file-state ::custom-property-verdicts {})]
+    (or (get @state property-name)
+        (let [verdict (custom-property-verdict (custom-property-settings loc) property-name config ns-info)]
+          (swap! state assoc property-name verdict)
+          verdict))))
+
+(defn- custom-property-hint
+  "Name the custom properties the file never sets, and the declarations that set each one off the preset.
+
+  Reads as \"--base is not set in a style map of this file. --ring is not set from the preset in a, b.\", one
+  sentence per property."
+  [{:keys [unset off-preset]}]
+  (->> (concat (map #(str % " is not set in a style map of this file.") (sort unset))
+               (->> (group-by first off-preset)
+                    (sort-by key)
+                    (map (fn [[property-name pairs]]
+                           (str property-name " is not set from the preset in "
+                                (->> pairs (map second) sort (str/join ", ")) ".")))))
+       (str/join " ")))
+
+(defn- raw-shadow-finding
+  "Return a raw-shadow finding when a block's `:box-shadow` is not one of the approved shadows."
+  [block key-loc shadow config ns-info decl-kw file]
+  (let [{:keys [accepted? shadows]
+         :as verdict} (if (= :custom-property (:kind shadow))
+                        (file-custom-property-verdict key-loc (:name shadow) config ns-info)
+                        (shadow-verdict shadow config ns-info))]
     (when-not accepted?
-      (finding :focus-ring-raw-shadow block key-loc decl-kw file (some-> shadows use-hint)))))
+      (->> [(custom-property-hint verdict) (some-> shadows use-hint)]
+           (remove str/blank?)
+           (str/join " ")
+           not-empty
+           (finding :focus-ring-raw-shadow block key-loc decl-kw file)))))
 
 (defn- block-findings [block config ns-info decl-kw file preset?]
   (when (seq (:states block))
@@ -367,7 +540,7 @@
 (defn- handle-list [config]
   (fn [loc {:keys [ns-name]
             :as ns-info} file]
-    (when (contains? style-decl-fns (parser/sym-name (z/down loc)))
+    (when (style-declaration? loc)
       (let [name-loc (parser/declared-name-loc loc)]
         (when-let [decl-name (parser/sym-name name-loc)]
           (let [decl-kw (keyword ns-name decl-name)
@@ -406,7 +579,8 @@
      (str "A focus style paints a ring with box-shadow, which forced-colors mode drops. Set an outline that "
           "draws, such as 2px solid transparent, on this block or the focus block around it.")
      :focus-ring-raw-shadow
-     "A focus style builds its box-shadow by hand. Use one or more of the approved focus-ring shadows from the preset."})
+     (str "A focus style's box-shadow is not one of the approved shadows. "
+          "Use one or more of the approved focus-ring shadows from the preset.")})
   (docs-anchors [_]
     {:focus-ring-missing-outline "focus-ring-without-an-outline"
      :focus-ring-raw-shadow "focus-ring-not-from-the-preset"})

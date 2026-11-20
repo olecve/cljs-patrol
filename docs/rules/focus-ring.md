@@ -112,6 +112,13 @@ paints no ring and is left alone. So is a block holding anything besides literal
   [:&:focus-visible {:box-shadow (str "inset " focus-rings/primary-shadow ", 0 0 0 1px #516BFF")
                      :outline "2px solid transparent"}])
 
+;; a custom property filled by hand
+(defclass ring-style []
+  {"--ring" "0 0 0 2px #516bff"})
+(defclass chip-style []
+  [:&:focus-visible {:box-shadow "var(--ring)"
+                     :outline "2px solid transparent"}])
+
 ;; fix
 (defclass toggle-style []
   [:&:focus-visible {:box-shadow focus-rings/primary-shadow
@@ -128,6 +135,13 @@ paints no ring and is left alone. So is a block holding anything besides literal
 (defclass card-style [ring]
   [:&:focus {:box-shadow ring
              :outline "2px solid transparent"}])
+
+;; a custom property filled from the preset
+(defclass danger-style []
+  {"--ring" focus-rings/primary-shadow})
+(defclass field-style []
+  [:&:focus-visible {:box-shadow "var(--ring)"
+                     :outline "2px solid transparent"}])
 ```
 
 <details>
@@ -136,8 +150,20 @@ paints no ring and is left alone. So is a block holding anything besides literal
 A ring built by hand drifts: the next change to the ring's color, width or forced-colors contract updates the preset and
 misses this call site. The `:box-shadow` of a focus block must be one of `:approved-shadows`, written as is, or held in
 a `(str …)` or a Garden vector beside other parts, for a stacked outer and inner ring. A string, another var, and a
-`str` or a Garden vector without an approved shadow are reported, a CSS custom property such as `"var(--ring)"` too: the
-preset is what a focus ring should name.
+`str` or a Garden vector without an approved shadow are reported.
+
+A `:box-shadow` that is a CSS custom property and nothing else, such as `"var(--ring)"`, with `var` in any case, is
+judged by the values the same file sets `"--ring"` to in the style maps of its top-level `defclass`, `defattrs` and
+`defglobal` forms, with or without metadata in front, also inside an `at-media` or `at-supports` call of the
+declaration, and inside the branch of a top-level reader conditional that ClojureScript reads, the first `:cljs` or
+`:default` one: in another declaration, a variant class, or the base map. Maps of other data, such as a map bound in a
+`let`, other branches, and code in `#_` or a `(comment …)` form, set nothing. It passes when each value is an approved
+shadow, a reset, or a local or a call the rule cannot read. A value that reads another custom property is followed to
+the values the file sets that one to, until the chain comes back to a property it has met. It is reported when any value
+is not an approved shadow, and the finding names the declarations that set it so. A custom property the file never sets
+is set where the rule cannot see, in another file or at runtime. It is reported, and so is one that a chain reaches, or
+one whose values only read each other, with a finding that says no style map of the file sets it. One with a fallback,
+`"var(--ring, 0 0 0 2px #00f)"`, is a string like any other and is reported.
 
 When `:approved-shadows` maps an approved shadow to the raw values it replaces, a value holding one of them is reported
 even inside a stacked ring. The finding names the shadows to use by their fully qualified names. For
