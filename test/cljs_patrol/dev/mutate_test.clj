@@ -346,6 +346,7 @@
       (let [test-var #(ns-resolve 'cljs-patrol.dev.mutate-test.target-test %)
             context (fn [covered] {:test-nss ['cljs-patrol.dev.mutate-test.target-test]
                                    :timeout-ms 10000
+                                   :select? true
                                    :covered covered
                                    :plans (atom {})})
             covered {:tests {"label" #{(test-var 'labels)}
@@ -353,9 +354,16 @@
                              "positive?" #{(test-var 'labels)}}
                      :recorded #{"label" "unused" "positive?" "never"}
                      :reached-outside #{"positive?"}}]
-        (is (= {:kind :subset
-                :tests #{(test-var 'labels)}}
-               (mutate/test-plan (context covered) "label")))
+        (let [plan (mutate/test-plan (context covered) "label")]
+          (is (= {:kind :subset
+                  :tests #{(test-var 'labels)}}
+                 (select-keys plan [:kind :tests])))
+          (is (< (:timeout-ms plan) 10000)
+              "subset is timed by its own run"))
+        (is (= 10000 (:timeout-ms (mutate/test-plan (assoc (context covered) :fixed-timeout? true) "label")))
+            "given timeout is kept")
+        (is (= {:kind :every} (mutate/test-plan (assoc (context covered) :select? false) "label"))
+            "selection turned off runs every test")
         (is (= {:kind :every} (mutate/test-plan (context covered) "unused"))
             "selected tests that fail on their own run every test")
         (is (= {:kind :every} (mutate/test-plan (context covered) "positive?"))
@@ -417,3 +425,29 @@
                                               10000)))
             "one hooked namespace among several is enough")
         (finally (remove-ns 'cljs-patrol.dev.mutate-test.plain-test))))))
+
+(deftest test-plan-notices-tests-that-loop-without-a-mutation
+  (with-target (str target-tests
+                    "(def release (atom false))\n"
+                    "(deftest spins (while (not @release)) (is true))\n")
+    (fn []
+      (let [release @(ns-resolve 'cljs-patrol.dev.mutate-test.target-test 'release)
+            spins (ns-resolve 'cljs-patrol.dev.mutate-test.target-test 'spins)]
+        (try
+          (is (= {:kind :stuck}
+                 (mutate/test-plan {:test-nss ['cljs-patrol.dev.mutate-test.target-test]
+                                    :timeout-ms 200
+                                    :select? true
+                                    :covered {:tests {"label" #{spins}}
+                                              :recorded #{"label"}}
+                                    :plans (atom {})}
+                                   "label")))
+          (finally (reset! release true)))))))
+
+(deftest all-tests-option-turns-selection-off
+  (with-target target-tests
+    (fn []
+      (is (= {"positive?" :every
+              "label" :every}
+             (:tests-run (run-target {:defs ["positive?" "label"]
+                                      :all-tests true})))))))
