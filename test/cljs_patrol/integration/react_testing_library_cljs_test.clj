@@ -28,8 +28,7 @@
              "bad-fully-qualified-get-by-role"
              "bad-lookup-also-bound-as-value"
              "bad-some-get-by-helper"
-             "bad-seq-get-all-by-helper"
-             "bad-some-nested-get-by-helper"}
+             "bad-seq-get-all-by-helper"}
            (fn-names-of findings))
         "only presence check on throwing lookup is reported")
     (is (= #{"s/get-by-role throws on a miss, so this check never fails. Use s/query-by-role."
@@ -69,8 +68,7 @@
             "hinted-params" "Rename to get-hinted-params, after the get-by-role lookup it returns."
             "with-discard" "Rename to get-with-discard, after the get-by-role lookup it returns."
             "with-attr-map" "Rename to get-with-attr-map, after the get-by-role lookup it returns."
-            "in-comment" "Rename to get-in-comment, after the get-by-role lookup it returns."
-            "get-redefined" "Rename to query-redefined, after the query-by-role lookup it returns."}
+            "in-comment" "Rename to get-in-comment, after the get-by-role lookup it returns."}
            (into {} (map (juxt (comp str :kw) :hint)) findings))
         "only helper returning lookup under wrong prefix is reported, with its rename")))
 

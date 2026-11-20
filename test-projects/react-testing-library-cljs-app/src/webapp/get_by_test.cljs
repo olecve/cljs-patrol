@@ -136,9 +136,9 @@
 
 (defn- get-redefined [] (s/get-by-role "dialog"))
 
-(defn- get-redefined [] (s/query-by-role "dialog"))
+(defn- get-redefined [] (.-checked (s/get-by-role "dialog")))
 
-(deftest bad-some-nested-get-by-helper
+(deftest ok-helper-nested-in-do
   (is (some? (get-nested-dialog))))
 
 (deftest ok-helper-redefined-as-query

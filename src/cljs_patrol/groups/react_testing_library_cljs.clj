@@ -155,42 +155,22 @@
   [head fn-name]
   (str (subs head 0 (- (count head) (count fn-name))) "query" (subs fn-name 3)))
 
-(defn- written-lists
-  "Return every list under `loc`, in the order they are written, leaving out `#_` discarded forms."
-  [loc]
-  (mapcat (fn [child]
-            (cond->> (written-lists child)
-              (= :list (z/tag child)) (cons child)))
-          (parser/written-child-locs loc)))
-
 (def ^:private definition-heads
   "Heads that define a var, so a later one replaces a helper of the same name."
   #{"def" "defn" "defn-"})
 
-(defn- uses-library?
-  "True when the namespace requires one of the library's lookup namespaces, by an alias or a refer."
-  [{:keys [aliases refers]}]
-  (boolean (some library-namespaces (concat (vals aliases) (vals refers)))))
-
-(defn- in-comment?
-  "True when a `(comment …)` form encloses `loc`, which only a REPL evaluates."
-  [loc]
-  (boolean (some #(and (= :list (z/tag %)) (= "comment" (some-> % z/down parser/sym-name)))
-                 (take-while some? (rest (iterate z/up loc))))))
-
 (defn- get-by-helpers
-  "Return {name fn-name} for the helpers of the file `loc` sits in whose one arity returns a throwing lookup, once per file.
+  "Return {name fn-name} for the top-level helpers of the file `loc` sits in whose one arity returns a throwing lookup.
 
-  Every `def`, `defn` and `defn-` at any depth counts, except in quoted, discarded or
-  `(comment …)` code, which never runs. A name defined again takes its last definition, as it
-  does when the file runs, so a later definition that is not such a helper removes it."
+  The file is read once. A name defined again at the top level with `def`, `defn` or `defn-`
+  takes its last definition, as it does when the file runs, so a later definition that is not
+  such a helper removes it."
   [loc ns-info]
   (let [state (parser/file-state ::get-by-helpers nil)]
     (or @state
         (reset! state
-                (->> (written-lists (z/up (parser/top-level-loc loc)))
+                (->> (parser/written-child-locs (z/up (parser/top-level-loc loc)))
                      (filter #(contains? definition-heads (some-> % z/down parser/sym-name)))
-                     (remove #(or (hiccup/inside-unrendered-form? %) (in-comment? %)))
                      (reduce (fn [helpers form]
                                (let [{:keys [kind fn-name]} (lookup-helper form ns-info)]
                                  (if-let [helper-name (some-> (parser/declared-name-loc form) parser/sym-name)]
@@ -213,13 +193,13 @@
 (defn- get-by-presence-finding
   "Return the finding for an assertion that only checks a throwing lookup found something, or nil.
 
-  The lookup may also be a call of a lookup helper of the same file that returns a throwing lookup."
+  The lookup may also be a call of a top-level helper of the same file that returns a throwing lookup."
   [loc ns-info file]
   (when (= "is" (some-> loc z/down parser/sym-name))
     (when-let [lookup (presence-checked-lookup loc)]
       (let [head (some-> lookup z/down parser/raw)
             library-fn (throwing-query lookup ns-info)
-            helper-fn (when (and (nil? library-fn) (= :list (z/tag lookup)) head (uses-library? ns-info))
+            helper-fn (when (and (nil? library-fn) (= :list (z/tag lookup)) head)
                         (get (get-by-helpers loc ns-info) head))]
         (when-let [fn-name (or library-fn helper-fn)]
           (when-not (or (rebound? lookup head) (rebound? loc (parser/raw (z/down loc))))
@@ -495,6 +475,12 @@
           (non-blank (read-attr attrs :value)))
         (when (contains? content-named-roles role)
           (non-blank (rendered-text context loc))))))
+
+(defn- in-comment?
+  "True when a `(comment …)` form encloses `loc`, which only a REPL evaluates."
+  [loc]
+  (boolean (some #(and (= :list (z/tag %)) (= "comment" (some-> % z/down parser/sym-name)))
+                 (take-while some? (rest (iterate z/up loc))))))
 
 (defn- role-and-name
   "Return the role and literal name of the element vector `loc`, or nil when it has no role or name the scan can read."
