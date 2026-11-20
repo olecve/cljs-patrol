@@ -180,8 +180,13 @@
    :tokens (mapcat value-tokens parts)
    :unreadable? (boolean (some #(unreadable-part? % ns-info) parts))})
 
+(defn- custom-property-name
+  "Return the custom property a value reads when it is `var(--name)` and nothing else, `!important` left out, or nil."
+  [text]
+  (second (re-matches #"var\(\s*(--[\w-]+)\s*\)" (without-important text))))
+
 (defn- shadow-value
-  "Classify a `:box-shadow` value: a reset, a var, a string, a `str` or a Garden vector built in place.
+  "Classify a `:box-shadow` value: a reset, a custom property, a var, a string, a `str` or a Garden vector built in place.
 
   Nil for a value that paints no ring, a keyword such as `:none`, or that this cannot read."
   [value-loc ns-info]
@@ -189,6 +194,8 @@
     :token (let [value (literal value-loc)]
              (cond
                (and (string? value) (contains? reset-values (str/lower-case (without-important value)))) {:kind :reset}
+               (and (string? value) (custom-property-name value)) {:kind :custom-property
+                                                                   :name (custom-property-name value)}
                (string? value) {:kind :string
                                 :tokens [value-loc]}
                (symbol? value) (if-let [resolved (resolve-symbol value ns-info)]
@@ -294,23 +301,80 @@
     (str "Use one or more of: " (str/join ", " shadows) ".")
     (str "Use " (first shadows) ".")))
 
-(defn- raw-shadow-finding
-  "Return a raw-shadow finding when a block's `:box-shadow` is not one of the approved shadows.
+(defn- shadow-verdict
+  "Judge a shadow against the approved ones: whether it is accepted, and the approved shadows its raw values stand in for.
 
   A `str` or a Garden vector holding an approved shadow is a stacked ring and accepted, unless
   it also holds a raw value an approved shadow replaces. One that holds a local or a call may
-  hold anything and is left alone."
-  [block key-loc shadow {:keys [approved-shadows]
-                         :as config} ns-info decl-kw file]
+  hold anything and is accepted."
+  [shadow {:keys [approved-shadows]
+           :as config} ns-info]
   (let [token-values (map literal (:tokens shadow))
         symbols (keep #(resolve-symbol % ns-info) token-values)
         strings (map compact-color-text (filter string? token-values))
-        shadows (candidates symbols strings config)
-        accepted? (and (nil? shadows)
-                       (case (:kind shadow)
-                         :var (contains? approved-shadows (:symbol shadow))
-                         (:str :composed) (or (boolean (some approved-shadows symbols)) (:unreadable? shadow))
-                         false))]
+        shadows (candidates symbols strings config)]
+    {:accepted? (and (nil? shadows)
+                     (case (:kind shadow)
+                       :var (contains? approved-shadows (:symbol shadow))
+                       (:str :composed) (or (boolean (some approved-shadows symbols)) (:unreadable? shadow))
+                       false))
+     :shadows shadows}))
+
+(defn- file-root [loc]
+  (last (take-while some? (iterate z/up loc))))
+
+(defn- scan-custom-properties
+  "Return {name [value-loc]} for every custom property, such as `\"--ring\"`, a literal map in the file sets."
+  [root]
+  (loop [current (z/subzip root)
+         found {}]
+    (cond
+      (z/end? current) found
+      (= :map (z/tag current)) (recur (z/next current)
+                                      (reduce (fn [acc [key-text _ value-loc]]
+                                                (cond-> acc
+                                                  (str/starts-with? key-text "--") (update key-text (fnil conj []) value-loc)))
+                                              found
+                                              (map-entries current)))
+      :else (recur (z/next current) found))))
+
+(defn- custom-property-values
+  "Return {name [value-loc]} for the file `loc` sits in, scanned once per file.
+
+  Every ring that reads a custom property asks the same question, so the scan is kept while the
+  file is read, keyed by the identity of its root node."
+  [loc]
+  (let [root (file-root loc)
+        node (z/node root)
+        state (parser/file-state ::custom-properties {:cached-root nil
+                                                      :values {}})
+        {:keys [cached-root values]} @state]
+    (if (identical? node cached-root)
+      values
+      (let [scanned (scan-custom-properties root)]
+        (reset! state {:cached-root node
+                       :values scanned})
+        scanned))))
+
+(defn- custom-property-verdict
+  "Judge `var(--name)` by every value the file sets `--name` to.
+
+  Accepted when each value is accepted on its own, a reset, or one this cannot read. A custom
+  property the file never sets is set somewhere this cannot see, and is accepted."
+  [loc shadow config ns-info]
+  (let [verdicts (for [value-loc (get (custom-property-values loc) (:name shadow))
+                       :let [value (shadow-value value-loc ns-info)]
+                       :when (and value (not (contains? #{:reset :local :custom-property} (:kind value))))]
+                   (shadow-verdict value config ns-info))]
+    {:accepted? (every? :accepted? verdicts)
+     :shadows (some->> (mapcat :shadows verdicts) distinct (sort-by str) seq)}))
+
+(defn- raw-shadow-finding
+  "Return a raw-shadow finding when a block's `:box-shadow` is not one of the approved shadows."
+  [block key-loc shadow config ns-info decl-kw file]
+  (let [{:keys [accepted? shadows]} (if (= :custom-property (:kind shadow))
+                                      (custom-property-verdict key-loc shadow config ns-info)
+                                      (shadow-verdict shadow config ns-info))]
     (when-not accepted?
       (finding :focus-ring-raw-shadow block key-loc decl-kw file (some-> shadows use-hint)))))
 

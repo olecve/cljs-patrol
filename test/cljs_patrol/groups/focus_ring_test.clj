@@ -215,12 +215,41 @@
   (is (= {} (flagged (run (visible-ring "\n:box-shadow (if highlighted? x y)"))))
       "call other than str"))
 
-(deftest custom-property-shadow-is-hand-built
-  (is (= {:focus-ring-raw-shadow ["a"]}
-         (flagged (run (focus-class "a" ":&:focus" (str ":box-shadow \"var(--ring) !important\" " outline)))))
-      "custom property alone"))
-
 (defn- hint-of [config source] (-> (run config source) :focus-ring-raw-shadow first :hint))
+
+(defn- ring-from-property [& settings]
+  (str (focus-class "a" ":&:focus" (str ":box-shadow \"var(--ring) !important\" " outline))
+       (apply str settings)))
+
+(deftest custom-property-filled-from-the-preset-passes
+  (is (= {} (flagged (run (ring-from-property "(defclass b [] {\"--ring\" focus-rings/primary-shadow})\n"))))
+      "set from an approved shadow in another declaration")
+  (is (= {} (flagged (run (ring-from-property "(defattrs b [] {\"--ring\" app.styles.focus-rings/primary-shadow})\n"
+                                              "(defclass c [] {\"--ring\" \"none\"})\n"))))
+      "set from an approved shadow and a reset")
+  (is (= {} (flagged (run (ring-from-property "(defclass b [ring] {\"--ring\" ring})\n"))))
+      "set from a local this cannot read")
+  (is (= {} (flagged (run (ring-from-property "(defclass b [] {\"--ring\" \"var(--other)\"})\n"))))
+      "set from another custom property"))
+
+(deftest custom-property-filled-by-hand-is-flagged
+  (is (= {:focus-ring-raw-shadow ["a"]}
+         (flagged (run (ring-from-property "(defclass b [] {\"--ring\" focus-rings/primary-shadow})\n"
+                                           "(defclass c [] {\"--ring\" \"0 0 0 2px #00f\"})\n"))))
+      "one value of several built by hand")
+  (is (= "Use app.styles.focus-rings/primary-shadow."
+         (hint-of config (ring-from-property "(defclass b [] {\"--ring\" button-theme/shadow-brand-focused})\n")))
+      "a replaced value names the approved shadow"))
+
+(deftest custom-property-set-nowhere-in-the-file-passes
+  (is (= {} (flagged (run (ring-from-property))))
+      "set in another file or at runtime"))
+
+(deftest custom-property-with-a-fallback-is-hand-built
+  (is (= {:focus-ring-raw-shadow ["a"]}
+         (flagged (run (str (focus-class "a" ":&:focus" (str ":box-shadow \"var(--ring, 0 0 0 2px #00f)\" " outline))
+                            "(defclass b [] {\"--ring\" focus-rings/primary-shadow})\n"))))
+      "the fallback is a shadow written by hand"))
 
 (deftest replaced-value-names-approved-shadow
   (let [use-primary "Use app.styles.focus-rings/primary-shadow."]

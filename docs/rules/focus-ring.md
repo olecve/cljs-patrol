@@ -112,6 +112,13 @@ paints no ring and is left alone. So is a block holding anything besides literal
   [:&:focus-visible {:box-shadow (str "inset " focus-rings/primary-shadow ", 0 0 0 1px #516BFF")
                      :outline "2px solid transparent"}])
 
+;; a custom property filled by hand
+(defclass ring-style []
+  {"--ring" "0 0 0 2px #516bff"})
+(defclass chip-style []
+  [:&:focus-visible {:box-shadow "var(--ring)"
+                     :outline "2px solid transparent"}])
+
 ;; fix
 (defclass toggle-style []
   [:&:focus-visible {:box-shadow focus-rings/primary-shadow
@@ -128,6 +135,13 @@ paints no ring and is left alone. So is a block holding anything besides literal
 (defclass card-style [ring]
   [:&:focus {:box-shadow ring
              :outline "2px solid transparent"}])
+
+;; a custom property filled from the preset
+(defclass danger-style []
+  {"--ring" focus-rings/primary-shadow})
+(defclass field-style []
+  [:&:focus-visible {:box-shadow "var(--ring)"
+                     :outline "2px solid transparent"}])
 ```
 
 <details>
@@ -136,8 +150,14 @@ paints no ring and is left alone. So is a block holding anything besides literal
 A ring built by hand drifts: the next change to the ring's color, width or forced-colors contract updates the preset and
 misses this call site. The `:box-shadow` of a focus block must be one of `:approved-shadows`, written as is, or held in
 a `(str …)` or a Garden vector beside other parts, for a stacked outer and inner ring. A string, another var, and a
-`str` or a Garden vector without an approved shadow are reported, a CSS custom property such as `"var(--ring)"` too: the
-preset is what a focus ring should name.
+`str` or a Garden vector without an approved shadow are reported.
+
+A `:box-shadow` that is a CSS custom property and nothing else, such as `"var(--ring)"`, is judged by the values the
+same file sets `"--ring"` to, in any literal map: in another declaration, a variant class, or the base map. It passes
+when each of them is an approved shadow, a reset, or a value the rule cannot read, such as a local or another custom
+property, and is reported when any of them is built by hand. A custom property the file never sets is set where the rule
+cannot see, in another file or at runtime, and is left alone. One with a fallback, `"var(--ring, 0 0 0 2px #00f)"`, is a
+string like any other and is reported.
 
 When `:approved-shadows` maps an approved shadow to the raw values it replaces, a value holding one of them is reported
 even inside a stacked ring. The finding names the shadows to use by their fully qualified names. For
