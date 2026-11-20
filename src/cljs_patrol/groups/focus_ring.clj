@@ -359,7 +359,7 @@
   "Return the forms a top-level form stands for: the ClojureScript branch of a reader conditional, or the form under metadata."
   [loc]
   (case (z/tag loc)
-    :reader-macro (clojurescript-branch loc)
+    :reader-macro (mapcat unwrapped-forms (clojurescript-branch loc))
     :meta (some-> (last (parser/written-child-locs loc)) unwrapped-forms)
     [loc]))
 

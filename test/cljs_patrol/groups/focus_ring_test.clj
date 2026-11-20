@@ -232,7 +232,9 @@
   (is (= {} (flagged (run (ring-from-property "(defclass b [ring] {\"--ring\" ring})\n"))))
       "set from a local this cannot read")
   (is (= {} (flagged (run (str (focus-class "a" ":&:focus" (str ":box-shadow \"VAR(--ring)\" " outline)) preset-ring))))
-      "var written in upper case"))
+      "var written in upper case")
+  (is (= {} (flagged (run (ring-from-property "(defclass b [] [:&:hover {\"--ring\" focus-rings/primary-shadow}])\n"))))
+      "set in a selector vector"))
 
 (deftest custom-property-reading-another-is-followed
   (is (= {} (flagged (run (ring-from-property "(defclass b [] {\"--ring\" \"var(--base)\""
@@ -271,6 +273,11 @@
   (is (= "--ring is not set from the preset in b. Use app.styles.focus-rings/primary-shadow."
          (hint-of config (ring-from-property "(defclass b [] {\"--ring\" button-theme/shadow-brand-focused})\n")))
       "a replaced value also names the approved shadow")
+  (is (= {:focus-ring-raw-shadow ["a"]}
+         (flagged (run (ring-from-property preset-ring
+                                           "(defclass c [] (at-media {:max-width \"600px\"}"
+                                           " [:& {\"--ring\" \"0 0 0 2px #00f\"}]))\n"))))
+      "set by hand in an at-media call")
   (is (= "--ring is not set from the preset in b."
          (hint-of config (ring-from-property "(defclass b [] {\"--ring\" app.styles.other/shadow})\n")))
       "a var that is not approved"))
@@ -291,9 +298,11 @@
 
 (deftest custom-property-set-under-metadata-is-read
   (is (= {} (flagged (run (ring-from-property "^:private " preset-ring))))
-      "set from the preset in a declaration with metadata in front"))
+      "set from the preset in a declaration with metadata in front")
+  (is (= {} (flagged (run config "app/core.cljc" (ring-from-property "#?(:cljs ^:private " preset-ring ")\n"))))
+      "metadata in front of a declaration in a cljs branch"))
 
-(deftest custom-property-set-only-outside-styles-is-flagged
+(deftest custom-property-set-outside-style-maps-sets-nothing
   (is (= {:focus-ring-raw-shadow ["a"]} (flagged (run (ring-from-property))))
       "set in another file or at runtime, which this cannot see")
   (is (= "--ring is not set in a style map of this file." (hint-of config (ring-from-property)))
@@ -310,14 +319,7 @@
       "discarded and comment code sets nothing")
   (is (= {} (flagged (run (ring-from-property preset-ring
                                               "(defclass c [] (let [options {\"--ring\" \"0 0 0 2px #00f\"}] {}))\n"))))
-      "a map bound in a let is not a style")
-  (is (= {} (flagged (run (ring-from-property "(defclass b [] [:&:hover {\"--ring\" focus-rings/primary-shadow}])\n"))))
-      "a map in a selector vector is a style")
-  (is (= {:focus-ring-raw-shadow ["a"]}
-         (flagged (run (ring-from-property preset-ring
-                                           "(defclass c [] (at-media {:max-width \"600px\"}"
-                                           " [:& {\"--ring\" \"0 0 0 2px #00f\"}]))\n"))))
-      "a map in an at-media call is a style"))
+      "a map bound in a let is not a style"))
 
 (deftest custom-property-with-a-fallback-is-hand-built
   (is (= {:focus-ring-raw-shadow ["a"]}
