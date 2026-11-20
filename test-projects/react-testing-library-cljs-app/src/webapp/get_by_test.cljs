@@ -96,3 +96,105 @@
 
 (deftest ok-nil-with-extra-argument
   (is (not (nil? (s/get-by-role "button") 1))))
+
+(defn- get-item-1 [] (s/get-by-role "radio" {:name "Item 1"}))
+
+(defn- get-rows [] (s/get-all-by-role "row"))
+
+(defn- query-item-2 [] (s/query-by-role "radio" {:name "Item 2"}))
+
+(defn- get-checked-item [] (.-checked (s/get-by-role "radio" {:checked true})))
+
+(defn- get-alert-text []
+  (s/get-by-role "alert")
+  (s/query-by-text "Saved"))
+
+(deftest bad-some-get-by-helper
+  (is (some? (get-item-1))))
+
+(deftest bad-seq-get-all-by-helper
+  (is (seq (get-rows))))
+
+(deftest ok-query-by-helper
+  (is (some? (query-item-2))))
+
+(deftest ok-helper-reading-the-lookup
+  (is (some? (get-checked-item))))
+
+(deftest ok-helper-returning-something-else
+  (is (some? (get-alert-text))))
+
+(deftest ok-get-by-helper-acted-on
+  (.click (get-item-1)))
+
+(deftest ok-let-shadows-get-by-helper
+  (let [get-item-1 (constantly nil)]
+    (is (some? (get-item-1)))))
+
+(do
+  (defn- get-nested-dialog [] (s/get-by-role "dialog")))
+
+(defn- get-redefined [] (s/get-by-role "dialog"))
+
+(defn- get-redefined [] (.-checked (s/get-by-role "dialog")))
+
+(deftest ok-helper-nested-in-do
+  (is (some? (get-nested-dialog))))
+
+(deftest ok-helper-defined-twice
+  (is (some? (get-redefined))))
+
+(defn- get-replaced-by-def [] (s/get-by-role "dialog"))
+
+(def get-replaced-by-def (constantly nil))
+
+(comment
+  (defn- get-in-repl [] (s/get-by-role "dialog")))
+
+(def quoted-helper '(defn- get-quoted [] (s/get-by-role "dialog")))
+
+(deftest ok-helper-replaced-by-def
+  (is (some? (get-replaced-by-def))))
+
+(deftest ok-helper-only-in-comment
+  (is (some? (get-in-repl))))
+
+(deftest ok-helper-only-quoted
+  (is (some? (get-quoted))))
+
+(defn- get-redefined-in-do [] (s/get-by-role "dialog"))
+
+(do
+  (defn- get-redefined-in-do [] nil))
+
+(defn- get-redefined-by-defonce [] (s/get-by-role "dialog"))
+
+(defonce get-redefined-by-defonce nil)
+
+(deftest ok-helper-redefined-in-do
+  (is (some? (get-redefined-in-do))))
+
+(deftest ok-helper-redefined-by-defonce
+  (is (some? (get-redefined-by-defonce))))
+
+(defn- get-with-discarded-copy [] (s/get-by-role "dialog"))
+
+#_(defn- get-with-discarded-copy [] nil)
+
+(deftest bad-some-helper-with-discarded-copy
+  (is (some? (get-with-discarded-copy))))
+
+(defn- get-passed-to-default [] (s/get-by-role "dialog"))
+
+(default-handler get-passed-to-default)
+
+(deftest bad-some-helper-also-passed-to-a-call
+  (is (some? (get-passed-to-default))))
+
+(deftest ok-helper-name-in-vector
+  (is [get-item-1]))
+
+(defn- get-also-a-test [] (s/get-by-role "dialog"))
+
+(deftest get-also-a-test
+  (is (some? (get-also-a-test))))

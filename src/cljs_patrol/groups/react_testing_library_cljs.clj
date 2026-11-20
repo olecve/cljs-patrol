@@ -96,27 +96,6 @@
       (some-> argument z/down z/right)
       :else expression)))
 
-(defn- get-by-presence-finding
-  "Return the finding for an assertion that only checks a throwing lookup found something, or nil."
-  [loc ns-info file]
-  (when (= "is" (some-> loc z/down parser/sym-name))
-    (when-let [lookup (presence-checked-lookup loc)]
-      (when-let [fn-name (throwing-query lookup ns-info)]
-        (let [head (parser/raw (z/down lookup))
-              query (str (subs head 0 (- (count head) (count fn-name))) "query" (subs fn-name 3))]
-          (when-not (or (rebound? lookup head) (rebound? loc (parser/raw (z/down loc))))
-            {:kw (symbol fn-name)
-             :type :get-by-presence-check
-             :form (parser/normalize-form (parser/raw loc))
-             :test (parser/enclosing-definition-name loc)
-             :file file
-             :row (parser/position-row loc)
-             :hint (str head " throws on a miss, so this check never fails. Use "
-                        (if (str/starts-with? fn-name "get-all-")
-                          (str "(seq (" query " …))")
-                          query)
-                        ".")}))))))
-
 (def ^:private lookup-kinds
   "Prefixes naming what a lookup does on a miss.
   `get` throws, `query` returns nil, and `find` returns a promise that rejects."
@@ -141,26 +120,105 @@
             lookup-kinds)
       helper-name))
 
-(defn- lookup-helper-finding
-  "Return the finding for a helper whose body is one library lookup and whose name misstates what it does on a miss.
-
-  The prefix is what the caller reads: a `query-` helper is expected to return nil, so one
-  that wraps `get-by-*` throws on a caller who asserts absence through it."
-  [loc ns-info file]
+(defn- lookup-helper
+  "Return {:name-loc :helper-name :kind :fn-name} for a `defn` whose one arity returns a single library lookup, or nil."
+  [loc ns-info]
   (when (contains? #{"defn" "defn-"} (some-> loc z/down parser/sym-name))
     (let [body (remove #(= :uneval (z/tag %)) (single-arity-body loc))
           name-loc (parser/declared-name-loc loc)
           helper-name (some-> name-loc parser/sym-name)]
       (when (and helper-name (= 1 (count body)))
         (when-let [[kind fn-name] (library-lookup (first body) ns-info)]
-          (when-not (or (str/starts-with? helper-name (str kind "-"))
-                        (rebound? (first body) (parser/raw (z/down (first body)))))
-            {:kw (symbol helper-name)
-             :type :lookup-helper-name
+          (when-not (rebound? (first body) (parser/raw (z/down (first body))))
+            {:name-loc name-loc
+             :helper-name helper-name
+             :kind kind
+             :fn-name fn-name}))))))
+
+(defn- lookup-helper-finding
+  "Return the finding for a helper whose body is one library lookup and whose name misstates what it does on a miss.
+
+  The prefix is what the caller reads: a `query-` helper is expected to return nil, so one
+  that wraps `get-by-*` throws on a caller who asserts absence through it."
+  [loc ns-info file]
+  (when-let [{:keys [name-loc helper-name kind fn-name]} (lookup-helper loc ns-info)]
+    (when-not (str/starts-with? helper-name (str kind "-"))
+      {:kw (symbol helper-name)
+       :type :lookup-helper-name
+       :file file
+       :row (parser/position-row name-loc)
+       :hint (str "Rename to " kind "-" (strip-lookup-prefix helper-name)
+                  ", after the " fn-name " lookup it returns.")})))
+
+(defn- query-twin
+  "Return the `query-by-*` twin of a throwing lookup name such as \"get-by-role\" or \"s/get-by-role\"."
+  [head fn-name]
+  (str (subs head 0 (- (count head) (count fn-name))) "query" (subs fn-name 3)))
+
+(def ^:private definition-heads
+  "Heads of the forms that define a var, so one of them can give a helper's name a second definition."
+  #{"def" "defattrs" "defc" "defclass" "defcs" "defmacro" "defmulti" "defn" "defn-" "defonce" "defrecord" "deftest"
+    "deftype"})
+
+(defn- defined-name [loc]
+  (when (and (= :list (z/tag loc)) (contains? definition-heads (some-> loc z/down parser/sym-name)))
+    (some-> (parser/declared-name-loc loc) parser/sym-name)))
+
+(defn- get-by-helpers
+  "Return {name fn-name} for the top-level helpers of the file `loc` sits in whose one arity returns a throwing lookup.
+
+  The file is read once. A name the file defines more than once, with any definition form at any
+  depth, is left out: which definition a call reaches then depends on what runs first."
+  [loc ns-info]
+  (let [state (parser/file-state ::get-by-helpers nil)]
+    (or @state
+        (let [root (z/up (parser/top-level-loc loc))
+              helpers (into {}
+                            (keep (fn [form]
+                                    (let [{:keys [helper-name kind fn-name]} (lookup-helper form ns-info)]
+                                      (when (= "get" kind)
+                                        [helper-name fn-name]))))
+                            (parser/written-child-locs root))
+              definitions (when (seq helpers)
+                            (->> (parser/descendant-locs root)
+                                 (filter defined-name)
+                                 (remove hiccup/inside-unrendered-form?)
+                                 (map defined-name)
+                                 frequencies))]
+          (reset! state (into {} (filter #(= 1 (get definitions (key %)))) helpers))))))
+
+(defn- presence-hint
+  "Name why a presence check on a throwing lookup never fails, and the `query-by-*` lookup to use instead."
+  [head fn-name helper?]
+  (let [all? (str/starts-with? fn-name "get-all-")]
+    (if helper?
+      (let [query-helper (str "query-" (strip-lookup-prefix head))]
+        (str head " returns " fn-name ", which throws on a miss, so this check never fails. Use "
+             (if all? (str "(seq (" query-helper "))") query-helper)
+             ", with " query-helper " returning " (query-twin fn-name fn-name) "."))
+      (str head " throws on a miss, so this check never fails. Use "
+           (cond->> (query-twin head fn-name) all? (format "(seq (%s …))")) "."))))
+
+(defn- get-by-presence-finding
+  "Return the finding for an assertion that only checks a throwing lookup found something, or nil.
+
+  The lookup may also be a call of a top-level helper of the same file that returns a throwing lookup."
+  [loc ns-info file]
+  (when (= "is" (some-> loc z/down parser/sym-name))
+    (when-let [lookup (presence-checked-lookup loc)]
+      (let [head (some-> lookup z/down parser/raw)
+            library-fn (throwing-query lookup ns-info)
+            helper-fn (when (and (nil? library-fn) (= :list (z/tag lookup)) head)
+                        (get (get-by-helpers loc ns-info) head))]
+        (when-let [fn-name (or library-fn helper-fn)]
+          (when-not (or (rebound? lookup head) (rebound? loc (parser/raw (z/down loc))))
+            {:kw (symbol (if library-fn fn-name head))
+             :type :get-by-presence-check
+             :form (parser/normalize-form (parser/raw loc))
+             :test (parser/enclosing-definition-name loc)
              :file file
-             :row (parser/position-row name-loc)
-             :hint (str "Rename to " kind "-" (strip-lookup-prefix helper-name)
-                        ", after the " fn-name " lookup it returns.")}))))))
+             :row (parser/position-row loc)
+             :hint (presence-hint head fn-name (nil? library-fn))}))))))
 
 (defn- test-id-arguments
   "Return the locs of the arguments a `*-by-test-id` lookup at `loc` is given from its test id on, or nil.
@@ -756,7 +814,7 @@
     {:get-by-presence-check
      (str "An assertion only checks that a get-by-* lookup found something, but get-by-* throws on a miss, "
           "so the check can never fail. Assert presence with query-by-* (seq of query-all-by-*), or call "
-          "get-by-* outside the is.")
+          "get-by-* outside the is. A helper holding the lookup returns query-by-* instead.")
      :lookup-helper-name
      (str "A helper that only returns a lookup is not named for it. Start its name with what the lookup does on a "
           "miss: get- for get-by-* (throws), query- for query-by-* (nil), find- for find-by-* (rejects).")
