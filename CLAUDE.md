@@ -79,6 +79,21 @@ Tests live in `test/`, mirroring the `src/` structure. Fixture projects for the 
 `test-projects/<name>-app/`, outside `test/` because `test/` is a classpath root the runner scans: a fixture named
 `*_test.clj` there would be loaded as a namespace, and several fixtures are malformed on purpose.
 
+### Mutation testing
+
+Every branch a change adds needs a test that fails when the branch breaks. The dev-only runner checks that in one JVM:
+
+```bash
+clojure -M:mutate cljs-patrol.groups.reagent -t cljs-patrol.groups.reagent-test -d remounting-branch-finding
+```
+
+It swaps one operator at a time in the target namespace, such as `when` for `when-not`, `<` for `<=`, `some` for
+`every?` or `true` for `false`, loads the mutated source over the namespace, runs the test namespaces, and loads the
+original back. A mutant the tests still pass on is printed as a survivor: a branch no test pins, or an equivalent
+mutant, such as `first` for `last` on a one-element list. `-d` limits it to the named top-level definitions, and a run
+exits 1 when any mutant survives. A mutant whose tests run past `--timeout` (30 s) counts as killed, and its thread
+keeps running until the JVM exits.
+
 ## Linting
 
 ```bash
