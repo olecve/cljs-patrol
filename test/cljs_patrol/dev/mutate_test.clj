@@ -85,12 +85,14 @@
              :mutants 2
              :killed 1
              :survived 1
+             :no-coverage 0
              :unviable 0
              :timeout 0}
             {:def "b"
              :mutants 2
              :killed 0
              :survived 0
+             :no-coverage 0
              :unviable 1
              :timeout 1}]
            (:definitions summary)))
@@ -163,40 +165,47 @@
 (def ^:private target-source
   (str "(ns cljs-patrol.dev.mutate-test.target)\n"
        "(defn ^:checked positive? [x] (> x 0))\n"
-       "(defn label [x] (if (positive? x) :up :down))\n"))
+       "(defn label [x] (if (positive? x) :up :down))\n"
+       "(defn unused [x] (when x 1))\n"))
 
 (def ^:private target-tests
   (str "(ns cljs-patrol.dev.mutate-test.target-test (:require [clojure.test :refer [deftest is]]"
        " [cljs-patrol.dev.mutate-test.target :as target]))\n"
        "(deftest labels (is (= :up (target/label 1))))\n"))
 
-(defn- with-target [tests f]
-  (sample-ns 'cljs-patrol.dev.mutate-test.target)
-  (sample-ns 'cljs-patrol.dev.mutate-test.target-test)
-  (try
-    (mutate/load-text 'cljs-patrol.dev.mutate-test.target target-source)
-    (mutate/load-text 'cljs-patrol.dev.mutate-test.target-test tests)
-    (f)
-    (finally
-      (remove-ns 'cljs-patrol.dev.mutate-test.target)
-      (remove-ns 'cljs-patrol.dev.mutate-test.target-test))))
+(defn- with-target
+  ([tests f] (with-target target-source tests f))
+  ([source tests f]
+   (sample-ns 'cljs-patrol.dev.mutate-test.target)
+   (sample-ns 'cljs-patrol.dev.mutate-test.target-test)
+   (try
+     (mutate/load-text 'cljs-patrol.dev.mutate-test.target source)
+     (mutate/load-text 'cljs-patrol.dev.mutate-test.target-test tests)
+     (f)
+     (finally
+       (remove-ns 'cljs-patrol.dev.mutate-test.target)
+       (remove-ns 'cljs-patrol.dev.mutate-test.target-test)))))
 
-(defn- run-target [options]
-  (binding [*out* (java.io.StringWriter.)]
-    (mutate/mutate-source 'cljs-patrol.dev.mutate-test.target "target.clj" target-source
-                          ['cljs-patrol.dev.mutate-test.target-test] options)))
+(defn- run-target
+  ([options] (run-target target-source options))
+  ([source options]
+   (binding [*out* (java.io.StringWriter.)]
+     (mutate/mutate-source 'cljs-patrol.dev.mutate-test.target "target.clj" source
+                           ['cljs-patrol.dev.mutate-test.target-test] options))))
 
 (deftest run-kills-and-keeps-mutants-and-restores-the-namespace
   (with-target target-tests
     (fn []
-      (let [{:keys [totals]} (run-target {})]
-        (is (= {:mutants 2
+      (let [{:keys [totals not-covered]} (run-target {})]
+        (is (= ["unused"] not-covered))
+        (is (= {:mutants 3
                 :killed 1
                 :survived 1
+                :no-coverage 1
                 :unviable 0
                 :timeout 0}
                totals)
-            "boundary at 0 is never tested, so > -> >= survives and if -> if-not is killed"))
+            "boundary at 0 is never tested, so > -> >= survives; no test calls unused"))
       (is (true? (:checked (meta (ns-resolve 'cljs-patrol.dev.mutate-test.target 'positive?)))))
       (is (= :up ((ns-resolve 'cljs-patrol.dev.mutate-test.target 'label) 1))
           "original code is back after the run"))))
@@ -235,3 +244,214 @@
         "file the merge base lacks counts in full")
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No git commit named nope"
                           (mutate/lines-since (str file) "nope")))))
+
+(deftest coverage-records-calls-made-on-worker-threads
+  (with-target (str target-tests
+                    "(deftest on-thread (let [p (promise)]"
+                    " (.start (Thread. #(deliver p (target/label 0))))"
+                    " (is (= :down @p))))\n")
+    (fn []
+      (let [{:keys [tests recorded]} (mutate/coverage 'cljs-patrol.dev.mutate-test.target
+                                                      ["positive?" "label" "unused"]
+                                                      ['cljs-patrol.dev.mutate-test.target-test]
+                                                      10000)
+            test-var #(ns-resolve 'cljs-patrol.dev.mutate-test.target-test %)]
+        (is (= #{"positive?" "label" "unused"} recorded))
+        (is (= #{(test-var 'labels) (test-var 'on-thread)} (get tests "label"))
+            "call on a raw thread is recorded")
+        (is (nil? (get tests "unused")))
+        (is (= :up ((ns-resolve 'cljs-patrol.dev.mutate-test.target 'label) 1))
+            "vars are restored")
+        (is (fn? (:test (meta (test-var 'labels))))
+            "tests are restored")))))
+
+(deftest killed-mutant-shows-its-definition-is-reached
+  (is (= [:killed :survived]
+         (map :outcome (:mutants (mutate/summarize {:defs-in-scope ["a"]
+                                                    :results [{:def "a"
+                                                               :outcome :failed}
+                                                              {:def "a"
+                                                               :outcome :no-coverage}]}))))
+      "passing mutant of a definition a test reached is a survivor, not uncovered"))
+
+(deftest exit-code-counts-mutants-without-coverage
+  (is (= 1 (mutate/exit-code {:totals {:survived 0
+                                       :no-coverage 1}}))))
+
+(defmulti ^:private dispatcher identity)
+
+(defn- counter ^long [^long n] (inc n))
+
+(defn- partly-hinted
+  ([^long n _] n)
+  ([x] x))
+
+(deftest wrappable-means-a-plain-function
+  (is (true? (mutate/wrappable? #'mutate/exit-code)))
+  (is (false? (mutate/wrappable? #'dispatcher))
+      "multimethod")
+  (is (false? (mutate/wrappable? #'counter))
+      "primitive hint")
+  (is (false? (mutate/wrappable? #'partly-hinted))
+      "primitive hint on one parameter of one arity")
+  (is (false? (mutate/wrappable? #'source))
+      "data"))
+
+(deftest not-covered-definitions-and-covered-score
+  (let [{:keys [not-covered score covered-score]}
+        (mutate/summarize {:defs-in-scope ["a" "b"]
+                           :results [{:def "a"
+                                      :outcome :failed}
+                                     {:def "a"
+                                      :outcome :passed}
+                                     {:def "b"
+                                      :outcome :no-coverage}
+                                     {:def "b"
+                                      :outcome :unviable}]})]
+    (is (= ["b"] not-covered)
+        "definition with an uncovered mutant is named, whatever its other outcomes")
+    (is (< (abs (- score 1/3)) 1e-9))
+    (is (== 1/2 (rationalize covered-score))
+        "covered score leaves uncovered mutants out")))
+
+(def ^:private coverage-tests
+  (str target-tests
+       "(defn setup-once [f] (target/positive? 2) (f))\n"
+       "(clojure.test/use-fixtures :once setup-once)\n"
+       "(deftest all-labels (labels) (is (= :up (target/label 2))))\n"))
+
+(defn- coverage-of []
+  (mutate/coverage 'cljs-patrol.dev.mutate-test.target ["positive?" "label" "unused"]
+                   ['cljs-patrol.dev.mutate-test.target-test] 10000))
+
+(deftest coverage-tells-fixture-calls-and-nested-tests
+  (with-target coverage-tests
+    (fn []
+      (let [{:keys [tests reached-outside hooked?]} (coverage-of)
+            test-var #(ns-resolve 'cljs-patrol.dev.mutate-test.target-test %)]
+        (is (contains? reached-outside "positive?")
+            "call from a fixture is reached outside a test")
+        (is (contains? (get tests "label") (test-var 'all-labels))
+            "call after a nested test returns is still the outer test's")
+        (is (= #{(test-var 'labels) (test-var 'all-labels)} (get tests "positive?"))
+            "call inside a nested test also belongs to the test that called it")
+        (is (false? hooked?))))))
+
+(def ^:private state-tests
+  (str target-tests
+       "(def state (atom nil))\n"
+       "(deftest needs-state (is (= 1 @state)))\n"))
+
+(deftest test-plan-runs-every-test-when-selection-is-unsafe
+  (with-target state-tests
+    (fn []
+      (let [test-var #(ns-resolve 'cljs-patrol.dev.mutate-test.target-test %)
+            context (fn [covered] {:test-nss ['cljs-patrol.dev.mutate-test.target-test]
+                                   :timeout-ms 10000
+                                   :select? true
+                                   :covered covered
+                                   :plans (atom {})})
+            covered {:tests {"label" #{(test-var 'labels)}
+                             "unused" #{(test-var 'needs-state)}
+                             "positive?" #{(test-var 'labels)}}
+                     :recorded #{"label" "unused" "positive?" "never"}
+                     :reached-outside #{"positive?"}}]
+        (let [plan (mutate/test-plan (context covered) "label")]
+          (is (= {:kind :subset
+                  :tests #{(test-var 'labels)}}
+                 (select-keys plan [:kind :tests])))
+          (is (< (:timeout-ms plan) 10000)
+              "subset is timed by its own run"))
+        (is (= 10000 (:timeout-ms (mutate/test-plan (assoc (context covered) :fixed-timeout? true) "label")))
+            "given timeout is kept")
+        (is (= {:kind :every} (mutate/test-plan (assoc (context covered) :select? false) "label"))
+            "selection turned off runs every test")
+        (is (= {:kind :every} (mutate/test-plan (context covered) "unused"))
+            "selected tests that fail on their own run every test")
+        (is (= {:kind :every} (mutate/test-plan (context covered) "positive?"))
+            "definition reached outside a test runs every test")
+        (is (= {:kind :uncovered} (mutate/test-plan (context covered) "never")))
+        (is (= {:kind :every} (mutate/test-plan (context (assoc covered :test-count 1)) "label"))
+            "definition every test calls runs every test, with no extra check")
+        (is (= {:kind :every} (mutate/test-plan (context {:recorded #{}}) "label"))
+            "definition not recorded runs every test")
+        (is (= {:kind :every} (mutate/test-plan (context (assoc covered :hooked? true)) "label"))
+            "test-ns-hook runs every test")))))
+
+(deftest mutants-run-only-the-tests-that-call-them
+  (with-target (str target-tests
+                    "(def unrelated-runs (atom 0))\n"
+                    "(deftest unrelated (swap! unrelated-runs inc) (is true))\n")
+    (fn []
+      (let [{:keys [tests-run]} (run-target {:defs ["positive?" "label"]})]
+        (is (= {"positive?" :subset
+                "label" :subset}
+               tests-run)
+            "plan is made on the unmutated namespace, so a killed first mutant keeps the selection"))
+      (is (= 1 @@(ns-resolve 'cljs-patrol.dev.mutate-test.target-test 'unrelated-runs))
+          "test that calls nothing of the target runs only in the first run"))))
+
+(deftest reached-rule-counts-test-failures-and-timeouts-only
+  (let [outcomes #(map :outcome (:mutants (mutate/summarize {:defs-in-scope ["a"]
+                                                             :results %})))]
+    (is (= [:timeout :survived]
+           (outcomes [{:def "a"
+                       :outcome :timeout}
+                      {:def "a"
+                       :outcome :no-coverage}])))
+    (is (= [:killed :no-coverage]
+           (outcomes [{:def "a"
+                       :outcome :failed
+                       :at-load? true}
+                      {:def "a"
+                       :outcome :no-coverage}]))
+        "mutant that threw while it loaded shows nothing about tests")))
+
+(def ^:private source-with-handlers (str target-source "(def handlers {:label label})\n"))
+
+(deftest recording-that-breaks-the-tests-turns-selection-off
+  (with-target source-with-handlers
+    (str target-tests "(deftest same-function (is (= target/label (:label target/handlers))))\n")
+    (fn []
+      (let [{:keys [note totals]} (run-target source-with-handlers {})]
+        (is (re-find #"every mutant runs every test" note))
+        (is (zero? (:no-coverage totals))
+            "nothing is reported as not covered without the recording")))))
+
+(deftest coverage-notices-a-test-ns-hook
+  (with-target (str target-tests "(defn test-ns-hook [] (labels))\n")
+    (fn []
+      (sample-ns 'cljs-patrol.dev.mutate-test.plain-test)
+      (try
+        (is (true? (:hooked? (mutate/coverage 'cljs-patrol.dev.mutate-test.target ["label"]
+                                              ['cljs-patrol.dev.mutate-test.plain-test
+                                               'cljs-patrol.dev.mutate-test.target-test]
+                                              10000)))
+            "one hooked namespace among several is enough")
+        (finally (remove-ns 'cljs-patrol.dev.mutate-test.plain-test))))))
+
+(deftest test-plan-notices-tests-that-loop-without-a-mutation
+  (with-target (str target-tests
+                    "(def release (atom false))\n"
+                    "(deftest spins (while (not @release)) (is true))\n")
+    (fn []
+      (let [release @(ns-resolve 'cljs-patrol.dev.mutate-test.target-test 'release)
+            spins (ns-resolve 'cljs-patrol.dev.mutate-test.target-test 'spins)]
+        (try
+          (is (= {:kind :stuck}
+                 (mutate/test-plan {:test-nss ['cljs-patrol.dev.mutate-test.target-test]
+                                    :timeout-ms 200
+                                    :select? true
+                                    :covered {:tests {"label" #{spins}}
+                                              :recorded #{"label"}}
+                                    :plans (atom {})}
+                                   "label")))
+          (finally (reset! release true)))))))
+
+(deftest all-tests-option-turns-selection-off
+  (with-target target-tests
+    (fn []
+      (is (= {"positive?" :every
+              "label" :every}
+             (:tests-run (run-target {:defs ["positive?" "label"]
+                                      :all-tests true})))))))
