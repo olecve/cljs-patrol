@@ -183,3 +183,13 @@
 
 (deftest bad-some-helper-with-discarded-copy
   (is (some? (get-with-discarded-copy))))
+
+(defn- get-passed-to-default [] (s/get-by-role "dialog"))
+
+(default-handler get-passed-to-default)
+
+(deftest bad-some-helper-also-passed-to-a-call
+  (is (some? (get-passed-to-default))))
+
+(deftest ok-helper-name-in-vector
+  (is [get-item-1]))
