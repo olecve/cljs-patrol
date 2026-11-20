@@ -316,11 +316,9 @@
 
 (def ^:private coverage-tests
   (str target-tests
-       "(def state (atom nil))\n"
        "(defn setup-once [f] (target/positive? 2) (f))\n"
        "(clojure.test/use-fixtures :once setup-once)\n"
-       "(deftest all-labels (labels) (is (= :up (target/label 2))))\n"
-       "(deftest needs-state (is (= 1 @state)))\n"))
+       "(deftest all-labels (labels) (is (= :up (target/label 2))))\n"))
 
 (defn- coverage-of []
   (mutate/coverage 'cljs-patrol.dev.mutate-test.target ["positive?" "label" "unused"]
@@ -337,26 +335,49 @@
             "call after a nested test returns is still the outer test's")
         (is (false? hooked?))))))
 
-(deftest selected-tests-fall-back-to-every-test-when-unsafe
-  (with-target coverage-tests
+(def ^:private state-tests
+  (str target-tests
+       "(def state (atom nil))\n"
+       "(deftest needs-state (is (= 1 @state)))\n"))
+
+(deftest test-plan-runs-every-test-when-selection-is-unsafe
+  (with-target state-tests
     (fn []
       (let [test-var #(ns-resolve 'cljs-patrol.dev.mutate-test.target-test %)
             context (fn [covered] {:test-nss ['cljs-patrol.dev.mutate-test.target-test]
                                    :timeout-ms 10000
                                    :covered covered
-                                   :subset-checks (atom {})})
+                                   :plans (atom {})})
             covered {:tests {"label" #{(test-var 'labels)}
                              "unused" #{(test-var 'needs-state)}
                              "positive?" #{(test-var 'labels)}}
-                     :recorded #{"label" "unused" "positive?"}
+                     :recorded #{"label" "unused" "positive?" "never"}
                      :reached-outside #{"positive?"}}]
-        (is (= #{(test-var 'labels)} (mutate/selected-tests (context covered) "label")))
-        (is (nil? (mutate/selected-tests (context covered) "unused"))
+        (is (= {:kind :subset
+                :tests #{(test-var 'labels)}}
+               (mutate/test-plan (context covered) "label")))
+        (is (= {:kind :every} (mutate/test-plan (context covered) "unused"))
             "selected tests that fail on their own run every test")
-        (is (nil? (mutate/selected-tests (context covered) "positive?"))
+        (is (= {:kind :every} (mutate/test-plan (context covered) "positive?"))
             "definition reached outside a test runs every test")
-        (is (nil? (mutate/selected-tests (context (assoc covered :hooked? true)) "label"))
+        (is (= {:kind :uncovered} (mutate/test-plan (context covered) "never")))
+        (is (= {:kind :every} (mutate/test-plan (context {:recorded #{}}) "label"))
+            "definition not recorded runs every test")
+        (is (= {:kind :every} (mutate/test-plan (context (assoc covered :hooked? true)) "label"))
             "test-ns-hook runs every test")))))
+
+(deftest mutants-run-only-the-tests-that-call-them
+  (with-target (str target-tests
+                    "(def unrelated-runs (atom 0))\n"
+                    "(deftest unrelated (swap! unrelated-runs inc) (is true))\n")
+    (fn []
+      (let [{:keys [tests-run]} (run-target {:defs ["positive?" "label"]})]
+        (is (= {"positive?" :subset
+                "label" :subset}
+               tests-run)
+            "plan is made on the unmutated namespace, so a killed first mutant keeps the selection"))
+      (is (= 1 @@(ns-resolve 'cljs-patrol.dev.mutate-test.target-test 'unrelated-runs))
+          "test that calls nothing of the target runs only in the first run"))))
 
 (deftest reached-rule-counts-test-failures-and-timeouts-only
   (let [outcomes #(map :outcome (:mutants (mutate/summarize {:defs-in-scope ["a"]

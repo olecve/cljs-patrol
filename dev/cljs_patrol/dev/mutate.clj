@@ -352,40 +352,50 @@
              :tests @calls
              :recorded (set (map first vars))
              :reached-outside @reached-outside
-             :hooked? (boolean (some #(ns-resolve % 'test-ns-hook) test-nss)))
+             :hooked? (boolean (some #(contains? (ns-interns %) 'test-ns-hook) test-nss)))
       (finally
         (doseq [[_ v original] vars]
           (alter-var-root v (constantly original)))
         (doseq [[test-var test-fn] tests]
           (alter-meta! test-var assoc :test test-fn))))))
 
-(defn selected-tests
-  "Return the tests a mutant of `def-name` runs: those that called it, or nil for every test.
-
-  Every test runs when the definition could not be recorded, when something called it outside
-  a test, when a test namespace orders its tests with `test-ns-hook`, and when its tests fail
-  on their own without any mutation, since one may rely on what an earlier test left behind.
-  That last check runs once for each definition, before its first mutant."
-  [{:keys [test-nss timeout-ms covered subset-checks]} def-name]
-  (let [{:keys [tests recorded reached-outside hooked?]} covered
-        def-tests (get tests def-name)]
-    (when (and (contains? recorded def-name) (seq def-tests) (not hooked?)
-               (not (contains? reached-outside def-name)))
-      (when (if (contains? @subset-checks def-name)
-              (get @subset-checks def-name)
-              (let [passes? (= :passed (:outcome (run-tests test-nss timeout-ms def-tests)))]
-                (swap! subset-checks assoc def-name passes?)
-                passes?))
-        def-tests))))
-
-(defn- uncovered?
-  "True when the coverage pass saw no call of `def-name` at all, in a test or outside one."
-  [{:keys [tests recorded reached-outside]} def-name]
-  (and (contains? recorded def-name) (empty? (get tests def-name)) (not (contains? reached-outside def-name))))
-
 (def ^:private stuck-grace-ms
   "How long an interrupted test thread may take to end before the run counts it as stuck."
   500)
+
+(defn- stuck?
+  "True when a timed-out test thread still runs after a short grace, and would disturb every later run."
+  [^Thread thread]
+  (boolean (when thread
+             (.join thread (long stuck-grace-ms))
+             (.isAlive thread))))
+
+(defn test-plan
+  "Decide which tests the mutants of `def-name` run, before any of them is loaded.
+
+  Return {:kind :subset :tests …} for the tests that called it, {:kind :uncovered} when the
+  coverage pass saw no call of it, in a test or outside one, {:kind :every} when every test
+  must run, and {:kind :stuck} when its own tests keep looping without any mutation. Every test
+  runs when the definition could not be recorded, when something called it outside a test,
+  when a test namespace orders its tests with `test-ns-hook`, and when its tests fail on their
+  own, since one may rely on what an earlier test left behind. That last check runs once for
+  each definition, on the unmutated namespace."
+  [{:keys [test-nss timeout-ms covered plans]} def-name]
+  (let [{:keys [tests recorded reached-outside hooked?]} covered
+        def-tests (get tests def-name)
+        decide (fn []
+                 (cond
+                   (or (not (contains? recorded def-name)) (contains? reached-outside def-name)) {:kind :every}
+                   (empty? def-tests) {:kind :uncovered}
+                   hooked? {:kind :every}
+                   :else (let [{:keys [outcome thread]} (run-tests test-nss timeout-ms def-tests)]
+                           (cond
+                             (stuck? thread) {:kind :stuck}
+                             (= :passed outcome) {:kind :subset
+                                                  :tests def-tests}
+                             :else {:kind :every}))))]
+    (or (get @plans def-name)
+        (get (swap! plans assoc def-name (decide)) def-name))))
 
 (defn- run-mutant
   "Apply a mutant, run the tests, restore the namespace, and return the mutant with its :outcome.
@@ -396,7 +406,7 @@
   compiled is unviable. One that throws while it loads, such as a `def` whose value now fails,
   was caught by loading it, and is killed. A restore that fails is returned as :restore-error,
   since the namespace is then left mutated."
-  [{:keys [target file test-nss timeout-ms covered]
+  [{:keys [target file test-nss timeout-ms]
     :as context}
    {:keys [form-loc wrapper mutant-loc to]
     :as mutant}]
@@ -409,25 +419,27 @@
                          (str (subs wrapper-text 0 start) form-text (subs wrapper-text (+ start (count original)))))
                        form-text))
         mutated-text (in-wrapper (-> mutant-loc (z/replace (n/token-node to)) z/root n/string))
-        load-result (load-outcome #(load-text target mutated-text {:file file
-                                                                   :line line}))
-        tests (when-not load-result (selected-tests context (:def mutant)))
-        result (if load-result
-                 (assoc mutant
-                        :outcome load-result
-                        :at-load? true)
-                 (let [{:keys [outcome thread]} (run-tests test-nss timeout-ms tests)]
-                   (cond-> (assoc mutant :outcome (if (and (= :passed outcome) (uncovered? covered (:def mutant)))
-                                                    :no-coverage
-                                                    outcome))
-                     thread (assoc :stuck? (do (.join ^Thread thread (long stuck-grace-ms))
-                                               (.isAlive ^Thread thread))))))]
-    (try
-      (load-text target (in-wrapper original) {:file file
-                                               :line line})
-      result
-      (catch Throwable e
-        (assoc result :restore-error (ex-message e))))))
+        {:keys [kind tests]} (test-plan context (:def mutant))]
+    (if (= :stuck kind)
+      (assoc mutant
+             :outcome :timeout
+             :stuck? true)
+      (let [load-result (load-outcome #(load-text target mutated-text {:file file
+                                                                       :line line}))
+            result (if load-result
+                     (assoc mutant
+                            :outcome load-result
+                            :at-load? true)
+                     (let [{:keys [outcome thread]} (run-tests test-nss timeout-ms tests)]
+                       (assoc mutant
+                              :outcome (if (and (= :passed outcome) (= :uncovered kind)) :no-coverage outcome)
+                              :stuck? (stuck? thread))))]
+        (try
+          (load-text target (in-wrapper original) {:file file
+                                                   :line line})
+          result
+          (catch Throwable e
+            (assoc result :restore-error (ex-message e))))))))
 
 (def ^:private baseline-limit-ms 600000)
 
@@ -436,26 +448,27 @@
 
   Return {:ms … :covered … :note …}, or throw when the tests fail or run past the limit. When
   only the recording makes the tests fail, such as a test that compares a function with the one
-  a value stored, the run goes on without test selection, and the note says so."
+  a value stored, the tests run again without it, the run goes on without test selection and
+  times its mutants by that plain run, and the note says so."
   [target def-names test-nss timeout-ms]
   (let [limit (or timeout-ms baseline-limit-ms)
-        started (System/nanoTime)
-        recorded-run (coverage target def-names test-nss limit)
-        ms (/ (- (System/nanoTime) started) 1e6)
-        fail (fn [{:keys [outcome output]}]
-               (if (= :timeout outcome)
-                 (throw (setup-error (str "The tests ran past " limit " ms before any mutation. Raise --timeout.")))
-                 (throw (setup-error (str "The tests fail before any mutation; fix them first.\n" output)))))]
+        timed (fn [run!]
+                (let [started (System/nanoTime)
+                      run (run!)]
+                  (when (= :timeout (:outcome run))
+                    (throw (setup-error (str "The tests ran past " limit " ms before any mutation. Raise --timeout."))))
+                  (assoc run :ms (/ (- (System/nanoTime) started) 1e6))))
+        recorded-run (timed #(coverage target def-names test-nss limit))]
     (if (= :passed (:outcome recorded-run))
-      {:ms ms
+      {:ms (:ms recorded-run)
        :covered (select-keys recorded-run [:tests :recorded :reached-outside :hooked?])}
-      (let [plain-run (run-tests test-nss limit)]
-        (if (= :passed (:outcome plain-run))
-          {:ms ms
-           :covered {:recorded #{}}
-           :note (str "Recording which tests call each function made the tests fail, so every mutant runs every test"
-                      " and none is reported as not covered.")}
-          (fail plain-run))))))
+      (let [plain-run (timed #(run-tests test-nss limit))]
+        (when-not (= :passed (:outcome plain-run))
+          (throw (setup-error (str "The tests fail before any mutation; fix them first.\n" (:output plain-run)))))
+        {:ms (:ms plain-run)
+         :covered {:recorded #{}}
+         :note (str "Recording which tests call each function made the tests fail, so every mutant runs every test"
+                    " and none is reported as not covered.")}))))
 
 (defn- outcome-key [outcome]
   (case outcome
@@ -479,7 +492,7 @@
   while it loaded shows nothing about the tests. The score is killed over killed,
   survived and not covered; the covered score leaves the mutants no test reaches out, so it
   shows how well the tests check the code they run."
-  [{:keys [defs-in-scope loaded-once other-forms unreached results stopped note]}]
+  [{:keys [defs-in-scope loaded-once other-forms unreached results stopped note plans]}]
   (let [reached (set (keep #(when (and (contains? #{:failed :timeout} (:outcome %)) (not (:at-load? %))) (:def %))
                            results))
         results (map #(cond-> %
@@ -509,6 +522,7 @@
                              :when (some #(= :no-coverage (:outcome %)) (get by-def def-name))]
                          def-name))
      :note note
+     :tests-run (or plans {})
      :totals (assoc counts :mutants (count results))
      :score (when (pos? scored) (double (/ (:killed counts) scored)))
      :covered-score (when (pos? covered) (double (/ (:killed counts) covered)))
@@ -614,12 +628,13 @@
                            (count selected) target (str/join ", " test-nss)
                            (if since (str ", lines changed since " since) "")
                            (if timeout-ms (str ", timeout " timeout-ms " ms") "")))
+        plans (atom {})
         {:keys [results unreached stopped]} (run-all {:target target
                                                       :file (str file)
                                                       :test-nss test-nss
                                                       :timeout-ms timeout-ms
                                                       :covered covered
-                                                      :subset-checks (atom {})}
+                                                      :plans plans}
                                                      selected)
         summary (summarize {:defs-in-scope defs-in-scope
                             :loaded-once loaded-once
@@ -627,7 +642,8 @@
                             :unreached unreached
                             :results results
                             :stopped stopped
-                            :note note})]
+                            :note note
+                            :plans (update-vals @plans :kind)})]
     (print-report summary (str/split-lines source) since)
     (when report
       (spit report (with-out-str (pprint/pprint (assoc summary
@@ -676,7 +692,7 @@
   "Usage: clojure -M:test:mutate TARGET-NS -t TEST-NS [-t TEST-NS …] [-d DEF …] [-s REF] [--timeout MS] [-r FILE]")
 
 (defn -main
-  "Exit 0 when every mutant is killed, 1 when one survives or has no coverage, and 2 when the run cannot start or stops early."
+  "Exit 0 when no mutant survives or lacks coverage, 1 when one does, and 2 when the run cannot start or stops early."
   [& args]
   (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)
         target (some-> (first arguments) symbol)]

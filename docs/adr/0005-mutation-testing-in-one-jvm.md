@@ -6,11 +6,11 @@ Proposed, 2026-11-20
 
 ## Outcome
 
-2026-11-20: the runner now runs only the tests that reach a mutant. A first run records which tests call each function
-of the target namespace, also from worker threads. Each mutant runs those tests. A function that no test calls gets a
-fifth outcome, no coverage, and the report names it once. The report gives two scores: killed over killed, survived and
-not covered, and killed over killed and survived. The whole focus-ring namespace now takes about 18 s, not 24 s. The
-sections below keep the proposal as it was.
+2026-11-21: the runner now runs only the tests that reach a mutant. A first run records which tests call each function
+of the target namespace, also from worker threads. Each mutant runs those tests, when that is safe. A function that no
+test calls gets a fifth outcome, no coverage, and the report names it once. The report gives two scores. The Decision
+below is aligned with this change, as its first Revisit when condition asked. The other sections keep the proposal as it
+was.
 
 ## Context
 
@@ -43,19 +43,25 @@ A dev-only runner in this repository mutates the code under test in one warm JVM
 
 - **One form for each mutant.** The runner parses the target namespace with rewrite-clj. Each mutant swaps one operator
   in one `def`, `defn`, `defn-` or `defmethod`, such as `when` for `when-not`, `<` for `<=`, or `true` for `false`. The
-  runner evaluates the changed form over the namespace, runs the test namespaces, and evaluates the original form back.
-  Clojure calls a function through its var, so the tests run the changed code.
+  runner evaluates the changed form over the namespace, runs the tests, and evaluates the original form back. Clojure
+  calls a function through its var, so the tests run the changed code.
+- **Only the tests that reach a mutant.** The first test run records which tests call each function of the target, also
+  from worker threads. Each mutant runs only those tests. Every test runs instead when a function is called from a
+  fixture or outside any test, when a test namespace has a `test-ns-hook`, or when the selected tests fail on their own
+  without a mutation, since a test can rely on an earlier one. If the recording makes the tests fail, every mutant runs
+  every test, and the report says so.
 - **Stop at the first failure.** One failing test is enough to kill a mutant. The runner records the failure before it
   ends the test run, so an assertion that catches exceptions, such as `thrown?`, cannot hide it.
-- **Four outcomes.** A mutant is killed, survived, unviable (it cannot be read or compiled), or timed out. The score is
-  the killed mutants divided by the killed and survived mutants. The other two outcomes are listed but not scored.
+- **Five outcomes.** A mutant is killed, survived, not covered (no test calls its function), unviable (it cannot be read
+  or compiled), or timed out. The score is the killed mutants divided by the killed, survived and not covered mutants.
+  The covered score leaves the mutants that are not covered out. The last two outcomes are listed but not scored.
 - **No mutants that prove nothing.** The runner does not change `defmacro`, `defmulti`, `defonce`, `defprotocol`,
   `defrecord` and `deftype`. Clojure keeps these forms from the first load, or other code captures them then, so a new
   version does not take effect. The runner also does not change a top-level form that is no definition, because its side
   effects would run again with each mutant.
 - **A report of what was changed and what was not.** The report has one row for each definition, with its outcome
-  counts. It names the definitions that were not changed, and the reason. It lists each survivor with its source line.
-  `-r FILE` writes all of it to EDN.
+  counts. It names the definitions that were not changed, and the reason, and the functions that no test calls. It lists
+  each survivor with its source line. `-r FILE` writes all of it to EDN.
 - **Only the changes of a branch.** `-s REF` limits the run to the lines that the branch changed since it left `REF`.
 - **A limit on time.** The timeout of a test run is 1.5 times the first run plus 2 s. When a timed-out run continues to
   loop, the runner stops, because that thread would disturb each later run.
