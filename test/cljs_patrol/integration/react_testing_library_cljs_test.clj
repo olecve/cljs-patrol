@@ -26,7 +26,9 @@
              "bad-within-get-by-role"
              "bad-referred-get-by-text"
              "bad-fully-qualified-get-by-role"
-             "bad-lookup-also-bound-as-value"}
+             "bad-lookup-also-bound-as-value"
+             "bad-some-get-by-helper"
+             "bad-seq-get-all-by-helper"}
            (fn-names-of findings))
         "only presence check on throwing lookup is reported")
     (is (= #{"s/get-by-role throws on a miss, so this check never fails. Use s/query-by-role."
@@ -38,7 +40,16 @@
         "hint names query-by twin under same alias")
     (is (= ["s/get-all-by-role throws on a miss, so this check never fails. Use (seq (s/query-all-by-role …))."]
            (->> findings (filter #(= "bad-seq-get-all-by-role" (:test %))) (map :hint)))
-        "query-all-by returns empty vector, so hint wraps it in seq")))
+        "query-all-by returns empty vector, so hint wraps it in seq")
+    (is (= {"bad-some-get-by-helper" (str "get-item-1 returns get-by-role, which throws on a miss, so this check never"
+                                          " fails. Use a helper that returns query-by-role.")
+            "bad-seq-get-all-by-helper" (str "get-rows returns get-all-by-role, which throws on a miss, so this check"
+                                             " never fails. Use a helper that returns query-all-by-role, inside seq.")}
+           (->> findings
+                (filter #(contains? #{"bad-some-get-by-helper" "bad-seq-get-all-by-helper"} (:test %)))
+                (map (juxt :test :hint))
+                (into {})))
+        "hint names helper and query-by lookup it should return")))
 
 (deftest lookup-helper-name-fixture-test
   (let [findings (:lookup-helper-name (result))]

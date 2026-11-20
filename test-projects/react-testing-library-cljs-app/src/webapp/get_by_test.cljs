@@ -96,3 +96,37 @@
 
 (deftest ok-nil-with-extra-argument
   (is (not (nil? (s/get-by-role "button") 1))))
+
+(defn- get-item-1 [] (s/get-by-role "radio" {:name "Item 1"}))
+
+(defn- get-rows [] (s/get-all-by-role "row"))
+
+(defn- query-item-2 [] (s/query-by-role "radio" {:name "Item 2"}))
+
+(defn- get-checked-item [] (.-checked (s/get-by-role "radio" {:checked true})))
+
+(defn- get-alert-text []
+  (s/get-by-role "alert")
+  (s/query-by-text "Saved"))
+
+(deftest bad-some-get-by-helper
+  (is (some? (get-item-1))))
+
+(deftest bad-seq-get-all-by-helper
+  (is (seq (get-rows))))
+
+(deftest ok-query-by-helper
+  (is (some? (query-item-2))))
+
+(deftest ok-helper-reading-the-lookup
+  (is (some? (get-checked-item))))
+
+(deftest ok-helper-returning-something-else
+  (is (some? (get-alert-text))))
+
+(deftest ok-get-by-helper-acted-on
+  (.click (get-item-1)))
+
+(deftest ok-let-shadows-get-by-helper
+  (let [get-item-1 (constantly nil)]
+    (is (some? (get-item-1)))))
