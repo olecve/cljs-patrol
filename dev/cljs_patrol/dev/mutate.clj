@@ -266,7 +266,7 @@
                          (assoc (outcome-counts def-results)
                                 :def def-name
                                 :mutants (count def-results))))
-     :not-mutated (vec (distinct (remove #(contains? by-def %) defs-in-scope)))
+     :not-mutated (->> defs-in-scope (remove #(contains? by-def %)) distinct vec)
      :loaded-once (vec (distinct loaded-once))
      :totals (assoc counts :mutants (count results))
      :score (when (pos? scored) (double (/ (:killed counts) scored)))
