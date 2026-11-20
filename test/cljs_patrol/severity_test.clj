@@ -120,7 +120,7 @@
            :aria-live-contradicts-role
            :aria-hidden-focusable :nested-interactive-element
            :label-not-associated :aria-label-beside-visible-label :button-missing-type
-           :discarded-hiccup}
+           :discarded-hiccup :remounting-branch}
          (severity/tier->rules rule->tier :bugs)))
   (is (= #{:deprecated-effects :defclass-as-sole-attr
            :defattrs-as-data :mixed-token-groups}
@@ -158,7 +158,7 @@
                   :aria-live-contradicts-role
                   :aria-hidden-focusable :nested-interactive-element
                   :label-not-associated :aria-label-beside-visible-label :button-missing-type
-                  :discarded-hiccup}}
+                  :discarded-hiccup :remounting-branch}}
            (severity/parse-fail-on "bugs" rule->tier)))
     (is (= {:ok (severity/tier->rules rule->tier :deprecations)}
            (severity/parse-fail-on "deprecations" rule->tier)))
@@ -226,7 +226,7 @@
                :aria-live-contradicts-role
                :aria-hidden-focusable :nested-interactive-element
                :label-not-associated :aria-label-beside-visible-label :button-missing-type
-               :discarded-hiccup}
+               :discarded-hiccup :remounting-branch}
              (->> tiered :bugs (map :rule) set)))
       (is (= #{:deprecated-effects :defclass-as-sole-attr
                :defattrs-as-data :mixed-token-groups}

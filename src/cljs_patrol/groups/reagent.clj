@@ -437,6 +437,119 @@
        :usages []
        :dynamics []})))
 
+(def ^:private branching-heads
+  "Forms whose last two forms are the two branches, one of which renders."
+  #{'cljs.core/if 'cljs.core/if-let 'cljs.core/if-not 'cljs.core/if-some})
+
+(def ^:private focusable-tags
+  "Tags whose element takes keyboard focus without a `:tab-index`."
+  #{:a :button :input :select :summary :textarea})
+
+(defn- element-parts
+  "Return {:head … :props … :children […]} for a Hiccup element vector, or nil for anything else.
+
+  The fragment counts as no element: React unwraps an unkeyed one, so it adds no layer of
+  its own around its child."
+  [loc]
+  (when (and (= :vector (z/tag loc)) (hiccup-head-loc? (z/down loc)) (not (data-vector? loc)))
+    (let [[head & more] (parser/written-child-locs loc)
+          props (when (= :map (some-> (first more) z/tag)) (first more))]
+      (when-not (= ":<>" (parser/raw head))
+        {:head head
+         :props props
+         :children (if props (rest more) more)}))))
+
+(defn- same-form? [a b]
+  (= (parser/normalize-form (parser/raw a)) (parser/normalize-form (parser/raw b))))
+
+(defn- focusable-element? [{:keys [head props]}]
+  (or (contains? focusable-tags (some-> head parser/raw hiccup/parse-tag))
+      (some #(contains? #{":tab-index" ":tabIndex"} (parser/raw %)) (some-> props parser/written-child-locs))))
+
+(defn- holds-state?
+  "True when the Hiccup at `loc` holds a component or a focusable element, whose state or focus mounting again resets."
+  [loc]
+  (boolean (first-in-subtree #(when-let [parts (element-parts %)]
+                                (or (some? (parser/sym-name (:head parts))) (focusable-element? parts)))
+                             loc)))
+
+(defn- let-bound-value
+  "Return the value the nearest `let` or `with-let` around `loc` binds `binding-name` to, or nil."
+  [loc binding-name ns-info]
+  (some (fn [ancestor]
+          (when (and (= :list (z/tag ancestor)) (heads/resolve-head ancestor ns-info binding-heads))
+            (some->> (some-> ancestor z/down z/right)
+                     parser/written-child-locs
+                     (partition 2)
+                     (filter #(= binding-name (parser/sym-name (first %))))
+                     last
+                     second)))
+        (take-while some? (rest (iterate z/up loc)))))
+
+(defn- stateful-child?
+  "True when the child at `loc` can lose state or focus by mounting again.
+
+  An element counts when it holds a component or a focusable element. A symbol counts when a
+  `let` around it binds it to such an element; a parameter or a call may be text or data."
+  [loc ns-info]
+  (case (z/tag loc)
+    :vector (holds-state? loc)
+    :token (boolean (some-> (parser/sym-name loc)
+                            (as-> binding-name (let-bound-value loc binding-name ns-info))
+                            (as-> value (and (= :vector (z/tag value)) (holds-state? value)))))
+    false))
+
+(defn- wrapper-hint
+  "Name the child a branch wraps that the other branch renders bare, or nil."
+  [wrapped bare ns-info]
+  (when-let [{:keys [head children]} (element-parts wrapped)]
+    (when (and (some #(same-form? % bare) children) (stateful-child? bare ns-info))
+      (str (parser/normalize-form (parser/raw bare)) " renders inside " (parser/raw head) " in one branch and bare in"
+           " the other, so React mounts it again when the condition flips, and it loses its state and keyboard focus."
+           " Render " (parser/raw head) " in both branches."))))
+
+(defn- tag-change-hint
+  "Name two focusable elements of different tags that hold the same child, or nil."
+  [a b]
+  (let [parts-a (element-parts a)
+        parts-b (element-parts b)
+        tag-a (some-> parts-a :head parser/raw hiccup/parse-tag)
+        tag-b (some-> parts-b :head parser/raw hiccup/parse-tag)]
+    (when (and tag-a tag-b (not= tag-a tag-b) (focusable-element? parts-a) (focusable-element? parts-b))
+      (when-let [shared (->> parts-a
+                             :children
+                             (filter (fn [child] (some #(same-form? child %) (:children parts-b))))
+                             first)]
+        (str "The branches render " tag-a " and " tag-b " around " (parser/normalize-form (parser/raw shared))
+             ", so React replaces the"
+             " element when the condition flips, and keyboard focus falls to the page. Keep one tag and change its"
+             " props.")))))
+
+(defn- remounting-branch-finding
+  "Return the finding for an `if` whose two branches render the same child under different elements, or nil."
+  [loc ns-info file]
+  (when (heads/resolve-head loc ns-info branching-heads)
+    (let [branches (drop 2 (parser/written-child-locs loc))]
+      (when (= 2 (count branches))
+        (let [[a b] branches]
+          (when-let [hint (or (wrapper-hint a b ns-info) (wrapper-hint b a ns-info) (tag-change-hint a b))]
+            (when (rendered-position? loc ns-info)
+              (let [[row col] (parser/position loc)]
+                {:kw (symbol (parser/raw (z/down loc)))
+                 :type :remounting-branch
+                 :form (parser/source-snippet loc)
+                 :file file
+                 :row row
+                 :col col
+                 :hint hint}))))))))
+
+(defn- handle-remounting-branch [loc ns-info file]
+  (when-not (or (hiccup/inside-non-hiccup-form? loc) (inside-comment-form? loc))
+    (when-let [finding (remounting-branch-finding loc ns-info file)]
+      {:decls [finding]
+       :usages []
+       :dynamics []})))
+
 (def ^:private spade-handle-list
   (get (group/parse-handlers spade/group) :handle-list))
 
@@ -473,26 +586,30 @@
         empty-fragment-props (filter #(= :empty-fragment-props (:type %)) declarations)
         redundant-fragment (filter #(= :redundant-fragment (:type %)) declarations)
         inline-component (filter #(= :inline-component (:type %)) declarations)
-        discarded-hiccup (filter #(= :discarded-hiccup (:type %)) declarations)]
+        discarded-hiccup (filter #(= :discarded-hiccup (:type %)) declarations)
+        remounting-branch (filter #(= :remounting-branch (:type %)) declarations)]
     {:defclass-as-sole-attr (vec defclass-as-sole-attr)
      :redundant-into-hiccup (vec redundant-into)
      :empty-fragment-props (vec empty-fragment-props)
      :redundant-fragment (vec redundant-fragment)
      :inline-component (vec inline-component)
-     :discarded-hiccup (vec discarded-hiccup)}))
+     :discarded-hiccup (vec discarded-hiccup)
+     :remounting-branch (vec remounting-branch)}))
 
 (defn- summary-lines* [{:keys [defclass-as-sole-attr
                                redundant-into-hiccup
                                empty-fragment-props
                                redundant-fragment
                                inline-component
-                               discarded-hiccup]}]
+                               discarded-hiccup
+                               remounting-branch]}]
   [["defclass as sole attr:" (count defclass-as-sole-attr)]
    ["Redundant into-hiccup:" (count redundant-into-hiccup)]
    ["Empty fragment props:" (count empty-fragment-props)]
    ["Redundant fragment:" (count redundant-fragment)]
    ["Inline component:" (count inline-component)]
-   ["Discarded hiccup:" (count discarded-hiccup)]])
+   ["Discarded hiccup:" (count discarded-hiccup)]
+   ["Remounting branch:" (count remounting-branch)]])
 
 (defn- failed?* [{:keys [discarded-hiccup]}]
   (boolean (seq discarded-hiccup)))
@@ -501,7 +618,7 @@
   group/RuleGroup
   (group-id [_] :reagent)
   (group-name [_] "Reagent")
-  (parse-handlers [_] {:handle-list [spade-handle-list handle-into handle-let handle-discarded-hiccup]
+  (parse-handlers [_] {:handle-list [spade-handle-list handle-into handle-let handle-discarded-hiccup handle-remounting-branch]
                        :handle-vector handle-fragment})
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
@@ -522,21 +639,26 @@
           "name, props or docstring of its own, which cannot be rendered or tested alone. Make it a component.")
      :discarded-hiccup
      (str "Only the last form of the body is returned, so this Hiccup is built and dropped. Wrap the elements in "
-          "[:<> ...] or a parent element, or remove the one that should not render.")})
+          "[:<> ...] or a parent element, or remove the one that should not render.")
+     :remounting-branch
+     (str "The branches of a condition render the same child under different elements, so React mounts it again when "
+          "the condition flips, and it loses its state and keyboard focus. Keep the same element around it in both.")})
   (docs-anchors [_]
     {:defclass-as-sole-attr "defclass-as-sole-attr"
      :redundant-into-hiccup "redundant-into-around-hiccup"
      :empty-fragment-props "empty-fragment-props"
      :redundant-fragment "redundant-fragment"
      :inline-component "inline-component"
-     :discarded-hiccup "discarded-hiccup"})
+     :discarded-hiccup "discarded-hiccup"
+     :remounting-branch "remounting-branch"})
   (rule->tier [_]
     {:defclass-as-sole-attr :deprecations
      :redundant-into-hiccup :cleanup
      :empty-fragment-props :cleanup
      :redundant-fragment :cleanup
      :inline-component :cleanup
-     :discarded-hiccup :bugs})
+     :discarded-hiccup :bugs
+     :remounting-branch :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->ReagentGroup))

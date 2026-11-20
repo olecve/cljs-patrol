@@ -362,3 +362,81 @@ component; a data vector such as `[:db :path]` or `[:dispatch x]` is not. A `#_`
 read.
 
 </details>
+
+### Remounting branch
+
+`remounting-branch` · bugs — A condition whose branches render the same child under different elements, so the child
+mounts again when the condition flips.
+
+```clojure
+;; flagged
+(defn launcher [blocked? reason]
+  (let [button [:button {:on-click launch} "Launch"]]
+    (if blocked?
+      [tooltip {:content reason} button]
+      button)))
+
+;; a focusable element that changes its tag
+(defn chip [editable? on-edit label]
+  (if editable?
+    [:button {:on-click on-edit} label]
+    [:span {:tab-index 0} label]))
+
+;; fix
+(defn launcher [blocked? reason]
+  [tooltip {:content (when blocked? reason)}
+   [:button {:on-click launch} "Launch"]])
+
+;; one tag, whose props change
+(defn chip [editable? on-edit label]
+  [:button {:disabled (not editable?)
+            :on-click on-edit}
+   label])
+```
+
+**Left alone:**
+
+```clojure
+;; text holds no state or focus
+(defn status [saved?]
+  (if saved?
+    [:strong "Saved"]
+    "Saved"))
+
+;; the branches render different content
+(defn rows [loading? items]
+  (if loading?
+    [spinner]
+    [table items]))
+
+;; the same tag in both branches
+(defn chip [selected? label]
+  (if selected?
+    [:button {:class "selected"} label]
+    [:button label]))
+
+;; a parameter may be text or data
+(defn launcher [blocked? reason child]
+  (if blocked?
+    [tooltip {:content reason} child]
+    child))
+```
+
+<details>
+<summary>Details</summary>
+
+React keeps a component mounted only while it stays at the same place in the tree under the same element. A branch that
+wraps a child the other branch renders bare moves the child one level down when the condition flips, so React unmounts
+it and mounts a new one: its state resets, and the element that had keyboard focus is gone, so focus falls to the page.
+The same happens to a focusable element whose tag changes between the branches, such as a `:span` with `:tab-index` that
+becomes a `:button`.
+
+The forms read are `if`, `if-not`, `if-let` and `if-some` that stand where their value renders: the last form of a
+component, a child of an element, or a branch of a form that does. A wrapped child is reported when it can lose state or
+focus: an element that holds a component or a focusable element, such as a `:button`, an `:a`, an `:input` or any
+element with `:tab-index`, or a symbol that a `let` or Reagent's `with-let` around the condition binds to one. A
+parameter or a call may be text or data and is left alone, and so is the fragment, which React unwraps. Two focusable
+elements of different tags are reported when they hold the same child. Quoted code, `#_` forms, `(comment …)` blocks and
+Spade declarations are not read.
+
+</details>

@@ -71,11 +71,12 @@
                                     :empty-fragment-props []
                                     :redundant-fragment []
                                     :inline-component []
-                                    :discarded-hiccup []})]
-    (is (= 6 (count lines)))
+                                    :discarded-hiccup []
+                                    :remounting-branch []})]
+    (is (= 7 (count lines)))
     (is (= 1 (second (first lines))))
     (is (= 0 (second (second lines))))
-    (is (= [["Empty fragment props:" 0] ["Redundant fragment:" 0] ["Inline component:" 0] ["Discarded hiccup:" 0]]
+    (is (= [["Redundant fragment:" 0] ["Inline component:" 0] ["Discarded hiccup:" 0] ["Remounting branch:" 0]]
            (take-last 4 lines)))))
 
 (defn- fragment-findings
@@ -493,3 +494,55 @@
                                  "`(do [:a] [:b])"
                                  "(defclass panel [] (do [:a] [:b]))"
                                  "(comment (defn f [] [:div] [:span]))"]))))
+
+(defn- remounting-branches [lines] (list-findings :remounting-branch :hint library-aliases lines))
+
+(defn- wrapped-hint [child wrapper]
+  (str child " renders inside " wrapper " in one branch and bare in the other, so React mounts it again when the"
+       " condition flips, and it loses its state and keyboard focus. Render " wrapper " in both branches."))
+
+(deftest wrapper-around-stateful-child-in-one-branch-is-flagged
+  (is (= [(wrapped-hint "launcher" "blocked-action")
+          (wrapped-hint "checkbox" "tooltip")
+          (wrapped-hint "[:button \"Go\"]" "tooltip")
+          (wrapped-hint "[row x]" ":span")
+          (wrapped-hint "[:div [:a {:href h} \"Open\"]]" ":li")
+          (wrapped-hint "[:span {:tab-index 0} t]" "tooltip")]
+         (remounting-branches
+          [(str "(defn a [b r] (let [launcher [button {:on-click go} \"Go\"]]"
+                " (if b [blocked-action {:reason r} launcher] launcher)))")
+           (str "(defn c [d] (let [checkbox [:input {:type \"checkbox\"}]]"
+                " [:div (if d [tooltip {:content \"x\"} checkbox] checkbox)]))")
+           "(defn e [d] (if-not d [:button \"Go\"] [tooltip [:button \"Go\"]]))"
+           "(defn f [w x] (if-let [y w] [:span {:class y} [row x]] [row x]))"
+           "(defn g [w h] (if w [:li [:div [:a {:href h} \"Open\"]]] [:div [:a {:href h} \"Open\"]]))"
+           "(defn i [w t] (if-some [_ w] [tooltip [:span {:tab-index 0} t]] [:span {:tab-index 0} t]))"]))))
+
+(deftest focusable-element-changing-tag-around-same-child-is-flagged
+  (is (= [(str "The branches render :span and :button around face, so React replaces the element when the condition"
+               " flips, and keyboard focus falls to the page. Keep one tag and change its props.")
+          (str "The branches render :a and :div around \"Open\", so React replaces the element when the condition"
+               " flips, and keyboard focus falls to the page. Keep one tag and change its props.")]
+         (remounting-branches ["(defn a [x f face] [:div (if x [:span {:tab-index 0} face] [:button {:on-click f} face])])"
+                               "(defn b [x h] (if x [:a {:href h} \"Open\"] [:div {:tabIndex -1} \"Open\"]))"]))))
+
+(deftest branches-that-keep-their-child-mounted-are-left-alone
+  (is (empty? (remounting-branches
+               ["(defn a [b r launcher] (if b [blocked-action {:reason r} launcher] launcher))"
+                "(defn c [n] (let [label (str n)] (if n [button {} label] label)))"
+                "(defn d [x] (let [t [:b \"t\"]] (if x [:span t] t)))"
+                "(defn e [x] (if x [:span \"Saved\"] \"Saved\"))"
+                "(defn f [loading? rows] (if loading? [spinner] [table rows]))"
+                "(defn g [x a b face] (if x [:button {:class a} face] [:button {:class b} face]))"
+                "(defn h [x] (if x [:<> [row]] [row]))"
+                "(defn i [x] (when x [tooltip [row]]))"
+                "(defn j [x] (if x [:span [row]] [:div [row]]))"
+                "(defn k [x] (if x (wrap [row]) [row]))"
+                "(def l (if x [:span [row]] [row]))"
+                "(defn m [] (let [c [row]] (if c [:span c])))"]))
+      "child that holds no state or focus, a parameter, the fragment, unrelated branches, one branch, no rendering")
+  (is (empty? (remounting-branches ["'(defn a [x] (if x [:span [row]] [row]))"
+                                    "#_(defn a [x] (if x [:span [row]] [row]))"
+                                    "(comment (defn a [x] (if x [:span [row]] [row])))"
+                                    "(defclass panel [] (if x [:span [row]] [row]))"]))
+      "unrendered code"))
