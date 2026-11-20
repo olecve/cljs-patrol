@@ -242,9 +242,14 @@
          (flagged (run (ring-from-property "(defclass b [] {\"--ring\" \"var(--base)\""
                                            " \"--base\" \"0 0 0 2px #00f\"})\n"))))
       "the other property is set by hand")
+  (is (= "--ring is not set in this file."
+         (hint-of config (ring-from-property "(defclass b [] {\"--ring\" \"var(--base)\""
+                                             " \"--base\" \"var(--ring)\"})\n")))
+      "properties that only read each other are never given a value")
   (is (= {} (flagged (run (ring-from-property "(defclass b [] {\"--ring\" \"var(--base)\""
-                                              " \"--base\" \"var(--ring)\"})\n"))))
-      "a cycle ends")
+                                              " \"--base\" \"var(--ring)\"})\n"
+                                              preset-ring))))
+      "a cycle ends where one property of it is also set from the preset")
   (is (= "--base is not set in this file."
          (hint-of config (ring-from-property "(defclass b [] {\"--ring\" \"var(--base)\"})\n")))
       "the chain reaches a property the file never sets")
@@ -278,7 +283,11 @@
   (is (= {} (flagged (run config "app/core.cljc"
                           (ring-from-property "#?(:clj (defclass b [] {\"--ring\" \"0 0 0 2px #00f\"})"
                                               " :cljs " preset-ring ")\n"))))
-      "a clj branch sets nothing, since styles run in ClojureScript"))
+      "a clj branch sets nothing, since styles run in ClojureScript")
+  (is (= {} (flagged (run config "app/core.cljc"
+                          (ring-from-property "#?(:cljs " preset-ring
+                                              " :default (defclass b [] {\"--ring\" \"0 0 0 2px #00f\"}))\n"))))
+      "ClojureScript reads only the first branch for it"))
 
 (deftest custom-property-set-only-outside-styles-is-flagged
   (is (= {:focus-ring-raw-shadow ["a"]} (flagged (run (ring-from-property))))
@@ -299,7 +308,12 @@
                                               "(defclass c [] (let [options {\"--ring\" \"0 0 0 2px #00f\"}] {}))\n"))))
       "a map bound in a let is not a style")
   (is (= {} (flagged (run (ring-from-property "(defclass b [] [:&:hover {\"--ring\" focus-rings/primary-shadow}])\n"))))
-      "a map in a selector vector is a style"))
+      "a map in a selector vector is a style")
+  (is (= {:focus-ring-raw-shadow ["a"]}
+         (flagged (run (ring-from-property preset-ring
+                                           "(defclass c [] (at-media {:max-width \"600px\"}"
+                                           " [:& {\"--ring\" \"0 0 0 2px #00f\"}]))\n"))))
+      "a map in an at-media call is a style"))
 
 (deftest custom-property-with-a-fallback-is-hand-built
   (is (= {:focus-ring-raw-shadow ["a"]}

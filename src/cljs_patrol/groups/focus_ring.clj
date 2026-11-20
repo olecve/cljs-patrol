@@ -7,8 +7,8 @@
   is a codebase's own choice, so the group does nothing until `:focus-ring` is configured."
   (:require
    [cljs-patrol.group :as group]
-   [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
+   [cljs-patrol.style-blocks :as style-blocks]
    [clojure.string :as str]
    [rewrite-clj.zip :as z])
   (:import
@@ -328,37 +328,40 @@
   (and (= :list (z/tag loc))
        (contains? style-decl-fns (parser/sym-name (z/down loc)))))
 
-(defn- written-style-maps
-  "Return the literal maps Spade reads as style bodies among `locs`: each map, and the maps in each selector vector.
+(def ^:private at-rule-fns #{"at-media" "at-supports"})
 
-  `#_` discarded forms are left out."
-  [locs]
-  (mapcat (fn [loc]
-            (case (z/tag loc)
-              :map [loc]
-              :vector (written-style-maps (parser/written-child-locs loc))
-              nil))
-          locs))
+(defn- declaration-style-maps
+  "Return the literal maps Spade reads as style bodies in a declaration, also inside an `at-media` or `at-supports` call."
+  [declaration]
+  (->> (parser/child-locs declaration)
+       (filter #(and (= :list (z/tag %)) (contains? at-rule-fns (parser/sym-name (z/down %)))))
+       (cons declaration)
+       (mapcat style-blocks/style-maps)
+       (map :map-loc)))
 
-(defn- conditional-branches
-  "Return the forms of a reader conditional's branches other than `:clj`, a splicing branch's vector spread out."
-  [loc splicing?]
-  (->> (parser/written-child-locs loc)
-       (filter #(= :list (z/tag %)))
-       (mapcat parser/written-child-locs)
-       (partition 2)
-       (remove #(= :clj (literal (first %))))
-       (mapcat (fn [[_ form]]
-                 (if (and splicing? (= :vector (z/tag form)))
-                   (parser/written-child-locs form)
-                   [form])))))
+(defn- clojurescript-branch
+  "Return the forms of the branch ClojureScript reads in a reader conditional, the first `:cljs` or `:default` one.
+
+  A splicing branch's vector is spread out."
+  [loc]
+  (let [splicing? (= "?@" (some-> loc z/down parser/raw))]
+    (some->> (parser/written-child-locs loc)
+             (filter #(= :list (z/tag %)))
+             first
+             parser/written-child-locs
+             (partition 2)
+             (some (fn [[platform form]] (when (contains? #{:cljs :default} (literal platform)) form)))
+             ((fn [form]
+                (if (and splicing? (= :vector (z/tag form)))
+                  (parser/written-child-locs form)
+                  [form]))))))
 
 (defn- top-level-forms
-  "Return the file's top-level forms, with the ClojureScript branches of a top-level reader conditional in its place."
+  "Return the file's top-level forms, with the ClojureScript branch of a top-level reader conditional in its place."
   [root]
   (mapcat (fn [loc]
             (if (= :reader-macro (z/tag loc))
-              (conditional-branches loc (str/starts-with? (z/string loc) "#?@"))
+              (clojurescript-branch loc)
               [loc]))
           (parser/written-child-locs root)))
 
@@ -366,62 +369,80 @@
   "Return {name [{:value-loc … :declaration …}]} for every custom property, such as `\"--ring\"`, a style sets.
 
   Only the style maps of the file's top-level `defclass`, `defattrs` and `defglobal` forms count,
-  also in the ClojureScript branches of a top-level reader conditional. A map of other data, or
+  also in the ClojureScript branch of a top-level reader conditional. A map of other data, or
   one in `#_` discarded code or a `(comment …)` form, sets nothing."
   [root]
   (->> (top-level-forms root)
        (filter style-declaration?)
        (reduce (fn [found declaration]
-                 (let [name-loc (parser/declared-name-loc declaration)]
-                   (if-let [declaration-name (some-> name-loc parser/sym-name)]
-                     (->> (parser/right-siblings name-loc)
-                          written-style-maps
-                          (mapcat map-entries)
-                          (reduce (fn [acc [key-text _ value-loc]]
-                                    (cond-> acc
-                                      (str/starts-with? key-text "--") (update key-text (fnil conj [])
-                                                                               {:value-loc value-loc
-                                                                                :declaration declaration-name})))
-                                  found))
-                     found)))
+                 (if-let [declaration-name (some-> (parser/declared-name-loc declaration) parser/sym-name)]
+                   (->> declaration
+                        declaration-style-maps
+                        (mapcat map-entries)
+                        (reduce (fn [acc [key-text _ value-loc]]
+                                  (cond-> acc
+                                    (str/starts-with? key-text "--") (update key-text (fnil conj [])
+                                                                             {:value-loc value-loc
+                                                                              :declaration declaration-name})))
+                                found))
+                   found))
                {})))
 
 (defn- custom-property-settings
   "Return the custom properties the file `loc` sits in sets, scanned once while the file is read."
   [loc]
   (let [state (parser/file-state ::custom-properties nil)]
-    (or @state (reset! state (scan-custom-properties (hiccup/file-root loc))))))
+    (or @state (reset! state (scan-custom-properties (z/up (parser/top-level-loc loc)))))))
+
+(defn- combined-verdict
+  "Combine the verdicts of the values the file sets `property` to.
+
+  `:set?` tells whether a value reaches something other than a custom property, and `:cycles`
+  names the properties still being judged that a value leads back to. A property whose values
+  only lead back to itself is never given a value, so it counts as not set."
+  [property verdicts]
+  (let [cycles (disj (into #{} (mapcat :cycles) verdicts) property)
+        set? (boolean (some :set? verdicts))
+        unset (into #{} (mapcat :unset) verdicts)]
+    (if (and (not set?) (empty? cycles) (empty? unset))
+      {:accepted? false
+       :unset #{property}}
+      {:accepted? (every? :accepted? verdicts)
+       :cycles cycles
+       :off-preset (into #{} (mapcat :off-preset) verdicts)
+       :set? set?
+       :shadows (sorted-shadows (mapcat :shadows verdicts))
+       :unset unset})))
 
 (defn- custom-property-verdict
   "Judge `var(--name)` by every value the file sets `--name` to, following a value that reads another custom property.
 
-  Accepted when each value is accepted on its own, a reset, or a local or a call this cannot read. A custom
-  property the file never sets is reported, since this cannot see what sets it, and `:unset`
-  names it. Each property is judged once, and one met again while it is judged counts as
-  accepted, so a cycle ends. `:off-preset` pairs each property set to a value that is not
-  accepted with the declarations that set it."
+  Accepted when each value is accepted on its own, a reset, or a local or a call this cannot
+  read. A custom property the file never sets, or whose values only read each other, is
+  reported, since this cannot see what sets it, and `:unset` names it. Each property is judged
+  once, and one met again while it is judged counts as accepted, so a cycle ends. `:off-preset`
+  pairs each property set to a value that is not accepted with the declarations that set it."
   [settings property-name config ns-info]
   (let [judged (atom {})
         judge (fn judge [property]
                 (or (get @judged property)
                     (do
-                      (swap! judged assoc property {:accepted? true})
+                      (swap! judged assoc property {:accepted? true
+                                                    :cycles #{property}})
                       (let [values (get settings property)
                             verdicts (for [{:keys [value-loc declaration]} values
-                                           :let [value (shadow-value value-loc ns-info)]
-                                           :when (and value (not (contains? #{:reset :local} (:kind value))))]
-                                       (if (= :custom-property (:kind value))
-                                         (judge (:name value))
-                                         (let [verdict (shadow-verdict value config ns-info)]
-                                           (cond-> verdict
-                                             (not (:accepted? verdict)) (assoc :off-preset #{[property declaration]})))))
+                                           :let [value (shadow-value value-loc ns-info)]]
+                                       (cond
+                                         (= :custom-property (:kind value)) (judge (:name value))
+                                         (or (nil? value) (contains? #{:reset :local} (:kind value))) {:accepted? true
+                                                                                                       :set? true}
+                                         :else (let [verdict (shadow-verdict value config ns-info)]
+                                                 (cond-> (assoc verdict :set? true)
+                                                   (not (:accepted? verdict)) (assoc :off-preset #{[property declaration]})))))
                             verdict (if (empty? values)
                                       {:accepted? false
                                        :unset #{property}}
-                                      {:accepted? (every? :accepted? verdicts)
-                                       :shadows (sorted-shadows (mapcat :shadows verdicts))
-                                       :off-preset (into #{} (mapcat :off-preset) verdicts)
-                                       :unset (into #{} (mapcat :unset) verdicts)})]
+                                      (combined-verdict property verdicts))]
                         (swap! judged assoc property verdict)
                         verdict))))]
     (judge property-name)))
@@ -555,7 +576,8 @@
      (str "A focus style paints a ring with box-shadow, which forced-colors mode drops. Set an outline that "
           "draws, such as 2px solid transparent, on this block or the focus block around it.")
      :focus-ring-raw-shadow
-     "A focus style builds its box-shadow by hand. Use one or more of the approved focus-ring shadows from the preset."})
+     (str "A focus style's box-shadow is not one of the approved shadows. "
+          "Use one or more of the approved focus-ring shadows from the preset.")})
   (docs-anchors [_]
     {:focus-ring-missing-outline "focus-ring-without-an-outline"
      :focus-ring-raw-shadow "focus-ring-not-from-the-preset"})
