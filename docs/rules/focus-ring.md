@@ -153,15 +153,16 @@ a `(str …)` or a Garden vector beside other parts, for a stacked outer and inn
 `str` or a Garden vector without an approved shadow are reported.
 
 A `:box-shadow` that is a CSS custom property and nothing else, such as `"var(--ring)"`, with `var` in any case, is
-judged by the values the same file sets `"--ring"` to in the literal maps of its top-level `defclass`, `defattrs` and
-`defglobal` forms, also inside a top-level reader conditional such as `#?(:cljs …)`: in another declaration, a variant
-class, or the base map. Maps of other data, and code in `#_` or a `(comment …)` form, set nothing. It passes when each
-value is an approved shadow, a reset, or a local the rule cannot read. A value that reads another custom property is
-followed to the values the file sets that one to, until the chain comes back to a property it has met. It is reported
-when any value is not an approved shadow, and the finding names the declarations that set it so. A custom property the
-file never sets is set where the rule cannot see, in another file or at runtime. It is reported, and so is one that a
-chain reaches, with a finding that says the file does not set it. One with a fallback, `"var(--ring, 0 0 0 2px #00f)"`,
-is a string like any other and is reported.
+judged by the values the same file sets `"--ring"` to in the style maps of its top-level `defclass`, `defattrs` and
+`defglobal` forms, also inside the ClojureScript branches of a top-level reader conditional such as `#?(:cljs …)`: in
+another declaration, a variant class, or the base map. Maps of other data, such as a map bound in a `let`, a `:clj`
+branch, and code in `#_` or a `(comment …)` form, set nothing. It passes when each value is an approved shadow, a reset,
+or a local or a call the rule cannot read. A value that reads another custom property is followed to the values the file
+sets that one to, until the chain comes back to a property it has met. It is reported when any value is not an approved
+shadow, and the finding names the declarations that set it so. A custom property the file never sets is set where the
+rule cannot see, in another file or at runtime. It is reported, and so is one that a chain reaches, with a finding that
+says the file does not set it. One with a fallback, `"var(--ring, 0 0 0 2px #00f)"`, is a string like any other and is
+reported.
 
 When `:approved-shadows` maps an approved shadow to the raw values it replaces, a value holding one of them is reported
 even inside a stacked ring. The finding names the shadows to use by their fully qualified names. For

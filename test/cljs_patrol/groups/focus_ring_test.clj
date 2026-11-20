@@ -272,7 +272,13 @@
 
 (deftest custom-property-set-in-a-reader-conditional-is-read
   (is (= {} (flagged (run config "app/core.cljc" (ring-from-property "#?(:cljs " preset-ring ")\n"))))
-      "set from the preset in a cljs branch"))
+      "set from the preset in a cljs branch")
+  (is (= {} (flagged (run config "app/core.cljc" (ring-from-property "#?@(:cljs [" preset-ring "])\n"))))
+      "set from the preset in a splicing cljs branch")
+  (is (= {} (flagged (run config "app/core.cljc"
+                          (ring-from-property "#?(:clj (defclass b [] {\"--ring\" \"0 0 0 2px #00f\"})"
+                                              " :cljs " preset-ring ")\n"))))
+      "a clj branch sets nothing, since styles run in ClojureScript"))
 
 (deftest custom-property-set-only-outside-styles-is-flagged
   (is (= {:focus-ring-raw-shadow ["a"]} (flagged (run (ring-from-property))))
@@ -288,7 +294,12 @@
                                               "#_(defclass old [] {\"--ring\" \"0 0 0 2px #00f\"})\n"
                                               "(defclass c [] #_{\"--ring\" \"0 0 0 2px #00f\"} {})\n"
                                               "(comment (defclass old [] {\"--ring\" \"0 0 0 2px #00f\"}))\n"))))
-      "discarded and comment code sets nothing"))
+      "discarded and comment code sets nothing")
+  (is (= {} (flagged (run (ring-from-property preset-ring
+                                              "(defclass c [] (let [options {\"--ring\" \"0 0 0 2px #00f\"}] {}))\n"))))
+      "a map bound in a let is not a style")
+  (is (= {} (flagged (run (ring-from-property "(defclass b [] [:&:hover {\"--ring\" focus-rings/primary-shadow}])\n"))))
+      "a map in a selector vector is a style"))
 
 (deftest custom-property-with-a-fallback-is-hand-built
   (is (= {:focus-ring-raw-shadow ["a"]}
