@@ -441,50 +441,78 @@
   "Forms whose last two forms are the two branches, one of which renders."
   #{'cljs.core/if 'cljs.core/if-let 'cljs.core/if-not 'cljs.core/if-some})
 
-(def ^:private focusable-tags
-  "Tags whose element takes keyboard focus without a `:tab-index`."
-  #{:a :button :input :select :summary :textarea})
-
 (defn- element-parts
-  "Return {:head … :props … :children […]} for a Hiccup element vector, or nil for anything else.
-
-  The fragment counts as no element: React unwraps an unkeyed one, so it adds no layer of
-  its own around its child."
+  "Return {:head … :props … :children […]} for a Hiccup element vector, the fragment among them, or nil."
   [loc]
-  (when (and (= :vector (z/tag loc)) (hiccup-head-loc? (z/down loc)) (not (data-vector? loc)))
+  (when (hiccup-element? loc)
     (let [[head & more] (parser/written-child-locs loc)
           props (when (= :map (some-> (first more) z/tag)) (first more))]
-      (when-not (= ":<>" (parser/raw head))
-        {:head head
-         :props props
-         :children (if props (rest more) more)}))))
+      {:head head
+       :props props
+       :children (if props (rest more) more)})))
 
-(defn- same-form? [a b]
-  (= (parser/normalize-form (parser/raw a)) (parser/normalize-form (parser/raw b))))
+(defn- fragment? [{:keys [head]}]
+  (= ":<>" (parser/raw head)))
 
-(defn- focusable-element? [{:keys [head props]}]
-  (or (contains? focusable-tags (some-> head parser/raw hiccup/parse-tag))
-      (some #(contains? #{":tab-index" ":tabIndex"} (parser/raw %)) (some-> props parser/written-child-locs))))
+(defn- prop-value
+  "Return the literal value of `prop-key`, such as `\":href\"`, in an element's props map, or :absent."
+  [props prop-key]
+  (if-let [value-loc (some->> (some-> props parser/written-child-locs)
+                              (partition 2)
+                              (filter #(= prop-key (parser/raw (first %))))
+                              last
+                              second)]
+    (try (z/sexpr value-loc) (catch Exception _ :unknown))
+    :absent))
+
+(defn- focusable-element?
+  "True when an element takes keyboard focus: a `:tab-index`, a control, a `:summary`, or an `:a` with an `:href`.
+
+  A hidden `:input` takes none."
+  [{:keys [head props]}]
+  (let [tag (some-> head parser/raw hiccup/parse-tag)]
+    (or (not= :absent (prop-value props ":tab-index"))
+        (not= :absent (prop-value props ":tabIndex"))
+        (contains? #{:button :select :summary :textarea} tag)
+        (and (= :a tag) (not= :absent (prop-value props ":href")))
+        (and (= :input tag) (not= "hidden" (prop-value props ":type"))))))
 
 (defn- holds-state?
-  "True when the Hiccup at `loc` holds a component or a focusable element, whose state or focus mounting again resets."
-  [loc]
-  (boolean (first-in-subtree #(when-let [parts (element-parts %)]
-                                (or (some? (parser/sym-name (:head parts))) (focusable-element? parts)))
-                             loc)))
+  "True when the Hiccup at `loc` holds a component or a focusable element, whose state or focus mounting again resets.
+
+  Only the Hiccup tree is read: an element's children, and what a `when`, an `if`, a `let`
+  or a `for` or `map` body yields. Props and the arguments of any other call are data."
+  [loc ns-info]
+  (let [loc (heads/unwrap-meta loc)]
+    (if-let [parts (element-parts loc)]
+      (or (and (not (fragment? parts))
+               (or (some? (parser/sym-name (:head parts))) (focusable-element? parts)))
+          (boolean (some #(holds-state? % ns-info) (:children parts))))
+      (and (= :list (z/tag loc))
+           (boolean (if-let [bodies (seq (remove #(= :uneval (z/tag %)) (mapping-body-locs loc ns-info)))]
+                      (holds-state? (last bodies) ns-info)
+                      (let [results (hiccup/result-locs loc ns-info)]
+                        (and (not= [loc] results) (some #(holds-state? % ns-info) results)))))))))
 
 (defn- let-bound-value
-  "Return the value the nearest `let` or `with-let` around `loc` binds `binding-name` to, or nil."
+  "Return the value the `let` or `with-let` around `loc` binds `binding-name` to, or nil.
+
+  Nil too when a form between them, such as a `for`, a `fn` or an `if-let`, binds the name
+  again, since the symbol then names that binding."
   [loc binding-name ns-info]
-  (some (fn [ancestor]
-          (when (and (= :list (z/tag ancestor)) (heads/resolve-head ancestor ns-info binding-heads))
-            (some->> (some-> ancestor z/down z/right)
-                     parser/written-child-locs
-                     (partition 2)
-                     (filter #(= binding-name (parser/sym-name (first %))))
-                     last
-                     second)))
-        (take-while some? (rest (iterate z/up loc)))))
+  (when-let [[binder value] (some (fn [ancestor]
+                                    (when (and (= :list (z/tag ancestor))
+                                               (heads/resolve-head ancestor ns-info binding-heads))
+                                      (some->> (some-> ancestor z/down z/right)
+                                               parser/written-child-locs
+                                               (partition 2)
+                                               (filter #(= binding-name (parser/sym-name (first %))))
+                                               last
+                                               second
+                                               (vector ancestor))))
+                                  (take-while some? (rest (iterate z/up loc))))]
+    (when-not (heads/bound-below? loc binder binding-name)
+      value)))
 
 (defn- stateful-child?
   "True when the child at `loc` can lose state or focus by mounting again.
@@ -493,55 +521,67 @@
   `let` around it binds it to such an element; a parameter or a call may be text or data."
   [loc ns-info]
   (case (z/tag loc)
-    :vector (holds-state? loc)
+    :vector (holds-state? loc ns-info)
     :token (boolean (some-> (parser/sym-name loc)
                             (as-> binding-name (let-bound-value loc binding-name ns-info))
-                            (as-> value (and (= :vector (z/tag value)) (holds-state? value)))))
+                            (as-> value (and (= :vector (z/tag value)) (holds-state? value ns-info)))))
     false))
 
-(defn- wrapper-hint
-  "Name the child a branch wraps that the other branch renders bare, or nil."
-  [wrapped bare ns-info]
-  (when-let [{:keys [head children]} (element-parts wrapped)]
-    (when (and (some #(same-form? % bare) children) (stateful-child? bare ns-info))
-      (str (parser/normalize-form (parser/raw bare)) " renders inside " (parser/raw head) " in one branch and bare in"
-           " the other, so React mounts it again when the condition flips, and it loses its state and keyboard focus."
-           " Render " (parser/raw head) " in both branches."))))
+(defn- wrapped-child
+  "Return {:hint … :child …} for a child a branch wraps that the other branch renders bare, or nil.
 
-(defn- tag-change-hint
-  "Name two focusable elements of different tags that hold the same child, or nil."
+  The fragment counts as a wrapper only inside an element: React unwraps an unkeyed one a
+  component returns, so it adds no layer there."
+  [wrapped bare inside-element? ns-info]
+  (when-let [{:keys [head children]
+              :as parts} (element-parts wrapped)]
+    (when (and (or inside-element? (not (fragment? parts)))
+               (let [bare-text (parser/normalize-form (parser/raw bare))]
+                 (some #(= bare-text (parser/normalize-form (parser/raw %))) children))
+               (stateful-child? bare ns-info))
+      {:hint (str (parser/normalize-form (parser/raw bare)) " renders inside " (parser/raw head) " in one branch and"
+                  " bare in the other, so React mounts it again when the condition flips, and it loses its state and"
+                  " keyboard focus. Render " (parser/raw head) " in both branches.")
+       :child bare})))
+
+(defn- changed-tag
+  "Return {:hint … :child …} for two focusable elements of different tags that hold the same child, or nil."
   [a b]
   (let [parts-a (element-parts a)
         parts-b (element-parts b)
         tag-a (some-> parts-a :head parser/raw hiccup/parse-tag)
         tag-b (some-> parts-b :head parser/raw hiccup/parse-tag)]
     (when (and tag-a tag-b (not= tag-a tag-b) (focusable-element? parts-a) (focusable-element? parts-b))
-      (when-let [shared (->> parts-a
-                             :children
-                             (filter (fn [child] (some #(same-form? child %) (:children parts-b))))
-                             first)]
-        (str "The branches render " tag-a " and " tag-b " around " (parser/normalize-form (parser/raw shared))
-             ", so React replaces the"
-             " element when the condition flips, and keyboard focus falls to the page. Keep one tag and change its"
-             " props.")))))
+      (let [texts-b (->> parts-b :children (map #(parser/normalize-form (parser/raw %))) set)]
+        (when-let [shared (->> parts-a
+                               :children
+                               (filter #(contains? texts-b (parser/normalize-form (parser/raw %))))
+                               first)]
+          {:hint (str "The branches render " tag-a " and " tag-b " around " (parser/normalize-form (parser/raw shared))
+                      ", so React replaces the element when the condition flips, and keyboard focus falls to the page."
+                      " Keep one tag and change its props.")
+           :child shared})))))
 
 (defn- remounting-branch-finding
   "Return the finding for an `if` whose two branches render the same child under different elements, or nil."
   [loc ns-info file]
   (when (heads/resolve-head loc ns-info branching-heads)
     (let [branches (drop 2 (parser/written-child-locs loc))]
-      (when (= 2 (count branches))
-        (let [[a b] branches]
-          (when-let [hint (or (wrapper-hint a b ns-info) (wrapper-hint b a ns-info) (tag-change-hint a b))]
-            (when (rendered-position? loc ns-info)
-              (let [[row col] (parser/position loc)]
-                {:kw (symbol (parser/raw (z/down loc)))
-                 :type :remounting-branch
-                 :form (parser/source-snippet loc)
-                 :file file
-                 :row row
-                 :col col
-                 :hint hint}))))))))
+      (when (and (= 2 (count branches)) (rendered-position? loc ns-info))
+        (let [[a b] branches
+              inside-element? (= :vector (some-> loc z/up z/tag))]
+          (when-let [{:keys [hint child]} (or (wrapped-child a b inside-element? ns-info)
+                                              (wrapped-child b a inside-element? ns-info)
+                                              (changed-tag a b))]
+            (let [[row col] (parser/position loc)]
+              {:kw (symbol (parser/raw (z/down loc)))
+               :type :remounting-branch
+               :form (parser/source-snippet loc)
+               :inner-form (parser/source-snippet child)
+               :file file
+               :row row
+               :col col
+               :hint hint})))))))
 
 (defn- handle-remounting-branch [loc ns-info file]
   (when-not (or (hiccup/inside-non-hiccup-form? loc) (inside-comment-form? loc))
@@ -611,8 +651,8 @@
    ["Discarded hiccup:" (count discarded-hiccup)]
    ["Remounting branch:" (count remounting-branch)]])
 
-(defn- failed?* [{:keys [discarded-hiccup]}]
-  (boolean (seq discarded-hiccup)))
+(defn- failed?* [{:keys [discarded-hiccup remounting-branch]}]
+  (boolean (or (seq discarded-hiccup) (seq remounting-branch))))
 
 (defrecord ReagentGroup []
   group/RuleGroup

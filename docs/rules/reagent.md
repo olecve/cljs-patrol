@@ -371,7 +371,9 @@ mounts again when the condition flips.
 ```clojure
 ;; flagged
 (defn launcher [blocked? reason]
-  (let [button [:button {:on-click launch} "Launch"]]
+  (let [button [:button {:on-click launch
+                 :type "button"}
+   "Launch"]]
     (if blocked?
       [tooltip {:content reason} button]
       button)))
@@ -379,18 +381,23 @@ mounts again when the condition flips.
 ;; a focusable element that changes its tag
 (defn chip [editable? on-edit label]
   (if editable?
-    [:button {:on-click on-edit} label]
+    [:button {:on-click on-edit
+              :type "button"}
+     label]
     [:span {:tab-index 0} label]))
 
 ;; fix
 (defn launcher [blocked? reason]
   [tooltip {:content (when blocked? reason)}
-   [:button {:on-click launch} "Launch"]])
+   [:button {:on-click launch
+                 :type "button"}
+   "Launch"]])
 
 ;; one tag, whose props change
 (defn chip [editable? on-edit label]
   [:button {:disabled (not editable?)
-            :on-click on-edit}
+            :on-click on-edit
+            :type "button"}
    label])
 ```
 
@@ -412,8 +419,10 @@ mounts again when the condition flips.
 ;; the same tag in both branches
 (defn chip [selected? label]
   (if selected?
-    [:button {:class "selected"} label]
-    [:button label]))
+    [:button {:class "selected"
+              :type "button"}
+     label]
+    [:button {:type "button"} label]))
 
 ;; a parameter may be text or data
 (defn launcher [blocked? reason child]
@@ -431,12 +440,17 @@ it and mounts a new one: its state resets, and the element that had keyboard foc
 The same happens to a focusable element whose tag changes between the branches, such as a `:span` with `:tab-index` that
 becomes a `:button`.
 
-The forms read are `if`, `if-not`, `if-let` and `if-some` that stand where their value renders: the last form of a
-component, a child of an element, or a branch of a form that does. A wrapped child is reported when it can lose state or
-focus: an element that holds a component or a focusable element, such as a `:button`, an `:a`, an `:input` or any
-element with `:tab-index`, or a symbol that a `let` or Reagent's `with-let` around the condition binds to one. A
-parameter or a call may be text or data and is left alone, and so is the fragment, which React unwraps. Two focusable
-elements of different tags are reported when they hold the same child. Quoted code, `#_` forms, `(comment …)` blocks and
-Spade declarations are not read.
+The forms read are `if`, `if-not`, `if-let` and `if-some` with both branches, standing where their value renders: the
+last form of a component, a child of an element, or a branch of a form that does. A wrapped child is reported when it
+can lose state or focus: its Hiccup holds a component or a focusable element, or it is a symbol that a `let` or
+Reagent's `with-let` around the condition binds to such Hiccup, with no form between them binding the name again. Only
+the Hiccup tree is read, an element's children and what a `when`, `if`, `let` or `for` yields, so a props map or the
+arguments of a call add nothing. A focusable element is a `:button`, `:select`, `:summary` or `:textarea`, an `:input`
+that is not hidden, an `:a` with an `:href`, or any element with `:tab-index`. A parameter or a call may be text or data
+and is left alone. The fragment counts as a wrapper inside an element; a component that returns one is unwrapped by
+React, so it adds no layer there. Two focusable elements of different tags are reported when they hold the same child.
+
+Not read: a `cond` or `case`, an `if` bound in a `let` and rendered through its name, a branch under `^{:key …}`
+metadata, quoted code, `#_` forms, `(comment …)` blocks and Spade declarations.
 
 </details>

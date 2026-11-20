@@ -61,6 +61,8 @@
 (deftest failed?-test
   (is (not (group/failed? reagent/group {:defclass-as-sole-attr [defclass-sole]}))
       "cleanup rule alone does not fail")
+  (is (group/failed? reagent/group {:remounting-branch [{:type :remounting-branch}]})
+      "remounting-branch is a bug")
   (is (group/failed? reagent/group {:discarded-hiccup [{:type :discarded-hiccup}]})
       "discarded hiccup fails"))
 
@@ -507,7 +509,9 @@
           (wrapped-hint "[:button \"Go\"]" "tooltip")
           (wrapped-hint "[row x]" ":span")
           (wrapped-hint "[:div [:a {:href h} \"Open\"]]" ":li")
-          (wrapped-hint "[:span {:tab-index 0} t]" "tooltip")]
+          (wrapped-hint "[:span {:tab-index 0} t]" "tooltip")
+          (wrapped-hint "[row]" ":<>")
+          (wrapped-hint "[:div (when y [row])]" "tooltip")]
          (remounting-branches
           [(str "(defn a [b r] (let [launcher [button {:on-click go} \"Go\"]]"
                 " (if b [blocked-action {:reason r} launcher] launcher)))")
@@ -516,7 +520,15 @@
            "(defn e [d] (if-not d [:button \"Go\"] [tooltip [:button \"Go\"]]))"
            "(defn f [w x] (if-let [y w] [:span {:class y} [row x]] [row x]))"
            "(defn g [w h] (if w [:li [:div [:a {:href h} \"Open\"]]] [:div [:a {:href h} \"Open\"]]))"
-           "(defn i [w t] (if-some [_ w] [tooltip [:span {:tab-index 0} t]] [:span {:tab-index 0} t]))"]))))
+           "(defn i [w t] (if-some [_ w] [tooltip [:span {:tab-index 0} t]] [:span {:tab-index 0} t]))"
+           "(defn j [x] [:div (if x [:<> [row]] [row])])"
+           "(defn k [x y] (if x [tooltip [:div (when y [row])]] [:div (when y [row])]))"]))))
+
+(deftest remounting-branch-is-keyed-by-wrapped-child
+  (is (= ["[row x]" "face"]
+         (list-findings :remounting-branch :inner-form library-aliases
+                        ["(defn f [w x] (if w [:span [row x]] [row x]))"
+                         "(defn a [x f face] [:div (if x [:span {:tab-index 0} face] [:button {:on-click f} face])])"]))))
 
 (deftest focusable-element-changing-tag-around-same-child-is-flagged
   (is (= [(str "The branches render :span and :button around face, so React replaces the element when the condition"
@@ -539,8 +551,15 @@
                 "(defn j [x] (if x [:span [row]] [:div [row]]))"
                 "(defn k [x] (if x (wrap [row]) [row]))"
                 "(def l (if x [:span [row]] [row]))"
-                "(defn m [] (let [c [row]] (if c [:span c])))"]))
-      "child that holds no state or focus, a parameter, the fragment, unrelated branches, one branch, no rendering")
+                "(defn m [] (let [c [row]] (if c [:span c])))"
+                "(defn n [x f l] (if x [tooltip [:span {:on-click (fn [e] (f e))} l]] [:span {:on-click (fn [e] (f e))} l]))"
+                "(defn o [x a c] (if x [:strong [:span (str/join \" \" [a c])]] [:span (str/join \" \" [a c])]))"
+                "(defn p [x items] (let [btn [:button \"Go\"]] (for [btn items] (if x [:li btn] btn))))"
+                "(defn q [x] (if x [tooltip [:a \"Open\"]] [:a \"Open\"]))"
+                "(defn r [x v] (if x [:label [:input {:type \"hidden\" :value v}]] [:input {:type \"hidden\" :value v}]))"
+                "(defn s [x] (if x [:a \"Open\"] [:div {:tab-index 0} \"Open\"]))"]))
+      (str "child that holds no state or focus, a parameter, a returned fragment, unrelated branches, one branch, no"
+           " rendering, props and call arguments, a name bound again, an :a without :href, a hidden input"))
   (is (empty? (remounting-branches ["'(defn a [x] (if x [:span [row]] [row]))"
                                     "#_(defn a [x] (if x [:span [row]] [row]))"
                                     "(comment (defn a [x] (if x [:span [row]] [row])))"
