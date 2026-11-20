@@ -41,8 +41,8 @@ jobs:
       - run: npm ci
       - run: npm run format:check
 
-      - run: clojure -M:cljfmt check src/ test/
-      - run: clojure -M:clj-kondo --lint src test build.clj
+      - run: clojure -M:cljfmt check src/ test/ dev/
+      - run: clojure -M:clj-kondo --lint src test dev build.clj
       - run: clojure -M:test
 
       - name: Patrol our own sources
@@ -57,7 +57,7 @@ jobs:
         run: >-
           clojure -M:run --experimental-clj --only docstrings,tests,layout,idioms,comments
           --fail-on docstring-summary,docstring-indentation,docstring-leading-trailing-whitespace,docstring-repeats-name,deftest-leading-article,assertion-message-inline,conditional-assertion,form-after-split-map,split-map-after-sibling,nested-call-chain,cond-else-nil,negated-test,into-empty,plus-minus-one,negated-equality,unconditional-cond-threading,vec-of-map-filter,commented-out-code,restating-comment
-          src test build.clj
+          src test dev build.clj
 
   native-verify:
     needs: test

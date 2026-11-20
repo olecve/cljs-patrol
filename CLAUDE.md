@@ -84,20 +84,31 @@ Tests live in `test/`, mirroring the `src/` structure. Fixture projects for the 
 Every branch a change adds needs a test that fails when the branch breaks. The dev-only runner checks that in one JVM:
 
 ```bash
-clojure -M:mutate cljs-patrol.groups.reagent -t cljs-patrol.groups.reagent-test -d remounting-branch-finding
+clojure -M:test:mutate cljs-patrol.groups.reagent -t cljs-patrol.groups.reagent-test -s main
 ```
 
 It swaps one operator at a time in the target namespace, such as `when` for `when-not`, `<` for `<=`, `some` for
-`every?` or `true` for `false`, loads the mutated source over the namespace, runs the test namespaces, and loads the
-original back. A mutant the tests still pass on is printed as a survivor: a branch no test pins, or an equivalent
-mutant, such as `first` for `last` on a one-element list. `-d` limits it to the named top-level definitions, and a run
-exits 1 when any mutant survives. A mutant whose tests run past `--timeout` (30 s) counts as killed, and its thread
-keeps running until the JVM exits.
+`every?` or `true` for `false`. It evaluates the mutated top-level form over the namespace (a `defrecord`, `deftype`,
+`defprotocol`, `defmulti` or `defmacro` reloads the whole file), runs the test namespaces, and evaluates the original
+back. Each mutant ends as one of:
+
+- **killed**: a test failed, as it should.
+- **survived**: every test passed, so no test pins that branch. It may also be an equivalent mutant, such as `first` for
+  `last` on a one-element list.
+- **unviable**: the mutated form did not compile. Not scored.
+- **timed out**: the tests ran longer than 1.5 times the first run plus 2 s (`--timeout` overrides it). Not scored. A
+  run stops when more than two timed-out runs are still looping, since they slow every later one.
+
+The report has a row per definition with its counts, names the definitions no operator applies to, and lists every
+survivor, unviable and timed-out mutant with its source line. `-d` limits the run to named top-level definitions,
+`-s REF` to the lines changed since a git ref, and `-r FILE` writes every mutant and its outcome to EDN. A run exits 0
+when nothing survives, 1 when something does, and 2 when it cannot start or stops early. A value a `def` computes when
+the namespace loads keeps the original, so a mutant only it reaches survives.
 
 ## Linting
 
 ```bash
-clojure -M:clj-kondo --lint src test build.clj
+clojure -M:clj-kondo --lint src test dev build.clj
 ```
 
 `test-projects/` is not linted: those fixtures are malformed on purpose.
@@ -105,7 +116,7 @@ clojure -M:clj-kondo --lint src test build.clj
 ## Formatting
 
 ```bash
-clojure -M:cljfmt fix src/ test/
+clojure -M:cljfmt fix src/ test/ dev/
 ```
 
 Max line width: **129 characters**. Format before marking work complete.
