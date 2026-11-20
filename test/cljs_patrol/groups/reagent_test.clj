@@ -71,12 +71,17 @@
                                     :empty-fragment-props []
                                     :redundant-fragment []
                                     :inline-component []
-                                    :discarded-hiccup []})]
-    (is (= 6 (count lines)))
+                                    :discarded-hiccup []
+                                    :remounting-branch []})]
+    (is (= 7 (count lines)))
     (is (= 1 (second (first lines))))
     (is (= 0 (second (second lines))))
-    (is (= [["Empty fragment props:" 0] ["Redundant fragment:" 0] ["Inline component:" 0] ["Discarded hiccup:" 0]]
-           (take-last 4 lines)))))
+    (is (= [["Empty fragment props:" 0]
+            ["Redundant fragment:" 0]
+            ["Inline component:" 0]
+            ["Discarded hiccup:" 0]
+            ["Remounting branch:" 0]]
+           (take-last 5 lines)))))
 
 (defn- fragment-findings
   "Walk `lines` the way the parser walks a file, and return the forms `rule` reports."
@@ -493,3 +498,86 @@
                                  "`(do [:a] [:b])"
                                  "(defclass panel [] (do [:a] [:b]))"
                                  "(comment (defn f [] [:div] [:span]))"]))))
+
+(defn- remounting-branches [lines] (list-findings :remounting-branch :hint library-aliases lines))
+
+(defn- wrapped-hint
+  ([child wrapper] (wrapped-hint child wrapper (str "Render " wrapper " in both branches.")))
+  ([child wrapper fix]
+   (str child " renders inside " wrapper " in one branch and bare in the other, so React mounts it again when the"
+        " condition flips, and keyboard focus inside it falls to the page. " fix)))
+
+(deftest wrapper-around-focusable-child-in-one-branch-is-flagged
+  (is (= [(wrapped-hint "launcher" "blocked-action")
+          (wrapped-hint "checkbox" "tooltip")
+          (wrapped-hint "[:button \"Go\"]" "tooltip")
+          (wrapped-hint "[row {:on-click f}]" ":span")
+          (wrapped-hint "[:div [:a {:href h} \"Open\"]]" ":li")
+          (wrapped-hint "[:span {:tab-index 0} t]" "tooltip")
+          (wrapped-hint "[:div (when y [:button \"Go\"])]" "tooltip")
+          (wrapped-hint "b" "tooltip")
+          (wrapped-hint "[:select]" "tooltip" "Render the same elements around it, in the same order, in both branches.")
+          (wrapped-hint "b" "tooltip")
+          (wrapped-hint "b" "tooltip" "Render the same elements around it, in the same order, in both branches.")
+          (wrapped-hint "(when y [:input])" ":span")
+          (wrapped-hint "[:input]" ":li")
+          (wrapped-hint "[:input]" ":li")]
+         (remounting-branches
+          [(str "(defn a [b r] (let [launcher [button {:on-click go} \"Go\"]]"
+                " (if b [blocked-action {:reason r} launcher] launcher)))")
+           (str "(defn c [d] (let [checkbox [:input {:type \"checkbox\"}]]"
+                " [:div (if d [tooltip {:content \"x\"} checkbox] checkbox)]))")
+           "(defn e [d] (if-not d [:button \"Go\"] [tooltip [:button \"Go\"]]))"
+           "(defn f [w f] (if-let [y w] [:span {:class y} [row {:on-click f}]] [row {:on-click f}]))"
+           "(defn g [w h] (if w [:li [:div [:a {:href h} \"Open\"]]] [:div [:a {:href h} \"Open\"]]))"
+           "(defn i [w t] (if-some [_ w] [tooltip [:span {:tab-index 0} t]] [:span {:tab-index 0} t]))"
+           "(defn k [x y] (if x [tooltip [:div (when y [:button \"Go\"])]] [:div (when y [:button \"Go\"])]))"
+           "(defn l [x y] (let [b (when y [:button \"Go\"])] (if x [tooltip b] b)))"
+           "(defn m [x] (if x [tooltip [:b \"Hint\"] [:select]] [:select]))"
+           "(defn n [x opts] (let [b [:button \"Go\"]] (if x [tooltip opts b] b)))"
+           "(defn o [x icon] (let [b [:button \"Go\"]] (if x [tooltip {:a 1} icon b] b)))"
+           "(defn p [x y] (if x [:span (when y [:input])] (when y [:input])))"
+           "(defn q [x xs] [:ul (map (fn [i] (if x [:li [:input]] [:input])) xs)])"
+           "(defn r [x] (r/create-class {:reagent-render (fn [] (if x [:li [:input]] [:input]))}))"]))))
+
+(deftest remounting-branch-is-keyed-by-wrapped-child
+  (is (= ["[row {:on-click f}]"]
+         (list-findings :remounting-branch :inner-form library-aliases
+                        ["(defn a [w f] (if w [:span [row {:on-click f}]] [row {:on-click f}]))"]))))
+
+(deftest branches-that-keep-focus-are-left-alone
+  (is (empty? (remounting-branches
+               ["(defn a [b r launcher] (if b [blocked-action {:reason r} launcher] launcher))"
+                "(defn c [n] (let [label (str n)] (if n [button {} label] label)))"
+                "(defn d [x] (let [t [:b \"t\"]] (if x [:span t] t)))"
+                "(defn e [x] (if x [:span \"Saved\"] \"Saved\"))"
+                "(defn f [loading? rows] (if loading? [spinner] [table rows]))"
+                "(defn g [x a b face] (if x [:button {:class a} face] [:button {:class b} face]))"
+                "(defn h [x] [:div (if x [:<> [:input]] [:input])])"
+                "(defn i [x] (when x [tooltip [:input]]))"
+                "(defn j [x] (if x [:span [:input]] [:div [:input]]))"
+                "(defn k [x] (if x (wrap [:input]) [:input]))"
+                "(def l (if x [:span [:input]] [:input]))"
+                "(defn m [] (let [c [:input]] (if c [:span c])))"
+                "(defn n [x f l] (if x [tooltip [:span {:on-click (fn [e] (f e))} l]] [:span {:on-click (fn [e] (f e))} l]))"
+                "(defn o [x a c] (if x [:strong [:span (str/join \" \" [a c])]] [:span (str/join \" \" [a c])]))"
+                "(defn p [x items] (let [btn [:button \"Go\"]] (for [btn items] (if x [:li btn] btn))))"
+                "(defn q [x] (if x [tooltip [:a \"Open\"]] [:a \"Open\"]))"
+                "(defn r [x v] (if x [:label [:input {:type \"hidden\" :value v}]] [:input {:type \"hidden\" :value v}]))"
+                "(defn s [x f] (if x [:a {:href \"/\"} \"Open\"] [:button {:on-click f} \"Open\"]))"
+                "(defn t [x t] (if x [:span [highlight {:text t}]] [highlight {:text t}]))"
+                "(defn u [x] (if x [:span [:button {:disabled true} \"Go\"]] [:button {:disabled true} \"Go\"]))"
+                "(defn v [x attrs] (if x [tooltip [:button attrs \"Go\"]] [:button attrs \"Go\"]))"
+                (str "(defn w [x f] (if x [tooltip [:div {:role \"button\" :on-click f} \"Go\"]]"
+                     " [:div {:role \"button\" :on-click f} \"Go\"]))")
+                "(defn y [x] (let [b [:button]] (if-let [b (f)] [:span b] b)))"
+                "(defn z [x] [:div {:on-click (fn [] (if x [:span [:input]] [:input]))}])"
+                "(defn z2 [x xs] (filter (fn [i] (if x [:span [:input]] [:input])) xs))"]))
+      (str "child that holds no focus, a parameter, a fragment, unrelated branches, a tag change, one branch, no"
+           " rendering, props and call arguments, a name bound again, a component without a handler, a disabled or"
+           " hidden control, unreadable props, a role without a tabindex"))
+  (is (empty? (remounting-branches ["'(defn a [x] (if x [:span [:input]] [:input]))"
+                                    "#_(defn a [x] (if x [:span [:input]] [:input]))"
+                                    "(comment (defn a [x] (if x [:span [:input]] [:input])))"
+                                    "(defclass panel [] (if x [:span [:input]] [:input]))"]))
+      "unrendered code"))

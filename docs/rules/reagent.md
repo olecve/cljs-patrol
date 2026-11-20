@@ -362,3 +362,84 @@ component; a data vector such as `[:db :path]` or `[:dispatch x]` is not. A `#_`
 read.
 
 </details>
+
+### Remounting branch
+
+`remounting-branch` · bugs — A condition that wraps a focusable child in one branch and renders it bare in the other, so
+the child mounts again and drops keyboard focus when the condition flips.
+
+```clojure
+;; flagged
+(defn launcher [blocked? reason]
+  (let [launch-button [:button {:on-click launch
+                                :type "button"}
+                       "Launch"]]
+    (if blocked?
+      [tooltip {:content reason} launch-button]
+      launch-button)))
+
+;; fix
+(defn launcher [blocked? reason]
+  [tooltip {:content (when blocked? reason)}
+   [:button {:on-click launch
+             :type "button"}
+    "Launch"]])
+```
+
+**Left alone:**
+
+```clojure
+;; text takes no focus
+(defn status [saved?]
+  (if saved?
+    [:strong "Saved"]
+    "Saved"))
+
+;; the branches render different content
+(defn rows [loading? items]
+  (if loading?
+    [spinner]
+    [table items]))
+
+;; a parameter may be text or data
+(defn launcher [blocked? reason child]
+  (if blocked?
+    [tooltip {:content reason} child]
+    child))
+
+;; a link or a button, which no one tag can replace
+(defn action [href on-click label]
+  (if href
+    [:a {:href href} label]
+    [:button {:on-click on-click
+              :type "button"}
+     label]))
+```
+
+<details>
+<summary>Details</summary>
+
+React keeps an element mounted only while it stays at the same place in the tree under the same parent. A branch that
+wraps a child the other branch renders bare moves the child to another place when the condition flips, so React unmounts
+it and mounts a new one. The element that had keyboard focus is gone, and focus falls to the page.
+
+The forms read are `if`, `if-not`, `if-let` and `if-some` with both branches, standing where their value renders: the
+last form of a component, a child of an element, a value in its props map, the last form of a `for` body or a `map`
+function, or a branch of a form that renders. An `if` in an anonymous `fn` that sits in a map, such as a handler, or is
+handed to any other call is not rendered and is left alone; the `:reagent-render` or `:render` of a class component
+renders. The child is reported when it can hold keyboard focus: its Hiccup holds an element that takes focus as the a11y
+group reads it, through a control's tag, an `:a` with an `:href` or a `:tab-index`, or a component given an `:on-*`
+handler. A component alias of the a11y group is not read here. The child may be an element, a `when`, `if` or `let` that
+yields one, or a symbol that a binding around it gives such Hiccup, the same binding in both branches. Only the Hiccup
+tree is read, an element's children and what a `when`, `if`, `let`, `for` or `map` yields, so a props map or the
+arguments of a call add nothing, and an element whose props this cannot read is left alone, since they may disable it. A
+component without a handler may keep state, but the rule cannot tell, so it is left alone, and so is a parameter or any
+other call, which may be text or data. When the wrapper holds other children too, the hint asks for the same elements in
+the same order in both branches, since React matches children by their place.
+
+Not read: a fragment as the wrapper, which React unwraps in some places and not others; a focusable element whose tag
+changes between the branches; the same child under two different wrappers; a `[:> Component …]` interop wrapper; a
+`cond` or `case`; an `if` bound in a `let` and rendered through its name; a branch under `^{:key …}` metadata; and
+quoted code, `#_` forms, `(comment …)` blocks and Spade declarations.
+
+</details>

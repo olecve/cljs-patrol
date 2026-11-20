@@ -569,7 +569,7 @@
         (and (not (meaningful-text-name? attrs))
              (not (stateful-widget? attrs)))))))
 
-(def ^:private focusable-tags
+(def focusable-tags
   "Tags the browser puts in the tab order with no authoring at all.
 
   `:a` is absent because a link earns its place there only once it has an `:href`,
@@ -981,7 +981,9 @@
           (not= :map (:kind info))
           (not (some-> (hiccup/resolved-value second-child) cannot-be-props?))))))
 
-(defn- focusable-loc? [loc ns-info component-aliases]
+(defn focusable-loc?
+  "True when the element at `loc`, resolved through `component-aliases`, can take focus and its props can be read."
+  [loc ns-info component-aliases]
   (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
              (and (not (names-unreadable-props? loc))
                   (focusable? (hiccup/attrs-info loc) tag)))))
