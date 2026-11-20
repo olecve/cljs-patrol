@@ -130,3 +130,16 @@
 (deftest ok-let-shadows-get-by-helper
   (let [get-item-1 (constantly nil)]
     (is (some? (get-item-1)))))
+
+(do
+  (defn- get-nested-dialog [] (s/get-by-role "dialog")))
+
+(defn- get-redefined [] (s/get-by-role "dialog"))
+
+(defn- get-redefined [] (s/query-by-role "dialog"))
+
+(deftest bad-some-nested-get-by-helper
+  (is (some? (get-nested-dialog))))
+
+(deftest ok-helper-redefined-as-query
+  (is (some? (get-redefined))))

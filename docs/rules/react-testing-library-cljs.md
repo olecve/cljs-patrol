@@ -23,8 +23,9 @@ group reads the value of a [data `def`](../rules.md#data-defs), such as a Malli 
 (deftest save-button
   (is (some? (s/get-by-role "button" {:name "Save"}))))
 
-;; a one-line helper of the same file that returns a get-by-* lookup
+;; a helper of the same file whose body is one get-by-* lookup
 (defn- get-dialog [] (s/get-by-role "dialog"))
+
 (deftest dialog
   (is (some? (get-dialog))))
 
@@ -34,6 +35,7 @@ group reads the value of a [data `def`](../rules.md#data-defs), such as a Malli 
 
 ;; the helper returns the query-by-* twin
 (defn- query-dialog [] (s/query-by-role "dialog"))
+
 (deftest dialog
   (is (some? (query-dialog))))
 ```
@@ -55,6 +57,7 @@ group reads the value of a [data `def`](../rules.md#data-defs), such as a Malli 
 
 ;; the helper's lookup is acted on
 (defn- get-dialog [] (s/get-by-role "dialog"))
+
 (deftest dialog
   (.click (get-dialog)))
 ```
@@ -73,11 +76,12 @@ Reported when the expression of an `is` is the lookup itself, or the lookup unde
 or `(not (nil? …))`. The lookup is recognized by what its head resolves to through the namespace's `:require`, an alias
 or a `:refer`, or by naming the namespace in full, so a function of another namespace that happens to be called
 `get-by-role` is not this one. A call of a helper counts as the lookup when the helper is a `defn` or `defn-` of the
-same file whose body is one `get-by-*` or `get-all-by-*` lookup, as [`lookup-helper-name`](#lookup-helper-name) reads
-it; the finding then names the helper and the `query-by-*` lookup it should return. Left alone: a lookup the assertion
-reads further, such as its text, a property or a count of what `get-all-by-*` found, since that claims more than
-presence; a `query-by-*` or `find-by-*` lookup; and a lookup or an `is` whose name an enclosing form binds anew, a `let`
-or `fn` local, a `letfn` function, a `with-redefs` or a `binding`, since the name then may not be the library's.
+same file, at any depth, whose body is one `get-by-*` or `get-all-by-*` lookup, as
+[`lookup-helper-name`](#lookup-helper-name) reads it; when the file defines the name again, the last definition counts.
+The finding then names the helper and the `query-by-*` lookup it should return. Left alone: a lookup the assertion reads
+further, such as its text, a property or a count of what `get-all-by-*` found, since that claims more than presence; a
+`query-by-*` or `find-by-*` lookup; and a lookup or an `is` whose name an enclosing form binds anew, a `let` or `fn`
+local, a `letfn` function, a `with-redefs` or a `binding`, since the name then may not be the library's.
 
 </details>
 

@@ -120,48 +120,65 @@
             lookup-kinds)
       helper-name))
 
-(defn- lookup-helper-finding
-  "Return the finding for a helper whose body is one library lookup and whose name misstates what it does on a miss.
-
-  The prefix is what the caller reads: a `query-` helper is expected to return nil, so one
-  that wraps `get-by-*` throws on a caller who asserts absence through it."
-  [loc ns-info file]
+(defn- lookup-helper
+  "Return {:name-loc :helper-name :kind :fn-name} for a `defn` whose one arity returns a single library lookup, or nil."
+  [loc ns-info]
   (when (contains? #{"defn" "defn-"} (some-> loc z/down parser/sym-name))
     (let [body (remove #(= :uneval (z/tag %)) (single-arity-body loc))
           name-loc (parser/declared-name-loc loc)
           helper-name (some-> name-loc parser/sym-name)]
       (when (and helper-name (= 1 (count body)))
         (when-let [[kind fn-name] (library-lookup (first body) ns-info)]
-          (when-not (or (str/starts-with? helper-name (str kind "-"))
-                        (rebound? (first body) (parser/raw (z/down (first body)))))
-            {:kw (symbol helper-name)
-             :type :lookup-helper-name
-             :file file
-             :row (parser/position-row name-loc)
-             :hint (str "Rename to " kind "-" (strip-lookup-prefix helper-name)
-                        ", after the " fn-name " lookup it returns.")}))))))
+          (when-not (rebound? (first body) (parser/raw (z/down (first body))))
+            {:name-loc name-loc
+             :helper-name helper-name
+             :kind kind
+             :fn-name fn-name}))))))
+
+(defn- lookup-helper-finding
+  "Return the finding for a helper whose body is one library lookup and whose name misstates what it does on a miss.
+
+  The prefix is what the caller reads: a `query-` helper is expected to return nil, so one
+  that wraps `get-by-*` throws on a caller who asserts absence through it."
+  [loc ns-info file]
+  (when-let [{:keys [name-loc helper-name kind fn-name]} (lookup-helper loc ns-info)]
+    (when-not (str/starts-with? helper-name (str kind "-"))
+      {:kw (symbol helper-name)
+       :type :lookup-helper-name
+       :file file
+       :row (parser/position-row name-loc)
+       :hint (str "Rename to " kind "-" (strip-lookup-prefix helper-name)
+                  ", after the " fn-name " lookup it returns.")})))
 
 (defn- query-twin
   "Return the `query-by-*` twin of a throwing lookup name such as \"get-by-role\" or \"s/get-by-role\"."
   [head fn-name]
   (str (subs head 0 (- (count head) (count fn-name))) "query" (subs fn-name 3)))
 
+(defn- written-lists
+  "Return every list under `loc`, in the order they are written, leaving out `#_` discarded forms."
+  [loc]
+  (mapcat (fn [child]
+            (cond->> (written-lists child)
+              (= :list (z/tag child)) (cons child)))
+          (parser/written-child-locs loc)))
+
 (defn- get-by-helpers
-  "Return {name fn-name} for every one-line helper of the file `loc` sits in that returns a throwing lookup, once per file."
+  "Return {name fn-name} for the lookup helpers of the file `loc` sits in that return a throwing lookup, once per file.
+
+  A helper is read as [[lookup-helper]] reads it, at any depth. When a name is defined again,
+  the last definition counts, as it does when the file runs."
   [loc ns-info]
   (let [state (parser/file-state ::get-by-helpers nil)]
     (or @state
         (reset! state
-                (into {}
-                      (keep (fn [form]
-                              (when (contains? #{"defn" "defn-"} (some-> form z/down parser/sym-name))
-                                (let [body (remove #(= :uneval (z/tag %)) (single-arity-body form))
-                                      helper-name (some-> (parser/declared-name-loc form) parser/sym-name)
-                                      fn-name (when (= 1 (count body)) (throwing-query (first body) ns-info))]
-                                  (when (and helper-name fn-name
-                                             (not (rebound? (first body) (parser/raw (z/down (first body))))))
-                                    [helper-name fn-name])))))
-                      (parser/written-child-locs (z/up (parser/top-level-loc loc))))))))
+                (->> (written-lists (z/up (parser/top-level-loc loc)))
+                     (keep #(lookup-helper % ns-info))
+                     (reduce (fn [helpers {:keys [helper-name kind fn-name]}]
+                               (if (= "get" kind)
+                                 (assoc helpers helper-name fn-name)
+                                 (dissoc helpers helper-name)))
+                             {}))))))
 
 (defn- presence-hint
   "Name why a presence check on a throwing lookup never fails, and the `query-by-*` lookup to use instead."
@@ -176,22 +193,23 @@
 (defn- get-by-presence-finding
   "Return the finding for an assertion that only checks a throwing lookup found something, or nil.
 
-  The lookup may also be a call of a one-line helper of the same file that returns a throwing lookup."
+  The lookup may also be a call of a lookup helper of the same file that returns a throwing lookup."
   [loc ns-info file]
   (when (= "is" (some-> loc z/down parser/sym-name))
     (when-let [lookup (presence-checked-lookup loc)]
       (let [head (some-> lookup z/down parser/raw)
-            helper-fn (when (and (= :list (z/tag lookup)) head (not (str/includes? head "/")))
+            library-fn (throwing-query lookup ns-info)
+            helper-fn (when (and (nil? library-fn) (= :list (z/tag lookup)) head (not (str/includes? head "/")))
                         (get (get-by-helpers loc ns-info) head))]
-        (when-let [fn-name (or (throwing-query lookup ns-info) helper-fn)]
+        (when-let [fn-name (or library-fn helper-fn)]
           (when-not (or (rebound? lookup head) (rebound? loc (parser/raw (z/down loc))))
-            {:kw (symbol fn-name)
+            {:kw (symbol (if library-fn fn-name head))
              :type :get-by-presence-check
              :form (parser/normalize-form (parser/raw loc))
              :test (parser/enclosing-definition-name loc)
              :file file
              :row (parser/position-row loc)
-             :hint (presence-hint head fn-name (and helper-fn (not (throwing-query lookup ns-info))))}))))))
+             :hint (presence-hint head fn-name (nil? library-fn))}))))))
 
 (defn- test-id-arguments
   "Return the locs of the arguments a `*-by-test-id` lookup at `loc` is given from its test id on, or nil.
@@ -787,7 +805,7 @@
     {:get-by-presence-check
      (str "An assertion only checks that a get-by-* lookup found something, but get-by-* throws on a miss, "
           "so the check can never fail. Assert presence with query-by-* (seq of query-all-by-*), or call "
-          "get-by-* outside the is.")
+          "get-by-* outside the is. A helper holding the lookup returns query-by-* instead.")
      :lookup-helper-name
      (str "A helper that only returns a lookup is not named for it. Start its name with what the lookup does on a "
           "miss: get- for get-by-* (throws), query- for query-by-* (nil), find- for find-by-* (rejects).")
