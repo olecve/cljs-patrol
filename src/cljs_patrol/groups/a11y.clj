@@ -967,7 +967,7 @@
   (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
              (interactive-content? (hiccup/attrs-info loc) tag))))
 
-(defn- names-unreadable-props?
+(defn names-unreadable-props?
   "True when the element's second child may name props this cannot read.
   `attrs-info` answers `:non-map` both for `[:button \"Save\"]`, which really carries no
   attrs, and for `[:button props \"Save\"]`, where a symbol nothing in the file defines

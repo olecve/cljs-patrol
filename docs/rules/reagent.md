@@ -365,8 +365,8 @@ read.
 
 ### Remounting branch
 
-`remounting-branch` · bugs — A condition whose branches render the same focusable child under different elements, so the
-child mounts again and drops keyboard focus when the condition flips.
+`remounting-branch` · bugs — A condition that wraps a focusable child in one branch and renders it bare in the other, so
+the child mounts again and drops keyboard focus when the condition flips.
 
 ```clojure
 ;; flagged
@@ -378,26 +378,12 @@ child mounts again and drops keyboard focus when the condition flips.
       [tooltip {:content reason} launch-button]
       launch-button)))
 
-;; a focusable element that changes its tag
-(defn chip [editable? on-edit label]
-  (if editable?
-    [:button {:on-click on-edit
-              :type "button"}
-     label]
-    [:span {:tab-index 0} label]))
-
 ;; fix
 (defn launcher [blocked? reason]
   [tooltip {:content (when blocked? reason)}
    [:button {:on-click launch
              :type "button"}
     "Launch"]])
-
-;; one tag, whose props change
-(defn chip [editable? on-edit label]
-  [:button {:on-click (when editable? on-edit)
-            :type "button"}
-   label])
 ```
 
 **Left alone:**
@@ -415,19 +401,19 @@ child mounts again and drops keyboard focus when the condition flips.
     [spinner]
     [table items]))
 
-;; the same tag in both branches
-(defn chip [selected? label]
-  (if selected?
-    [:button {:class "selected"
-              :type "button"}
-     label]
-    [:button {:type "button"} label]))
-
 ;; a parameter may be text or data
 (defn launcher [blocked? reason child]
   (if blocked?
     [tooltip {:content reason} child]
     child))
+
+;; a link or a button, which no one tag can replace
+(defn action [href on-click label]
+  (if href
+    [:a {:href href} label]
+    [:button {:on-click on-click
+              :type "button"}
+     label]))
 ```
 
 <details>
@@ -435,24 +421,22 @@ child mounts again and drops keyboard focus when the condition flips.
 
 React keeps an element mounted only while it stays at the same place in the tree under the same parent. A branch that
 wraps a child the other branch renders bare moves the child to another place when the condition flips, so React unmounts
-it and mounts a new one. The element that had keyboard focus is gone, and focus falls to the page. The same happens to a
-focusable element whose tag changes between the branches, such as a `:span` with `:tab-index` that becomes a `:button`.
+it and mounts a new one. The element that had keyboard focus is gone, and focus falls to the page.
 
 The forms read are `if`, `if-not`, `if-let` and `if-some` with both branches, standing where their value renders: the
 last form of a component, a child of an element, a value in its props map, the last form of a `for` body, or a branch of
-a form that renders. A wrapped child is reported when it can hold focus: its Hiccup holds a focusable element, as the
-a11y group reads one, or a component given an `:on-*` handler, or it is a symbol that a `let` or Reagent's `with-let`
-binds to such Hiccup before the condition, with no form between them binding the name again. Only the Hiccup tree is
+a form that renders. The child is reported when it can hold keyboard focus: its Hiccup holds an element that takes focus
+as the a11y group reads it, with a control's tag or a `:tab-index`, or a component given an `:on-*` handler. A symbol
+counts when a binding around it gives it such Hiccup, and both branches name the same binding. Only the Hiccup tree is
 read, an element's children and what a `when`, `if`, `let`, `for` or `map` yields, so a props map or the arguments of a
-call add nothing. A component without a handler may keep state, but the rule cannot tell, so it is left alone, and so is
-a parameter or a call, which may be text or data. When the wrapper holds other children too, the hint asks for the same
-elements in the same order in both branches, since React matches children by their place.
+call add nothing, and an element whose props this cannot read is left alone, since they may disable it. A component
+without a handler may keep state, but the rule cannot tell, so it is left alone, and so is a parameter or a call, which
+may be text or data. When the wrapper holds other children too, the hint asks for the same elements in the same order in
+both branches, since React matches children by their place.
 
-The fragment counts as a wrapper inside an HTML element or a `for` body. A component that returns one is unwrapped by
-React, so it adds no layer there, and inside a component's arguments the rule cannot tell. Two focusable elements of
-different tags are reported when they hold the same child.
-
-Not read: a `cond` or `case`, an `if` bound in a `let` and rendered through its name, a branch under `^{:key …}`
-metadata, quoted code, `#_` forms, `(comment …)` blocks and Spade declarations.
+Not read: a fragment as the wrapper, which React unwraps in some places and not others; a focusable element whose tag
+changes between the branches; the same child under two different wrappers; a `[:> Component …]` interop wrapper; a
+`cond` or `case`; an `if` bound in a `let` and rendered through its name; a branch under `^{:key …}` metadata; and
+quoted code, `#_` forms, `(comment …)` blocks and Spade declarations.
 
 </details>

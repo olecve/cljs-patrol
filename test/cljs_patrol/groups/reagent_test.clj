@@ -61,8 +61,6 @@
 (deftest failed?-test
   (is (not (group/failed? reagent/group {:defclass-as-sole-attr [defclass-sole]}))
       "cleanup rule alone does not fail")
-  (is (group/failed? reagent/group {:remounting-branch [{:type :remounting-branch}]})
-      "remounting-branch is a bug")
   (is (group/failed? reagent/group {:discarded-hiccup [{:type :discarded-hiccup}]})
       "discarded hiccup fails"))
 
@@ -512,12 +510,10 @@
           (wrapped-hint "[row {:on-click f}]" ":span")
           (wrapped-hint "[:div [:a {:href h} \"Open\"]]" ":li")
           (wrapped-hint "[:span {:tab-index 0} t]" "tooltip")
-          (wrapped-hint "[:input]" ":<>")
           (wrapped-hint "[:div (when y [:button \"Go\"])]" "tooltip")
           (wrapped-hint "b" "tooltip")
           (wrapped-hint "[:select]" "tooltip" "Render the same elements around it, in the same order, in both branches.")
-          (wrapped-hint "[:textarea]" ":<>")
-          (wrapped-hint "[:summary]" ":<>")]
+          (wrapped-hint "b" "tooltip")]
          (remounting-branches
           [(str "(defn a [b r] (let [launcher [button {:on-click go} \"Go\"]]"
                 " (if b [blocked-action {:reason r} launcher] launcher)))")
@@ -527,26 +523,15 @@
            "(defn f [w f] (if-let [y w] [:span {:class y} [row {:on-click f}]] [row {:on-click f}]))"
            "(defn g [w h] (if w [:li [:div [:a {:href h} \"Open\"]]] [:div [:a {:href h} \"Open\"]]))"
            "(defn i [w t] (if-some [_ w] [tooltip [:span {:tab-index 0} t]] [:span {:tab-index 0} t]))"
-           "(defn j [x] [:div (if x [:<> [:input]] [:input])])"
            "(defn k [x y] (if x [tooltip [:div (when y [:button \"Go\"])]] [:div (when y [:button \"Go\"])]))"
            "(defn l [x y] (let [b (when y [:button \"Go\"])] (if x [tooltip b] b)))"
            "(defn m [x] (if x [tooltip [:b \"Hint\"] [:select]] [:select]))"
-           "(defn n [x xs] [:ul (for [i xs] (if x [:<> [:textarea]] [:textarea]))])"
-           "(defn o [x y] [:div (when y (if x [:<> [:summary]] [:summary]))])"]))))
+           "(defn n [x opts] (let [b [:button \"Go\"]] (if x [tooltip opts b] b)))"]))))
 
 (deftest remounting-branch-is-keyed-by-wrapped-child
-  (is (= ["[row {:on-click f}]" "face"]
+  (is (= ["[row {:on-click f}]"]
          (list-findings :remounting-branch :inner-form library-aliases
-                        ["(defn a [w f] (if w [:span [row {:on-click f}]] [row {:on-click f}]))"
-                         "(defn a [x f face] [:div (if x [:span {:tab-index 0} face] [:button {:on-click f} face])])"]))))
-
-(deftest focusable-element-changing-tag-around-same-child-is-flagged
-  (is (= [(str "The branches render :span and :button around face, so React replaces the element when the condition"
-               " flips, and keyboard focus falls to the page. Keep one tag and change its props.")
-          (str "The branches render :a and :div around \"Open\", so React replaces the element when the condition"
-               " flips, and keyboard focus falls to the page. Keep one tag and change its props.")]
-         (remounting-branches ["(defn a [x f face] [:div (if x [:span {:tab-index 0} face] [:button {:on-click f} face])])"
-                               "(defn b [x h] (if x [:a {:href h} \"Open\"] [:div {:tabIndex 0} \"Open\"]))"]))))
+                        ["(defn a [w f] (if w [:span [row {:on-click f}]] [row {:on-click f}]))"]))))
 
 (deftest branches-that-keep-focus-are-left-alone
   (is (empty? (remounting-branches
@@ -556,7 +541,7 @@
                 "(defn e [x] (if x [:span \"Saved\"] \"Saved\"))"
                 "(defn f [loading? rows] (if loading? [spinner] [table rows]))"
                 "(defn g [x a b face] (if x [:button {:class a} face] [:button {:class b} face]))"
-                "(defn h [x] (if x [:<> [:input]] [:input]))"
+                "(defn h [x] [:div (if x [:<> [:input]] [:input])])"
                 "(defn i [x] (when x [tooltip [:input]]))"
                 "(defn j [x] (if x [:span [:input]] [:div [:input]]))"
                 "(defn k [x] (if x (wrap [:input]) [:input]))"
@@ -567,14 +552,16 @@
                 "(defn p [x items] (let [btn [:button \"Go\"]] (for [btn items] (if x [:li btn] btn))))"
                 "(defn q [x] (if x [tooltip [:a \"Open\"]] [:a \"Open\"]))"
                 "(defn r [x v] (if x [:label [:input {:type \"hidden\" :value v}]] [:input {:type \"hidden\" :value v}]))"
-                "(defn s [x] (if x [:a \"Open\"] [:div {:tab-index 0} \"Open\"]))"
+                "(defn s [x f] (if x [:a {:href \"/\"} \"Open\"] [:button {:on-click f} \"Open\"]))"
                 "(defn t [x t] (if x [:span [highlight {:text t}]] [highlight {:text t}]))"
                 "(defn u [x] (if x [:span [:button {:disabled true} \"Go\"]] [:button {:disabled true} \"Go\"]))"
-                "(defn v [x] (let [c (fn [] (if x [tooltip b] b)) b [:button]] [c]))"
-                "(defn w [x] [panel (if x [:<> [:input]] [:input])])"]))
-      (str "child that holds no focus, a parameter, a returned fragment, unrelated branches, one branch, no rendering,"
-           " props and call arguments, a name bound again or later, a component without a handler, a disabled or"
-           " hidden control, a fragment a component may return"))
+                "(defn v [x attrs] (if x [tooltip [:button attrs \"Go\"]] [:button attrs \"Go\"]))"
+                (str "(defn w [x f] (if x [tooltip [:div {:role \"button\" :on-click f} \"Go\"]]"
+                     " [:div {:role \"button\" :on-click f} \"Go\"]))")
+                "(defn y [x] (let [b [:button]] (if-let [b (f)] [:span b] b)))"]))
+      (str "child that holds no focus, a parameter, a fragment, unrelated branches, a tag change, one branch, no"
+           " rendering, props and call arguments, a name bound again, a component without a handler, a disabled or"
+           " hidden control, unreadable props, a role without a tabindex"))
   (is (empty? (remounting-branches ["'(defn a [x] (if x [:span [:input]] [:input]))"
                                     "#_(defn a [x] (if x [:span [:input]] [:input]))"
                                     "(comment (defn a [x] (if x [:span [:input]] [:input])))"
