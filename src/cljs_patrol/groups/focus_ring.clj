@@ -345,25 +345,28 @@
   A splicing branch's vector is spread out."
   [loc]
   (let [splicing? (= "?@" (some-> loc z/down parser/raw))]
-    (some->> (parser/written-child-locs loc)
-             (filter #(= :list (z/tag %)))
-             first
-             parser/written-child-locs
-             (partition 2)
-             (some (fn [[platform form]] (when (contains? #{:cljs :default} (literal platform)) form)))
-             ((fn [form]
-                (if (and splicing? (= :vector (z/tag form)))
-                  (parser/written-child-locs form)
-                  [form]))))))
+    (when-let [form (some->> (parser/written-child-locs loc)
+                             (filter #(= :list (z/tag %)))
+                             first
+                             parser/written-child-locs
+                             (partition 2)
+                             (some (fn [[platform form]] (when (contains? #{:cljs :default} (literal platform)) form))))]
+      (if (and splicing? (= :vector (z/tag form)))
+        (parser/written-child-locs form)
+        [form]))))
+
+(defn- unwrapped-forms
+  "Return the forms a top-level form stands for: the ClojureScript branch of a reader conditional, or the form under metadata."
+  [loc]
+  (case (z/tag loc)
+    :reader-macro (clojurescript-branch loc)
+    :meta (some-> (last (parser/written-child-locs loc)) unwrapped-forms)
+    [loc]))
 
 (defn- top-level-forms
-  "Return the file's top-level forms, with the ClojureScript branch of a top-level reader conditional in its place."
+  "Return the file's top-level forms, unwrapped from reader conditionals and metadata."
   [root]
-  (mapcat (fn [loc]
-            (if (= :reader-macro (z/tag loc))
-              (clojurescript-branch loc)
-              [loc]))
-          (parser/written-child-locs root)))
+  (mapcat unwrapped-forms (parser/written-child-locs root)))
 
 (defn- scan-custom-properties
   "Return {name [{:value-loc … :declaration …}]} for every custom property, such as `\"--ring\"`, a style sets.
@@ -459,10 +462,10 @@
 (defn- custom-property-hint
   "Name the custom properties the file never sets, and the declarations that set each one off the preset.
 
-  Reads as \"--base is not set in this file. --ring is not set from the preset in a, b.\", one
+  Reads as \"--base is not set in a style map of this file. --ring is not set from the preset in a, b.\", one
   sentence per property."
   [{:keys [unset off-preset]}]
-  (->> (concat (map #(str % " is not set in this file.") (sort unset))
+  (->> (concat (map #(str % " is not set in a style map of this file.") (sort unset))
                (->> (group-by first off-preset)
                     (sort-by key)
                     (map (fn [[property-name pairs]]

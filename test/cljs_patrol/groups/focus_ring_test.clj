@@ -242,7 +242,7 @@
          (flagged (run (ring-from-property "(defclass b [] {\"--ring\" \"var(--base)\""
                                            " \"--base\" \"0 0 0 2px #00f\"})\n"))))
       "the other property is set by hand")
-  (is (= "--ring is not set in this file."
+  (is (= "--ring is not set in a style map of this file."
          (hint-of config (ring-from-property "(defclass b [] {\"--ring\" \"var(--base)\""
                                              " \"--base\" \"var(--ring)\"})\n")))
       "properties that only read each other are never given a value")
@@ -250,7 +250,7 @@
                                               " \"--base\" \"var(--ring)\"})\n"
                                               preset-ring))))
       "a cycle ends where one property of it is also set from the preset")
-  (is (= "--base is not set in this file."
+  (is (= "--base is not set in a style map of this file."
          (hint-of config (ring-from-property "(defclass b [] {\"--ring\" \"var(--base)\"})\n")))
       "the chain reaches a property the file never sets")
   (is (= {} (flagged (run (apply ring-from-property
@@ -289,12 +289,16 @@
                                               " :default (defclass b [] {\"--ring\" \"0 0 0 2px #00f\"}))\n"))))
       "ClojureScript reads only the first branch for it"))
 
+(deftest custom-property-set-under-metadata-is-read
+  (is (= {} (flagged (run (ring-from-property "^:private " preset-ring))))
+      "set from the preset in a declaration with metadata in front"))
+
 (deftest custom-property-set-only-outside-styles-is-flagged
   (is (= {:focus-ring-raw-shadow ["a"]} (flagged (run (ring-from-property))))
       "set in another file or at runtime, which this cannot see")
-  (is (= "--ring is not set in this file." (hint-of config (ring-from-property)))
+  (is (= "--ring is not set in a style map of this file." (hint-of config (ring-from-property)))
       "the hint says the file never sets it")
-  (is (= "--ring is not set in this file."
+  (is (= "--ring is not set in a style map of this file."
          (hint-of config (ring-from-property "(defclass \"b\" {\"--ring\" \"0 0 0 2px #00f\"})\n")))
       "a declaration without a name sets nothing")
   (is (= {} (flagged (run (ring-from-property preset-ring "(def cli {\"--ring\" \"enable\"})\n"))))
