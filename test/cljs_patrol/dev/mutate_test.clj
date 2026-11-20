@@ -10,7 +10,10 @@
        "(comment (when x y))\n"
        "#_(defn gone [] (when x y))\n"
        "(def quoted '(when x y))\n"
-       "(def plain {:a 1})\n"))
+       "(def plain {:a 1})\n"
+       "(def ^{:private true} hidden 1)\n"
+       "(defonce cache (when x y))\n"
+       "(extend-type Foo P (m [x] (when x 1)))\n"))
 
 (defn- swaps-of [mutants] (mapv (juxt :def :row :from :to) mutants))
 
@@ -18,9 +21,18 @@
   (is (= [["visible?" 2 "when" "when-not"]
           ["visible?" 2 "seq" "empty?"]
           ["visible?" 2 "true" "false"]
-          ["count-up" 3 "inc" "dec"]]
-         (swaps-of (mutate/mutants source)))
-      "ns form, comment, discarded and quoted code skipped; a private name read through its metadata"))
+          ["count-up" 3 "inc" "dec"]
+          ["extend-type@10" 10 "when" "when-not"]]
+         (swaps-of (mutate/mutants (mutate/top-level-forms source))))
+      (str "ns form, comment, discarded, quoted and metadata code skipped; a private name read through its"
+           " metadata; a form loaded once left out; an unnamed form named by its head and line")))
+
+(deftest scope-names-definitions-loaded-once-and-unknown-ones
+  (is (= ["cache"] (:loaded-once (mutate/scope source {}))))
+  (is (= ["count-up"] (:defs-in-scope (mutate/scope source {:lines #{3}})))
+      "changed lines keep only the definitions they touch")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No top-level definition named nope"
+                        (mutate/scope source {:defs ["nope"]}))))
 
 (deftest changed-lines-read-git-diff-hunks
   (is (= #{3 7 8 9}
@@ -38,7 +50,8 @@
                                              {:def "b"
                                               :outcome :unviable}
                                              {:def "b"
-                                              :outcome :timeout}]})]
+                                              :outcome :timeout}]
+                                   :loaded-once ["d"]})]
     (is (= [{:def "a"
              :mutants 2
              :killed 1
@@ -54,6 +67,7 @@
            (:definitions summary)))
     (is (= ["c"] (:not-mutated summary))
         "definition with no mutant is named")
+    (is (= ["d"] (:loaded-once summary)))
     (is (== 1/2 (rationalize (:score summary)))
         "unviable and timed-out mutants are not scored")))
 
