@@ -193,3 +193,8 @@
 
 (deftest ok-helper-name-in-vector
   (is [get-item-1]))
+
+(defn- get-also-a-test [] (s/get-by-role "dialog"))
+
+(deftest get-also-a-test
+  (is (some? (get-also-a-test))))

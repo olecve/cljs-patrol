@@ -157,11 +157,10 @@
 
 (def ^:private definition-heads
   "Heads of the forms that define a var, so one of them can give a helper's name a second definition."
-  #{"def" "defn" "defn-" "defonce" "defmulti" "defmacro"})
+  #{"def" "defattrs" "defc" "defclass" "defcs" "defmacro" "defmulti" "defn" "defn-" "defonce" "defrecord" "deftest"
+    "deftype"})
 
-(defn- defined-name
-  "Return the name a definition form at `loc` defines, such as a `defn` or a `defonce`, or nil."
-  [loc]
+(defn- defined-name [loc]
   (when (and (= :list (z/tag loc)) (contains? definition-heads (some-> loc z/down parser/sym-name)))
     (some-> (parser/declared-name-loc loc) parser/sym-name)))
 
@@ -182,8 +181,9 @@
                             (parser/written-child-locs root))
               definitions (when (seq helpers)
                             (->> (parser/descendant-locs root)
+                                 (filter defined-name)
                                  (remove hiccup/inside-unrendered-form?)
-                                 (keep defined-name)
+                                 (map defined-name)
                                  frequencies))]
           (reset! state (into {} (filter #(= 1 (get definitions (key %)))) helpers))))))
 
@@ -192,8 +192,10 @@
   [head fn-name helper?]
   (let [all? (str/starts-with? fn-name "get-all-")]
     (if helper?
-      (str head " returns " fn-name ", which throws on a miss, so this check never fails. Use a helper that returns "
-           (query-twin fn-name fn-name) (when all? ", inside seq") ".")
+      (let [query-helper (str "query-" (strip-lookup-prefix head))]
+        (str head " returns " fn-name ", which throws on a miss, so this check never fails. Use "
+             (if all? (str "(seq (" query-helper "))") query-helper)
+             ", with " query-helper " returning " (query-twin fn-name fn-name) "."))
       (str head " throws on a miss, so this check never fails. Use "
            (cond->> (query-twin head fn-name) all? (format "(seq (%s …))")) "."))))
 

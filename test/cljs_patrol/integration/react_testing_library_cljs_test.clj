@@ -44,9 +44,10 @@
            (->> findings (filter #(= "bad-seq-get-all-by-role" (:test %))) (map :hint)))
         "query-all-by returns empty vector, so hint wraps it in seq")
     (is (= {"bad-some-get-by-helper" (str "get-item-1 returns get-by-role, which throws on a miss, so this check never"
-                                          " fails. Use a helper that returns query-by-role.")
+                                          " fails. Use query-item-1, with query-item-1 returning query-by-role.")
             "bad-seq-get-all-by-helper" (str "get-rows returns get-all-by-role, which throws on a miss, so this check"
-                                             " never fails. Use a helper that returns query-all-by-role, inside seq.")}
+                                             " never fails. Use (seq (query-rows)), with query-rows returning"
+                                             " query-all-by-role.")}
            (->> findings
                 (filter #(contains? #{"bad-some-get-by-helper" "bad-seq-get-all-by-helper"} (:test %)))
                 (map (juxt :test :hint))
