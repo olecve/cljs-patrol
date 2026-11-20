@@ -638,7 +638,7 @@
   [attrs tag]
   (and (= :input tag) (= "hidden" (literal-sexpr (get attrs :type)))))
 
-(defn- focusable?
+(defn focusable?
   "True when the element can take focus.
   Answered only from attrs that are absent or readable whole: a partial or computed map
   may hold the negative tabindex or the `disabled` that is the way out, and calling one
