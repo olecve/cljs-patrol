@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.60] - 2026-11-20
+
+* Judge a focus ring that reads a custom property by the values the file sets it to by @olecve in https://github.com/olecve/cljs-patrol/pull/161
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.59...v0.0.60
+
 ## [v0.0.59] - 2026-11-19
 
 * Leave other tests' bodies out of a test id lookup's evidence by @olecve in https://github.com/olecve/cljs-patrol/pull/160
