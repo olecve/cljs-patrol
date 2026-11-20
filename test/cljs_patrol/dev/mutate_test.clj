@@ -173,21 +173,25 @@
        " [cljs-patrol.dev.mutate-test.target :as target]))\n"
        "(deftest labels (is (= :up (target/label 1))))\n"))
 
-(defn- with-target [tests f]
-  (sample-ns 'cljs-patrol.dev.mutate-test.target)
-  (sample-ns 'cljs-patrol.dev.mutate-test.target-test)
-  (try
-    (mutate/load-text 'cljs-patrol.dev.mutate-test.target target-source)
-    (mutate/load-text 'cljs-patrol.dev.mutate-test.target-test tests)
-    (f)
-    (finally
-      (remove-ns 'cljs-patrol.dev.mutate-test.target)
-      (remove-ns 'cljs-patrol.dev.mutate-test.target-test))))
+(defn- with-target
+  ([tests f] (with-target target-source tests f))
+  ([source tests f]
+   (sample-ns 'cljs-patrol.dev.mutate-test.target)
+   (sample-ns 'cljs-patrol.dev.mutate-test.target-test)
+   (try
+     (mutate/load-text 'cljs-patrol.dev.mutate-test.target source)
+     (mutate/load-text 'cljs-patrol.dev.mutate-test.target-test tests)
+     (f)
+     (finally
+       (remove-ns 'cljs-patrol.dev.mutate-test.target)
+       (remove-ns 'cljs-patrol.dev.mutate-test.target-test)))))
 
-(defn- run-target [options]
-  (binding [*out* (java.io.StringWriter.)]
-    (mutate/mutate-source 'cljs-patrol.dev.mutate-test.target "target.clj" target-source
-                          ['cljs-patrol.dev.mutate-test.target-test] options)))
+(defn- run-target
+  ([options] (run-target target-source options))
+  ([source options]
+   (binding [*out* (java.io.StringWriter.)]
+     (mutate/mutate-source 'cljs-patrol.dev.mutate-test.target "target.clj" source
+                           ['cljs-patrol.dev.mutate-test.target-test] options))))
 
 (deftest run-kills-and-keeps-mutants-and-restores-the-namespace
   (with-target target-tests
@@ -309,3 +313,86 @@
     (is (< (abs (- score 1/3)) 1e-9))
     (is (== 1/2 (rationalize covered-score))
         "covered score leaves uncovered mutants out")))
+
+(def ^:private coverage-tests
+  (str target-tests
+       "(def state (atom nil))\n"
+       "(defn setup-once [f] (target/positive? 2) (f))\n"
+       "(clojure.test/use-fixtures :once setup-once)\n"
+       "(deftest all-labels (labels) (is (= :up (target/label 2))))\n"
+       "(deftest needs-state (is (= 1 @state)))\n"))
+
+(defn- coverage-of []
+  (mutate/coverage 'cljs-patrol.dev.mutate-test.target ["positive?" "label" "unused"]
+                   ['cljs-patrol.dev.mutate-test.target-test] 10000))
+
+(deftest coverage-tells-fixture-calls-and-nested-tests
+  (with-target coverage-tests
+    (fn []
+      (let [{:keys [tests reached-outside hooked?]} (coverage-of)
+            test-var #(ns-resolve 'cljs-patrol.dev.mutate-test.target-test %)]
+        (is (contains? reached-outside "positive?")
+            "call from a fixture is reached outside a test")
+        (is (contains? (get tests "label") (test-var 'all-labels))
+            "call after a nested test returns is still the outer test's")
+        (is (false? hooked?))))))
+
+(deftest selected-tests-fall-back-to-every-test-when-unsafe
+  (with-target coverage-tests
+    (fn []
+      (let [test-var #(ns-resolve 'cljs-patrol.dev.mutate-test.target-test %)
+            context (fn [covered] {:test-nss ['cljs-patrol.dev.mutate-test.target-test]
+                                   :timeout-ms 10000
+                                   :covered covered
+                                   :subset-checks (atom {})})
+            covered {:tests {"label" #{(test-var 'labels)}
+                             "unused" #{(test-var 'needs-state)}
+                             "positive?" #{(test-var 'labels)}}
+                     :recorded #{"label" "unused" "positive?"}
+                     :reached-outside #{"positive?"}}]
+        (is (= #{(test-var 'labels)} (mutate/selected-tests (context covered) "label")))
+        (is (nil? (mutate/selected-tests (context covered) "unused"))
+            "selected tests that fail on their own run every test")
+        (is (nil? (mutate/selected-tests (context covered) "positive?"))
+            "definition reached outside a test runs every test")
+        (is (nil? (mutate/selected-tests (context (assoc covered :hooked? true)) "label"))
+            "test-ns-hook runs every test")))))
+
+(deftest reached-rule-counts-test-failures-and-timeouts-only
+  (let [outcomes #(map :outcome (:mutants (mutate/summarize {:defs-in-scope ["a"]
+                                                             :results %})))]
+    (is (= [:timeout :survived]
+           (outcomes [{:def "a"
+                       :outcome :timeout}
+                      {:def "a"
+                       :outcome :no-coverage}])))
+    (is (= [:killed :no-coverage]
+           (outcomes [{:def "a"
+                       :outcome :failed
+                       :at-load? true}
+                      {:def "a"
+                       :outcome :no-coverage}]))
+        "mutant that threw while it loaded shows nothing about tests")))
+
+(def ^:private source-with-handlers (str target-source "(def handlers {:label label})\n"))
+
+(deftest recording-that-breaks-the-tests-turns-selection-off
+  (with-target source-with-handlers
+    (str target-tests "(deftest same-function (is (= target/label (:label target/handlers))))\n")
+    (fn []
+      (let [{:keys [note totals]} (run-target source-with-handlers {})]
+        (is (re-find #"every mutant runs every test" note))
+        (is (zero? (:no-coverage totals))
+            "nothing is reported as not covered without the recording")))))
+
+(deftest coverage-notices-a-test-ns-hook
+  (with-target (str target-tests "(defn test-ns-hook [] (labels))\n")
+    (fn []
+      (sample-ns 'cljs-patrol.dev.mutate-test.plain-test)
+      (try
+        (is (true? (:hooked? (mutate/coverage 'cljs-patrol.dev.mutate-test.target ["label"]
+                                              ['cljs-patrol.dev.mutate-test.plain-test
+                                               'cljs-patrol.dev.mutate-test.target-test]
+                                              10000)))
+            "one hooked namespace among several is enough")
+        (finally (remove-ns 'cljs-patrol.dev.mutate-test.plain-test))))))

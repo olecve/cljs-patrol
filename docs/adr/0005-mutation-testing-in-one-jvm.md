@@ -6,7 +6,7 @@ Proposed, 2026-11-20
 
 ## Outcome
 
-2026-11-21: the runner now runs only the tests that reach a mutant. A first run records which tests call each function
+2026-11-20: the runner now runs only the tests that reach a mutant. A first run records which tests call each function
 of the target namespace, also from worker threads. Each mutant runs those tests. A function that no test calls gets a
 fifth outcome, no coverage, and the report names it once. The report gives two scores: killed over killed, survived and
 not covered, and killed over killed and survived. The whole focus-ring namespace now takes about 18 s, not 24 s. The

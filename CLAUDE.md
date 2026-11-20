@@ -92,12 +92,17 @@ It changes the code under test, never the tests: it swaps one operator at a time
 `false`. A first run of the tests records which tests call each function of the target. Then, for each mutant, it
 evaluates the mutated form over the namespace, runs the tests that call that function until the first failure, and
 evaluates the original back. Pass every test namespace that exercises the target with `-t`: the run knows only those.
-Each mutant ends as one of:
+Every test runs instead when the function is called from a fixture, when a test namespace has a `test-ns-hook`, or when
+the selected tests fail on their own. If recording the calls makes the tests fail, every mutant runs every test, and the
+report says so. Each mutant ends as one of:
 
 - **killed**: a test failed, or the mutated form threw while it loaded. A failure is recorded before the run is cut
   short, so an assertion that catches exceptions, such as `thrown?`, cannot hide it.
-- **no coverage**: no test calls the function, and every test passes with the mutant. The report names these functions
-  once, under "Not covered", instead of a survivor for each operator.
+- **no coverage**: the first run saw no call of the function, in a test or in a fixture, and every test passes with the
+  mutant. The report names these functions once, under "Not covered", instead of a survivor for each operator. A
+  function the tests call only through a value stored when the namespace loaded, such as a `partial`, shows here too.
+  When another mutant of the same function is killed or times out, the tests do reach it, so its passing mutants count
+  as survivors.
 - **survived**: every test passed, so no test pins that branch. It may also be an equivalent mutant, such as `first` for
   `last` on a one-element list.
 - **unviable**: the mutated form could not be read or compiled. Not scored.
