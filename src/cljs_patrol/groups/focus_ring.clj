@@ -336,17 +336,28 @@
   (cond->> (mapcat written-maps (parser/written-child-locs loc))
     (= :map (z/tag loc)) (cons loc)))
 
+(defn- top-level-forms
+  "Return the file's top-level forms, with the branches of a top-level reader conditional in place of the conditional."
+  [root]
+  (mapcat (fn [loc]
+            (if (= :reader-macro (z/tag loc))
+              (->> (parser/written-child-locs loc)
+                   (filter #(= :list (z/tag %)))
+                   (mapcat parser/written-child-locs))
+              [loc]))
+          (parser/written-child-locs root)))
+
 (defn- scan-custom-properties
   "Return {name [{:value-loc … :declaration …}]} for every custom property, such as `\"--ring\"`, a style sets.
 
-  Only the literal maps of the file's `defclass`, `defattrs` and `defglobal` forms count, so a
-  map of other data, or one in `#_` discarded code or a `(comment …)` form, sets nothing."
+  Only the literal maps of the file's top-level `defclass`, `defattrs` and `defglobal` forms
+  count, also in a top-level reader conditional. A map of other data, or one in `#_` discarded
+  code or a `(comment …)` form, sets nothing."
   [root]
-  (->> root
-       parser/written-child-locs
+  (->> (top-level-forms root)
        (filter style-declaration?)
        (reduce (fn [found declaration]
-                 (let [declaration-name (parser/sym-name (parser/declared-name-loc declaration))]
+                 (if-let [declaration-name (parser/sym-name (parser/declared-name-loc declaration))]
                    (->> declaration
                         written-maps
                         (mapcat map-entries)
@@ -355,7 +366,8 @@
                                     (str/starts-with? key-text "--") (update key-text (fnil conj [])
                                                                              {:value-loc value-loc
                                                                               :declaration declaration-name})))
-                                found))))
+                                found))
+                   found))
                {})))
 
 (defn- custom-property-settings
@@ -368,46 +380,58 @@
   "Judge `var(--name)` by every value the file sets `--name` to, following a value that reads another custom property.
 
   Accepted when each value is accepted on its own, a reset, or a local this cannot read. A custom
-  property the file never sets is reported, since this cannot see what sets it. A property met
-  again on the way is accepted, so a cycle ends. `:by-hand` pairs each property set by hand with
-  the declarations that set it."
-  [settings property-name config ns-info seen]
-  (let [values (get settings property-name)]
-    (if (empty? values)
-      {:accepted? false}
-      (let [verdicts (for [{:keys [value-loc declaration]} values
-                           :let [value (shadow-value value-loc ns-info)]
-                           :when (and value (not (contains? #{:reset :local} (:kind value))))]
-                       (if (= :custom-property (:kind value))
-                         (if (contains? seen (:name value))
-                           {:accepted? true}
-                           (custom-property-verdict settings (:name value) config ns-info (conj seen (:name value))))
-                         (let [verdict (shadow-verdict value config ns-info)]
-                           (cond-> verdict
-                             (not (:accepted? verdict)) (assoc :by-hand [[property-name declaration]])))))]
-        {:accepted? (every? :accepted? verdicts)
-         :shadows (sorted-shadows (mapcat :shadows verdicts))
-         :by-hand (mapcat :by-hand verdicts)}))))
+  property the file never sets is reported, since this cannot see what sets it, and `:unset`
+  names it. Each property is judged once, and one met again while it is judged counts as
+  accepted, so a cycle ends. `:off-preset` pairs each property set to a value that is not
+  accepted with the declarations that set it."
+  [settings property-name config ns-info]
+  (let [judged (atom {})
+        judge (fn judge [property]
+                (or (get @judged property)
+                    (do
+                      (swap! judged assoc property {:accepted? true})
+                      (let [values (get settings property)
+                            verdicts (for [{:keys [value-loc declaration]} values
+                                           :let [value (shadow-value value-loc ns-info)]
+                                           :when (and value (not (contains? #{:reset :local} (:kind value))))]
+                                       (if (= :custom-property (:kind value))
+                                         (judge (:name value))
+                                         (let [verdict (shadow-verdict value config ns-info)]
+                                           (cond-> verdict
+                                             (not (:accepted? verdict)) (assoc :off-preset #{[property declaration]})))))
+                            verdict (if (empty? values)
+                                      {:accepted? false
+                                       :unset #{property}}
+                                      {:accepted? (every? :accepted? verdicts)
+                                       :shadows (sorted-shadows (mapcat :shadows verdicts))
+                                       :off-preset (into #{} (mapcat :off-preset) verdicts)
+                                       :unset (into #{} (mapcat :unset) verdicts)})]
+                        (swap! judged assoc property verdict)
+                        verdict))))]
+    (judge property-name)))
 
-(defn- by-hand-hint
-  "Name the declarations that set each custom property by hand.
+(defn- custom-property-hint
+  "Name the custom properties the file never sets, and the declarations that set each one off the preset.
 
-  Reads as \"--ring is set by hand in a, b.\", one sentence per property."
-  [by-hand]
-  (->> (group-by first by-hand)
-       (sort-by key)
-       (map (fn [[property-name pairs]]
-              (str property-name " is set by hand in " (->> pairs (map second) distinct (str/join ", ")) ".")))
+  Reads as \"--base is not set in this file. --ring is not set from the preset in a, b.\", one
+  sentence per property."
+  [{:keys [unset off-preset]}]
+  (->> (concat (map #(str % " is not set in this file.") (sort unset))
+               (->> (group-by first off-preset)
+                    (sort-by key)
+                    (map (fn [[property-name pairs]]
+                           (str property-name " is not set from the preset in "
+                                (->> pairs (map second) sort (str/join ", ")) ".")))))
        (str/join " ")))
 
 (defn- raw-shadow-finding
   "Return a raw-shadow finding when a block's `:box-shadow` is not one of the approved shadows."
   [block key-loc shadow config ns-info decl-kw file]
-  (let [{:keys [accepted? shadows by-hand]} (if (= :custom-property (:kind shadow))
-                                              (custom-property-verdict (custom-property-settings key-loc) (:name shadow)
-                                                                       config ns-info #{(:name shadow)})
-                                              (shadow-verdict shadow config ns-info))
-        hint (str/join " " (remove str/blank? [(some-> (seq by-hand) by-hand-hint) (some-> shadows use-hint)]))]
+  (let [{:keys [accepted? shadows]
+         :as verdict} (if (= :custom-property (:kind shadow))
+                        (custom-property-verdict (custom-property-settings key-loc) (:name shadow) config ns-info)
+                        (shadow-verdict shadow config ns-info))
+        hint (str/join " " (remove str/blank? [(custom-property-hint verdict) (some-> shadows use-hint)]))]
     (when-not accepted?
       (finding :focus-ring-raw-shadow block key-loc decl-kw file (not-empty hint)))))
 
@@ -464,7 +488,7 @@
 (defn- handle-list [config]
   (fn [loc {:keys [ns-name]
             :as ns-info} file]
-    (when (contains? style-decl-fns (parser/sym-name (z/down loc)))
+    (when (style-declaration? loc)
       (let [name-loc (parser/declared-name-loc loc)]
         (when-let [decl-name (parser/sym-name name-loc)]
           (let [decl-kw (keyword ns-name decl-name)

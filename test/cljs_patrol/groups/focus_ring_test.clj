@@ -244,22 +244,44 @@
       "the other property is set by hand")
   (is (= {} (flagged (run (ring-from-property "(defclass b [] {\"--ring\" \"var(--base)\""
                                               " \"--base\" \"var(--ring)\"})\n"))))
-      "a cycle ends"))
+      "a cycle ends")
+  (is (= "--base is not set in this file."
+         (hint-of config (ring-from-property "(defclass b [] {\"--ring\" \"var(--base)\"})\n")))
+      "the chain reaches a property the file never sets")
+  (is (= {} (flagged (run (apply ring-from-property
+                                 "(defclass b [] {\"--ring\" \"var(--p0)\"})\n"
+                                 "(defclass c [] {\"--p24\" focus-rings/primary-shadow})\n"
+                                 (for [i (range 24)]
+                                   (str "(defclass d" i " [] {\"--p" i "\" \"var(--p" (inc i) ")\"})\n"
+                                        "(defclass e" i " [] {\"--p" i "\" \"var(--p" (inc i) ")\"})\n"))))))
+      "each property is judged once, so a wide chain ends"))
 
 (deftest custom-property-filled-by-hand-is-flagged
   (is (= {:focus-ring-raw-shadow ["a"]}
          (flagged (run (ring-from-property preset-ring "(defclass c [] {\"--ring\" \"0 0 0 2px #00f\"})\n"))))
       "one value of several built by hand")
-  (is (= "--ring is set by hand in c."
+  (is (= "--ring is not set from the preset in c."
          (hint-of config (ring-from-property preset-ring "(defclass c [] {\"--ring\" \"0 0 0 2px #00f\"})\n")))
       "the hint names the declaration that sets it by hand")
-  (is (= "--ring is set by hand in b. Use app.styles.focus-rings/primary-shadow."
+  (is (= "--ring is not set from the preset in b. Use app.styles.focus-rings/primary-shadow."
          (hint-of config (ring-from-property "(defclass b [] {\"--ring\" button-theme/shadow-brand-focused})\n")))
-      "a replaced value also names the approved shadow"))
+      "a replaced value also names the approved shadow")
+  (is (= "--ring is not set from the preset in b."
+         (hint-of config (ring-from-property "(defclass b [] {\"--ring\" app.styles.other/shadow})\n")))
+      "a var that is not approved"))
+
+(deftest custom-property-set-in-a-reader-conditional-is-read
+  (is (= {} (flagged (run config "app/core.cljc" (ring-from-property "#?(:cljs " preset-ring ")\n"))))
+      "set from the preset in a cljs branch"))
 
 (deftest custom-property-set-only-outside-styles-is-flagged
   (is (= {:focus-ring-raw-shadow ["a"]} (flagged (run (ring-from-property))))
       "set in another file or at runtime, which this cannot see")
+  (is (= "--ring is not set in this file." (hint-of config (ring-from-property)))
+      "the hint says the file never sets it")
+  (is (= "--ring is not set in this file."
+         (hint-of config (ring-from-property "(defclass \"b\" {\"--ring\" \"0 0 0 2px #00f\"})\n")))
+      "a declaration without a name sets nothing")
   (is (= {} (flagged (run (ring-from-property preset-ring "(def cli {\"--ring\" \"enable\"})\n"))))
       "a map of other data sets nothing")
   (is (= {} (flagged (run (ring-from-property preset-ring
