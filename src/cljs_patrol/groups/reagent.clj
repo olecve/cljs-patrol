@@ -458,22 +458,20 @@
 (defn- form-text [loc]
   (parser/normalize-form (parser/raw loc)))
 
-(def ^:private keyboard-focusable-tags
-  "Tags that take keyboard focus without a `:tab-index`. A role alone puts no element in the tab order."
-  #{:a :button :input :select :summary :textarea})
-
 (defn- focusable-element?
-  "True when the element at `loc` takes keyboard focus: a control or a `:tab-index`, as the a11y group reads them.
+  "True when the element at `loc` takes keyboard focus, as the a11y group reads it, through its tag or a `:tab-index`.
 
-  Props this cannot read may hold the `disabled` or the negative tabindex that keeps it out."
-  [loc]
+  A widget role alone puts no element in the tab order, and props this cannot read may hold
+  the `disabled` or the negative tabindex that keeps it out. Component aliases are not read."
+  [loc ns-info]
   (let [tag (some-> loc z/down parser/raw hiccup/parse-tag)
-        info (hiccup/attrs-info loc)]
+        attrs (:attrs (hiccup/attrs-info loc))]
     (boolean (and tag
-                  (not (a11y/names-unreadable-props? loc info))
-                  (a11y/focusable? info tag)
-                  (or (contains? keyboard-focusable-tags tag)
-                      (some #(contains? (:attrs info) %) [:tab-index :tabIndex]))))))
+                  (a11y/focusable-loc? loc ns-info nil)
+                  (or (contains? a11y/focusable-tags tag)
+                      (= :a tag)
+                      (contains? attrs :tab-index)
+                      (contains? attrs :tabIndex))))))
 
 (defn- holds-focus?
   "True when the Hiccup at `loc` holds a focusable element, or a component given an event handler.
@@ -486,7 +484,7 @@
       (or (and (not (fragment? parts))
                (if (parser/sym-name (:head parts))
                  (handler-element? loc)
-                 (focusable-element? loc)))
+                 (focusable-element? loc ns-info)))
           (boolean (some #(holds-focus? % ns-info) (:children parts))))
       (and (= :list (z/tag loc))
            (boolean (if-let [bodies (seq (remove #(= :uneval (z/tag %)) (mapping-body-locs loc ns-info)))]
@@ -494,54 +492,76 @@
                       (let [results (hiccup/result-locs loc ns-info)]
                         (and (not= [loc] results) (some #(holds-focus? % ns-info) results)))))))))
 
+(defn- bound-node
+  "Return the node a binding around the symbol at `loc` gives it, or nil when none does or it cannot be read."
+  [loc]
+  (let [value (some->> (parser/sym-name loc) (hiccup/lexically-bound-value loc))]
+    (when (and value (not= ::hiccup/shadowed value))
+      (z/node value))))
+
 (defn- focus-holding-child?
   "True when the child at `loc` can hold keyboard focus that mounting it again drops.
 
   An element counts when its Hiccup holds a focusable element or a component given an event
-  handler. A symbol counts when a binding around it gives it such Hiccup; a parameter, or a
-  name bound to something unreadable, may be text or data, and so may a call."
+  handler, and so does a `when`, `if` or `let` that yields one. A symbol counts when a binding
+  around it gives it such Hiccup; a parameter, a name bound to something unreadable, or any
+  other call may be text or data."
   [loc ns-info]
   (case (z/tag loc)
-    :vector (holds-focus? loc ns-info)
-    :token (let [value (some->> (parser/sym-name loc) (hiccup/lexically-bound-value loc))]
-             (boolean (and value (not= ::hiccup/shadowed value) (holds-focus? value ns-info))))
+    (:vector :list) (holds-focus? loc ns-info)
+    :token (boolean (when (bound-node loc)
+                      (holds-focus? (hiccup/lexically-bound-value loc (parser/sym-name loc)) ns-info)))
     false))
 
-(defn- same-binding?
-  "True when two occurrences of a symbol name the same binding, or neither names one a form around it binds."
-  [a b]
-  (let [binding-of #(some->> (parser/sym-name %) (hiccup/lexically-bound-value %))
-        binding-a (binding-of a)
-        binding-b (binding-of b)]
-    (if (and (some? binding-a) (some? binding-b) (not= ::hiccup/shadowed binding-a) (not= ::hiccup/shadowed binding-b))
-      (identical? (z/node binding-a) (z/node binding-b))
-      (= binding-a binding-b))))
+(defn- other-children?
+  "True when the wrapper holds children besides `child`.
 
-(defn- other-children
-  "Return the wrapper's children besides `child`. A leading symbol or call may be props, and is left out."
-  [children child]
-  (let [first-child (first children)
-        props-like? (and (not (identical? (z/node child) (z/node first-child)))
-                         (or (= :list (z/tag first-child)) (some? (parser/sym-name first-child))))]
-    (cond->> (remove #(identical? (z/node child) (z/node %)) children)
-      props-like? rest)))
+  When the props slot could not be read, the vector's second form may be props, so it is not
+  counted as a child."
+  [wrapped children child]
+  (let [maybe-props (some-> (second (parser/written-child-locs wrapped)) z/node)]
+    (boolean (some #(and (not (identical? (z/node child) (z/node %)))
+                         (not (and (identical? maybe-props (z/node %))
+                                   (or (= :list (z/tag %)) (some? (parser/sym-name %))))))
+                   children))))
+
+(defn- same-form?
+  "True when two forms are written the same, a symbol also naming the same binding in both places.
+  The head tokens are compared before the text, since most candidates differ there."
+  [a b]
+  (and (= (z/tag a) (z/tag b))
+       (= (some-> a z/down parser/raw) (some-> b z/down parser/raw))
+       (= (form-text a) (form-text b))
+       (or (not= :token (z/tag a)) (identical? (bound-node a) (bound-node b)))))
 
 (defn- wrapped-child
   "Return {:hint … :child …} for a child an element in one branch wraps that the other branch renders bare, or nil."
-  [wrapped bare ns-info]
-  (when-let [{:keys [head children]
-              :as parts} (element-parts wrapped)]
-    (let [bare-text (form-text bare)
-          match (first (filter #(and (= bare-text (form-text %))
-                                     (or (not= :token (z/tag bare)) (same-binding? % bare)))
-                               children))]
-      (when (and match (not (fragment? parts)) (focus-holding-child? bare ns-info))
-        {:hint (str bare-text " renders inside " (parser/raw head) " in one branch and bare in the other, so React"
-                    " mounts it again when the condition flips, and keyboard focus inside it falls to the page. "
-                    (if (seq (other-children children match))
+  [wrapped {:keys [head children]
+            :as parts} bare ns-info]
+  (when-not (fragment? parts)
+    (when-let [match (first (filter #(same-form? % bare) children))]
+      (when (focus-holding-child? bare ns-info)
+        {:hint (str (form-text bare) " renders inside " (parser/raw head) " in one branch and bare in the other, so"
+                    " React mounts it again when the condition flips, and keyboard focus inside it falls to the page. "
+                    (if (other-children? wrapped children match)
                       "Render the same elements around it, in the same order, in both branches."
                       (str "Render " (parser/raw head) " in both branches.")))
          :child bare}))))
+
+(defn- inside-handler-fn?
+  "True when an anonymous `fn` around `loc` is a handler or a call's argument, whose result no page renders.
+
+  A `fn` in a map is a handler, unless it is the `:reagent-render` or `:render` of a class
+  component, and one handed to a call other than `map` or `keep` is that call's to use."
+  [loc ns-info]
+  (boolean (some (fn [ancestor]
+                   (when (and (= :list (z/tag ancestor)) (heads/resolve-head ancestor ns-info function-heads))
+                     (let [parent (z/up ancestor)]
+                       (case (some-> parent z/tag)
+                         :map (not (contains? #{":reagent-render" ":render"} (some-> ancestor z/left parser/raw)))
+                         :list (not (heads/resolve-head parent ns-info mapping-heads))
+                         false))))
+                 (take-while some? (rest (iterate z/up loc))))))
 
 (defn- remounting-branch-finding
   "Return the finding for an `if` whose branches render the same focusable child, wrapped in one and bare in the other.
@@ -549,19 +569,23 @@
   The cheap shape check runs first, since most conditions choose between values, not elements."
   [loc ns-info file]
   (let [branches (drop 2 (parser/written-child-locs loc))]
-    (when (and (= 2 (count branches)) (some element-parts branches))
-      (let [[a b] branches]
-        (when-let [{:keys [hint child]} (or (wrapped-child a b ns-info) (wrapped-child b a ns-info))]
-          (when (rendered-position? loc ns-info)
-            (let [[row col] (parser/position loc)]
-              {:kw (symbol (parser/raw (z/down loc)))
-               :type :remounting-branch
-               :form (parser/source-snippet loc)
-               :inner-form (parser/source-snippet child)
-               :file file
-               :row row
-               :col col
-               :hint hint})))))))
+    (when (= 2 (count branches))
+      (let [[a b] branches
+            parts-a (element-parts a)
+            parts-b (element-parts b)]
+        (when (or parts-a parts-b)
+          (when-let [{:keys [hint child]} (or (when parts-a (wrapped-child a parts-a b ns-info))
+                                              (when parts-b (wrapped-child b parts-b a ns-info)))]
+            (when (and (rendered-position? loc ns-info) (not (inside-handler-fn? loc ns-info)))
+              (let [[row col] (parser/position loc)]
+                {:kw (symbol (parser/raw (z/down loc)))
+                 :type :remounting-branch
+                 :form (parser/source-snippet loc)
+                 :inner-form (parser/source-snippet child)
+                 :file file
+                 :row row
+                 :col col
+                 :hint hint}))))))))
 
 (defn- handle-remounting-branch [loc ns-info file]
   (when (and (heads/resolve-head loc ns-info branching-heads)

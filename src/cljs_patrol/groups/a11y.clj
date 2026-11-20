@@ -569,7 +569,7 @@
         (and (not (meaningful-text-name? attrs))
              (not (stateful-widget? attrs)))))))
 
-(def ^:private focusable-tags
+(def focusable-tags
   "Tags the browser puts in the tab order with no authoring at all.
 
   `:a` is absent because a link earns its place there only once it has an `:href`,
@@ -638,7 +638,7 @@
   [attrs tag]
   (and (= :input tag) (= "hidden" (literal-sexpr (get attrs :type)))))
 
-(defn focusable?
+(defn- focusable?
   "True when the element can take focus.
   Answered only from attrs that are absent or readable whole: a partial or computed map
   may hold the negative tabindex or the `disabled` that is the way out, and calling one
@@ -967,7 +967,7 @@
   (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
              (interactive-content? (hiccup/attrs-info loc) tag))))
 
-(defn names-unreadable-props?
+(defn- names-unreadable-props?
   "True when the element's second child may name props this cannot read.
   `attrs-info` answers `:non-map` both for `[:button \"Save\"]`, which really carries no
   attrs, and for `[:button props \"Save\"]`, where a symbol nothing in the file defines
@@ -981,7 +981,9 @@
           (not= :map (:kind info))
           (not (some-> (hiccup/resolved-value second-child) cannot-be-props?))))))
 
-(defn- focusable-loc? [loc ns-info component-aliases]
+(defn focusable-loc?
+  "True when the element at `loc`, resolved through `component-aliases`, can take focus and its props can be read."
+  [loc ns-info component-aliases]
   (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
              (and (not (names-unreadable-props? loc))
                   (focusable? (hiccup/attrs-info loc) tag)))))

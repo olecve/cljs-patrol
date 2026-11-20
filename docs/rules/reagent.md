@@ -424,15 +424,18 @@ wraps a child the other branch renders bare moves the child to another place whe
 it and mounts a new one. The element that had keyboard focus is gone, and focus falls to the page.
 
 The forms read are `if`, `if-not`, `if-let` and `if-some` with both branches, standing where their value renders: the
-last form of a component, a child of an element, a value in its props map, the last form of a `for` body, or a branch of
-a form that renders. The child is reported when it can hold keyboard focus: its Hiccup holds an element that takes focus
-as the a11y group reads it, with a control's tag or a `:tab-index`, or a component given an `:on-*` handler. A symbol
-counts when a binding around it gives it such Hiccup, and both branches name the same binding. Only the Hiccup tree is
-read, an element's children and what a `when`, `if`, `let`, `for` or `map` yields, so a props map or the arguments of a
-call add nothing, and an element whose props this cannot read is left alone, since they may disable it. A component
-without a handler may keep state, but the rule cannot tell, so it is left alone, and so is a parameter or a call, which
-may be text or data. When the wrapper holds other children too, the hint asks for the same elements in the same order in
-both branches, since React matches children by their place.
+last form of a component, a child of an element, a value in its props map, the last form of a `for` body or a `map`
+function, or a branch of a form that renders. An `if` in an anonymous `fn` that sits in a map, such as a handler, or is
+handed to any other call is not rendered and is left alone; the `:reagent-render` or `:render` of a class component
+renders. The child is reported when it can hold keyboard focus: its Hiccup holds an element that takes focus as the a11y
+group reads it, through a control's tag, an `:a` with an `:href` or a `:tab-index`, or a component given an `:on-*`
+handler. A component alias of the a11y group is not read here. The child may be an element, a `when`, `if` or `let` that
+yields one, or a symbol that a binding around it gives such Hiccup, the same binding in both branches. Only the Hiccup
+tree is read, an element's children and what a `when`, `if`, `let`, `for` or `map` yields, so a props map or the
+arguments of a call add nothing, and an element whose props this cannot read is left alone, since they may disable it. A
+component without a handler may keep state, but the rule cannot tell, so it is left alone, and so is a parameter or any
+other call, which may be text or data. When the wrapper holds other children too, the hint asks for the same elements in
+the same order in both branches, since React matches children by their place.
 
 Not read: a fragment as the wrapper, which React unwraps in some places and not others; a focusable element whose tag
 changes between the branches; the same child under two different wrappers; a `[:> Component …]` interop wrapper; a
