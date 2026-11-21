@@ -91,15 +91,25 @@ clojure -M:test:mutate cljs-patrol.groups.reagent -t cljs-patrol.groups.reagent-
 
 It changes the code under test, never the tests: it swaps one operator at a time in a `def`, `defn`, `defn-` or
 `defmethod` of the target namespace, such as `when` for `when-not`, `<` for `<=`, `some` for `every?` or `true` for
-`false`. A first run of the tests records which tests call each function of the target. Then, for each mutant, it
-evaluates the mutated form over the namespace, runs the tests that call that function until the first failure, and
-evaluates the original back. Pass every test namespace that exercises the target with `-t`: the run knows only those.
-Every test runs instead when the function cannot be recorded (a `defmethod`, a `def` that holds data, or a function with
-a primitive type hint), when it is called from a fixture, when a test namespace has a `test-ns-hook`, when the selected
-tests fail on their own, and with `-a` (`--all-tests`). A test that only reads what another test wrote is not selected
-for the function that wrote it, and a call that a background thread makes after its test ended counts for the test
-running then, so use `-a` for such a namespace. If recording the calls makes the tests fail, or run past a timeout given
-with `--timeout`, every mutant runs every test, and the report says so. Each mutant ends as one of:
+`false`. An integer literal written in decimal changes too, in function code (a `defn`, `defn-` or `defmethod` body, or
+a `def` whose value is a `fn` or `#(…)`): `0` and `1` swap, and any other goes up by one, such as `-1` to `0`. A
+definition's name, a `defmethod` dispatch value and a `^:const` def, whose value callers copy, get no mutant at all, and
+the report lists `^:const` defs apart. A skip marker names a changed number by its text, such as
+`; mutate: skip 0: REASON`. Each arity of that function code, but a `#(…)`, also gets a body mutant (`:swap :body`), as
+cargo-mutants does for Rust: its whole body becomes `nil`, so a function with no operator, or one whose result no test
+checks, still shows up. Its operator is `body`, and it sits at the body's first form, so `--apply 'ROW:COL:body'` and
+`; mutate: skip body: REASON` on that line name it; `--apply` picks it by column and operator, since a token there, such
+as `80` in `(defn width [] 80)`, has its own mutant. A leading `{:pre … :post …}` map with forms after it stays, and
+only the forms after it become `nil`. An empty body or a lone `nil` gets none, since it already gives nil. A first run
+of the tests records which tests call each function of the target. Then, for each mutant, it evaluates the mutated form
+over the namespace, runs the tests that call that function until the first failure, and evaluates the original back.
+Pass every test namespace that exercises the target with `-t`: the run knows only those. Every test runs instead when
+the function cannot be recorded (a `defmethod`, a `def` that holds data, or a function with a primitive type hint), when
+it is called from a fixture, when a test namespace has a `test-ns-hook`, when the selected tests fail on their own, and
+with `-a` (`--all-tests`). A test that only reads what another test wrote is not selected for the function that wrote
+it, and a call that a background thread makes after its test ended counts for the test running then, so use `-a` for
+such a namespace. If recording the calls makes the tests fail, or run past a timeout given with `--timeout`, every
+mutant runs every test, and the report says so. Each mutant ends as one of:
 
 - **killed**: a test failed, or the mutated form threw while it loaded. A failure is recorded before the run is cut
   short, so an assertion that catches exceptions, such as `thrown?`, cannot hide it.
@@ -122,21 +132,35 @@ A definition under metadata or in the `#?` branch Clojure reads counts like any 
 captures then, nor top-level forms that are no definition, whose effects would run again with every mutant. The report
 has a row per definition with its counts, two scores (killed over all scored mutants, and over the mutants the tests
 reach), names what was not mutated or has no coverage and why, and lists every survivor, unviable and timed-out mutant
-with its source line. A `; mutate: skip OPERATOR: REASON` comment after a line, or on the line above it in the same
-form, leaves that operator's mutant out, and `:mutate/skip "REASON"` on a definition's name or in a `defn`'s attribute
-map leaves out all of its mutants: they do not run, are not scored, and are listed as ignored with the reason. Only real
-comments count. The run stops on a comment that starts like a marker but is not one, on a `:mutate/skip` that is no
-reason string, and on one on a form the runner does not mutate; a marker that matches no mutant or has no code after it
-in its form prints a warning. `-d` limits the run to named top-level definitions, `-s REF` to the lines the branch
-changed since it left a git ref, `-r FILE` writes every mutant and its outcome to EDN, and `--html FILE` writes a page
-that leads with the test gaps: each one's line before and after the change, a likely reason no test caught it, and the
-tests that run for it, then tables by function and by test, and the source. The page needs no network. Its plain words,
-such as "planted bug" for a mutant, map to the usual ones in [`docs/mutation-testing.md`](docs/mutation-testing.md).
+with its source line. Survivors are grouped by line. On the first 10 lines, the line shows once before the swaps as a
+`- ` line, and each survivor shows the line after its swap as a `+ ` line, both without the indent. A line longer than
+100 characters is cut to 100, from 40 before the swap, or earlier so the cut ends at the line end; the `- ` line shows
+again when a swap needs another part of the line. The survivors on later lines show only their position and swap, and a
+line points to `--html` and `-r` for them, or to the files the run writes. A `; mutate: skip OPERATOR: REASON` comment
+after a line, or on the line above it in the same form, leaves that operator's mutant out, and `:mutate/skip "REASON"`
+on a definition's name or in a `defn`'s attribute map leaves out all of its mutants: they do not run, are not scored,
+and are listed as ignored with the reason. Only real comments count. The run stops on a comment that starts like a
+marker but is not one, on a `:mutate/skip` that is no reason string, and on one on a form the runner does not mutate; a
+marker that matches no mutant or has no code after it in its form prints a warning. `-d` limits the run to named
+top-level definitions, `-s REF` to the lines the branch changed since it left a git ref (a body mutant counts when any
+of its lines changed), `-r FILE` writes every mutant and its outcome to EDN, and `--html FILE` writes a page that leads
+with the test gaps: each one's line before and after the change, a likely reason no test caught it, and the tests that
+run for it, then tables by function and by test, and the source. The page needs no network. Its plain words, such as
+"planted bug" for a mutant, map to the usual ones in [`docs/mutation-testing.md`](docs/mutation-testing.md).
 `--apply 'ROW:COL:OPERATOR'` writes that one mutant into the file and runs nothing, keeping the replaced text in
 `.mutate-applied.edn`, and `--restore` puts it back. Neither takes the options of a run, and a second `--apply` or a run
 waits for `--restore`. A run exits 0 when nothing survives, 1 when something survives or has no coverage, and 2 when it
 cannot start or stops early. A value a `def` computes when the namespace loads keeps the original, so a mutant only it
 reaches survives.
+
+The runner's command line is `dev/cljs_patrol/dev/mutate.clj`. Each job has its namespace under
+`dev/cljs_patrol/dev/mutate/`, and its tests under `test/cljs_patrol/dev/mutate/`: `forms` reads the target into
+mutants, skip markers and scope, `run` loads each mutant and runs the tests, `report` summarizes and prints, `apply`
+does `--apply` and `--restore`, `git` reads the lines `-s` changed, and `error` holds the error that stops a run. The
+end-to-end tests in `test/cljs_patrol/dev/mutate_test.clj` and `mutate_html_test.clj` also exercise every job, so to
+mutate a runner namespace, pass all of its test namespaces with `-t`: `cljs-patrol.dev.mutate-test`,
+`cljs-patrol.dev.mutate-html-test` and the `cljs-patrol.dev.mutate.*-test` ones. `fixtures.clj` holds the helpers they
+share.
 
 ## Linting
 

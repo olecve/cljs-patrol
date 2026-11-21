@@ -162,8 +162,10 @@ mutant for each run.
 
 ## More Information
 
-- The runner: [`dev/cljs_patrol/dev/mutate.clj`](../../dev/cljs_patrol/dev/mutate.clj)
-- Its tests: [`test/cljs_patrol/dev/mutate_test.clj`](../../test/cljs_patrol/dev/mutate_test.clj)
+- The runner: [`dev/cljs_patrol/dev/mutate.clj`](../../dev/cljs_patrol/dev/mutate.clj), and one namespace for each job
+  under [`dev/cljs_patrol/dev/mutate/`](../../dev/cljs_patrol/dev/mutate/)
+- Its tests: [`test/cljs_patrol/dev/mutate_test.clj`](../../test/cljs_patrol/dev/mutate_test.clj), and
+  [`test/cljs_patrol/dev/mutate/`](../../test/cljs_patrol/dev/mutate/)
 - How to run it: the "Mutation testing" section of [`CLAUDE.md`](../../CLAUDE.md)
 - Its words, how they map to other tools, and the sources behind its HTML page:
   [`docs/mutation-testing.md`](../mutation-testing.md)

@@ -3,7 +3,8 @@
 [← back to the README](../README.md)
 
 A dev-only runner that checks whether the tests would notice a bug: it plants one small bug at a time in the code under
-test and runs the tests. A planted bug that every test lets through marks a line no test really checks.
+test, such as `when` to `when-not`, `<` to `<=`, `0` to `1` or a whole function body to `nil`, and runs the tests. A
+planted bug that every test lets through marks a line no test really checks.
 
 ## Why
 
@@ -26,11 +27,32 @@ clojure -M:test:mutate cljs-patrol.groups.reagent -t cljs-patrol.groups.reagent-
 clojure -M:test:mutate cljs-patrol.groups.reagent -t cljs-patrol.groups.reagent-test
 ```
 
+The run of one definition ends with:
+
 ```text
-58 mutants: 47 killed, 10 survived, 0 no coverage, 0 unviable, 1 timed out.
-Score 82%, covered score 82%.
-HTML report written to reagent.html
+Survived:
+  490:43  remove -> filter  in holds-focus?
+    - (boolean (if-let [bodies (seq (remove #(= :uneval (z/tag %)) (mapping-body-locs loc ns-info)))]
+    + (boolean (if-let [bodies (seq (filter #(= :uneval (z/tag %)) (mapping-body-locs loc ns-info)))]
+  490:52  = -> not=  in holds-focus?
+    + (boolean (if-let [bodies (seq (remove #(not= :uneval (z/tag %)) (mapping-body-locs loc ns-info)))]
+  491:38  last -> first  in holds-focus?
+    - (holds-focus? (last bodies) ns-info)
+    + (holds-focus? (first bodies) ns-info)
+  493:52  some -> every?  in holds-focus?
+    - (and (not= [loc] results) (some #(holds-focus? % ns-info) results)))))))))
+    + (and (not= [loc] results) (every? #(holds-focus? % ns-info) results)))))))))
+
+To watch a new test fail on a survivor, apply it to the file, such as:
+  clojure -M:test:mutate cljs-patrol.groups.reagent --apply '490:43:remove'
+
+13 mutants: 9 killed, 4 survived, 0 no coverage, 0 unviable, 0 timed out.
+Score 69%, covered score 69%.
 ```
+
+The console lists each survivor by line and column, the swap, and its function. For the first 10 lines with survivors,
+it shows the line before the swaps (`-`) once, and the line after each swap (`+`) under that swap, cut around the swap
+when the line is long. For more, read the page that `--html FILE` writes.
 
 Pass every test namespace that tests the target with `-t`. The run exits 0 when every planted bug was caught, 1 when
 there is a test gap, and 2 when it cannot start or stops early. Every option, what is not mutated, and when every test
@@ -50,6 +72,13 @@ from the two operators, so it starts with "Likely". For example, `first` to `las
 every test has only one item there. When that is the only possible case, the change is harmless, and the page tags it
 "May be harmless".
 
+Each function also gets one planted bug that replaces its whole body with `nil`, one for each arity, shown as `body` to
+`nil`. It finds a function that has no operator to swap, or one that a test calls but never checks: "Likely: no test
+checks what this function returns or does." A function that runs only for its side effects, such as printing, gives this
+gap when no test checks those effects. A `{:pre … :post …}` map at the start of a body stays, and only the forms after
+it become `nil`. A body that is empty or only `nil` gets no such planted bug. With `-s`, the body's planted bug runs
+when any line of the body changed.
+
 Below the gaps are tables by function and by test, then, folded, the source with every planted bug marked, all the
 numbers, and the terms and sources.
 
@@ -66,7 +95,8 @@ clojure -M:test:mutate cljs-patrol.groups.reagent --apply '87:4:and'
 #   clojure -M:test:mutate --restore
 ```
 
-The position names the operator too, so a position from an older report cannot write a different planted bug. `--apply`
+The position names the operator too, so a position from an older report cannot write a different planted bug, and in
+`(defn width [] 80)` the body and the `80` share a place but `'2:16:body'` and `'2:16:80'` name one each. `--apply`
 keeps the file's text in `.mutate-applied.edn`, so it works on a file with uncommitted changes, and `--restore` writes
 that text back exactly. A second `--apply`, or a run, waits for `--restore`. `--restore` leaves a file alone that
 changed after the apply, and only clears the kept text when you already put the file back by hand. Each gap the tests
@@ -93,12 +123,14 @@ list it as ignored, with the reason.
   (if x 1 2))
 ```
 
-A comment after code skips that operator on its own line, and a comment on a line of its own skips it on the next line
-of code in the same form. Other planted bugs on the same line still run. `:mutate/skip` on a definition's name, or in a
-`defn`'s attribute map, skips all of its planted bugs, and its value must be the reason, as a string. Only real comments
-count, not the same words in a string or docstring. A comment that starts like a marker but does not follow the pattern,
-such as `; mutate:skip first: ...`, stops the run, and so does `:mutate/skip` on a form the runner does not mutate, such
-as a `defmacro`. The run warns about a marker that matches no planted bug or has no code after it in its form, so stale
+A changed number is named by its text, such as `; mutate: skip 0: zero is the floor`, and a body replaced by `nil` by
+`body`, on the line where the body's first form starts, such as `; mutate: skip body: only logs`. A comment after code
+skips that operator on its own line, and a comment on a line of its own skips it on the next line of code in the same
+form. Other planted bugs on the same line still run. `:mutate/skip` on a definition's name, or in a `defn`'s attribute
+map, skips all of its planted bugs, and its value must be the reason, as a string. Only real comments count, not the
+same words in a string or docstring. A comment that starts like a marker but does not follow the pattern, such as
+`; mutate:skip first: ...`, stops the run, and so does `:mutate/skip` on a form the runner does not mutate, such as a
+`defmacro`. The run warns about a marker that matches no planted bug or has no code after it in its form, so stale
 markers do not pile up. Skip only what you have read and judged harmless: a skipped line is a line no test checks.
 
 ## Why it works this way
@@ -129,6 +161,7 @@ report and the EDN file use the usual words, which also name the outcomes in the
 | Page            | Console and EDN                 | Other tools                  | Meaning                                                                                                                                                     |
 | --------------- | ------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | planted bug     | mutant                          | mutant                       | One small change to the code under test, such as `when` to `when-not`. The tests never change.                                                              |
+| body to nil     | body mutant (`:swap :body`)     | replace function body        | One planted bug for each arity of a function: its whole body becomes `nil`. `--apply` and skip markers name it `body`.                                      |
 | caught          | killed (`:killed`)              | killed, detected             | A test failed, or the changed code threw while it loaded.                                                                                                   |
 | not caught      | survived (`:survived`)          | survived, undetected, missed | Every test that ran passed.                                                                                                                                 |
 | never run       | no coverage (`:no-coverage`)    | no coverage, NoCoverage      | No test calls the changed function, so no test could catch the change.                                                                                      |
@@ -151,7 +184,8 @@ and the gaps it reaches and still passes, not the planted bugs it caught.
 
 - [ADR 0005: Test The Tests By Mutation In One JVM](adr/0005-mutation-testing-in-one-jvm.md). The decision and the
   options it was weighed against.
-- The runner: [`dev/cljs_patrol/dev/mutate.clj`](../dev/cljs_patrol/dev/mutate.clj), and its page:
+- The runner: [`dev/cljs_patrol/dev/mutate.clj`](../dev/cljs_patrol/dev/mutate.clj), its command line, with one
+  namespace per job under [`dev/cljs_patrol/dev/mutate/`](../dev/cljs_patrol/dev/mutate/), and its page:
   [`dev/cljs_patrol/dev/mutate_html.clj`](../dev/cljs_patrol/dev/mutate_html.clj).
 - Petrović, Ivanković, Fraser, Just.
   [Practical Mutation Testing at Scale: A view from Google](https://arxiv.org/abs/2102.11378). IEEE TSE, 2021. Google
