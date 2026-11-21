@@ -102,6 +102,33 @@ that text back exactly. A second `--apply`, or a run, waits for `--restore`. `--
 changed after the apply, and only clears the kept text when you already put the file back by hand. Each gap the tests
 ran has its command on the page; code no test calls has none, since no test can fail on it yet.
 
+## Run again
+
+Each run keeps the outcome of each planted bug in `.mutate-cache/<target-ns>.edn`, as soon as it is known. The next run
+of the same code reuses it:
+
+- **Resume.** A run that stopped early, or was cut short, goes on where it ended. A planted bug whose tests kept running
+  runs again last, after every other one: if it loops again, the run stops there with nothing else lost. `-d` and `-s`
+  runs share the cache with a full run.
+- **No change, no tests.** When every planted bug in scope is cached, the run reads the cache and runs no test. A plain
+  timeout is reused too; run with `--fresh` to give it another try.
+- **`--iterate`.** After you add tests or change code, run with `--iterate`: it keeps the caught planted bugs, and those
+  that did not compile, by their name, and runs the others, such as the gaps, the timeouts and new planted bugs. It says
+  how many it kept. It trusts that those are still caught, so run once without it before a merge: that run checks them
+  again.
+- **`--fresh`.** Runs every planted bug again and replaces the cache.
+
+A plain run reuses an outcome only when nothing changed in `src/`, `test/`, `dev/`, `test-projects/`, `docs/` or
+`deps.edn`, in the runner, or in `-a` and `--timeout`. A run with the same target source as the last one tags each gap
+as new or still open, on the console and the page, and counts the gaps closed since:
+
+```text
+Since the last run: 1 gap closed, 0 new, 3 still open.
+  Closed: holds-focus?/490:43/remove->filter
+```
+
+The name of each planted bug, its `:id` in the cache and in the `-r` report, is its function, its place and its swap.
+
 ## Skip a harmless planted bug
 
 When a planted bug behaves the same as the original in every case, no test can catch it. Mark it once with the operator
@@ -152,6 +179,9 @@ Each choice below has a record in [`docs/adr/`](adr/README.md) with the options 
   console.
 - **A body replaced by `nil`** ([ADR 0009](adr/0009-mutation-test-replace-a-body-with-nil.md)). A function with no
   operator and no number gives no swap, so one more mutant per arity shows a function that no test checks at all.
+- **A cache that only trusts unchanged sources** ([ADR 0010](adr/0010-mutation-test-cache-and-resume.md)). A run reuses
+  an outcome only when the source files, the runner and the options are the same as in the last run, so a reused outcome
+  is the one a new run would give. `--iterate` trusts caught outcomes after a change, for the work of adding tests.
 
 ## Words
 

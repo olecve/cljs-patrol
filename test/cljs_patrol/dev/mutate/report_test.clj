@@ -277,3 +277,87 @@
                      :report "r.edn"})))
     (is (= "  The first 10 lines show their text; --html FILE shows every survivor's line, and r.edn has them all as EDN."
            (pointer {:report "r.edn"})))))
+
+(deftest summary-names-each-mutant-by-id-and-marks-loops
+  (let [{:keys [mutants ignored]} (report/summarize {:defs-in-scope ["a"]
+                                                     :results [{:id "a/1:1/when->when-not"
+                                                                :def "a"
+                                                                :outcome :timeout
+                                                                :stuck? true}
+                                                               {:id "a/1:2/if->if-not"
+                                                                :def "a"
+                                                                :outcome :timeout
+                                                                :stuck? false}]
+                                                     :ignored [{:id "a/1:3/and->or"
+                                                                :def "a"}]})]
+    (is (= [["a/1:1/when->when-not" true] ["a/1:2/if->if-not" nil]] (map (juxt :id :stuck?) mutants))
+        "only loop is marked")
+    (is (= ["a/1:3/and->or"] (map :id ignored)))))
+
+(deftest report-tags-gaps-against-last-run
+  (let [output (printed-report [(assoc (survivor 1 4 "when" "when-not") :since-last-run :new)
+                                (assoc (survivor 1 9 "seq" "empty?") :since-last-run :still-open)
+                                (survivor 1 2 "if" "if-not")]
+                               ["  (when (seq xs) :ok)"])]
+    (is (str/includes? output "  1:4  when -> when-not  in f  (new)\n"))
+    (is (str/includes? output "  1:9  seq -> empty?  in f  (still open)\n"))
+    (is (str/includes? output "  1:2  if -> if-not  in f\n")
+        "no tag without last run")))
+
+(defn- report-of [summary]
+  (with-out-str (report/print-report (merge {:mutants []
+                                             :totals {:mutants 0
+                                                      :killed 0
+                                                      :survived 0
+                                                      :no-coverage 0
+                                                      :unviable 0
+                                                      :timeout 0}}
+                                            summary)
+                                     {:source-lines ["(f)"]
+                                      :target "x.target"})))
+
+(deftest report-tags-functions-without-coverage
+  (let [never-run (fn [function tag] {:def function
+                                      :row 1
+                                      :col 1
+                                      :from "f"
+                                      :to "g"
+                                      :outcome :no-coverage
+                                      :since-last-run tag})]
+    (is (str/includes? (report-of {:not-covered ["a" "b" "c"]
+                                   :mutants [(never-run "a" :still-open)
+                                             (never-run "a" :new)
+                                             (never-run "b" :still-open)
+                                             (never-run "c" nil)]})
+                       "No coverage, no test calls them through their var: a (new), b (still open), c\n")
+        "one new gap makes function new")))
+
+(deftest report-explains-loop-it-reuses
+  (let [timed-out {:def "f"
+                   :row 1
+                   :col 2
+                   :from "f"
+                   :to "g"
+                   :outcome :timeout}]
+    (is (str/includes? (report-of {:mutants [(assoc timed-out :stuck? true)]})
+                       (str "  1:2  f -> g  in f\n      (f)\n      Its tests kept running after the timeout, so the run"
+                            " stopped here. The next run runs it again, after every other mutant.\n")))
+    (is (not (str/includes? (report-of {:mutants [timed-out]}) "kept running")))))
+
+(deftest report-counts-gaps-closed-since-last-run
+  (is (str/includes? (report-of {:progress {:closed ["f/1:1/when->when-not" "f/2:1/if->if-not"]
+                                            :new 1
+                                            :still-open 3}})
+                     (str "Since the last run: 2 gaps closed, 1 new, 3 still open.\n"
+                          "  Closed: f/1:1/when->when-not, f/2:1/if->if-not\n")))
+  (let [output (report-of {:progress {:closed []
+                                      :new 0
+                                      :still-open 3}})]
+    (is (str/includes? output "Since the last run: 0 gaps closed, 0 new, 3 still open.\n"))
+    (is (not (str/includes? output "Closed:"))))
+  (is (str/includes? (report-of {:progress {:closed ["f/1:1/when->when-not"]
+                                            :new 0
+                                            :still-open 0}})
+                     "Since the last run: 1 gap closed, 0 new, 0 still open.\n"))
+  (is (not (str/includes? (report-of {}) "Since the last run"))
+      "first run"))

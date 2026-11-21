@@ -79,13 +79,15 @@
      :score (when (pos? scored) (double (/ (:killed counts) scored)))
      :covered-score (when (pos? covered) (double (/ (:killed counts) covered)))
      :mutants (mapv #(-> %
-                         (select-keys [:def :row :col :end-row :end-col :from :swap :at-load?])
+                         (select-keys [:id :def :row :col :end-row :end-col :from :swap :at-load?])
                          (assoc :to (pr-str (:to %))
                                 :outcome (outcome-key (:outcome %)))
-                         (cond-> (:killed-by %) (assoc :killed-by (test-name (:killed-by %)))))
+                         (cond->
+                          (:killed-by %) (assoc :killed-by (test-name (:killed-by %)))
+                          (:stuck? %) (assoc :stuck? true)))
                     results)
      :ignored (mapv #(-> %
-                         (select-keys [:def :row :col :end-row :end-col :from :swap])
+                         (select-keys [:id :def :row :col :end-row :end-col :from :swap])
                          (assoc :to (pr-str (:to %))
                                 :reason (:skip-reason %)))
                     ignored)
@@ -118,8 +120,14 @@
          (subs line start (min end (count line)))
          (when (< end (count line)) " …"))))
 
-(defn- print-head [{:keys [def row col from to]}]
-  (println (format "  %d:%d  %s -> %s  in %s" row col from to def)))
+(def ^:private progress-tags
+  "How the console tags a gap against the last run."
+  {:new "(new)"
+   :still-open "(still open)"})
+
+(defn- print-head [{:keys [def row col from to since-last-run]}]
+  (println (str (format "  %d:%d  %s -> %s  in %s" row col from to def)
+                (some->> (progress-tags since-last-run) (str "  ")))))
 
 (defn- swap-pair
   "Pair `line` before and after `from` at `col` turns into `to`, without its indent, with one start to cut both at.
@@ -178,13 +186,19 @@
   `since` is the ref of `-s` or nil, `target` names the namespace for the example --apply command, and `report` and
   `html` are the files of `-r` and `--html`, or nil."
   [{:keys [definitions not-mutated not-covered loaded-once const-defs other-forms unreached totals score
-           covered-score mutants ignored stopped note]}
+           covered-score mutants ignored stopped note progress]}
    {:keys [source-lines since target]
     :as options}]
-  (let [survivors (filter #(= :survived (:outcome %)) mutants)]
+  (let [survivors (filter #(= :survived (:outcome %)) mutants)
+        def-tag (fn [def-name]
+                  (let [tags (->> mutants
+                                  (filter #(and (= def-name (:def %)) (= :no-coverage (:outcome %))))
+                                  (keep :since-last-run)
+                                  set)]
+                    (some->> (some tags [:new :still-open]) progress-tags (str " "))))]
     (println)
     (pprint/print-table [:def :mutants :killed :survived :no-coverage :unviable :timeout] definitions)
-    (print-list "No coverage, no test calls them through their var" not-covered)
+    (print-list "No coverage, no test calls them through their var" (map #(str % (def-tag %)) not-covered))
     (print-list (str "Not mutated, no operator " (if since "on the changed lines" "applies")) not-mutated)
     (print-list "Not mutated, loaded once" loaded-once)
     (print-list "Not mutated, ^:const, callers copy its value" const-defs)
@@ -197,10 +211,13 @@
             :let [shown (filter #(= outcome (:outcome %)) mutants)]
             :when (seq shown)]
       (println (str "\n" title ":"))
-      (doseq [{:keys [row]
+      (doseq [{:keys [row stuck?]
                :as mutant} shown]
         (print-head mutant)
-        (println (str "      " (str/trim (nth source-lines (dec row) ""))))))
+        (println (str "      " (str/trim (nth source-lines (dec row) ""))))
+        (when stuck?
+          (println (str "      Its tests kept running after the timeout, so the run stopped here. The next run runs it"
+                        " again, after every other mutant.")))))
     ; mutate: skip first: any survivor makes a fine example
     (when-let [mutant (first survivors)]
       (println (str "\nTo watch a new test fail on a survivor, apply it to the file, such as:\n"
@@ -213,6 +230,11 @@
                      (:mutants totals) (:killed totals) (:survived totals) (:no-coverage totals) (:unviable totals)
                      (:timeout totals)))
     (println (str "Score " (percent score) ", covered score " (percent covered-score) "."))
+    (when-let [{:keys [closed new still-open]} progress]
+      (println (str "Since the last run: " (count closed) (if (= 1 (count closed)) " gap" " gaps") " closed, " new " new, "
+                    still-open " still open."))
+      (when (seq closed)
+        (println (str "  Closed: " (str/join ", " closed)))))
     (when note
       (println (str "\nNote: " note)))
     (when stopped

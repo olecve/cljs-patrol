@@ -14,6 +14,7 @@
   neither is scored."
   (:require
    [cljs-patrol.dev.mutate.apply :as apply]
+   [cljs-patrol.dev.mutate.cache :as cache]
    [cljs-patrol.dev.mutate.error :as error]
    [cljs-patrol.dev.mutate.forms :as forms]
    [cljs-patrol.dev.mutate.git :as git]
@@ -34,16 +35,28 @@
   "Mutate `target`, whose `source` is loaded from `file`, against `test-nss`, print the report, and return it.
 
   The tests must pass before any mutation, whether or not `timeout` is given. The report is
-  also written to `report` when given."
-  [target file source test-nss {:keys [defs since timeout report html all-tests]}]
+  also written to `report` when given. With `cache`, {:file … :key …}, each outcome goes to
+  that file as soon as it is known, and the outcomes it already holds are reused as
+  [[cache/open!]] decides, with `fresh` and `iterate`. When every mutant is reused, no test
+  runs, the baseline included."
+  [target file source test-nss {:keys [defs since timeout report html all-tests cache fresh iterate]}]
   (let [lines (when since (git/lines-since file since))
         {:keys [defs-in-scope loaded-once const-defs other-forms selected ignored unused-markers]}
         (forms/scope source {:defs defs
                              :lines lines})
+        selected (mapv cache/with-id selected)
+        ignored (mapv cache/with-id ignored)
         _ (doseq [marker unused-markers]
             (println (str "Warning: the skip marker on " marker " matches no mutant; remove it or fix its operator.")))
-        {:keys [ms covered note]} (when (seq selected)
-                                    (run/baseline target (distinct (map :def selected)) test-nss timeout))
+        store (cache/open! (assoc cache
+                                  :target (cache/text-hash source)
+                                  :current-ids (->> (forms/top-level-forms source) forms/mutants (map cache/mutant-id) set)
+                                  :fresh fresh
+                                  :iterate iterate))
+        {:keys [reused to-run message]} (cache/plan-run store selected)
+        _ (some-> message println)
+        {:keys [ms covered note]} (when (seq to-run)
+                                    (run/baseline target (distinct (map :def to-run)) test-nss timeout))
         timeout-ms (when ms (or timeout (run/default-timeout-ms ms)))
         _ (println (format "%d mutants of %s against %s%s%s%s"
                            (count selected) target (str/join ", " test-nss)
@@ -61,18 +74,27 @@
                                                           :fixed-timeout? (some? timeout)
                                                           :select? (not all-tests)
                                                           :covered covered
-                                                          :plans plans}
-                                                         selected)
-        summary (report/summarize {:defs-in-scope defs-in-scope
-                                   :loaded-once loaded-once
-                                   :const-defs const-defs
-                                   :other-forms other-forms
-                                   :unreached unreached
-                                   :results results
-                                   :ignored ignored
-                                   :stopped stopped
-                                   :note note
-                                   :plans @plans})]
+                                                          :plans plans
+                                                          :on-result #(cache/record! store % @plans note)}
+                                                         to-run)
+        fresh-results (into {} (map (juxt :id identity)) results)
+        summary (cache/with-progress
+                  (report/summarize {:defs-in-scope defs-in-scope
+                                     :loaded-once loaded-once
+                                     :const-defs const-defs
+                                     :other-forms other-forms
+                                     :unreached unreached
+                                     :results (keep #(or (get fresh-results (:id %))
+                                                         (some->> (get reused (:id %)) (merge %)))
+                                                    selected)
+                                     :ignored ignored
+                                     :stopped (when stopped
+                                                (str stopped (when (:file cache)
+                                                               (str " The cache keeps the mutants that finished, so the"
+                                                                    " next run runs the rest, and this one last."))))
+                                     :note (if (seq to-run) note (cache/cached-note store))
+                                     :plans (merge (cache/cached-plans store) @plans)})
+                  store)]
     (report/print-report summary {:html html
                                   :report report
                                   :since since
@@ -97,15 +119,25 @@
     summary))
 
 (defn mutate
-  "Mutate `target`, found on the classpath, against `test-nss`, as [[mutate-source]] does."
-  [target test-nss options]
-  (let [file (source-file target)]
+  "Mutate `target`, found on the classpath, against `test-nss`, as [[mutate-source]] does, cached in `cache-dir`.
+
+  The cache key hashes every source the target and its tests may read, from the directory the
+  command runs from, and the runner's own."
+  [target test-nss {:keys [cache-dir timeout all-tests]
+                    :as options}]
+  (let [file (source-file target)
+        source (slurp file)]
     (try
       (require target)
       (run! require test-nss)
       (catch Exception e
         (throw (error/setup-error (str "Could not load the namespaces: " (ex-message e))))))
-    (mutate-source target file (slurp file) test-nss options)))
+    (mutate-source target file source test-nss
+                   (assoc options :cache {:file (cache/cache-file cache-dir target)
+                                          :key (cache/run-key {:sources (cache/sources-hash ".")
+                                                               :runner (cache/runner-version)
+                                                               :timeout timeout
+                                                               :all-tests all-tests})}))))
 
 (def ^:private cli-options
   [["-t" "--test NS" "A test namespace to run, given once per namespace"
@@ -124,12 +156,14 @@
    ["-r" "--report FILE" "Write every mutant and its outcome to this EDN file"]
    [nil "--html FILE" "Write the report as an HTML page that leads with the test gaps and how to close them"]
    ["-a" "--all-tests" "Run every test for each mutant, as for a test that only reads state another test wrote"]
+   [nil "--fresh" "Run every mutant again, and replace the outcomes the last run cached"]
+   [nil "--iterate" "Reuse the last run's caught mutants though the code changed, and run only the rest"]
    [nil "--apply 'ROW:COL:OPERATOR'" "Write the mutant at this place into the file, and run nothing; needs no -t"]
    [nil "--restore" "Put back the code that --apply replaced; needs no target"]])
 
 (def ^:private usage
   (str "Usage: clojure -M:test:mutate TARGET-NS -t TEST-NS [-t TEST-NS …] [-d DEF …] [-s REF] [--timeout MS]"
-       " [-r FILE] [--html FILE] [-a]\n"
+       " [-r FILE] [--html FILE] [-a] [--fresh | --iterate]\n"
        "       clojure -M:test:mutate TARGET-NS --apply 'ROW:COL:OPERATOR'\n"
        "       clojure -M:test:mutate --restore"))
 
@@ -139,13 +173,16 @@
   (let [editing? (or (:apply options) (:restore options))
         run-option? (or (seq (:test options))
                         (seq (:def options))
-                        (some #(some? (get options %)) [:since :timeout :report :html :all-tests]))]
+                        (some #(some? (get options %)) [:since :timeout :report :html :all-tests :fresh :iterate]))]
     (cond-> []
       (and (:apply options) (:restore options))
       (conj "Give --apply or --restore, not both.")
 
       (and editing? run-option?)
-      (conj "--apply and --restore run no tests, so they take no -t, -d, -s, --timeout, -r, --html or -a.")
+      (conj "--apply and --restore run no tests, so they take no -t, -d, -s, --timeout, -r, --html, -a, --fresh or --iterate.")
+
+      (and (:fresh options) (:iterate options))
+      (conj "Give --fresh or --iterate, not both.")
 
       (and (not (:restore options)) (nil? target))
       (conj "Name the target namespace.")
@@ -154,12 +191,15 @@
       (conj "Name a test namespace with -t."))))
 
 (defn run-cli
-  "Run the command line `args`, print what happened, and return the exit code; `kept` is where --apply keeps text.
+  "Run the command line `args`, print what happened, and return the exit code.
+
+  `kept` is where --apply keeps text, and `cache-dir` where a run keeps its outcomes.
 
   Exit 0 when no mutant survives or lacks coverage, 1 when one does, and 2 when the run cannot
   start or stops early. --apply writes one mutant into the file and --restore puts the code back;
-  each returns 0, or 2 when it cannot. A run does not start while a mutant is applied."
-  [args kept]
+  each returns 0, or 2 when it cannot. A run does not start while a mutant is applied, so no
+  outcome of applied code is cached."
+  [args kept cache-dir]
   (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)
         target (some-> (first arguments) symbol) ; mutate: skip first: more than one target stops the run
         errors (cond-> (into (vec errors) (usage-errors options target))
@@ -184,7 +224,10 @@
                                                                   :timeout (:timeout options)
                                                                   :report (:report options)
                                                                   :html (:html options)
-                                                                  :all-tests (:all-tests options)})))
+                                                                  :all-tests (:all-tests options)
+                                                                  :fresh (:fresh options)
+                                                                  :iterate (:iterate options)
+                                                                  :cache-dir cache-dir})))
         (catch Throwable e
           (println (if (::error/setup (ex-data e)) (ex-message e) (str "The run failed: " e)))
           2)))))
@@ -192,4 +235,4 @@
 (defn -main
   "Run the command line `args` as [[run-cli]] does, and exit with its code."
   [& args]
-  (System/exit (run-cli args apply/applied-file)))
+  (System/exit (run-cli args apply/applied-file cache/default-dir)))

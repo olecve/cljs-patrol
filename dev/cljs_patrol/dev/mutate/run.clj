@@ -283,7 +283,10 @@
                                                (:output plain-run)))))))))
 
 (defn run-all
-  "Run each mutant in turn, stopping at the first test run that keeps looping or the first restore that fails."
+  "Run each mutant in turn, stopping at the first test run that keeps looping or the first restore that fails.
+
+  The context's :on-result, when given, gets each result as soon as it is known, also the one
+  the run stops at."
   [context selected]
   (loop [[mutant & more] selected
          results []]
@@ -297,6 +300,8 @@
            :stopped (str "the tests that call " (:def mutant) " keep running past the timeout without any mutation,"
                          " and would disturb every later run. Fix them, or raise --timeout.")}
           (let [results (conj results result)]
+            (when-let [on-result (:on-result context)]
+              (on-result result))
             (print (case (:outcome result) :passed "S" :no-coverage "N" :failed "." :unviable "U" :timeout "T"))
             (flush)
             (cond

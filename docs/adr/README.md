@@ -13,6 +13,7 @@ Each record states one decision, the options that were considered, and the condi
 | [0007](0007-mutation-test-undo-apply-with-a-kept-copy.md)   | Undo An Applied Mutant With A Kept Copy, Not Git             | Accepted | 2026-11-21 |
 | [0008](0008-mutation-test-report-in-plain-words.md)         | Show The Mutation Report In Plain Words On A Page Of Its Own | Accepted | 2026-11-21 |
 | [0009](0009-mutation-test-replace-a-body-with-nil.md)       | Replace A Function Body With Nil As A Mutant                 | Accepted | 2026-11-21 |
+| [0010](0010-mutation-test-cache-and-resume.md)              | Keep The Results Of A Mutation Run To Resume And Iterate     | Proposed | 2026-11-21 |
 
 ## Format
 
