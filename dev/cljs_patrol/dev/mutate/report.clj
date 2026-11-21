@@ -1,9 +1,13 @@
 (ns cljs-patrol.dev.mutate.report
   "Summarize a run, print its report to the console, and turn it into an exit code."
   (:require
-   [cljs-patrol.dev.mutate.apply :as apply]
    [clojure.pprint :as pprint]
    [clojure.string :as str]))
+
+(defn apply-command
+  "Return the command that writes `mutant` of `target` into its file, as the reports show it, quoted for a shell."
+  [target {:keys [row col from]}]
+  (str "clojure -M:test:mutate " target " --apply '" row ":" col ":" from "'"))
 
 (defn test-name
   "Name a test var as the reports do: namespace/name."
@@ -96,11 +100,16 @@
   [ratio]
   (if ratio (format "%.0f%%" (* 100.0 ratio)) "n/a"))
 
-(defn print-report [{:keys [definitions not-mutated not-covered loaded-once const-defs other-forms unreached totals score
-                            covered-score mutants ignored stopped note]}
-                    source-lines
-                    since
-                    target]
+(defn print-report
+  "Print the console report of `summary`: the counts, what was not mutated, each survivor with its line, and the score.
+
+  `source-lines` are the target's lines, `since` is the ref of `-s` or nil, and `target` names the
+  namespace for the example --apply command."
+  [{:keys [definitions not-mutated not-covered loaded-once const-defs other-forms unreached totals score
+           covered-score mutants ignored stopped note]}
+   source-lines
+   since
+   target]
   (println)
   (pprint/print-table [:def :mutants :killed :survived :no-coverage :unviable :timeout] definitions)
   (print-list "No coverage, no test calls them through their var" not-covered)
@@ -121,7 +130,7 @@
   ; mutate: skip first: any survivor makes a fine example
   (when-let [mutant (first (filter #(= :survived (:outcome %)) mutants))]
     (println (str "\nTo watch a new test fail on a survivor, apply it to the file, such as:\n"
-                  "  " (apply/apply-command target mutant))))
+                  "  " (apply-command target mutant))))
   (when (seq ignored)
     (println "\nIgnored, with a skip marker:")
     (doseq [{:keys [def row col from to reason]} ignored]

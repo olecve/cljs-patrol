@@ -5,7 +5,6 @@
   docs/mutation-testing.md: a planted bug is a mutant, caught means killed, and a test gap is a
   mutant that survived or that no test reaches."
   (:require
-   [cljs-patrol.dev.mutate.apply :as apply]
    [cljs-patrol.dev.mutate.report :as report]
    [clojure.java.io :as io]
    [clojure.string :as str]
@@ -27,9 +26,10 @@
        " show();"))
 
 (def hints
-  "The likely reason a test misses a swap, by the two operators it swaps: one for each pair of `mutate.forms/swaps`.
+  "The likely reason a test misses a swap, by the two operators it swaps.
 
-  A swap of integer literals has one hint of its own, `number-hint`."
+  It has one hint for each pair of `cljs-patrol.dev.mutate.forms/swaps`. A swap of integer
+  literals has one hint of its own, `number-hint`."
   {#{"<" "<="} "no test uses the boundary value, where both sides are equal."
    #{">" ">="} "no test uses the boundary value, where both sides are equal."
    #{"=" "not="} "no test checks both outcomes of this comparison."
@@ -191,7 +191,7 @@
     [:p "Write the planted bug into the file, run the tests, then put the code back with "
      [:code "clojure -M:test:mutate --restore"] ":"]
     [:ul (for [mutant mutants]
-           [:li [:code (apply/apply-command target mutant)]])]]])
+           [:li [:code (report/apply-command target mutant)]])]]])
 
 (defn- function-card
   "Return the card of a definition with test gaps: the closest test to extend, then each gap line by line."

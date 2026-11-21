@@ -10,8 +10,8 @@
   ([options] (run-target fixtures/target-source options))
   ([source options]
    (binding [*out* (java.io.StringWriter.)]
-     (mutate/mutate-source 'cljs-patrol.dev.mutate-test.target "target.clj" source
-                           ['cljs-patrol.dev.mutate-test.target-test] options))))
+     (mutate/mutate-source 'cljs-patrol.dev.mutate.fixtures.target "target.clj" source
+                           ['cljs-patrol.dev.mutate.fixtures.target-test] options))))
 
 (deftest run-kills-and-keeps-mutants-and-restores-the-namespace
   (fixtures/with-target fixtures/target-tests
@@ -31,8 +31,8 @@
                 :timeout 0}
                totals)
             "boundary at 0 is never tested, so > -> >= survives while 0 -> 1 is caught; no test calls unused"))
-      (is (true? (:checked (meta (ns-resolve 'cljs-patrol.dev.mutate-test.target 'positive?)))))
-      (is (= :up ((ns-resolve 'cljs-patrol.dev.mutate-test.target 'label) 1))
+      (is (true? (:checked (meta (ns-resolve 'cljs-patrol.dev.mutate.fixtures.target 'positive?)))))
+      (is (= :up ((ns-resolve 'cljs-patrol.dev.mutate.fixtures.target 'label) 1))
           "original code is back after the run"))))
 
 (deftest failing-tests-stop-the-run-before-any-mutation
@@ -52,7 +52,7 @@
                 "label" :subset}
                tests-run)
             "plan is made on the unmutated namespace, so a killed first mutant keeps the selection"))
-      (is (= 1 @@(ns-resolve 'cljs-patrol.dev.mutate-test.target-test 'unrelated-runs))
+      (is (= 1 @@(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'unrelated-runs))
           "test that calls nothing of the target runs only in the first run"))))
 
 (def ^:private source-with-handlers (str fixtures/target-source "(def handlers {:label label})\n"))
@@ -87,9 +87,9 @@
   (fixtures/with-target (str fixtures/target-tests "(deftest unrelated (is true))\n")
     (fn []
       (let [{:keys [mutants definitions]} (run-target {:defs ["label"]})]
-        (is (= ["cljs-patrol.dev.mutate-test.target-test/labels"]
+        (is (= ["cljs-patrol.dev.mutate.fixtures.target-test/labels"]
                (keep :killed-by mutants)))
-        (is (= [["label" ["cljs-patrol.dev.mutate-test.target-test/labels"]]]
+        (is (= [["label" ["cljs-patrol.dev.mutate.fixtures.target-test/labels"]]]
                (map (juxt :def :tests) definitions)))))))
 
 (deftest run-skips-marked-mutants
@@ -101,14 +101,14 @@
             marked (str marked "; mutate: skip if: stale\n")
             summary (atom nil)
             output (with-out-str
-                     (reset! summary (mutate/mutate-source 'cljs-patrol.dev.mutate-test.target "target.clj" marked
-                                                           ['cljs-patrol.dev.mutate-test.target-test] {})))]
+                     (reset! summary (mutate/mutate-source 'cljs-patrol.dev.mutate.fixtures.target "target.clj" marked
+                                                           ['cljs-patrol.dev.mutate.fixtures.target-test] {})))]
         (is (= 4 (:mutants (:totals @summary)))
             "marked mutant does not run")
         (is (= [["positive?" ">" "the boundary is checked elsewhere"]]
                (map (juxt :def :from :reason) (:ignored @summary))))
         (is (str/includes? output "Warning: the skip marker on line 5 (if) matches no mutant"))
-        (is (str/includes? output "4 mutants of cljs-patrol.dev.mutate-test.target against"))
+        (is (str/includes? output "4 mutants of cljs-patrol.dev.mutate.fixtures.target against"))
         (is (str/includes? output "target-test, 1 ignored, timeout"))
         (is (str/includes? output
                            "Ignored, with a skip marker:\n  2:32  > -> >=  in positive?: the boundary is checked elsewhere")
@@ -118,10 +118,10 @@
   (fixtures/with-target fixtures/target-tests
     (fn []
       (is (str/includes? (with-out-str
-                           (mutate/mutate-source 'cljs-patrol.dev.mutate-test.target "target.clj" fixtures/target-source
-                                                 ['cljs-patrol.dev.mutate-test.target-test] {:defs ["positive?"]}))
+                           (mutate/mutate-source 'cljs-patrol.dev.mutate.fixtures.target "target.clj" fixtures/target-source
+                                                 ['cljs-patrol.dev.mutate.fixtures.target-test] {:defs ["positive?"]}))
                          (str "To watch a new test fail on a survivor, apply it to the file, such as:\n"
-                              "  clojure -M:test:mutate cljs-patrol.dev.mutate-test.target --apply '2:32:>'"))))))
+                              "  clojure -M:test:mutate cljs-patrol.dev.mutate.fixtures.target --apply '2:32:>'"))))))
 
 (deftest usage-errors-keep-apply-and-restore-apart-from-runs
   (is (= [] (mutate/usage-errors {:test ['a-test]} 'a)))
@@ -167,7 +167,7 @@
         (spit kept (pr-str {:file (str (clojure.java.io/file dir "core.clj"))
                             :original "a"
                             :applied "b"}))
-        (let [[code output] (run "cljs-patrol.dev.mutate-test.target" "-t" "cljs-patrol.dev.mutate-test.target-test")]
+        (let [[code output] (run "cljs-patrol.dev.mutate.fixtures.target" "-t" "cljs-patrol.dev.mutate.fixtures.target-test")]
           (is (= 2 code))
           (is (str/includes? output "A mutant is still applied to") output)
           (is (str/includes? output "Put the code back with --restore before a run. If --restore cannot finish, delete")))))))

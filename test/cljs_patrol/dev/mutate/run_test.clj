@@ -1,45 +1,44 @@
 (ns cljs-patrol.dev.mutate.run-test
   (:require
    [cljs-patrol.dev.mutate.fixtures :as fixtures]
-   [cljs-patrol.dev.mutate.report :as report]
    [cljs-patrol.dev.mutate.run :as run]
    [clojure.test :refer [deftest is]]))
 
 (deftest load-outcome-tells-unviable-from-killed
-  (fixtures/sample-ns 'cljs-patrol.dev.mutate-test.load)
+  (fixtures/sample-ns 'cljs-patrol.dev.mutate.fixtures.load)
   (try
-    (is (= :unviable (run/load-outcome #(run/load-text 'cljs-patrol.dev.mutate-test.load "(foo")))
+    (is (= :unviable (run/load-outcome #(run/load-text 'cljs-patrol.dev.mutate.fixtures.load "(foo")))
         "unreadable")
-    (is (= :unviable (run/load-outcome #(run/load-text 'cljs-patrol.dev.mutate-test.load
+    (is (= :unviable (run/load-outcome #(run/load-text 'cljs-patrol.dev.mutate.fixtures.load
                                                        "(defn f [x] (case x true :a true :b))")))
         "uncompilable")
-    (is (= :failed (run/load-outcome #(run/load-text 'cljs-patrol.dev.mutate-test.load "(def x (/ 1 0))")))
+    (is (= :failed (run/load-outcome #(run/load-text 'cljs-patrol.dev.mutate.fixtures.load "(def x (/ 1 0))")))
         "throws while it loads")
-    (is (nil? (run/load-outcome #(run/load-text 'cljs-patrol.dev.mutate-test.load "(def y 1)"))))
-    (finally (remove-ns 'cljs-patrol.dev.mutate-test.load))))
+    (is (nil? (run/load-outcome #(run/load-text 'cljs-patrol.dev.mutate.fixtures.load "(def y 1)"))))
+    (finally (remove-ns 'cljs-patrol.dev.mutate.fixtures.load))))
 
 (deftest reader-conditionals-load-as-clojure
-  (fixtures/sample-ns 'cljs-patrol.dev.mutate-test.sample)
+  (fixtures/sample-ns 'cljs-patrol.dev.mutate.fixtures.sample)
   (try
-    (run/load-text 'cljs-patrol.dev.mutate-test.sample "(def platform #?(:clj :jvm :cljs :js))")
-    (is (= :jvm @(ns-resolve 'cljs-patrol.dev.mutate-test.sample 'platform)))
-    (finally (remove-ns 'cljs-patrol.dev.mutate-test.sample))))
+    (run/load-text 'cljs-patrol.dev.mutate.fixtures.sample "(def platform #?(:clj :jvm :cljs :js))")
+    (is (= :jvm @(ns-resolve 'cljs-patrol.dev.mutate.fixtures.sample 'platform)))
+    (finally (remove-ns 'cljs-patrol.dev.mutate.fixtures.sample))))
 
 (def ^:private validation-tests
   "A test namespace whose only assertion catches every exception, as `(thrown? Throwable …)` does."
-  (str "(ns cljs-patrol.dev.mutate-test.thrown (:require [clojure.test :refer [deftest is]]))\n"
+  (str "(ns cljs-patrol.dev.mutate.fixtures.thrown (:require [clojure.test :refer [deftest is]]))\n"
        "(def validate (fn [x] (when-not (pos? x) (throw (ex-info \"no\" {})))))\n"
        "(deftest rejects-zero (is (thrown? Throwable (validate 0))))\n"))
 
 (deftest failure-inside-thrown-assertion-still-kills
-  (fixtures/sample-ns 'cljs-patrol.dev.mutate-test.thrown)
+  (fixtures/sample-ns 'cljs-patrol.dev.mutate.fixtures.thrown)
   (try
-    (run/load-text 'cljs-patrol.dev.mutate-test.thrown validation-tests)
-    (is (= :passed (:outcome (run/run-tests ['cljs-patrol.dev.mutate-test.thrown] 10000))))
-    (run/load-text 'cljs-patrol.dev.mutate-test.thrown "(def validate (fn [_] nil))")
-    (is (= :failed (:outcome (run/run-tests ['cljs-patrol.dev.mutate-test.thrown] 10000)))
+    (run/load-text 'cljs-patrol.dev.mutate.fixtures.thrown validation-tests)
+    (is (= :passed (:outcome (run/run-tests ['cljs-patrol.dev.mutate.fixtures.thrown] 10000))))
+    (run/load-text 'cljs-patrol.dev.mutate.fixtures.thrown "(def validate (fn [_] nil))")
+    (is (= :failed (:outcome (run/run-tests ['cljs-patrol.dev.mutate.fixtures.thrown] 10000)))
         "thrown? assertion that fails is recorded before its catch can swallow it")
-    (finally (remove-ns 'cljs-patrol.dev.mutate-test.thrown))))
+    (finally (remove-ns 'cljs-patrol.dev.mutate.fixtures.thrown))))
 
 (deftest coverage-records-calls-made-on-worker-threads
   (fixtures/with-target (str fixtures/target-tests
@@ -47,21 +46,23 @@
                              " (.start (Thread. #(deliver p (target/label 0))))"
                              " (is (= :down @p))))\n")
     (fn []
-      (let [{:keys [tests recorded]} (run/coverage 'cljs-patrol.dev.mutate-test.target
+      (let [{:keys [tests recorded]} (run/coverage 'cljs-patrol.dev.mutate.fixtures.target
                                                    ["positive?" "label" "unused"]
-                                                   ['cljs-patrol.dev.mutate-test.target-test]
+                                                   ['cljs-patrol.dev.mutate.fixtures.target-test]
                                                    10000)
-            test-var #(ns-resolve 'cljs-patrol.dev.mutate-test.target-test %)]
+            test-var #(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test %)]
         (is (= #{"positive?" "label" "unused"} recorded))
         (is (= #{(test-var 'labels) (test-var 'on-thread)} (get tests "label"))
             "call on a raw thread is recorded")
         (is (nil? (get tests "unused")))
-        (is (= :up ((ns-resolve 'cljs-patrol.dev.mutate-test.target 'label) 1))
+        (is (= :up ((ns-resolve 'cljs-patrol.dev.mutate.fixtures.target 'label) 1))
             "vars are restored")
         (is (fn? (:test (meta (test-var 'labels))))
             "tests are restored")))))
 
 (defmulti ^:private dispatcher identity)
+
+(defn- plain [x] x)
 
 (defn- counter ^long [^long n] (inc n))
 
@@ -70,7 +71,7 @@
   ([x] x))
 
 (deftest wrappable-means-a-plain-function
-  (is (true? (run/wrappable? #'report/exit-code)))
+  (is (true? (run/wrappable? #'plain)))
   (is (false? (run/wrappable? #'dispatcher))
       "multimethod")
   (is (false? (run/wrappable? #'counter))
@@ -87,14 +88,14 @@
        "(deftest all-labels (labels) (is (= :up (target/label 2))))\n"))
 
 (defn- coverage-of []
-  (run/coverage 'cljs-patrol.dev.mutate-test.target ["positive?" "label" "unused"]
-                ['cljs-patrol.dev.mutate-test.target-test] 10000))
+  (run/coverage 'cljs-patrol.dev.mutate.fixtures.target ["positive?" "label" "unused"]
+                ['cljs-patrol.dev.mutate.fixtures.target-test] 10000))
 
 (deftest coverage-tells-fixture-calls-and-nested-tests
   (fixtures/with-target coverage-tests
     (fn []
       (let [{:keys [tests reached-outside hooked?]} (coverage-of)
-            test-var #(ns-resolve 'cljs-patrol.dev.mutate-test.target-test %)]
+            test-var #(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test %)]
         (is (contains? reached-outside "positive?")
             "call from a fixture is reached outside a test")
         (is (contains? (get tests "label") (test-var 'all-labels))
@@ -111,8 +112,8 @@
 (deftest test-plan-runs-every-test-when-selection-is-unsafe
   (fixtures/with-target state-tests
     (fn []
-      (let [test-var #(ns-resolve 'cljs-patrol.dev.mutate-test.target-test %)
-            context (fn [covered] {:test-nss ['cljs-patrol.dev.mutate-test.target-test]
+      (let [test-var #(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test %)
+            context (fn [covered] {:test-nss ['cljs-patrol.dev.mutate.fixtures.target-test]
                                    :timeout-ms 10000
                                    :select? true
                                    :covered covered
@@ -147,25 +148,25 @@
 (deftest coverage-notices-a-test-ns-hook
   (fixtures/with-target (str fixtures/target-tests "(defn test-ns-hook [] (labels))\n")
     (fn []
-      (fixtures/sample-ns 'cljs-patrol.dev.mutate-test.plain-test)
+      (fixtures/sample-ns 'cljs-patrol.dev.mutate.fixtures.plain-test)
       (try
-        (is (true? (:hooked? (run/coverage 'cljs-patrol.dev.mutate-test.target ["label"]
-                                           ['cljs-patrol.dev.mutate-test.plain-test
-                                            'cljs-patrol.dev.mutate-test.target-test]
+        (is (true? (:hooked? (run/coverage 'cljs-patrol.dev.mutate.fixtures.target ["label"]
+                                           ['cljs-patrol.dev.mutate.fixtures.plain-test
+                                            'cljs-patrol.dev.mutate.fixtures.target-test]
                                            10000)))
             "one hooked namespace among several is enough")
-        (finally (remove-ns 'cljs-patrol.dev.mutate-test.plain-test))))))
+        (finally (remove-ns 'cljs-patrol.dev.mutate.fixtures.plain-test))))))
 
 (deftest test-plan-notices-tests-that-loop-without-a-mutation
   (fixtures/with-target (str fixtures/target-tests
                              "(def release (atom false))\n"
                              "(deftest spins (while (not @release)) (is true))\n")
     (fn []
-      (let [release @(ns-resolve 'cljs-patrol.dev.mutate-test.target-test 'release)
-            spins (ns-resolve 'cljs-patrol.dev.mutate-test.target-test 'spins)]
+      (let [release @(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'release)
+            spins (ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'spins)]
         (try
           (is (= {:kind :stuck}
-                 (run/test-plan {:test-nss ['cljs-patrol.dev.mutate-test.target-test]
+                 (run/test-plan {:test-nss ['cljs-patrol.dev.mutate.fixtures.target-test]
                                  :timeout-ms 200
                                  :select? true
                                  :covered {:tests {"label" #{spins}}
@@ -179,10 +180,10 @@
                              "(deftest inner (is (= :down (target/label 1))))\n"
                              "(deftest outer (inner))\n")
     (fn []
-      (is (= "cljs-patrol.dev.mutate-test.target-test/inner"
-             (-> (run/run-tests ['cljs-patrol.dev.mutate-test.target-test]
+      (is (= "cljs-patrol.dev.mutate.fixtures.target-test/inner"
+             (-> (run/run-tests ['cljs-patrol.dev.mutate.fixtures.target-test]
                                 5000
-                                [(ns-resolve 'cljs-patrol.dev.mutate-test.target-test 'outer)])
+                                [(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'outer)])
                  :killed-by
                  symbol
                  str))

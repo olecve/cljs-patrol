@@ -1,5 +1,8 @@
 (ns cljs-patrol.dev.mutate
-  "Mutation testing in one warm JVM: break one operator of a namespace at a time, and check its tests notice.
+  "Run mutation testing from the command line: break one operator of a namespace at a time, and check its tests notice.
+
+  This namespace holds the command line and ties the jobs together; each job has its own
+  namespace under `cljs-patrol.dev.mutate.`, named in CLAUDE.md.
 
   The code under test changes, never the tests. A first run records which tests call each
   function. Each mutant swaps one symbol or literal, such as `when` for `when-not`, `<` for

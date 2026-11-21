@@ -7,11 +7,6 @@
    [clojure.java.io :as io]
    [clojure.string :as str]))
 
-(defn apply-command
-  "Return the command that writes `mutant` of `target` into its file, as the reports show it, quoted for a shell."
-  [target {:keys [row col from]}]
-  (str "clojure -M:test:mutate " target " --apply '" row ":" col ":" from "'"))
-
 (defn relative-path
   "Return the path of `file` from the working directory, or the whole path when it lies outside it."
   [file]

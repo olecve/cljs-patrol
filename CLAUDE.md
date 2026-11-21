@@ -145,7 +145,11 @@ reaches survives.
 The runner's command line is `dev/cljs_patrol/dev/mutate.clj`. Each job has its namespace under
 `dev/cljs_patrol/dev/mutate/`, and its tests under `test/cljs_patrol/dev/mutate/`: `forms` reads the target into
 mutants, skip markers and scope, `run` loads each mutant and runs the tests, `report` summarizes and prints, `apply`
-does `--apply` and `--restore`, `git` reads the lines `-s` changed, and `error` holds the error that stops a run.
+does `--apply` and `--restore`, `git` reads the lines `-s` changed, and `error` holds the error that stops a run. The
+end-to-end tests in `test/cljs_patrol/dev/mutate_test.clj` and `mutate_html_test.clj` also exercise every job, so to
+mutate a runner namespace, pass all of its test namespaces with `-t`: `cljs-patrol.dev.mutate-test`,
+`cljs-patrol.dev.mutate-html-test` and the `cljs-patrol.dev.mutate.*-test` ones. `fixtures.clj` holds the helpers they
+share.
 
 ## Linting
 
