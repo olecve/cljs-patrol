@@ -745,7 +745,7 @@
         (spit file text)
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"takes ROW:COL:OPERATOR, such as '490:43:remove', not 3:8"
                               (mutate/apply-mutant (str file) "3:8" kept)))
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No mutant at 3:5\. Line 3 has 3:4 if, 3:8 >\. Run the report"
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No mutant at 3:5\. Line 3 has 3:4 if, 3:8 >, 3:12 0\. Run the report"
                               (mutate/apply-mutant (str file) "3:5:if" kept))
             "names the mutants of that line")
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No mutant at 9:1\. Run the report"
