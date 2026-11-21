@@ -100,6 +100,51 @@
   [ratio]
   (if ratio (format "%.0f%%" (* 100.0 ratio)) "n/a"))
 
+(def ^:private survivors-with-lines
+  "How many survivors the console shows with their line before and after the swap."
+  10)
+
+(def ^:private line-width
+  "How many characters of a line the console shows before and after a swap, so a long line is cut around it."
+  100)
+
+(def ^:private context-width
+  "How many characters before a swap a cut line keeps."
+  40)
+
+(defn- cut-line [line start]
+  (let [end (+ start line-width)]
+    (str (when (pos? start) "… ")
+         (subs line start (min end (count line)))
+         (when (< end (count line)) " …"))))
+
+(defn- swap-lines
+  "Show `line` before and after `from` at `col` turns into `to`, diff style, or show it once when `from` is not there."
+  [line {:keys [col from to]}]
+  (let [indent (- (count line) (count (str/triml line)))
+        start (dec col)
+        end (+ start (count from))]
+    (if (and (<= end (count line)) (= from (subs line start end)))
+      (let [before (subs line indent)
+            after (str (subs line indent start) to (subs line end))
+            cut-start (if (< line-width (max (count before) (count after)))
+                        (max 0 (- start indent context-width))
+                        0)]
+        (println (str "    - " (cut-line before cut-start)))
+        (println (str "    + " (cut-line after cut-start))))
+      (println (str "      " (str/trim line))))))
+
+(defn- print-survivors [survivors source-lines]
+  (println "\nSurvived:")
+  (doseq [[index {:keys [def row col from to]
+                  :as mutant}] (map-indexed vector survivors)]
+    (println (format "  %d:%d  %s -> %s  in %s" row col from to def))
+    (when (< index survivors-with-lines)
+      (swap-lines (nth source-lines (dec row) "") mutant)))
+  (when (< survivors-with-lines (count survivors))
+    (println (str "  The first " survivors-with-lines " survivors show their line; --html FILE shows the line of every one,"
+                  " and -r FILE writes them all as EDN."))))
+
 (defn print-report
   "Print the console report of `summary`: the counts, what was not mutated, each survivor with its line, and the score.
 
@@ -118,8 +163,9 @@
   (print-list "Not mutated, ^:const, callers copy its value" const-defs)
   (print-list "Not mutated, not a definition" other-forms)
   (print-list "Not reached, the run stopped early" (map #(str (:def %) " (" (:mutants %) " mutants)") unreached))
-  (doseq [[outcome title] [[:survived "Survived"]
-                           [:unviable "Unviable, could not be read or compiled"]
+  (when-let [survivors (seq (filter #(= :survived (:outcome %)) mutants))]
+    (print-survivors survivors source-lines))
+  (doseq [[outcome title] [[:unviable "Unviable, could not be read or compiled"]
                            [:timeout "Timed out"]]
           :let [shown (filter #(= outcome (:outcome %)) mutants)]
           :when (seq shown)]

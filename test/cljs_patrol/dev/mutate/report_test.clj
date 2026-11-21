@@ -1,6 +1,7 @@
 (ns cljs-patrol.dev.mutate.report-test
   (:require
    [cljs-patrol.dev.mutate.report :as report]
+   [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
 
 (deftest summary-counts-each-definition-and-names-the-rest
@@ -121,3 +122,89 @@
         "definition with only ignored mutants is no unmutated one")
     (is (= 1 (:mutants (:totals summary)))
         "ignored mutants are not counted")))
+
+(defn- survivor [row col from to]
+  {:def "f"
+   :row row
+   :col col
+   :from from
+   :to to
+   :outcome :survived})
+
+(defn- printed-report [mutants source-lines]
+  (with-out-str (report/print-report {:mutants mutants
+                                      :totals {:mutants (count mutants)
+                                               :killed 0
+                                               :survived (count mutants)
+                                               :no-coverage 0
+                                               :unviable 0
+                                               :timeout 0}}
+                                     source-lines
+                                     nil
+                                     "x.target")))
+
+(defn- swap-lines-printed [line from to]
+  (let [col (inc (str/index-of line from))]
+    (->> (printed-report [(survivor 1 col from to)] [line])
+         str/split-lines
+         (drop-while #(not= "Survived:" %))
+         (drop 2)
+         (take 2)
+         vec)))
+
+(deftest survivor-shows-its-line-before-and-after-swap
+  (is (str/includes? (printed-report [(survivor 1 4 "when" "when-not")] ["  (when (seq xs) :ok)"])
+                     (str "Survived:\n"
+                          "  1:4  when -> when-not  in f\n"
+                          "    - (when (seq xs) :ok)\n"
+                          "    + (when-not (seq xs) :ok)\n"))
+      "line loses its indent and shows once before and once after swap"))
+
+(deftest survivor-at-line-end-shows-its-swap
+  (is (= ["    - true"
+          "    + false"]
+         (swap-lines-printed "  true" "true" "false"))))
+
+(deftest survivor-not-found-at-its-place-shows-line-once
+  (is (str/includes? (printed-report [(survivor 1 2 "when" "when-not")] ["  (if x 1 2)"])
+                     "  1:2  when -> when-not  in f\n      (if x 1 2)\n")
+      "other text at column")
+  (is (str/includes? (printed-report [(survivor 1 9 "when" "when-not")] ["(if x)"])
+                     "  1:9  when -> when-not  in f\n      (if x)\n")
+      "column past line end"))
+
+(deftest line-of-line-width-stays-whole
+  (let [as (str/join (repeat 50 "a"))
+        bs (str/join (repeat 36 "b"))]
+    (is (= [(str "    - " as " (when x) " bs)
+            (str "    + " as " (when-not x) " bs)]
+           (swap-lines-printed (str as " (when x) " bs) "when" "when-not"))
+        "100 characters after swap fit, even with swap past 40 characters")))
+
+(deftest line-past-line-width-is-cut-at-its-end
+  (let [line (str "(when x " (str/join (repeat 92 "b")))]
+    (is (= [(str "    - " line)
+            (str "    + (when-not x " (str/join (repeat 88 "b")) " …")]
+           (swap-lines-printed line "when" "when-not"))
+        "swap near start keeps start, and only longer line gets end marker")))
+
+(deftest long-line-is-cut-around-its-swap
+  (let [line (str "    " (str/join (repeat 60 "a")) " (when x) " (str/join (repeat 60 "b")))]
+    (is (= [(str "    - … " (str/join (repeat 38 "a")) " (when x) " (str/join (repeat 52 "b")) " …")
+            (str "    + … " (str/join (repeat 38 "a")) " (when-not x) " (str/join (repeat 48 "b")) " …")]
+           (swap-lines-printed line "when" "when-not"))
+        "40 characters before swap, 100 in all")))
+
+(deftest first-ten-survivors-show-their-line
+  (let [lines (map #(str "(when x" % ")") (range 11))
+        output (printed-report (map #(survivor % 2 "when" "when-not") (range 1 12)) lines)]
+    (is (str/includes? output "  10:2  when -> when-not  in f\n    - (when x9)\n    + (when-not x9)\n"))
+    (is (str/includes? output (str "  11:2  when -> when-not  in f\n"
+                                   "  The first 10 survivors show their line; --html FILE shows the line of every one,"
+                                   " and -r FILE writes them all as EDN.\n"))
+        "eleventh survivor shows no line, and pointer follows")))
+
+(deftest ten-survivors-need-no-pointer
+  (is (not (str/includes? (printed-report (map #(survivor % 2 "when" "when-not") (range 1 11))
+                                          (repeat 10 "(when x)"))
+                          "The first 10"))))
