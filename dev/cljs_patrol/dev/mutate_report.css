@@ -441,7 +441,8 @@ details.fold > table {
   font-family: var(--font-body);
   font-size: 13px;
 }
-.fold:has(#show-marked:checked) .ln:not(.caught):not(.missed):not(.other),
+.fold:has(#show-marked:checked) .ln:not(.caught):not(.missed):not(.other):not(.ignored),
+.fold:has(#show-gaps:checked) .sub.ignored,
 .fold:has(#show-gaps:checked) .ln:not(.missed),
 .fold:has(#show-caught:checked) .ln:not(.caught),
 .fold:has(#show-caught:checked) .sub {
@@ -483,4 +484,9 @@ input:focus-visible {
   .code .row {
     grid-template-columns: 40px 64px 1fr;
   }
+}
+.ln.ignored .mk,
+.sub.ignored {
+  color: var(--muted);
+  font-style: italic;
 }

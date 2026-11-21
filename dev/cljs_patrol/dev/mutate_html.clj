@@ -274,8 +274,9 @@
         [:summary (plural (count rest-tests) "more test that reaches no gap" "more tests that reach no gap")]
         [:table test-columns [:tbody (map row rest-tests)]]])]))
 
-(defn- source-view [lines mutants]
-  (let [by-row (group-by :row mutants)]
+(defn- source-view [lines mutants ignored]
+  (let [by-row (group-by :row mutants)
+        ignored-by-row (group-by :row ignored)]
     [:details {:class "fold"
                :id "source"}
      [:summary "Source, with every planted bug marked"]
@@ -293,7 +294,8 @@
       [:pre
        (for [[i text] (map-indexed vector lines)
              :let [row (inc i)
-                   [ignored here] ((juxt filter remove) #(= :ignored (:outcome %)) (get by-row row))
+                   here (get by-row row)
+                   ignored (get ignored-by-row row)
                    gaps (filter gap? here)
                    caught (count (filter #(= :killed (:outcome %)) here))]]
          (list [:span {:class (str "ln"
@@ -304,9 +306,10 @@
                        :id (str "L" row)}
                 [:span {:class "no"} row]
                 [:span {:class "mk"
-                        :title (cond
-                                 (seq here) (str caught " of " (count here) " planted bugs caught")
-                                 (seq ignored) (str "ignored: " (str/join "; " (map :reason ignored))))}
+                        :title (not-empty (str/join "; " (concat (when (seq here)
+                                                                   [(str caught " of " (count here) " planted bugs caught")])
+                                                                 (when (seq ignored)
+                                                                   [(str (count ignored) " ignored")]))))}
                  (cond
                    (seq gaps) (plural (count gaps) "gap" "gaps")
                    (pos? caught) (str caught " caught")
@@ -315,7 +318,9 @@
                 (str text "\n")]
                (for [{:keys [from to outcome]} gaps]
                  [:span {:class "sub"} [:span] [:span]
-                  (str from " to " to ": " (if (= :no-coverage outcome) "never run" "not caught") "\n")])))]]]))
+                  (str from " to " to ": " (if (= :no-coverage outcome) "never run" "not caught") "\n")])
+               (for [{:keys [from to reason]} ignored]
+                 [:span {:class "sub ignored"} [:span] [:span] (str from " to " to ": ignored, " reason "\n")])))]]]))
 
 (defn- numbers-table [{:keys [totals score covered-score unreached]}]
   [:details {:class "fold"}
@@ -503,7 +508,7 @@
                " reach a gap and still pass are the ones to sharpen."]
               (test-table mutants tests-of)]
              (ignored-table (:ignored summary))
-             (source-view lines (concat mutants (map #(assoc % :outcome :ignored) (:ignored summary))))
+             (source-view lines mutants (:ignored summary))
              (numbers-table summary)
              terms]
             [:script (h/raw script)]]]))))

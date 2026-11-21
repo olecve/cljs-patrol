@@ -346,7 +346,9 @@
     (is (str/includes? (text-of (slice html "<summary>Ignored with a skip marker" "</details>"))
                        "Ignored with a skip marker: 1 line 4 inc to dec label only the sign matters"))
     (is (str/includes? html (str "<span class=\"ln ignored\" id=\"L4\"><span class=\"no\">4</span>"
-                                 "<span class=\"mk\" title=\"ignored: only the sign matters\">ignored</span>"))))
+                                 "<span class=\"mk\" title=\"1 ignored\">ignored</span>"))
+        "line with only ignored planted bugs")
+    (is (str/includes? html "inc to dec: ignored, only the sign matters")))
   (is (not (str/includes? (page (summary mutants)) "Ignored with a skip marker"))
       "nothing ignored, no list")
   (is (str/includes? (text-of (page (summary [] :ignored [{:def "label"
@@ -365,4 +367,4 @@
                                                :from "let"
                                                :to "if"
                                                :reason "r"}]))
-                     "title=\"0 of 1 planted bugs caught\">left out</span>")))
+                     "title=\"0 of 1 planted bugs caught; 1 ignored\">left out</span>")))

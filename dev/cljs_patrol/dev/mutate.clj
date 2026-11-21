@@ -147,11 +147,21 @@
   (->> (z/subzip loc) (iterate z/next) (take-while (complement z/end?))))
 
 (defn- skip-reason
-  "Return the `:mutate/skip` metadata on the name of the definition at `loc`, as written, or nil."
+  "Return {:reason …} for `:mutate/skip` on the name or in the attribute map of the definition at `loc`, as written.
+
+  Return nil when neither has the key."
   [loc]
-  (let [name-slot (some-> loc z/down z/right)]
-    (when (= :meta (some-> name-slot z/tag))
-      (some-> (try (z/sexpr name-slot) (catch Exception _ nil)) meta :mutate/skip))))
+  (let [name-slot (some-> loc z/down z/right)
+        attr-map (->> (when (contains? #{"defn" "defn-"} (parser/sym-name (z/down loc))) (some-> name-slot z/right))
+                      (iterate z/right)
+                      (take-while #(and (some? %) (not (contains? #{:vector :list} (z/tag %)))))
+                      (filter #(= :map (z/tag %)))
+                      first)]
+    (some (fn [metadata]
+            (when (contains? metadata :mutate/skip)
+              {:reason (:mutate/skip metadata)}))
+          [(when (= :meta (some-> name-slot z/tag)) (meta (z/sexpr name-slot)))
+           (some-> attr-map z/sexpr)])))
 
 (defn mutants
   "Return a mutant for every swap the definitions among the top-level `forms` allow.
@@ -162,7 +172,7 @@
   [forms]
   (for [{:keys [loc wrapper name kind]} forms
         :when (= :mutated kind)
-        :let [reason (skip-reason loc)]
+        :let [reason (:reason (skip-reason loc))]
         token (form-locs loc)
         :let [to (replacement token)]
         :when (and (some? to) (not (skipped? token)))
@@ -200,30 +210,31 @@
   #"^;+\s*mutate: skip\s+(\S+):\s+(\S.*?)\s*$")
 
 (def ^:private skip-marker-like
-  "Any comment that looks meant as a skip marker, written right or not."
-  #"(?i)mutate\W*skip")
+  "A comment that starts like a skip marker, written right or not."
+  #"(?i)^;+\s*mutate\b")
 
 (defn- code-loc?
-  "True when `loc` is a code node, not whitespace, a newline, a comma or a comment."
+  "True when `loc` is code that runs: not whitespace, a newline, a comma, a comment or a `#_` form."
   [loc]
-  (not (contains? #{:whitespace :newline :comma :comment} (z/tag loc))))
+  (not (contains? #{:whitespace :newline :comma :comment :uneval} (z/tag loc))))
 
 (defn skip-markers
   "Return each `; mutate: skip OPERATOR: REASON` comment of `source` as {:line … :row … :operator … :reason …}.
 
   `:line` is the comment's own line, and `:row` the line it skips: its own line when code comes
-  before it there, else the line of the next code, or nil when no code follows. Only comments
-  count, so the words in a string or docstring are no marker. A comment that looks meant as a
-  marker but does not read as one stops the run."
+  before it there, else the line of the next code in the same form, or nil when none follows.
+  Only comments count, so the words in a string or docstring are no marker. A comment that
+  starts like a marker but does not read as one stops the run."
   [source]
-  (let [lines (str/split-lines source)]
-    (vec (for [loc (->> (z/of-string source {:track-position? true})
+  (let [lines (str/split-lines source)
+        root (let [loc (z/of-string source)] (or (z/up loc) loc))]
+    (vec (for [loc (->> root
                         (iterate z/next*)
                         (take-while (complement z/end?)))
                :when (= :comment (z/tag loc))
                :let [text (str/trim (z/string loc))]
                :when (re-find skip-marker-like text)
-               :let [[line col] (z/position loc)
+               :let [[line col] (parser/position loc)
                      [_ operator reason] (re-find skip-marker text)]]
            (if-not reason
              (throw (setup-error (str "The comment on line " line " reads like a skip marker but is not one."
@@ -231,12 +242,12 @@
                                       " ; mutate: skip first: the list holds one item.")))
              {:line line
               :row (if (str/blank? (subs (nth lines (dec line)) 0 (dec col)))
-                     (some->> (iterate z/next* loc)
+                     (some->> (iterate z/right* loc)
                               rest
-                              (take-while (complement z/end?))
+                              (take-while some?)
                               (filter code-loc?)
                               first
-                              z/position
+                              parser/position
                               first)
                      line)
               :operator operator
@@ -679,14 +690,28 @@
     (range start (inc end))))
 
 (defn scope
-  "Return the definitions and mutants a run covers, and check every definition named with `-d` exists."
+  "Return the definitions and mutants a run covers, the ones a skip marker leaves out, and the markers that match none.
+
+  Return {:defs-in-scope … :loaded-once … :other-forms … :selected … :ignored … :unused-markers …}.
+  The run stops when a definition named with `-d` does not exist, when a comment starts like a
+  skip marker but is not one, and when a definition's `:mutate/skip` is no reason string,
+  anywhere in the file. A marker is unused when no mutant of its line has its operator: on
+  a full run anywhere in the file, and with `-d` or `-s` only on the lines in scope."
   [source {:keys [defs lines]}]
   (let [forms (top-level-forms source)
         wanted (set defs)
         unknown (remove (set (map :name forms)) wanted)]
     (when (seq unknown)
       (throw (setup-error (str "No top-level definition named " (str/join ", " (sort unknown)) "."))))
-    (let [in-scope (filter #(and (or (empty? wanted) (contains? wanted (:name %)))
+    (doseq [{:keys [loc name kind]} forms
+            :when (= :mutated kind)
+            :let [{:keys [reason]
+                   :as found} (skip-reason loc)]
+            :when (and found (not (and (string? reason) (not (str/blank? reason)))))]
+      (throw (setup-error (str "The :mutate/skip metadata on " name " needs a reason as a string, such as"
+                               " ^{:mutate/skip \"wraps a JDK call\"}."))))
+    (let [full-run? (and (empty? wanted) (not (set? lines)))
+          in-scope (filter #(and (or (empty? wanted) (contains? wanted (:name %)))
                                  (or (not (set? lines)) (some lines (form-lines %))))
                            forms)
           of-kind (fn [kind] (filter #(= kind (:kind %)) in-scope))
@@ -694,13 +719,9 @@
           marker-reasons (into {} (map (juxt (juxt :row :operator) :reason)) markers)
           marked (fn [{:keys [row from]
                        :as mutant}]
-                   (update mutant :skip-reason #(if (some? %) % (marker-reasons [row from]))))
+                   (update mutant :skip-reason #(or % (marker-reasons [row from]))))
           in-scope-mutants (map marked (mutants in-scope))
-          _ (when-let [{function :def} (first (remove #(let [reason (:skip-reason %)]
-                                                         (or (nil? reason) (and (string? reason) (not (str/blank? reason)))))
-                                                      in-scope-mutants))]
-              (throw (setup-error (str "The :mutate/skip metadata on " function " needs a reason, such as"
-                                       " ^{:mutate/skip \"wraps a JDK call\"}."))))
+          mutant-swaps (set (map (juxt :row :from) in-scope-mutants))
           in-scope-rows (set (mapcat form-lines in-scope))
           [ignored selected] ((juxt filter remove)
                               :skip-reason
@@ -711,10 +732,8 @@
        :selected selected
        :ignored ignored
        :unused-markers (vec (for [{:keys [line row operator]} markers
-                                  :when (or (and (nil? row) (empty? wanted) (not (set? lines)))
-                                            (and (contains? in-scope-rows row)
-                                                 (not-any? #(and (= row (:row %)) (= operator (:from %)))
-                                                           in-scope-mutants)))]
+                                  :when (and (or full-run? (contains? in-scope-rows row))
+                                             (not (contains? mutant-swaps [row operator])))]
                               (str "line " line " (" operator ")")))})))
 
 (defn- run-all
@@ -761,11 +780,11 @@
   (let [lines (when since (lines-since file since))
         {:keys [defs-in-scope loaded-once other-forms selected ignored unused-markers]} (scope source {:defs defs
                                                                                                        :lines lines})
+        _ (doseq [marker unused-markers]
+            (println (str "Warning: the skip marker on " marker " matches no mutant; remove it or fix its operator.")))
         {:keys [ms covered note]} (when (seq selected)
                                     (baseline target (distinct (map :def selected)) test-nss timeout))
         timeout-ms (when ms (or timeout (default-timeout-ms ms)))
-        _ (doseq [marker unused-markers]
-            (println (str "Warning: the skip marker on " marker " matches no mutant; remove it or fix its operator.")))
         _ (println (format "%d mutants of %s against %s%s%s%s"
                            (count selected) target (str/join ", " test-nss)
                            (if (seq ignored) (str ", " (count ignored) " ignored") "")
