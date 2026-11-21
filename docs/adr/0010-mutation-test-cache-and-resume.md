@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed, 2026-11-21
+Accepted, 2026-11-21 (proposed 2026-11-21)
 
 ## Context
 
@@ -35,21 +35,27 @@ The runner keeps the outcome of each mutant in a cache, and reuses an outcome wh
 - **The cache.** `.mutate-cache/<target-ns>.edn` in the directory the command runs from. The repository's `.gitignore`
   lists `.mutate-cache/`.
 - **The key.** One hash of the path and the bytes of every file under `src/`, `test/`, `dev/`, `resources/`,
-  `test-projects/` and `docs/`, and of `deps.edn` and `README.md`. The code on the classpath reads `resources/`. The
-  tests read the fixtures in `test-projects/` and the examples in `docs/` and `README.md`. The key also holds the names
-  of the `-t` namespaces in name order, the hash of the runner's own source, and the options that change an outcome,
-  `-a` and `--timeout`.
+  `test-projects/` and `docs/`, of `deps.edn` and `README.md`, and of each directory on the classpath under the
+  directory the command runs from. The target and its tests load from the classpath, and the code reads `resources/`.
+  The tests read the fixtures in `test-projects/` and the examples in `docs/` and `README.md`. In a git work tree, only
+  the files that git sees count: tracked files, and untracked files that git does not ignore, so a `.DS_Store` or a
+  generated report does not change the key. Outside git, every file counts. The key also holds the names of the `-t`
+  namespaces in name order, the hash of the runner's own source, and the options that change an outcome, `-a` and
+  `--timeout`.
 - **When an outcome is reused.** A run with the same key reuses every cached outcome and runs only the other mutants.
   When any part of the key differs, the run uses no cached outcome and says which part changed. Its first outcome
-  replaces the cache. A run that records no outcome leaves the cache as it was.
+  replaces the cache. A run that reports no outcome, such as one whose tests fail before any mutation or whose scope is
+  empty, leaves the cache as it was. Every other run that prints its report saves it, also one that reused every
+  outcome.
 - **Resume.** The run writes the whole cache again after each mutant, with the same safe write as `--apply`: a temporary
   file, then one move. A run that stops or is killed keeps every outcome it finished. A run whose tests fail before any
   mutation, or that stops before its first outcome, keeps the last run's cache. The next run runs the mutant that
   stopped the run last, after every other mutant. When that mutant times out again, the run stops there and loses
   nothing. When it does not, it gets its real outcome. This covers a mutant whose tests keep running. A definition whose
   own tests keep running without a mutation still stops each run, as ADR 0005 decides, and the run says so. A cache that
-  the run cannot read, a key that it cannot make, or a cache that it cannot write gives one warning that names the file
-  or what failed, and the run goes on without the cache.
+  the run cannot read gives one warning: the run does not use it, and its first outcome replaces it. A key that the run
+  cannot make, or a cache that it cannot write, gives one warning that names the file or what failed, and the run goes
+  on without the cache.
 - **`--iterate`.** For the work of writing tests and fixing gaps: when the sources changed, `--iterate` reuses the
   cached outcomes of the mutants that were caught or did not compile. When nothing changed, it resumes as a plain run
   does. It matches by place, not by id. An edit thus keeps the outcomes of every definition it does not touch, also a
@@ -111,12 +117,12 @@ Rejected because `clojure -T:build uber` deletes `target/`, as
 
 - On `cljs-patrol.groups.reagent`, runs in a row on one machine:
 
-  | Run                                        | Time  | Result                                                            |
-  | ------------------------------------------ | ----- | ----------------------------------------------------------------- |
-  | First run, killed with `kill -9` after 4 s | 4.0 s | 82 outcomes in the cache                                          |
-  | Resumed runs, the looping mutant last      | 5.1 s | 6th retry: 210 caught, 21 survived, score 91%                     |
-  | Run that reuses every outcome              | 2.4 s | Runs no tests; the same counts                                    |
-  | `--iterate` after a skip marker in a defn  | 2.9 s | Reuses 208 caught outcomes; runs the 2 of that defn, 20 survivors |
+  | Run                                        | Time  | Result                                                                               |
+  | ------------------------------------------ | ----- | ------------------------------------------------------------------------------------ |
+  | First run, killed with `kill -9` after 4 s | 4.0 s | 82 outcomes in the cache                                                             |
+  | Resumed runs, the looping mutant last      | 5.1 s | 6th retry: 210 caught, 21 survived, score 91%                                        |
+  | Run that reuses every outcome              | 2.4 s | Runs no tests; the same counts                                                       |
+  | `--iterate` after a skip marker in a defn  | 2.9 s | Reuses 208 caught outcomes; runs 22 mutants: the 2 of that defn and the 20 survivors |
 
   The resumed run gives the same counts as a first run that does not stop. Whether the mutant at 302:59 times out
   depends on the order of the tests. Here it looped on five retries; each time it ran last, so the run stopped with 230
@@ -151,6 +157,7 @@ Rejected because `clojure -T:build uber` deletes `target/`, as
 
 - The code: `cljs-patrol.dev.mutate.cache` in [`dev/cljs_patrol/dev/mutate/`](../../dev/cljs_patrol/dev/mutate/)
 - How to use it: the "Run again" section of [`docs/mutation-testing.md`](../mutation-testing.md)
+- The pull request: [olecve/cljs-patrol#175](https://github.com/olecve/cljs-patrol/pull/175)
 - cargo-mutants.
   [Iterating on missed mutants](https://github.com/sourcefrog/cargo-mutants/blob/v27.1.0/book/src/iterate.md), at
   v27.1.0.

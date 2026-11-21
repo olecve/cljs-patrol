@@ -5,6 +5,7 @@
    [cljs-patrol.dev.mutate.forms :as forms]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
+   [clojure.java.shell :as shell]
    [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
 
@@ -39,6 +40,7 @@
         moved (by-swap "(ns a)\n\n\n(defn f [x] (when x 1))\n(defn g [y] (if y 2 3))\n")
         edited (by-swap "(ns a)\n(defn f [x] (when x 1))\n(defn g [y]\n  ; why\n  (if y 2 3))\n")
         same-offset (by-swap "(ns a)\n(defn f [x] (when x 1))\n(defn g [y] (if y 2 4))\n")
+        twice "(ns a)\n(defn f [x] (when x 1))\n(defn f [x] (when x 1))\n"
         under-meta (by-swap "(ns a)\n^:x (defn f [x] (when x 1))\n")]
     (is (= "f/2:14/when->when-not" (:id (before "f when"))))
     (is (= "f/4:14/when->when-not" (:id (moved "f when")))
@@ -51,6 +53,9 @@
         "edit of other definition keeps place")
     (is (not= (:place (before "g if")) (:place (edited "g if")))
         "edited definition gets new place")
+    (is (= 2 (->> twice mutants-of (filter #(= "when" (:from %))) (map :id) set count)))
+    (is (= 1 (->> twice mutants-of (filter #(= "when" (:from %))) (map :place) set count))
+        "each of two same definitions counts from its own start")
     (is (not= (:place (before "g if")) (:place (same-offset "g if")))
         "other text at same offset gives new place")
     (is (= (str (forms/text-hash "^:x (defn f [x] (when x 1))") "/0:17/when->when-not") (:place (under-meta "f when")))
@@ -92,30 +97,72 @@
     (fn [dir]
       (doseq [path source-paths]
         (write-file dir path "x"))
-      (let [base (cache/sources-hash dir)]
+      (let [base (cache/sources-hash dir cache/source-roots)]
         (is (re-matches #"[0-9a-f]{64}" base))
-        (is (= base (cache/sources-hash dir)))
+        (is (= base (cache/sources-hash dir cache/source-roots)))
         (write-file dir "notes.txt" "x")
         (write-file dir ".mutate-cache/a.edn" "x")
-        (is (= base (cache/sources-hash dir))
+        (is (= base (cache/sources-hash dir cache/source-roots))
             "files outside source roots left out")
         (doseq [path source-paths]
           (write-file dir path "y")
-          (is (not= base (cache/sources-hash dir))
+          (is (not= base (cache/sources-hash dir cache/source-roots))
               path)
           (write-file dir path "x"))
         (write-file dir "src/b.clj" "")
-        (is (not= base (cache/sources-hash dir))
+        (is (not= base (cache/sources-hash dir cache/source-roots))
             "new empty file counts by its path")))))
 
 (deftest sources-hash-tells-file-name-from-its-text
   (fixtures/with-temp-dir
     (fn [dir]
       (write-file dir "src/ab" "c")
-      (let [one (cache/sources-hash dir)]
+      (let [one (cache/sources-hash dir cache/source-roots)]
         (.delete (io/file dir "src/ab"))
         (write-file dir "src/a" "bc")
-        (is (not= one (cache/sources-hash dir)))))))
+        (is (not= one (cache/sources-hash dir cache/source-roots)))))))
+
+(defn- git [dir & args] (apply shell/sh "git" "-C" (str dir) args))
+
+(deftest sources-hash-in-git-counts-only-files-git-sees
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (git dir "init" "-q")
+      (write-file dir ".gitignore" "*.tmp\n")
+      (write-file dir "src/a.clj" "x")
+      (git dir "add" "src/a.clj")
+      (let [base (cache/sources-hash dir ["src"])]
+        (write-file dir "src/report.tmp" "x")
+        (is (= base (cache/sources-hash dir ["src"]))
+            "ignored file left out")
+        (write-file dir "src/b.clj" "x")
+        (is (not= base (cache/sources-hash dir ["src"]))
+            "untracked file that git does not ignore counts")
+        (.delete (io/file dir "src/b.clj"))
+        (.delete (io/file dir "src/a.clj"))
+        (is (not= base (cache/sources-hash dir ["src"]))
+            "tracked file gone from disk counts as gone")))))
+
+(deftest sources-hash-outside-git-counts-every-file
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (write-file dir "src/a.clj" "x")
+      (let [base (cache/sources-hash dir ["src"])]
+        (write-file dir "src/.DS_Store" "x")
+        (is (not= base (cache/sources-hash dir ["src"])))))))
+
+(deftest classpath-roots-keep-directories-under-root
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (.mkdirs (io/file dir "src"))
+      (.mkdirs (io/file dir "extra" "classes"))
+      (spit (io/file dir "lib.jar") "")
+      (is (= ["src" "extra/classes"]
+             (cache/classpath-roots (str/join java.io.File/pathSeparator
+                                              [(io/file dir "src") (io/file dir "extra" "classes") (io/file dir "lib.jar")
+                                               (io/file dir "missing") (System/getProperty "java.io.tmpdir")])
+                                    dir))
+          "jar, missing and outside directories left out"))))
 
 (deftest sources-hash-names-root-it-could-not-read
   (fixtures/with-temp-dir
@@ -126,7 +173,7 @@
         (try
           (is (thrown-with-msg? clojure.lang.ExceptionInfo
                                 (re-pattern (str "^reading the sources under " dir " failed: "))
-                                (cache/sources-hash dir)))
+                                (cache/sources-hash dir cache/source-roots)))
           (finally (.setReadable unreadable true)))))))
 
 (deftest runner-files-are-runner-namespaces-without-page
@@ -231,7 +278,7 @@
   (with-old-cache
     (fn [file]
       (let [store (open file {:make-key (key-of "s2")
-                              :current-places current-places
+                              :current-places (constantly current-places)
                               :iterate true})]
         (is (= :iterate (:mode store)))
         (is (= {"f/9:1/when->when-not" {:outcome :failed
@@ -254,7 +301,7 @@
               :place "p4"
               :trusted? true}
              (get (:results @(:entry (open file {:make-key (key-of "s2")
-                                                 :current-places {"p4" "f/9:4/=->not="}
+                                                 :current-places (constantly {"p4" "f/9:4/=->not="})
                                                  :iterate true})))
                   "f/9:4/=->not="))))))
 
@@ -291,7 +338,7 @@
         (is (= :start-over (:mode (open file {:make-key (constantly (cache/run-key (merge key-input
                                                                                           {:sources "s2"}
                                                                                           key-change)))
-                                              :current-places current-places
+                                              :current-places (constantly current-places)
                                               :iterate true})))
             (str key-change))))))
 
@@ -410,7 +457,7 @@
   (with-old-cache
     (fn [file]
       (let [store (open file {:make-key (key-of "s2")
-                              :current-places (assoc current-places "p4" "f/9:4/=->not=")
+                              :current-places (constantly (assoc current-places "p4" "f/9:4/=->not="))
                               :iterate true})]
         (is (= (str "Reused the last run's outcome for 2 of 4 mutants (1 caught, 1 did not compile), as --iterate"
                     " asks; running the rest." trust-warning)
@@ -481,7 +528,10 @@
                (-> file read-cache :results (select-keys ["g/1" "h/1"]))))
         (is (= ["a note" "other note"] (:notes (read-cache file)))
             "note kept once")
-        (is (= 4 (-> file read-cache :results count)))))))
+        (is (= 4 (-> file read-cache :results count)))
+        (cache/record! store (outcome "h/3" "ph3") {"f" {:kind :every}} nil)
+        (is (= {:kind :every} (get-in (read-cache file) [:plans "f"]))
+            "changed plan written")))))
 
 (deftest finish-records-what-run-reported-as-last-run
   (with-old-cache
@@ -503,16 +553,42 @@
             "-d run that reuses all sets last run to what it reported")
         (is (= old-results (:results (read-cache file))))))))
 
-(deftest finish-without-outcome-under-other-key-leaves-cache-alone
+(deftest finish-of-run-that-reported-nothing-leaves-cache-alone
   (with-old-cache
     (fn [file]
       (let [before (slurp file)]
-        (doseq [options [{:make-key (key-of "s2")}
+        (doseq [options [{:make-key (key-of "s1")}
+                         {:make-key (key-of "s2")}
                          {:make-key (key-of "s1")
                           :fresh true}]]
-          (cache/finish! (open file options) {"p1" :failed})
+          (cache/finish! (open file options) {})
           (is (= before (slurp file))
               (str options)))))))
+
+(deftest finish-of-iterate-run-that-reused-all-saves-key-and-trusted-outcomes
+  (with-old-cache
+    (fn [file]
+      (cache/finish! (open file {:make-key (key-of "s2")
+                                 :current-places (constantly {"p1" "f/9:1/when->when-not"})
+                                 :iterate true})
+                     {"p1" :failed})
+      (let [{:keys [key results last-run]} (read-cache file)]
+        (is (= (run-key "s2") key))
+        (is (= {"f/9:1/when->when-not" {:outcome :failed
+                                        :killed-by "a-test/t"
+                                        :place "p1"
+                                        :trusted? true}}
+               results))
+        (is (= {"p1" :failed} last-run))))))
+
+(deftest open-looks-for-current-places-only-under-iterate
+  (with-old-cache
+    (fn [file]
+      (doseq [options [{:make-key (key-of "s1")
+                        :iterate true}
+                       {:make-key (key-of "s2")}]]
+        (is (some? (open file (assoc options :current-places #(throw (ex-info "called" {})))))
+            (str options))))))
 
 (deftest cache-that-cannot-be-written-warns-once-and-is-dropped
   (fixtures/with-temp-dir

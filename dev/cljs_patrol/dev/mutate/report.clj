@@ -189,11 +189,11 @@
   "Print the console report of `summary`: the counts, what was not mutated, the survivors, and the score.
 
   The survivors on the first 10 lines show the line before and after each swap. `source-lines` are the target's lines,
-  `since` is the ref of `-s` or nil, `target` names the namespace for the example --apply command, and `report` and
-  `html` are the files of `-r` and `--html`, or nil."
+  `since` is the ref of `-s` or nil, `target` names the namespace for the example --apply command, `report` and
+  `html` are the files of `-r` and `--html`, or nil, and `cached?` is true when the run keeps a cache."
   [{:keys [definitions not-mutated not-covered loaded-once const-defs other-forms unreached totals score
            covered-score mutants ignored stopped note progress]}
-   {:keys [source-lines since target]
+   {:keys [source-lines since target cached?]
     :as options}]
   (let [survivors (filter #(= :survived (:outcome %)) mutants)
         def-tag (fn [def-name]
@@ -221,7 +221,7 @@
                :as mutant} shown]
         (print-head mutant)
         (println (str "      " (str/trim (nth source-lines (dec row) ""))))
-        (when stuck?
+        (when (and stuck? cached?)
           (println (str "      Its tests kept running after the timeout, so the run stopped here. The next run runs it"
                         " again, after every other mutant.")))))
     ; mutate: skip first: any survivor makes a fine example

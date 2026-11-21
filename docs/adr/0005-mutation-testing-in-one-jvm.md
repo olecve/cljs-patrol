@@ -28,8 +28,8 @@ branch. At acceptance, the Decision and Revisit when sections are aligned with t
 
 The second Revisit when condition, "the runner runs only the tests that reach a mutated definition", is now met.
 
-2026-11-21, later: new records describe how the runner grew after acceptance. ADRs 0006 to 0009 are accepted, and ADR
-0010 is proposed. The sections below keep the decision as it was accepted.
+2026-11-21, later: new records describe how the runner grew after acceptance. ADRs 0006 to 0010 are accepted. The
+sections below keep the decision as it was accepted.
 
 - [ADR 0006](0006-mutation-test-which-code-the-runner-changes.md): which other code the runner changes, such as integer
   literals in function code, which code it leaves alone, and how a person skips a harmless mutant.

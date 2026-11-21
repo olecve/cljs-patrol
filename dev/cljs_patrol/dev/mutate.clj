@@ -51,11 +51,10 @@
         _ (doseq [marker unused-markers]
             (println (str "Warning: the skip marker on " marker " matches no mutant; remove it or fix its operator.")))
         store (cache/open! (assoc cache
-                                  :current-places (when iterate
-                                                    (->> forms
-                                                         forms/mutants
-                                                         cache/with-ids
-                                                         (into {} (map (juxt :place :id)))))
+                                  :current-places #(->> forms
+                                                        forms/mutants
+                                                        cache/with-ids
+                                                        (into {} (map (juxt :place :id))))
                                   :fresh fresh
                                   :iterate iterate))
         {:keys [reused to-run message]} (cache/plan-run store selected)
@@ -107,7 +106,8 @@
                                   :report report
                                   :since since
                                   :source-lines (str/split-lines source)
-                                  :target target})
+                                  :target target
+                                  :cached? (some? @(:file store))})
     (when report
       (spit report (with-out-str (pprint/pprint (assoc summary
                                                        :target target
@@ -131,7 +131,7 @@
   "Mutate `target`, found on the classpath, against `test-nss`, as [[mutate-source]] does, cached in `cache-dir`.
 
   The cache key hashes every source the target and its tests may read, from the directory the
-  command runs from, and the runner's own."
+  command runs from and the classpath directories under it, and the runner's own."
   [target test-nss {:keys [cache-dir timeout all-tests]
                     :as options}]
   (let [file (source-file target)
@@ -143,7 +143,14 @@
         (throw (error/setup-error (str "Could not load the namespaces: " (ex-message e))))))
     (mutate-source target file source test-nss
                    (assoc options :cache {:file (cache/cache-file cache-dir target)
-                                          :make-key #(cache/run-key {:sources (cache/sources-hash ".")
+                                          :make-key #(cache/run-key {:sources (cache/sources-hash
+                                                                               "."
+                                                                               (distinct
+                                                                                (concat cache/source-roots
+                                                                                        (cache/classpath-roots
+                                                                                         (System/getProperty
+                                                                                          "java.class.path")
+                                                                                         "."))))
                                                                      :test-nss test-nss
                                                                      :runner (cache/runner-version)
                                                                      :timeout timeout

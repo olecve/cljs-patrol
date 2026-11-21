@@ -304,17 +304,20 @@
     (is (str/includes? output "  1:2  if -> if-not  in f\n")
         "no tag without last run")))
 
-(defn- report-of [summary]
-  (with-out-str (report/print-report (merge {:mutants []
-                                             :totals {:mutants 0
-                                                      :killed 0
-                                                      :survived 0
-                                                      :no-coverage 0
-                                                      :unviable 0
-                                                      :timeout 0}}
-                                            summary)
-                                     {:source-lines ["(f)"]
-                                      :target "x.target"})))
+(defn- report-of
+  ([summary] (report-of summary {}))
+  ([summary options]
+   (with-out-str (report/print-report (merge {:mutants []
+                                              :totals {:mutants 0
+                                                       :killed 0
+                                                       :survived 0
+                                                       :no-coverage 0
+                                                       :unviable 0
+                                                       :timeout 0}}
+                                             summary)
+                                      (merge {:source-lines ["(f)"]
+                                              :target "x.target"}
+                                             options)))))
 
 (deftest report-tags-functions-without-coverage
   (let [never-run (fn [function tag] {:def function
@@ -339,10 +342,12 @@
                    :from "f"
                    :to "g"
                    :outcome :timeout}]
-    (is (str/includes? (report-of {:mutants [(assoc timed-out :stuck? true)]})
+    (is (str/includes? (report-of {:mutants [(assoc timed-out :stuck? true)]} {:cached? true})
                        (str "  1:2  f -> g  in f\n      (f)\n      Its tests kept running after the timeout, so the run"
                             " stopped here. The next run runs it again, after every other mutant.\n")))
-    (is (not (str/includes? (report-of {:mutants [timed-out]}) "kept running")))))
+    (is (not (str/includes? (report-of {:mutants [timed-out]} {:cached? true}) "kept running")))
+    (is (not (str/includes? (report-of {:mutants [(assoc timed-out :stuck? true)]}) "kept running"))
+        "without cache next run does not know of loop")))
 
 (deftest report-counts-gaps-closed-since-last-run
   (is (str/includes? (report-of {:progress {:closed ["f/1:1/when->when-not" "f/2:1/if->if-not"]

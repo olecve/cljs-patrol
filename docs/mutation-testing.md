@@ -119,10 +119,11 @@ reuses them:
 - **`--fresh`.** Runs every planted bug again and replaces the cache.
 
 A plain run reuses an outcome only when nothing changed in `src/`, `test/`, `dev/`, `resources/`, `test-projects/`,
-`docs/`, `deps.edn` or `README.md`, in the `-t` namespaces, in the runner, or in `-a` and `--timeout`. A run that stops
-before its first outcome, such as one whose tests fail before any mutation, leaves the cache as it was. Each run tags
-each gap that the last run that printed its report also had as new or still open, on the console and the page, also
-after you edit other functions, and counts the gaps closed since:
+`docs/`, `deps.edn`, `README.md` or the classpath directories of the project, in the `-t` namespaces, in the runner, or
+in `-a` and `--timeout`. A file that git ignores, such as `.DS_Store`, does not count. A run that reports no outcome,
+such as one whose tests fail before any mutation, leaves the cache as it was. A cache that cannot be read is not used,
+and the run's first outcome replaces it. Each run tags each gap that the last run that printed its report also had as
+new or still open, on the console and the page, also after you edit other functions, and counts the gaps closed since:
 
 ```text
 Since the last run: 1 gap closed, 0 new, 3 still open.

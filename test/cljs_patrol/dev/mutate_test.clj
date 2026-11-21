@@ -303,12 +303,15 @@
     (fn []
       (let [release @(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'release)]
         (try
-          (is (str/ends-with? (:stopped (binding [*out* (java.io.StringWriter.)]
-                                          (mutate/mutate-source 'cljs-patrol.dev.mutate.fixtures.target "target.clj"
-                                                                looping-source
-                                                                ['cljs-patrol.dev.mutate.fixtures.target-test]
-                                                                {:timeout 300})))
-                              "or raise --timeout."))
+          (let [summary (atom nil)
+                output (with-out-str
+                         (reset! summary (mutate/mutate-source 'cljs-patrol.dev.mutate.fixtures.target "target.clj"
+                                                               looping-source
+                                                               ['cljs-patrol.dev.mutate.fixtures.target-test]
+                                                               {:timeout 300})))]
+            (is (str/ends-with? (:stopped @summary) "or raise --timeout."))
+            (is (not (str/includes? output "The next run runs it again"))
+                "no cache, no promise in timed-out list"))
           (finally (reset! release true)))))))
 
 (deftest run-with-iterate-runs-only-gaps-and-shows-closed-ones
@@ -435,7 +438,19 @@
             (is (str/includes? output ", timeout ")
                 "baseline ran")
             (is (= [["label" ["cljs-patrol.dev.mutate.fixtures.target-test/labels"]]]
-                   (map (juxt :def :tests) (:definitions summary))))))))))
+                   (map (juxt :def :tests) (:definitions summary))))
+            (is (= (cache/run-key {:sources (forms/text-hash (str fixtures/target-source "changed tests"))
+                                   :runner "runner"})
+                   (:key (edn/read-string (slurp file))))
+                "run that reused every outcome saves its key")
+            (let [[plain plain-output] (run-cached file "changed tests" {:defs ["label"]})]
+              (is (str/includes? plain-output "less for selected tests\n..\n")
+                  "plain run checks trusted outcomes")
+              (is (= {:closed []
+                      :new 0
+                      :still-open 0
+                      :not-run-before 0}
+                     (:progress plain))))))))))
 
 (deftest run-keeps-progress-tags-of-untouched-definitions-after-edit
   (fixtures/with-temp-dir

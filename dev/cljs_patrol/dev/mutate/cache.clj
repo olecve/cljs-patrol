@@ -12,6 +12,7 @@
    [cljs-patrol.parser :as parser]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
+   [clojure.java.shell :as shell]
    [clojure.string :as str]
    [rewrite-clj.zip :as z]))
 
@@ -52,26 +53,61 @@
                              :id (mutant-id mutant)
                              :place (str form-hash "/" (- row start-row) ":" (- col start-col) "/" from "->"
                                          (pr-str to)))))))
-        (partition-by (comp z/node definition-of) mutants)))
+        (partition-by (comp parser/position definition-of) mutants)))
 
 (def source-roots
   "The files and trees, from the directory the command runs from, whose change makes a cached outcome stale.
 
   That is the code a target or a test may require, deps.edn, the resources on the classpath,
   and the files tests read: the fixture projects, the docs and the README, whose examples are
-  tests."
+  tests. The classpath directories under that directory count too, by [[classpath-roots]]."
   ["README.md" "deps.edn" "dev" "docs" "resources" "src" "test" "test-projects"])
 
+(defn classpath-roots
+  "Return the directories of `class-path`, as `java.class.path` writes it, that lie under `root`, relative to it.
+
+  A jar, or a directory outside `root`, is left out: the key holds what the project's own
+  files say."
+  [class-path root]
+  (let [root-path (.toPath (.getCanonicalFile (io/file root)))]
+    (->> (str/split class-path (re-pattern (java.util.regex.Pattern/quote java.io.File/pathSeparator)))
+         (map #(.getCanonicalFile (io/file %)))
+         (filter #(.isDirectory ^java.io.File %))
+         (map #(.toPath ^java.io.File %))
+         (filter #(.startsWith ^java.nio.file.Path % root-path))
+         (map #(str (.relativize root-path %))))))
+
+(defn- git-files
+  "Return the paths under `roots` of `root` that git sees: tracked, or untracked and not ignored; nil when git fails."
+  [root roots]
+  (try
+    (let [{:keys [exit out]} (apply shell/sh "git" "-C" (str root) "ls-files" "-z" "--cached" "--others"
+                                    "--exclude-standard" "--" roots)]
+      (when (zero? exit)
+        (remove str/blank? (str/split out #"\u0000"))))
+    (catch Exception _ nil)))
+
+(defn- walked-files
+  "Return the paths of every file under `roots` of `root`, for a directory git does not know."
+  [root roots]
+  (let [root-path (.toPath (io/file root))]
+    (->> roots
+         (mapcat #(file-seq (io/file root %)))
+         (filter #(.isFile ^java.io.File %))
+         (map #(str (.relativize root-path (.toPath ^java.io.File %)))))))
+
 (defn sources-hash
-  "Hash the path and the bytes of every file of `source-roots` under `root`, in path order."
-  [root]
+  "Hash the path and the bytes of every file under `roots` of `root` that git sees, in path order.
+
+  Git leaves out ignored files, such as `.DS_Store` or a generated report. Outside git, every
+  file counts."
+  [root roots]
   (try
     (let [root-path (.toPath (io/file root))
           digest (java.security.MessageDigest/getInstance "SHA-256")]
-      (doseq [path (->> source-roots
-                        (mapcat #(file-seq (io/file root %)))
-                        (filter #(.isFile ^java.io.File %))
-                        (map #(str (.relativize root-path (.toPath ^java.io.File %))))
+      (doseq [path (->> (or (git-files root roots) (walked-files root roots))
+                        (filter #(.isFile (io/file root %)))
+                        distinct
                         sort)]
         (.update digest (.getBytes (str path "\n") "UTF-8"))
         (.update digest (java.nio.file.Files/readAllBytes (.resolve root-path ^String path))))
@@ -132,7 +168,9 @@
   (when-let [path @file]
     (try
       (io/make-parents path)
-      (apply/write-whole path (pr-str (assoc @entry :last-run last-run)))
+      (apply/write-whole path (binding [*print-length* nil
+                                        *print-level* nil]
+                                (pr-str (assoc @entry :last-run last-run))))
       (catch Exception e
         (warn (str "the cache " path " could not be written, so the run goes on without it: " (ex-message e)))
         (reset! file nil)))))
@@ -172,7 +210,7 @@
   `make-key` gives this run's key. Every outcome is kept when the key is the same. With
   `iterate` and the same test namespaces, runner and options, the caught and unviable ones and
   the loops are kept for each mutant whose definition's text and place in it are the same, by
-  `current-places`, also when the sources changed. With `fresh`, or another key, none is. An
+  `current-places`, a function called only then, also when the sources changed. With `fresh`, or another key, none is. An
   outcome --iterate kept is marked :trusted?, and only another run with `iterate` reuses it. A
   loop is kept only to run it last, never reused. Only a resumed run keeps the test plans and
   the notes. Nothing is written until [[record!]] or [[finish!]]. With no `file`, or when the
@@ -198,11 +236,11 @@
      :mode mode
      :key key
      :old-key old-key
-     :recorded? (atom false)
+     :seen-plans (atom {})
      :entry (atom {:key key
                    :results (case mode
                               :resume (:results old)
-                              :iterate (iterate-results (:results old) current-places)
+                              :iterate (iterate-results (:results old) (current-places))
                               {})
                    :plans (if resume? (:plans old {}) {})
                    :notes (if resume? (:notes old []) [])})
@@ -283,29 +321,29 @@
   "Add the outcome of the mutant `result`, the test `plans` so far and the baseline's `note` to the cache, and write it.
 
   The file is written again after each outcome, so a run that stops early, or is killed, keeps
-  every outcome it finished. The last run's outcomes stay as they were until [[finish!]]."
-  [{:keys [entry recorded? previous]
+  every outcome it finished. The last run's outcomes stay as they were until [[finish!]]. Only
+  the plans that changed since the last outcome are turned into test names."
+  [{:keys [entry previous seen-plans]
     :as store}
    result
    plans
    note]
-  (swap! entry #(-> %
-                    (assoc-in [:results (:id result)] (result-entry result))
-                    (update :plans merge (plan-entries plans))
-                    (cond-> (and note (not-any? #{note} (:notes %))) (update :notes conj note))))
-  (reset! recorded? true)
+  (let [changed (into {} (remove (fn [[def-name plan]] (identical? plan (get @seen-plans def-name)))) plans)]
+    (reset! seen-plans plans)
+    (swap! entry #(-> %
+                      (assoc-in [:results (:id result)] (result-entry result))
+                      (update :plans merge (plan-entries changed))
+                      (cond-> (and note (not-any? #{note} (:notes %))) (update :notes conj note)))))
   (write! store previous))
 
 (defn finish!
   "Record `last-run`, the outcomes by place that the run reported, as the last run, for the next run's progress.
 
-  A run that recorded an outcome, or reused the cache under the same key, writes it. A run with
-  another key that recorded none leaves the file as it was, so a run that stops before its first
-  outcome keeps the last run's cache."
-  [{:keys [mode recorded?]
-    :as store}
-   last-run]
-  (when (or @recorded? (= :resume mode))
+  Every run that prints its report writes it, in every mode, so a run that reused every outcome
+  still saves its key and what it reported. A run that reported nothing, such as one whose scope
+  is empty, leaves the file as it was."
+  [store last-run]
+  (when (seq last-run)
     (write! store last-run)))
 
 (defn cached-plans
