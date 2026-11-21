@@ -133,6 +133,26 @@ same words in a string or docstring. A comment that starts like a marker but doe
 `defmacro`. The run warns about a marker that matches no planted bug or has no code after it in its form, so stale
 markers do not pile up. Skip only what you have read and judged harmless: a skipped line is a line no test checks.
 
+## Why it works this way
+
+Each choice below has a record in [`docs/adr/`](adr/README.md) with the options it beat and when to look at it again.
+
+- **One warm JVM, one form at a time** ([ADR 0005](adr/0005-mutation-testing-in-one-jvm.md)). Evaluating one changed
+  form costs milliseconds, where a new JVM for each mutant costs 30 to 60 s. Only the tests that call a function run for
+  its mutants.
+- **Operators and the numbers of function code, never names**
+  ([ADR 0006](adr/0006-mutation-test-which-code-the-runner-changes.md)). A number in data would run every test for a
+  change no test checks on purpose. A changed name or `defmethod` dispatch value would leave a var or a method behind,
+  and a `^:const` value is copied into its callers, so a changed value takes no effect. A harmless mutant is skipped
+  with a reason, which stays next to the code.
+- **`--apply` keeps a copy, not git** ([ADR 0007](adr/0007-mutation-test-undo-apply-with-a-kept-copy.md)). It works on
+  code that is not committed yet, which is when you write the new test, and `--restore` never overwrites a later edit.
+- **A page in plain words** ([ADR 0008](adr/0008-mutation-test-report-in-plain-words.md)). The Stryker viewer showed
+  each mutant but not what to do. The page leads with the gaps and the next step, and uses the same score as the
+  console.
+- **A body replaced by `nil`** ([ADR 0009](adr/0009-mutation-test-replace-a-body-with-nil.md)). A function with no
+  operator and no number gives no swap, so one more mutant per arity shows a function that no test checks at all.
+
 ## Words
 
 The HTML page is written for a reader who has not met mutation testing before, so it uses plain words. The console

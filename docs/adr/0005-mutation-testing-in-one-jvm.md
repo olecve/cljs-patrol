@@ -28,6 +28,16 @@ branch. At acceptance, the Decision and Revisit when sections are aligned with t
 
 The second Revisit when condition, "the runner runs only the tests that reach a mutated definition", is now met.
 
+2026-11-21, later: new records describe how the runner grew after acceptance. ADRs 0006 to 0009 are accepted. The
+sections below keep the decision as it was accepted.
+
+- [ADR 0006](0006-mutation-test-which-code-the-runner-changes.md): which other code the runner changes, such as integer
+  literals in function code, which code it leaves alone, and how a person skips a harmless mutant.
+- [ADR 0007](0007-mutation-test-undo-apply-with-a-kept-copy.md): how `--apply` writes one mutant into a file, and how
+  `--restore` puts the code back.
+- [ADR 0008](0008-mutation-test-report-in-plain-words.md): the `--html` page in plain words.
+- [ADR 0009](0009-mutation-test-replace-a-body-with-nil.md): a mutant that replaces a function body with `nil`.
+
 ## Context
 
 Each branch that a change adds must have a test that fails when the branch breaks. A test that stays green when its code
