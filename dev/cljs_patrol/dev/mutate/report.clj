@@ -85,7 +85,7 @@
                          (cond-> (:killed-by %) (assoc :killed-by (test-name (:killed-by %)))))
                     results)
      :ignored (mapv #(-> %
-                         (select-keys [:def :row :col :from :swap])
+                         (select-keys [:def :row :col :end-row :end-col :from :swap])
                          (assoc :to (pr-str (:to %))
                                 :reason (:skip-reason %)))
                     ignored)

@@ -302,7 +302,9 @@
        "(defn already-nil [x] nil)\n"
        "(defn empty-body [x])\n"
        "(defn nil-first [x] nil (prn x))\n"
-       "(def short-fn #(prn %))\n"))
+       "(def short-fn #(prn %))\n"
+       "(defn only-map [x] {:a x})\n"
+       "(defn checked-nil [x] {:pre [x]} nil)\n"))
 
 (deftest mutants-replace-each-arity-body-with-nil
   (let [bodies (filter #(= :body (:swap %)) (forms/mutants (forms/top-level-forms bodies-source)))]
@@ -310,17 +312,18 @@
             ["arities" 6 27 6 40 "(arities x 1)"]
             ["arities" 6 49 6 56 "(+ x y)"]
             ["area" 7 29 7 36 "(str x)"]
-            ["named" 8 26 8 51 "{:pre [(pos? x)]} (* 2 x)"]
+            ["named" 8 44 8 51 "(* 2 x)"]
             ["hinted" 9 34 9 35 "x"]
-            ["nil-first" 12 21 12 32 "nil (prn x)"]]
-           (map (juxt :def :row :col :end-row :end-col :text) bodies))
-        (str "docstring, attribute maps, name, dispatch value and hint left out; one per arity; lone nil, empty body"
-             " and #() give none"))
+            ["nil-first" 12 21 12 32 "nil (prn x)"]
+            ["only-map" 14 20 14 26 "{:a x}"]]
+           (map (juxt :def :row :col :end-row :end-col forms/replaced-text) bodies))
+        (str "docstring, attribute maps, name, dispatch value, hint and condition map left out; one per arity;"
+             " lone nil, also after condition map, empty body and #() give none; lone map is body"))
     (is (= [["odd-attrs" "(inc x)"]]
            (->> (forms/top-level-forms "(ns app.b)\n(defn odd-attrs ([x] (inc x)) {[:key] :value})\n")
                 forms/mutants
                 (filter #(= :body (:swap %)))
-                (map (juxt :def :text))))
+                (map (juxt :def forms/replaced-text))))
         "attribute map after arities is no arity, even with vector key")
     (is (= [["body" nil]] (distinct (map (juxt :from :to) bodies)))
         "body mutant reads as body to nil")
@@ -328,9 +331,10 @@
             "(defn arities \"Doc.\" ([x] nil) ([x y] (+ x y)) {:added 1})"
             "(defn arities \"Doc.\" ([x] (arities x 1)) ([x y] nil) {:added 1})"
             "(defmethod area [:a :b] [x] nil)"
-            "(def named (fn named [x] nil))"
+            "(def named (fn named [x] {:pre [(pos? x)]} nil))"
             "(defn ^String hinted ^String [x] nil)"
-            "(defn nil-first [x] nil)"]
+            "(defn nil-first [x] nil)"
+            "(defn only-map [x] nil)"]
            (map forms/mutated-text bodies))
         "every form of body gives way to one nil, up to its last form")))
 
@@ -349,3 +353,18 @@
     (is (= [["g" "inc"] ["h" "body"] ["h" "inc"]] (map (juxt :def :from) selected)))
     (is (= ["line 8 (body)"] unused-markers)
         "marker names body only on line where body starts")))
+
+(deftest scope-selects-body-mutant-when-any-of-its-lines-changed
+  (let [source (str "(ns app.x)\n"
+                    "(defn log! [x]\n"
+                    "  ; mutate: skip body: only prints\n"
+                    "  (prn x)\n"
+                    "  (prn x))\n"
+                    "(defn h [x]\n"
+                    "  (prn x)\n"
+                    "  (inc x))\n")
+        {:keys [selected ignored]} (forms/scope source {:lines #{5 8}})]
+    (is (= [["h" 7 "body"] ["h" 8 "inc"]] (map (juxt :def :row :from) selected))
+        "body selected by change on its last line")
+    (is (= [["log!" 4 "body"]] (map (juxt :def :row :from) ignored))
+        "marked body ignored by change on its last line")))

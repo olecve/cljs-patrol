@@ -86,6 +86,10 @@
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"The text at 2:18 of .* is not when, so nothing was written"
                               (apply/apply-mutant (str file) "2:18:when" kept))
             "lone carriage return shifts lines")
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #"The body at 2:17 of .* does not match what the runner read, so nothing was written"
+                              (apply/apply-mutant (str file) "2:17:body" kept))
+            "lone carriage return shifts body")
         (is (not (.exists (clojure.java.io/file kept))))
         (spit file text)
         (with-redefs [apply/write-whole (fn [_ _] (throw (java.io.IOException. "disk full")))]
@@ -107,6 +111,24 @@
             "body over crlf lines gives way to nil")
         (apply/restore-mutant kept)
         (is (= text (slurp file)))))))
+
+(deftest apply-mutant-picks-mutant-by-column-and-operator
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (let [file (clojure.java.io/file dir "core.clj")
+            kept (str (clojure.java.io/file dir "applied.edn"))
+            text "(ns app.core)\n(defn width [] 80)\n"]
+        (spit file text)
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"At 2:16 the operator is now body or 80, not 79\. Run the report"
+                              (apply/apply-mutant (str file) "2:16:79" kept))
+            "names every operator at that column")
+        (apply/apply-mutant (str file) "2:16:80" kept)
+        (is (= "(ns app.core)\n(defn width [] 81)\n" (slurp file))
+            "number mutant sharing column with body")
+        (apply/restore-mutant kept)
+        (apply/apply-mutant (str file) "2:16:body" kept)
+        (is (= "(ns app.core)\n(defn width [] nil)\n" (slurp file))
+            "body mutant sharing column with number")))))
 
 (deftest write-whole-replaces-file-and-leaves-no-temporary-file
   (fixtures/with-temp-dir

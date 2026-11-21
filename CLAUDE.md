@@ -98,16 +98,18 @@ the report lists `^:const` defs apart. A skip marker names a changed number by i
 `; mutate: skip 0: REASON`. Each arity of that function code, but a `#(…)`, also gets a body mutant (`:swap :body`), as
 cargo-mutants does for Rust: its whole body becomes `nil`, so a function with no operator, or one whose result no test
 checks, still shows up. Its operator is `body`, and it sits at the body's first form, so `--apply 'ROW:COL:body'` and
-`; mutate: skip body: REASON` on that line name it. An empty body or a lone `nil` gets none, since it already gives nil.
-A first run of the tests records which tests call each function of the target. Then, for each mutant, it evaluates the
-mutated form over the namespace, runs the tests that call that function until the first failure, and evaluates the
-original back. Pass every test namespace that exercises the target with `-t`: the run knows only those. Every test runs
-instead when the function cannot be recorded (a `defmethod`, a `def` that holds data, or a function with a primitive
-type hint), when it is called from a fixture, when a test namespace has a `test-ns-hook`, when the selected tests fail
-on their own, and with `-a` (`--all-tests`). A test that only reads what another test wrote is not selected for the
-function that wrote it, and a call that a background thread makes after its test ended counts for the test running then,
-so use `-a` for such a namespace. If recording the calls makes the tests fail, or run past a timeout given with
-`--timeout`, every mutant runs every test, and the report says so. Each mutant ends as one of:
+`; mutate: skip body: REASON` on that line name it; `--apply` picks it by column and operator, since a token there, such
+as `80` in `(defn width [] 80)`, has its own mutant. A leading `{:pre … :post …}` map with forms after it stays, and
+only the forms after it become `nil`. An empty body or a lone `nil` gets none, since it already gives nil. A first run
+of the tests records which tests call each function of the target. Then, for each mutant, it evaluates the mutated form
+over the namespace, runs the tests that call that function until the first failure, and evaluates the original back.
+Pass every test namespace that exercises the target with `-t`: the run knows only those. Every test runs instead when
+the function cannot be recorded (a `defmethod`, a `def` that holds data, or a function with a primitive type hint), when
+it is called from a fixture, when a test namespace has a `test-ns-hook`, when the selected tests fail on their own, and
+with `-a` (`--all-tests`). A test that only reads what another test wrote is not selected for the function that wrote
+it, and a call that a background thread makes after its test ended counts for the test running then, so use `-a` for
+such a namespace. If recording the calls makes the tests fail, or run past a timeout given with `--timeout`, every
+mutant runs every test, and the report says so. Each mutant ends as one of:
 
 - **killed**: a test failed, or the mutated form threw while it loaded. A failure is recorded before the run is cut
   short, so an assertion that catches exceptions, such as `thrown?`, cannot hide it.
@@ -140,15 +142,16 @@ on a definition's name or in a `defn`'s attribute map leaves out all of its muta
 and are listed as ignored with the reason. Only real comments count. The run stops on a comment that starts like a
 marker but is not one, on a `:mutate/skip` that is no reason string, and on one on a form the runner does not mutate; a
 marker that matches no mutant or has no code after it in its form prints a warning. `-d` limits the run to named
-top-level definitions, `-s REF` to the lines the branch changed since it left a git ref, `-r FILE` writes every mutant
-and its outcome to EDN, and `--html FILE` writes a page that leads with the test gaps: each one's line before and after
-the change, a likely reason no test caught it, and the tests that run for it, then tables by function and by test, and
-the source. The page needs no network. Its plain words, such as "planted bug" for a mutant, map to the usual ones in
-[`docs/mutation-testing.md`](docs/mutation-testing.md). `--apply 'ROW:COL:OPERATOR'` writes that one mutant into the
-file and runs nothing, keeping the replaced text in `.mutate-applied.edn`, and `--restore` puts it back. Neither takes
-the options of a run, and a second `--apply` or a run waits for `--restore`. A run exits 0 when nothing survives, 1 when
-something survives or has no coverage, and 2 when it cannot start or stops early. A value a `def` computes when the
-namespace loads keeps the original, so a mutant only it reaches survives.
+top-level definitions, `-s REF` to the lines the branch changed since it left a git ref (a body mutant counts when any
+of its lines changed), `-r FILE` writes every mutant and its outcome to EDN, and `--html FILE` writes a page that leads
+with the test gaps: each one's line before and after the change, a likely reason no test caught it, and the tests that
+run for it, then tables by function and by test, and the source. The page needs no network. Its plain words, such as
+"planted bug" for a mutant, map to the usual ones in [`docs/mutation-testing.md`](docs/mutation-testing.md).
+`--apply 'ROW:COL:OPERATOR'` writes that one mutant into the file and runs nothing, keeping the replaced text in
+`.mutate-applied.edn`, and `--restore` puts it back. Neither takes the options of a run, and a second `--apply` or a run
+waits for `--restore`. A run exits 0 when nothing survives, 1 when something survives or has no coverage, and 2 when it
+cannot start or stops early. A value a `def` computes when the namespace loads keeps the original, so a mutant only it
+reaches survives.
 
 The runner's command line is `dev/cljs_patrol/dev/mutate.clj`. Each job has its namespace under
 `dev/cljs_patrol/dev/mutate/`, and its tests under `test/cljs_patrol/dev/mutate/`: `forms` reads the target into

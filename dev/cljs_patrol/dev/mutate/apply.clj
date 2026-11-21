@@ -66,27 +66,32 @@
         col (parse-long col)
         source (slurp file)
         on-row (->> source forms/top-level-forms forms/mutants (filter #(= row (:row %))))
-        {:keys [from to text end-row end-col]
+        at-col (filter #(= col (:col %)) on-row)
+        {:keys [from to swap end-row end-col]
          function :def
-         :as mutant} (first (filter #(= col (:col %)) on-row)) ; mutate: skip first: one mutant per line and column
+         :as mutant} (some #(when (= operator (:from %)) %) at-col)
         path (relative-path file)]
-    (when-not mutant
+    (when (empty? at-col)
       (throw (error/setup-error (str "No mutant at " row ":" col "."
                                      (when (seq on-row)
                                        (str " Line " row " has "
                                             (str/join ", " (map #(str row ":" (:col %) " " (:from %)) on-row))
                                             "."))
                                      " Run the report again for the current positions."))))
-    (when-not (= operator from)
-      (throw (error/setup-error (str "At " row ":" col " the operator is now " from ", not " operator "."
-                                     " Run the report again for the current positions."))))
+    (when-not mutant
+      (throw (error/setup-error (str "At " row ":" col " the operator is now " (str/join " or " (map :from at-col))
+                                     ", not " operator ". Run the report again for the current positions."))))
     (let [lines (str/split source #"\n" -1)
           start (offset lines row col)
           end (offset lines end-row end-col)]
       ; mutate: skip <=: a form ends after its operator, so end never passes the last character
-      (when-not (and (<= end (count source)) (= text (str/replace (subs source start end) "\r\n" "\n")))
-        (throw (error/setup-error (str "The text at " row ":" col " of " path " is not " from ", so nothing was written."
-                                       " The file may break lines in a way the runner does not count."))))
+      (when-not (and (<= end (count source))
+                     (= (forms/replaced-text mutant) (str/replace (subs source start end) "\r\n" "\n")))
+        (throw (error/setup-error (str (if (= :body swap)
+                                         (str "The body at " row ":" col " of " path " does not match what the runner read")
+                                         (str "The text at " row ":" col " of " path " is not " from))
+                                       ", so nothing was written. The file may break lines in a way the runner does"
+                                       " not count."))))
       (spit kept (pr-str {:file (.getCanonicalPath (io/file file))
                           :original source
                           :applied (str (subs source 0 start) (pr-str to) (subs source end))}))

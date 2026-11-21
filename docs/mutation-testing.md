@@ -75,7 +75,9 @@ every test has only one item there. When that is the only possible case, the cha
 Each function also gets one planted bug that replaces its whole body with `nil`, one for each arity, shown as `body` to
 `nil`. It finds a function that has no operator to swap, or one that a test calls but never checks: "Likely: no test
 checks what this function returns or does." A function that runs only for its side effects, such as printing, gives this
-gap when no test checks those effects. A body that is empty or only `nil` gets no such planted bug.
+gap when no test checks those effects. A `{:pre … :post …}` map at the start of a body stays, and only the forms after
+it become `nil`. A body that is empty or only `nil` gets no such planted bug. With `-s`, the body's planted bug runs
+when any line of the body changed.
 
 Below the gaps are tables by function and by test, then, folded, the source with every planted bug marked, all the
 numbers, and the terms and sources.
@@ -93,7 +95,8 @@ clojure -M:test:mutate cljs-patrol.groups.reagent --apply '87:4:and'
 #   clojure -M:test:mutate --restore
 ```
 
-The position names the operator too, so a position from an older report cannot write a different planted bug. `--apply`
+The position names the operator too, so a position from an older report cannot write a different planted bug, and in
+`(defn width [] 80)` the body and the `80` share a place but `'2:16:body'` and `'2:16:80'` name one each. `--apply`
 keeps the file's text in `.mutate-applied.edn`, so it works on a file with uncommitted changes, and `--restore` writes
 that text back exactly. A second `--apply`, or a run, waits for `--restore`. `--restore` leaves a file alone that
 changed after the apply, and only clears the kept text when you already put the file back by hand. Each gap the tests

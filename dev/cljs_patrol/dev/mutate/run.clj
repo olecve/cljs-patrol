@@ -302,8 +302,9 @@
             (cond
               stuck? {:results results
                       :unreached more
-                      :stopped (str "the tests of the mutant at " (:row result) ":" (:col result) " still run after the"
-                                    " timeout, and would disturb every later run. Fix the loop, or raise --timeout.")}
+                      :stopped (str "the tests of the mutant at " (:row result) ":" (:col result) " " (:from result)
+                                    " still run after the timeout, and would disturb every later run. Fix the loop,"
+                                    " or raise --timeout.")}
               restore-error {:results results
                              :unreached more
                              :stopped (str "restoring " (:def result) " failed, so the namespace stays mutated: "
