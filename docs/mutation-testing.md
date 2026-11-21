@@ -53,6 +53,25 @@ every test has only one item there. When that is the only possible case, the cha
 Below the gaps are tables by function and by test, then, folded, the source with every planted bug marked, all the
 numbers, and the terms and sources.
 
+## Watch a new test fail
+
+A test that closes a gap must fail with the planted bug in place. `--apply` writes one planted bug into the file, at the
+place the console and the page show, and runs nothing. Run your new test, watch it fail, then put your code back with
+`--restore`:
+
+```bash
+clojure -M:test:mutate cljs-patrol.groups.reagent --apply '87:4:and'
+# Applied 87:4  and -> or  in key-meta-map? to src/cljs_patrol/groups/reagent.clj.
+# Run the tests and watch the new test fail, then put the code back with:
+#   clojure -M:test:mutate --restore
+```
+
+The position names the operator too, so a position from an older report cannot write a different planted bug. `--apply`
+keeps the file's text in `.mutate-applied.edn`, so it works on a file with uncommitted changes, and `--restore` writes
+that text back exactly. A second `--apply`, or a run, waits for `--restore`. `--restore` leaves a file alone that
+changed after the apply, and only clears the kept text when you already put the file back by hand. Each gap the tests
+ran has its command on the page; code no test calls has none, since no test can fail on it yet.
+
 ## Skip a harmless planted bug
 
 When a planted bug behaves the same as the original in every case, no test can catch it. Mark it once with the operator
