@@ -906,12 +906,13 @@
                                                              "(defn f [x] (+ x 1))\n"
                                                              "(def g (fn [x] (+ x 5)))\n"
                                                              "(def h #(* % 6))\n"
-                                                             "(def table {:fn (fn [] 7) :size 8})\n")))]
+                                                             "(def table {:fn (fn [] 7) :size 8})\n"
+                                                             "(def built (let [f (fn [] 9)] (f)))\n")))]
     (is (= [["area" 2 "if"] ["area" 2 "true"] ["area" 2 "2"] ["area" 2 "3"] ["area" 3 "4"] ["f" 6 "1"] ["g" 7 "5"]
-            ["h" 8 "6"] ["table" 9 "7"]]
+            ["h" 8 "6"]]
            (map (juxt :def :row :from) mutants))
-        "dispatch value, def data and const def left out; numbers in fn and #() of a def kept")
-    (is (= [:operator :operator :number :number :number :number :number :number :number]
+        "dispatch value, def data, fn inside def data and const def left out; def whose value is fn or #() kept")
+    (is (= [:operator :operator :number :number :number :number :number :number]
            (map :swap mutants))
         "integer literals marked number, other swaps operator")))
 

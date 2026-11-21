@@ -82,12 +82,16 @@
          (contains? #{"defn" "defn-"} (parser/sym-name (z/down parent)))
          (not-any? parameter-vector? (take-while some? (iterate z/left loc))))))
 
+(def ^:private definition-heads
+  "Every head whose second form names what it defines."
+  (into mutated-heads loaded-once-heads))
+
 (defn- name-slot?
   "True when `loc` holds the name a definition declares: a mutant of it would define a second var the restore keeps."
   [loc]
   (let [parent (z/up loc)]
     (and (= :list (some-> parent z/tag))
-         (contains? (into mutated-heads loaded-once-heads) (parser/sym-name (z/down parent)))
+         (contains? definition-heads (parser/sym-name (z/down parent)))
          (identical? (z/node loc) (some-> parent z/down z/right z/node)))))
 
 (defn- dispatch-value?
@@ -130,16 +134,17 @@
       1 0
       (inc' value))))
 
-(def ^:private function-heads
-  "Definitions whose body is function code."
-  #{"defn" "defn-" "defmethod"})
+(defn- function-def?
+  "True when the definition at `loc`, headed `head`, holds a function that runs when called.
 
-(defn- in-function?
-  "True when `loc` is inside a `fn` or `#(…)`, which runs when called, not data read once."
-  [loc]
-  (some #(or (= :fn (z/tag %))
-             (and (= :list (z/tag %)) (contains? #{"fn" "fn*"} (parser/sym-name (z/down %)))))
-        (take-while some? (iterate z/up loc))))
+  That is a `defn`, `defn-` or `defmethod`, or a `def` whose value is a `fn` or `#(…)`. A `def`
+  that builds data, also with a `fn` inside, is read once and cannot be recorded."
+  [loc head]
+  (or (contains? #{"defn" "defn-" "defmethod"} head)
+      (and (= "def" head)
+           (let [value (some-> loc z/down z/rightmost)]
+             (or (= :fn (some-> value z/tag))
+                 (and (= :list (some-> value z/tag)) (contains? #{"fn" "fn*"} (parser/sym-name (z/down value)))))))))
 
 (defn- replacement
   "Return the value to put in place of the token at `loc`, or nil when no operator swaps it.
@@ -235,16 +240,17 @@
 
   Each is {:def … :row … :col … :from … :to … :swap … :form-loc … :mutant-loc …}; :swap is
   :number for an integer literal and :operator for any other swap, and the mutated text of its
-  form is built only when the mutant runs. Integer literals change only in function code: a
-  `defn`, `defn-` or `defmethod` body, or a `fn` or `#(…)` anywhere. A definition with `:mutate/skip` on its name or in its
-  attribute map gives each of its mutants that reason as :skip-reason."
+  form is built only when the mutant runs. Integer literals change only in function code: the body of a
+  `defn`, `defn-` or `defmethod`, or a `def` whose value is a `fn` or `#(…)`. A definition with
+  `:mutate/skip` on its name or in its attribute map gives each of its mutants that reason as
+  :skip-reason."
   [forms]
   (for [{:keys [loc wrapper name kind head]} forms
         :when (= :mutated kind)
         :let [reason (:reason (skip-reason loc))
-              function? (contains? function-heads head)]
+              numbers? (function-def? loc head)]
         token (form-locs loc)
-        :let [to (replacement token (or function? (in-function? token)))]
+        :let [to (replacement token numbers?)]
         :when (and (some? to) (not (skipped? token)))
         :let [[row col] (parser/position token)]]
     {:def name
