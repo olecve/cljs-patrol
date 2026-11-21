@@ -415,7 +415,8 @@
                              (mutant "unused" 8 19 "when" "when-not" :no-coverage :since-last-run :new)]
                             :progress {:closed ["label/7:8/first->last"]
                                        :new 2
-                                       :still-open 1}))
+                                       :still-open 1
+                                       :not-run-before 0}))
         text (text-of html)]
     (is (str/includes? text "if to if-not New since the last run , pos? to neg? Still open line 5")
         "each swap tagged")
@@ -434,7 +435,8 @@
                                       (mutant "unused" 8 19 "when" "when-not" :no-coverage :since-last-run :still-open)]
                                      :progress {:closed []
                                                 :new 0
-                                                :still-open 2})))]
+                                                :still-open 2
+                                                :not-run-before 0})))]
     (is (str/includes? text "Since the last run: 0 gaps closed, 0 new, 2 still open."))
     (is (str/includes? (text-of (page (summary [(first mutants)]
                                                :progress {:closed []

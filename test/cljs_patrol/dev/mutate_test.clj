@@ -384,11 +384,15 @@
                     :timeout 0}
                    (:totals summary)))
             (is (= {"positive?" :every
-                    "label" []}
+                    "label" :every}
                    (->> summary :definitions (take 2) (into {} (map (juxt :def :tests)))))
-                "definition with every outcome reused shows no test list from other sources")
-            (is (nil? (:progress summary))
-                "other target text, no progress")
+                "definition with every outcome reused gets plan of these sources")
+            (is (= {:closed []
+                    :new 0
+                    :still-open 1
+                    :not-run-before 2}
+                   (:progress summary))
+                "untouched definition keeps its tag, edited one has none")
             (is (str/includes? plain-output "Reused the last run's outcome for 3 of 7 mutants; running the rest.")
                 "run without --iterate runs again what --iterate trusted")))))))
 
@@ -416,3 +420,57 @@
             (is (str/includes? output (str "Warning: the cache " file " failed, so the run goes on without it:")))
             (is (= 8 (:mutants (:totals summary))))
             (is (= 1 (report/exit-code summary)))))))))
+
+(deftest run-with-iterate-that-reuses-every-outcome-still-plans-tests
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/with-target fixtures/target-tests
+        (fn []
+          (let [file (io/file dir "target.edn")
+                _ (run-cached file fixtures/target-tests {:defs ["label"]})
+                [summary output] (run-cached file "changed tests" {:defs ["label"]
+                                                                   :iterate true})]
+            (is (str/includes? output "All 2 mutants come from the last run, as --iterate asks; the tests run once"))
+            (is (str/includes? output ", timeout ")
+                "baseline ran")
+            (is (= [["label" :every]] (map (juxt :def :tests) (:definitions summary))))))))))
+
+(deftest run-keeps-progress-tags-of-untouched-definitions-after-edit
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/with-target fixtures/target-tests
+        (fn []
+          (let [file (io/file dir "target.edn")
+                edited (str/replace fixtures/target-source
+                                    "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
+                                    "(ns cljs-patrol.dev.mutate.fixtures.target)\n\n(def added 1)\n")
+                _ (run-cached file fixtures/target-tests {})
+                [summary output] (run-cached edited file fixtures/target-tests {})]
+            (is (str/includes? output "Running every mutant, since the sources changed"))
+            (is (= [["positive?/4:32/>->>=" :still-open]]
+                   (->> summary :mutants (filter #(= :survived (:outcome %))) (map (juxt :id :since-last-run)))))
+            (is (= {:closed []
+                    :new 0
+                    :still-open 4
+                    :not-run-before 0}
+                   (:progress summary)))))))))
+
+(def ^:private waiting-source
+  (str "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
+       "(defn wait? [] false)\n"))
+
+(def ^:private waiting-tests
+  (str "(ns cljs-patrol.dev.mutate.fixtures.target-test (:require [clojure.test :refer [deftest is]]"
+       " [cljs-patrol.dev.mutate.fixtures.target :as target]))\n"
+       "(deftest waits (when (target/wait?) (Thread/sleep 1500)) (is true))\n"
+       "(deftest other (is true))\n"))
+
+(deftest given-timeout-holds-for-selected-tests
+  (fixtures/with-target waiting-source waiting-tests
+    (fn []
+      (is (= [["false" :timeout]]
+             (->> (run-target waiting-source {:timeout 400})
+                  :mutants
+                  (filter #(= "false" (:from %)))
+                  (map (juxt :from :outcome))))
+          "mutant slower than given timeout times out, though its own plan allows more"))))

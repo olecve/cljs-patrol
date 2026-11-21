@@ -104,10 +104,10 @@ ran has its command on the page; code no test calls has none, since no test can 
 
 ## Run again
 
-Each run keeps the outcome of each planted bug in `.mutate-cache/<target-ns>.edn`, every few outcomes and at the end.
-The next run of the same code reuses it:
+Each run writes the outcome of each planted bug to `.mutate-cache/`, after each planted bug. The next run of the same
+code reuses it:
 
-- **Resume.** A run that stopped early, or was cut short, goes on where it ended. A planted bug whose tests kept running
+- **Resume.** A run that stopped early, or was killed, goes on where it ended. A planted bug whose tests kept running
   runs again last, after every other one: if it loops again, the run stops there with nothing else lost. `-d` and `-s`
   runs share the cache with a full run.
 - **No change, no tests.** When every planted bug in scope is cached, the run reads the cache and runs no test. A plain
@@ -119,9 +119,10 @@ The next run of the same code reuses it:
 - **`--fresh`.** Runs every planted bug again and replaces the cache.
 
 A plain run reuses an outcome only when nothing changed in `src/`, `test/`, `dev/`, `resources/`, `test-projects/`,
-`docs/`, `deps.edn` or `README.md`, in the `-t` namespaces, in the runner, or in `-a` and `--timeout`. A run whose tests
-fail before any mutation leaves the cache as it was. A run with the same target source as the last one tags each gap
-that the last run also ran as new or still open, on the console and the page, and counts the gaps closed since:
+`docs/`, `deps.edn` or `README.md`, in the `-t` namespaces, in the runner, or in `-a` and `--timeout`. A run that stops
+before its first outcome, such as one whose tests fail before any mutation, leaves the cache as it was. Each run tags
+each gap that the last run also had as new or still open, on the console and the page, also after you edit other
+functions, and counts the gaps closed since:
 
 ```text
 Since the last run: 1 gap closed, 0 new, 3 still open.

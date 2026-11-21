@@ -93,6 +93,12 @@
                     ignored)
      :stopped stopped}))
 
+(defn progress-sentence
+  "Say how the gaps changed since the last run, without the closing period, as the console and the page show it."
+  [{:keys [closed new still-open not-run-before]}]
+  (str "Since the last run: " (count closed) (if (= 1 (count closed)) " gap" " gaps") " closed, " new " new, "
+       still-open " still open" (when (pos? not-run-before) (str ", " not-run-before " not run then"))))
+
 (defn- print-list [title names]
   (when (seq names)
     (println (str "\n" title ": " (str/join ", " names)))))
@@ -230,10 +236,8 @@
                      (:mutants totals) (:killed totals) (:survived totals) (:no-coverage totals) (:unviable totals)
                      (:timeout totals)))
     (println (str "Score " (percent score) ", covered score " (percent covered-score) "."))
-    (when-let [{:keys [closed new still-open not-run-before]} progress]
-      (println (str "Since the last run: " (count closed) (if (= 1 (count closed)) " gap" " gaps") " closed, " new " new, "
-                    still-open " still open" (when (pos? (or not-run-before 0)) (str ", " not-run-before " not run then"))
-                    "."))
+    (when-let [{:keys [closed]} progress]
+      (println (str (progress-sentence progress) "."))
       (when (seq closed)
         (println (str "  Closed: " (str/join ", " closed)))))
     (when note

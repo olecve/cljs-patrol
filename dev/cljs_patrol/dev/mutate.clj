@@ -37,8 +37,10 @@
   The tests must pass before any mutation, whether or not `timeout` is given. The report is
   also written to `report` when given. With `cache`, {:file … :make-key …}, the outcomes go
   to that file as the run goes, and the outcomes it already holds are reused as
-  [[cache/open!]] decides, with `fresh` and `iterate`. When every mutant is reused, no test
-  runs, the baseline included. A run whose baseline fails leaves the file as it was."
+  [[cache/open!]] decides, with `fresh` and `iterate`. A definition the cache has no test plan
+  for, as after --iterate, gets one, so the report can name its tests. When every mutant is
+  reused and every plan is known, no test runs, the baseline included. A run that records no
+  outcome leaves the file as it was."
   [target file source test-nss {:keys [defs since timeout report html all-tests cache fresh iterate]}]
   (let [lines (when since (git/lines-since file since))
         {:keys [defs-in-scope loaded-once const-defs other-forms selected ignored unused-markers forms]}
@@ -49,7 +51,6 @@
         _ (doseq [marker unused-markers]
             (println (str "Warning: the skip marker on " marker " matches no mutant; remove it or fix its operator.")))
         store (cache/open! (assoc cache
-                                  :target (cache/text-hash source)
                                   :current-places (when iterate
                                                     (->> forms
                                                          forms/mutants
@@ -59,8 +60,9 @@
                                   :iterate iterate))
         {:keys [reused to-run message]} (cache/plan-run store selected)
         _ (some-> message println)
-        {:keys [ms covered note]} (when (seq to-run)
-                                    (run/baseline target (distinct (map :def to-run)) test-nss timeout))
+        unplanned (->> selected (map :def) distinct (remove (-> store cache/cached-plans keys set)))
+        {:keys [ms covered note]} (when (or (seq to-run) (seq unplanned))
+                                    (run/baseline target (distinct (concat (map :def to-run) unplanned)) test-nss timeout))
         timeout-ms (when ms (or timeout (run/default-timeout-ms ms)))
         _ (println (format "%d mutants of %s against %s%s%s%s"
                            (count selected) target (str/join ", " test-nss)
@@ -71,18 +73,21 @@
                              timeout-ms (str ", timeout " timeout-ms " ms for every test, less for selected tests")
                              :else "")))
         plans (atom {})
+        context {:target target
+                 :file (str file)
+                 :test-nss test-nss
+                 :timeout-ms timeout-ms
+                 :fixed-timeout? (some? timeout)
+                 :select? (not all-tests)
+                 :covered covered
+                 :plans plans
+                 :on-result #(cache/record! store % @plans note)}
         {:keys [results unreached stopped stop-reason]} (try
-                                                          (run/run-all {:target target
-                                                                        :file (str file)
-                                                                        :test-nss test-nss
-                                                                        :timeout-ms timeout-ms
-                                                                        :fixed-timeout? (some? timeout)
-                                                                        :select? (not all-tests)
-                                                                        :covered covered
-                                                                        :plans plans
-                                                                        :on-result #(cache/record! store % @plans note)}
-                                                                       to-run)
-                                                          (finally (cache/flush! store)))
+                                                          (let [run (run/run-all context to-run)]
+                                                            (when-not (:stopped run)
+                                                              (run! #(run/test-plan context %) unplanned))
+                                                            run)
+                                                          (finally (cache/finish! store @plans)))
         fresh-results (into {} (map (juxt :id identity)) results)
         summary (cache/with-progress
                   (report/summarize {:defs-in-scope defs-in-scope
@@ -98,7 +103,8 @@
                                                 (str stopped (when @(:file store) (cache/stop-note stop-reason))))
                                      :note (cache/run-note store note)
                                      :plans (merge (cache/cached-plans store) @plans)})
-                  store)]
+                  store
+                  (into {} (map (juxt :id :place)) selected))]
     (report/print-report summary {:html html
                                   :report report
                                   :since since

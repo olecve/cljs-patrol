@@ -438,12 +438,11 @@
 
 (defn- progress-line
   "Say how the gaps changed since the last run, naming the closed ones, or nil when there was no last run."
-  [{:keys [closed new still-open not-run-before]
+  [{:keys [closed]
     :as progress}]
   (when progress
     [:p {:class "lead"}
-     (str "Since the last run: " (plural (count closed) "gap" "gaps") " closed, " new " new, " still-open " still open"
-          (when (pos? (or not-run-before 0)) (str ", " not-run-before " not run then")))
+     (report/progress-sentence progress)
      (if (seq closed)
        (list ": " (interpose ", " (map (fn [id] [:code id]) closed)) ".")
        ".")]))

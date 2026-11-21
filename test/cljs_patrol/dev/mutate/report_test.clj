@@ -347,12 +347,14 @@
 (deftest report-counts-gaps-closed-since-last-run
   (is (str/includes? (report-of {:progress {:closed ["f/1:1/when->when-not" "f/2:1/if->if-not"]
                                             :new 1
-                                            :still-open 3}})
+                                            :still-open 3
+                                            :not-run-before 0}})
                      (str "Since the last run: 2 gaps closed, 1 new, 3 still open.\n"
                           "  Closed: f/1:1/when->when-not, f/2:1/if->if-not\n")))
   (let [output (report-of {:progress {:closed []
                                       :new 0
-                                      :still-open 3}})]
+                                      :still-open 3
+                                      :not-run-before 0}})]
     (is (str/includes? output "Since the last run: 0 gaps closed, 0 new, 3 still open.\n"))
     (is (str/includes? (report-of {:progress {:closed []
                                               :new 0
@@ -362,7 +364,8 @@
     (is (not (str/includes? output "Closed:"))))
   (is (str/includes? (report-of {:progress {:closed ["f/1:1/when->when-not"]
                                             :new 0
-                                            :still-open 0}})
+                                            :still-open 0
+                                            :not-run-before 0}})
                      "Since the last run: 1 gap closed, 0 new, 0 still open.\n"))
   (is (not (str/includes? (report-of {}) "Since the last run"))
       "first run"))
