@@ -2,10 +2,10 @@
   "Load mutants into the target namespace and run its tests on each: coverage, test plans, timeouts and stuck threads."
   (:require
    [cljs-patrol.dev.mutate.error :as error]
+   [cljs-patrol.dev.mutate.forms :as forms]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [clojure.test :as t]
-   [rewrite-clj.node :as n]
    [rewrite-clj.zip :as z]))
 
 (defn load-text
@@ -219,7 +219,7 @@
   mutation is returned as :plan-stuck?, with no outcome, since the mutant never ran."
   [{:keys [target file test-nss timeout-ms]
     :as context}
-   {:keys [form-loc wrapper mutant-loc to]
+   {:keys [form-loc wrapper]
     :as mutant}]
   (let [line (first (parser/position (or wrapper form-loc)))
         original (z/string form-loc)
@@ -229,7 +229,7 @@
                              start (str/last-index-of wrapper-text original)]
                          (str (subs wrapper-text 0 start) form-text (subs wrapper-text (+ start (count original)))))
                        form-text))
-        mutated-text (in-wrapper (-> mutant-loc (z/replace (n/token-node to)) z/root n/string))
+        mutated-text (in-wrapper (forms/mutated-text mutant))
         {:keys [kind tests]
          :as plan} (test-plan context (:def mutant))]
     (if (= :stuck kind)
@@ -302,8 +302,9 @@
             (cond
               stuck? {:results results
                       :unreached more
-                      :stopped (str "the tests of the mutant at " (:row result) ":" (:col result) " still run after the"
-                                    " timeout, and would disturb every later run. Fix the loop, or raise --timeout.")}
+                      :stopped (str "the tests of the mutant at " (:row result) ":" (:col result) " " (:from result)
+                                    " still run after the timeout, and would disturb every later run. Fix the loop,"
+                                    " or raise --timeout.")}
               restore-error {:results results
                              :unreached more
                              :stopped (str "restoring " (:def result) " failed, so the namespace stays mutated: "

@@ -1,7 +1,9 @@
 (ns cljs-patrol.dev.mutate.run-test
   (:require
    [cljs-patrol.dev.mutate.fixtures :as fixtures]
+   [cljs-patrol.dev.mutate.forms :as forms]
    [cljs-patrol.dev.mutate.run :as run]
+   [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
 
 (deftest load-outcome-tells-unviable-from-killed
@@ -188,3 +190,31 @@
                  symbol
                  str))
           "failure inside nested test names that test"))))
+
+(deftest run-all-stops-at-mutant-whose-tests-keep-running
+  (fixtures/with-target (str "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
+                             "(defn done? [] true)\n")
+    (str "(ns cljs-patrol.dev.mutate.fixtures.target-test (:require [clojure.test :refer [deftest is]]"
+         " [cljs-patrol.dev.mutate.fixtures.target :as target]))\n"
+         "(def release (atom false))\n"
+         "(deftest waits (while (not (or (target/done?) @release))) (is true))\n")
+    (fn []
+      (let [release @(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'release)
+            source (str "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
+                        "(defn done? [] true)\n")]
+        (try
+          (let [{:keys [stopped unreached]}
+                (binding [*out* (java.io.StringWriter.)]
+                  (run/run-all {:target 'cljs-patrol.dev.mutate.fixtures.target
+                                :file "target.clj"
+                                :test-nss ['cljs-patrol.dev.mutate.fixtures.target-test]
+                                :timeout-ms 200
+                                :select? false
+                                :covered {}
+                                :plans (atom {})}
+                               (:selected (forms/scope source {}))))]
+            (is (str/starts-with? stopped "the tests of the mutant at 2:16 body still run after the timeout")
+                "message names position and operator")
+            (is (= ["true"] (map :from unreached))
+                "later mutant at same position left unreached"))
+          (finally (reset! release true)))))))

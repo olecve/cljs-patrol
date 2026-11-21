@@ -29,7 +29,7 @@
   "The likely reason a test misses a swap, by the two operators it swaps.
 
   It has one hint for each pair of `cljs-patrol.dev.mutate.forms/swaps`. A swap of integer
-  literals has one hint of its own, `number-hint`."
+  literals has one hint of its own, `number-hint`, and a body replaced by `nil` has `body-hint`."
   {#{"<" "<="} "no test uses the boundary value, where both sides are equal."
    #{">" ">="} "no test uses the boundary value, where both sides are equal."
    #{"=" "not="} "no test checks both outcomes of this comparison."
@@ -48,6 +48,10 @@
 (def ^:private number-hint
   "The likely reason a test misses a swap of one integer literal for another."
   "no test checks the exact number here, or the boundary it sets.")
+
+(def ^:private body-hint
+  "The likely reason a test misses a function body replaced by `nil`."
+  "no test checks what this function returns or does.")
 
 (def ^:private maybe-harmless
   "Why a swap may behave the same as the original in every case, by the two operators it swaps."
@@ -93,8 +97,9 @@
   "Return the likely reason a test misses `mutant`, by the operators it swaps, or nil when there is none."
   [{:keys [swap]
     :as mutant}]
-  (if (= :number swap)
-    number-hint
+  (case swap
+    :number number-hint
+    :body body-hint
     (hints (swap-pair mutant))))
 
 (defn- indent [line] (count (re-find #"^ *" line)))
@@ -131,17 +136,34 @@
             (recur (dec r) (indent text) (conj shown r))
             (recur (dec r) limit shown)))))))
 
+(defn- span-end
+  "Return where the part of `text` that `mutant` changes ends, with `cut` columns cut off the line's start.
+
+  A body mutant changes up to the end of its body, or to the end of the line when the body goes
+  on below it."
+  [text cut {:keys [row col end-row end-col from swap]}]
+  (if (= :body swap)
+    (if (= row end-row) (- end-col 1 cut) (count text))
+    (+ (- col 1 cut) (count from))))
+
 (defn- marked
-  "Return the text of a line with each swapped operator wrapped in a span, written by `pick`."
-  [text cut mutants span-class pick]
+  "Return the text of a line with the part each mutant changes in a span of `span-class`, with the new text when `changed?`.
+
+  A mutant that starts inside the part of an earlier one, such as an operator in a body that
+  becomes `nil`, is not marked again."
+  [text cut mutants span-class changed?]
   (loop [[mutant & more] (sort-by :col mutants)
          at 0
          parts []]
     (if mutant
-      (let [start (max at (- (:col mutant) 1 cut))]
-        (recur more
-               (+ start (count (:from mutant)))
-               (conj parts (subs text at start) [:span {:class span-class} (pick mutant)])))
+      (let [start (- (:col mutant) 1 cut)]
+        (if (< start at)
+          (recur more at parts)
+          (let [end (span-end text cut mutant)]
+            (recur more
+                   end
+                   (conj parts (subs text at start) [:span {:class span-class}
+                                                     (if changed? (:to mutant) (subs text start end))])))))
       (seq (conj parts (subs text (min at (count text))))))))
 
 (defn- code-block
@@ -159,10 +181,10 @@
               [:span {:class "row ctx"} [:span {:class "no"} r] [:span] (str (subs (line-text r) cut) "\n")]))
       (when (and (seq context) (> row (inc (last context)))) skipped)
       [:span {:class "row mine"} [:span {:class "no"} row] [:span {:class "lab"} "now"]
-       [:span (marked text cut mutants "from" :from) "\n"]]
+       [:span (marked text cut mutants "from" false) "\n"]]
       (for [mutant (sort-by :col mutants)]
         [:span {:class "row bug"} [:span {:class "no"}] [:span {:class "lab"} "with bug"]
-         [:span (marked text cut [mutant] "to" :to) "\n"]])]]))
+         [:span (marked text cut [mutant] "to" true) "\n"]])]]))
 
 (defn- tests-list [function tests these?]
   (when (seq tests)

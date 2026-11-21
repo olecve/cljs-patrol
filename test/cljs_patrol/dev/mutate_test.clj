@@ -23,10 +23,15 @@
                     (filter #(re-matches #"\d+" (:from %)))
                     (map (juxt :def :from :to :outcome))))
             "number mutant runs with new number in its form")
-        (is (= {:mutants 5
-                :killed 2
+        (is (= [["positive?" :killed] ["label" :killed] ["unused" :no-coverage]]
+               (->> mutants
+                    (filter #(= :body (:swap %)))
+                    (map (juxt :def :outcome))))
+            "body replaced by nil runs, and test that checks what function returns catches it")
+        (is (= {:mutants 8
+                :killed 4
                 :survived 1
-                :no-coverage 2
+                :no-coverage 3
                 :unviable 0
                 :timeout 0}
                totals)
@@ -80,14 +85,14 @@
       (let [file (java.io.File/createTempFile "mutate" ".html")]
         (try
           (run-target {:html (str file)})
-          (is (re-find #"<h1>The tests caught 2 of 5 planted bugs \(40%\)</h1>" (slurp file)))
+          (is (re-find #"<h1>The tests caught 4 of 8 planted bugs \(50%\)</h1>" (slurp file)))
           (finally (.delete file)))))))
 
 (deftest run-names-killing-test-and-tests-that-ran
   (fixtures/with-target (str fixtures/target-tests "(deftest unrelated (is true))\n")
     (fn []
       (let [{:keys [mutants definitions]} (run-target {:defs ["label"]})]
-        (is (= ["cljs-patrol.dev.mutate.fixtures.target-test/labels"]
+        (is (= ["cljs-patrol.dev.mutate.fixtures.target-test/labels" "cljs-patrol.dev.mutate.fixtures.target-test/labels"]
                (keep :killed-by mutants)))
         (is (= [["label" ["cljs-patrol.dev.mutate.fixtures.target-test/labels"]]]
                (map (juxt :def :tests) definitions)))))))
@@ -103,12 +108,12 @@
             output (with-out-str
                      (reset! summary (mutate/mutate-source 'cljs-patrol.dev.mutate.fixtures.target "target.clj" marked
                                                            ['cljs-patrol.dev.mutate.fixtures.target-test] {})))]
-        (is (= 4 (:mutants (:totals @summary)))
+        (is (= 7 (:mutants (:totals @summary)))
             "marked mutant does not run")
         (is (= [["positive?" ">" "the boundary is checked elsewhere"]]
                (map (juxt :def :from :reason) (:ignored @summary))))
         (is (str/includes? output "Warning: the skip marker on line 5 (if) matches no mutant"))
-        (is (str/includes? output "4 mutants of cljs-patrol.dev.mutate.fixtures.target against"))
+        (is (str/includes? output "7 mutants of cljs-patrol.dev.mutate.fixtures.target against"))
         (is (str/includes? output "target-test, 1 ignored, timeout"))
         (is (str/includes? output
                            "Ignored, with a skip marker:\n  2:32  > -> >=  in positive?: the boundary is checked elsewhere")

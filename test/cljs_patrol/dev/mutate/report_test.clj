@@ -108,12 +108,16 @@
                                    :ignored [{:def "b"
                                               :row 3
                                               :col 4
+                                              :end-row 3
+                                              :end-col 6
                                               :from "if"
                                               :to 'if-not
                                               :skip-reason "wraps a JDK call"}]})]
     (is (= [{:def "b"
              :row 3
              :col 4
+             :end-row 3
+             :end-col 6
              :from "if"
              :to "if-not"
              :reason "wraps a JDK call"}]

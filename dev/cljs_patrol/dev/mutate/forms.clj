@@ -4,6 +4,7 @@
    [cljs-patrol.dev.mutate.error :as error]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
+   [rewrite-clj.node :as n]
    [rewrite-clj.zip :as z]))
 
 (def swaps
@@ -199,9 +200,9 @@
                                     :else :other)))))))))
 
 (defn- form-locs
-  "Return every loc inside the form at `loc`, the form included, in a zipper of that form alone."
-  [loc]
-  (->> (z/subzip loc) (iterate z/next) (take-while (complement z/end?))))
+  "Return every loc of the zipper `root`, the root included."
+  [root]
+  (->> root (iterate z/next) (take-while (complement z/end?))))
 
 (defn- skip-reason
   "Return {:reason …} for `:mutate/skip` on the name or in the attribute map of the definition at `loc`, as written.
@@ -220,34 +221,125 @@
           [(when (= :meta (some-> name-slot z/tag)) (meta (z/sexpr name-slot)))
            (some-> attr-map z/sexpr)])))
 
+(defn- without-conditions
+  "Drop the `{:pre … :post …}` condition map that leads the arity `body`, as Clojure reads one: a map with forms after it."
+  [body]
+  (if (and (= :map (z/tag (first body))) (next body))
+    (next body)
+    body))
+
+(defn- arity-bodies
+  "Return the body forms of each arity of the function that `root`, a zipper of one definition headed `head`, holds.
+
+  There is one list of locs per arity. Only a `fn` that a `def` holds counts, not a `#(…)`,
+  whose whole form is its body. A leading condition map stays, so the body is the forms after it.
+  A body that is empty, or a lone `nil`, already gives nil, so it is left out."
+  [root head]
+  (let [fn-loc (if (= "def" head) (z/rightmost (z/down root)) root)
+        skipped-slots (case head
+                        ; mutate: skip 1: the fn symbol is no parameter vector and no arity, so keeping it changes nothing
+                        "def" 1
+                        "defmethod" 3
+                        2)]
+    (when (= :list (z/tag fn-loc))
+      (let [after-name (drop skipped-slots (parser/written-child-locs fn-loc))
+            arity-body #(->> % (drop-while (complement parameter-vector?)) next without-conditions)
+            bodies (if (some parameter-vector? after-name)
+                     [(arity-body after-name)]
+                     (for [arity after-name
+                           :when (and (= :list (z/tag arity)) (parameter-vector? (z/down arity)))]
+                       (arity-body (parser/written-child-locs arity))))]
+        (remove (fn [body] (or (empty? body) (= ["nil"] (map z/string body)))) bodies)))))
+
+(defn- body-mutants
+  "Return a mutant for each arity body of the function `root`, a zipper of one definition, holds: the body replaced by `nil`.
+
+  Its :from is `body`, so a skip marker and `--apply` name it as `body`, and it sits where the
+  body's first form starts."
+  [root head]
+  (for [body (arity-bodies root head)
+        :let [[[row col]] (parser/position-span (first body))
+              [_ [end-row end-col]] (parser/position-span (last body))]]
+    {:row row
+     :col col
+     :end-row end-row
+     :end-col end-col
+     :from "body"
+     :to nil
+     :swap :body
+     :mutant-loc (first body)
+     :last-node (z/node (last body))}))
+
+(defn- token-mutants
+  "Return a mutant for each token of `root`, a zipper of one definition, that an operator swaps, or an integer when `numbers?`."
+  [root numbers?]
+  (for [token (form-locs root)
+        :let [to (replacement token numbers?)]
+        :when (and (some? to) (not (skipped? token)))
+        :let [[[row col] [end-row end-col]] (parser/position-span token)
+              from (z/string token)]]
+    {:row row
+     :col col
+     :end-row end-row
+     :end-col end-col
+     :from from
+     :to to
+     :swap (if (number? to) :number :operator)
+     :mutant-loc token}))
+
 (defn mutants
   "Return a mutant for every swap the definitions among the top-level `forms` allow.
 
-  Each is {:def … :row … :col … :from … :to … :swap … :form-loc … :mutant-loc …}; :swap is
-  :number for an integer literal and :operator for any other swap, and the mutated text of its
-  form is built only when the mutant runs. Integer literals change only in function code: the body of a
-  `defn`, `defn-` or `defmethod`, or a `def` whose value is a `fn` or `#(…)`. A definition with
-  `:mutate/skip` on its name or in its attribute map gives each of its mutants that reason as
-  :skip-reason."
+  Each is {:def … :row … :col … :end-row … :end-col … :from … :to … :swap … :form-loc …
+  :mutant-loc …}. `mutated-text` builds the text of its form only when the mutant runs, and
+  `replaced-text` the source it replaces, which ends at :end-row and :end-col, only for --apply.
+  :swap is :body for a function body replaced by `nil`, :number for an integer literal and
+  :operator for any other swap. Function code is the body of a `defn`, `defn-` or `defmethod`,
+  or a `def` whose value is a `fn` or `#(…)`. Only there do integer literals change, and each
+  arity of it, but of a `#(…)`, gets a body mutant, listed before the definition's other mutants.
+  A definition with `:mutate/skip` on its name or in its attribute map gives each of its mutants
+  that reason as :skip-reason."
   [forms]
   (for [{:keys [loc wrapper name kind head]} forms
         :when (= :mutated kind)
-        :let [reason (:reason (skip-reason loc))
-              numbers? (function-def? loc head)]
-        token (form-locs loc)
-        :let [to (replacement token numbers?)]
-        :when (and (some? to) (not (skipped? token)))
-        :let [[row col] (parser/position token)]]
-    {:def name
-     :row row
-     :col col
-     :from (z/string token)
-     :to to
-     :swap (if (number? to) :number :operator)
-     :form-loc loc
-     :wrapper wrapper
-     :mutant-loc token
-     :skip-reason reason}))
+        :let [function? (function-def? loc head)
+              reason (:reason (skip-reason loc))
+              root (z/subzip loc)]
+        mutant (concat (when function? (body-mutants root head)) (token-mutants root function?))]
+    (assoc mutant
+           :def name
+           :form-loc loc
+           :wrapper wrapper
+           :skip-reason reason)))
+
+(defn replaced-text
+  "Return the source `mutant` replaces, with each line break read as a `\\n`: its token, or its body up to the last form."
+  [{:keys [mutant-loc swap last-node]}]
+  (if (= :body swap)
+    (->> (iterate z/right* mutant-loc)
+         (take-while some?)
+         (reduce (fn [text loc]
+                   (let [text (str text (z/string loc))]
+                     (if (identical? (z/node loc) last-node) (reduced text) text)))
+                 ""))
+    (z/string mutant-loc)))
+
+(defn mutated-text
+  "Return the text of the definition of `mutant` with the mutant in it, without the metadata around it.
+
+  A body mutant puts `nil` in place of the body's first form and removes the forms after it, up
+  to the body's last one."
+  [{:keys [mutant-loc to swap last-node]}]
+  (-> (if (= :body swap)
+        (loop [loc (z/replace mutant-loc (n/token-node nil))
+               done? (identical? (z/node mutant-loc) last-node)]
+          (if done?
+            loc
+            (let [next-loc (z/right loc)]
+              (recur (z/remove next-loc) (identical? (z/node next-loc) last-node)))))
+        (z/replace mutant-loc (n/token-node to)))
+      z/root
+      n/string))
 
 (def ^:private skip-marker
   "A `; mutate: skip OPERATOR: REASON` comment."
@@ -308,7 +400,8 @@
   The run stops when a definition named with `-d` does not exist, when a comment starts like a
   skip marker but is not one, and when a `:mutate/skip` anywhere in the file is no reason string
   or sits on a form the runner does not mutate. A marker is unused when no mutant of its line has its operator: on
-  a full run anywhere in the file, and with `-d` or `-s` only on the lines in scope."
+  a full run anywhere in the file, and with `-d` or `-s` only on the lines in scope. With `-s`, a
+  mutant runs, or is ignored, when any of its lines from :row to :end-row changed."
   [source {:keys [defs lines]}]
   (let [forms (top-level-forms source)
         wanted (set defs)
@@ -347,7 +440,8 @@
           in-scope-rows (set (mapcat form-lines in-scope))
           [ignored selected] ((juxt filter remove)
                               :skip-reason
-                              (filter #(or (not (set? lines)) (contains? lines (:row %))) in-scope-mutants))]
+                              (filter #(or (not (set? lines)) (some lines (range (:row %) (inc (:end-row %)))))
+                                      in-scope-mutants))]
       {:defs-in-scope (mapv :name (of-kind :mutated))
        :loaded-once (mapv #(str (:name %) " (" (:head %) ")") (of-kind :loaded-once))
        :const-defs (mapv :name (of-kind :const))
