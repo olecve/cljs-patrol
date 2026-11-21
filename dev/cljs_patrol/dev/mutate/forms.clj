@@ -287,10 +287,15 @@
      :swap (if (number? to) :number :operator)
      :mutant-loc token}))
 
+(defn digest-hex
+  "Write what the SHA-256 `digest` has read as 64 hex digits."
+  [^java.security.MessageDigest digest]
+  (format "%064x" (BigInteger. 1 (.digest digest))))
+
 (defn text-hash
   "Hash `text` with SHA-256, as 64 hex digits."
   [^String text]
-  (format "%064x" (BigInteger. 1 (.digest (java.security.MessageDigest/getInstance "SHA-256") (.getBytes text "UTF-8")))))
+  (digest-hex (doto (java.security.MessageDigest/getInstance "SHA-256") (.update (.getBytes text "UTF-8")))))
 
 (defn mutants
   "Return a mutant for every swap the definitions among the top-level `forms` allow.
@@ -303,22 +308,16 @@
   or a `def` whose value is a `fn` or `#(…)`. Only there do integer literals change, and each
   arity of it, but of a `#(…)`, gets a body mutant, listed before the definition's other mutants.
   A definition with `:mutate/skip` on its name or in its attribute map gives each of its mutants
-  that reason as :skip-reason. Each mutant also gets its definition's text hash as :form-hash
-  and where the definition, with its metadata, starts as :form-start, computed once a form."
+  that reason as :skip-reason."
   [forms]
   (for [{:keys [loc wrapper name kind head]} forms
         :when (= :mutated kind)
         :let [function? (function-def? loc head)
               reason (:reason (skip-reason loc))
-              root (z/subzip loc)
-              definition (or wrapper loc)
-              form-hash (text-hash (z/string definition))
-              form-start (parser/position definition)]
+              root (z/subzip loc)]
         mutant (concat (when function? (body-mutants root head)) (token-mutants root function?))]
     (assoc mutant
            :def name
-           :form-hash form-hash
-           :form-start form-start
            :form-loc loc
            :wrapper wrapper
            :skip-reason reason)))

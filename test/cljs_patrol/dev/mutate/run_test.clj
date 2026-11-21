@@ -244,3 +244,15 @@
             (is (empty? results))
             (is (= 2 (count unreached))))
           (finally (reset! release true)))))))
+
+(deftest recorded-plans-name-tests-coverage-saw-call-each-definition
+  (is (= {"a" {:kind :subset
+               :tests #{#'clojure.core/inc}}}
+         (run/recorded-plans {:tests {"a" #{#'clojure.core/inc}
+                                      "b" #{}
+                                      "c" #{#'clojure.core/inc}}
+                              :recorded #{"a" "b"}}
+                             ["a" "b" "c" "d"]))
+      "no call or no recording gives no test list")
+  (is (= {} (run/recorded-plans nil ["a"]))
+      "no baseline, no test lists"))

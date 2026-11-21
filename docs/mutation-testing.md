@@ -104,8 +104,8 @@ ran has its command on the page; code no test calls has none, since no test can 
 
 ## Run again
 
-Each run writes the outcome of each planted bug to `.mutate-cache/`, after each planted bug. The next run of the same
-code reuses it:
+Each run writes the outcomes to `.mutate-cache/<target-ns>.edn` after each planted bug. The next run of the same code
+reuses them:
 
 - **Resume.** A run that stopped early, or was killed, goes on where it ended. A planted bug whose tests kept running
   runs again last, after every other one: if it loops again, the run stops there with nothing else lost. `-d` and `-s`
@@ -121,8 +121,8 @@ code reuses it:
 A plain run reuses an outcome only when nothing changed in `src/`, `test/`, `dev/`, `resources/`, `test-projects/`,
 `docs/`, `deps.edn` or `README.md`, in the `-t` namespaces, in the runner, or in `-a` and `--timeout`. A run that stops
 before its first outcome, such as one whose tests fail before any mutation, leaves the cache as it was. Each run tags
-each gap that the last run also had as new or still open, on the console and the page, also after you edit other
-functions, and counts the gaps closed since:
+each gap that the last run that printed its report also had as new or still open, on the console and the page, also
+after you edit other functions, and counts the gaps closed since:
 
 ```text
 Since the last run: 1 gap closed, 0 new, 3 still open.

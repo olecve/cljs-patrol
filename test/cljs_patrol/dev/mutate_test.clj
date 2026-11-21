@@ -3,6 +3,7 @@
    [cljs-patrol.dev.mutate :as mutate]
    [cljs-patrol.dev.mutate.cache :as cache]
    [cljs-patrol.dev.mutate.fixtures :as fixtures]
+   [cljs-patrol.dev.mutate.forms :as forms]
    [cljs-patrol.dev.mutate.report :as report]
    [cljs-patrol.dev.mutate.run :as run]
    [clojure.edn :as edn]
@@ -197,7 +198,7 @@
                                                 ['cljs-patrol.dev.mutate.fixtures.target-test]
                                                 (merge {:cache {:file file
                                                                 :make-key #(cache/run-key
-                                                                            {:sources (cache/text-hash (str source tests))
+                                                                            {:sources (forms/text-hash (str source tests))
                                                                              :runner "runner"})}}
                                                        options))))]
      [@summary output])))
@@ -384,9 +385,9 @@
                     :timeout 0}
                    (:totals summary)))
             (is (= {"positive?" :every
-                    "label" :every}
+                    "label" ["cljs-patrol.dev.mutate.fixtures.target-test/labels"]}
                    (->> summary :definitions (take 2) (into {} (map (juxt :def :tests)))))
-                "definition with every outcome reused gets plan of these sources")
+                "definition with every outcome reused names tests baseline saw call it")
             (is (= {:closed []
                     :new 0
                     :still-open 1
@@ -417,11 +418,11 @@
           (spit (io/file dir "cache") "a file, not a directory")
           (let [file (io/file dir "cache" "target.edn")
                 [summary output] (run-cached file fixtures/target-tests {})]
-            (is (str/includes? output (str "Warning: the cache " file " failed, so the run goes on without it:")))
+            (is (str/includes? output (str "Warning: the cache " file " could not be written, so the run goes on without it:")))
             (is (= 8 (:mutants (:totals summary))))
             (is (= 1 (report/exit-code summary)))))))))
 
-(deftest run-with-iterate-that-reuses-every-outcome-still-plans-tests
+(deftest run-with-iterate-that-reuses-every-outcome-names-tests-from-baseline
   (fixtures/with-temp-dir
     (fn [dir]
       (fixtures/with-target fixtures/target-tests
@@ -433,7 +434,8 @@
             (is (str/includes? output "All 2 mutants come from the last run, as --iterate asks; the tests run once"))
             (is (str/includes? output ", timeout ")
                 "baseline ran")
-            (is (= [["label" :every]] (map (juxt :def :tests) (:definitions summary))))))))))
+            (is (= [["label" ["cljs-patrol.dev.mutate.fixtures.target-test/labels"]]]
+                   (map (juxt :def :tests) (:definitions summary))))))))))
 
 (deftest run-keeps-progress-tags-of-untouched-definitions-after-edit
   (fixtures/with-temp-dir
@@ -474,3 +476,22 @@
                   (filter #(= "false" (:from %)))
                   (map (juxt :from :outcome))))
           "mutant slower than given timeout times out, though its own plan allows more"))))
+
+(deftest run-of-one-definition-becomes-last-run
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/with-target fixtures/target-tests
+        (fn []
+          (let [file (io/file dir "target.edn")
+                _ (run-cached file fixtures/target-tests {})
+                _ (run-cached file fixtures/target-tests {:defs ["label"]})
+                last-run (:last-run (edn/read-string (slurp file)))
+                [summary] (run-cached file fixtures/target-tests {})]
+            (is (= 2 (count last-run))
+                "run of one definition from cache sets last run to what it reported")
+            (is (= {:closed []
+                    :new 0
+                    :still-open 0
+                    :not-run-before 4}
+                   (:progress summary))
+                "gaps outside definition last run reported get no tag")))))))

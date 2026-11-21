@@ -149,28 +149,26 @@ run for it, then tables by function and by test, and the source. The page needs 
 "planted bug" for a mutant, map to the usual ones in [`docs/mutation-testing.md`](docs/mutation-testing.md).
 `--apply 'ROW:COL:OPERATOR'` writes that one mutant into the file and runs nothing, keeping the replaced text in
 `.mutate-applied.edn`, and `--restore` puts it back. Neither takes the options of a run, and a second `--apply` or a run
-waits for `--restore`. A run appends each mutant's outcome, as soon as it is known, to
-`.mutate-cache/<target-ns>.log.edn` in the directory it runs from, and folds that log into
-`.mutate-cache/<target-ns>.edn` at its end; a run that finds a log left by a killed run folds it first. A run that
-records no outcome, such as one whose baseline fails, leaves the cache as it was. A cache or log that cannot be read, a
-key that cannot be made, or a cache that cannot be written prints one warning, and the run starts over or goes on
-without the cache. Each mutant has an `:id` in the cache and the EDN report, such as
-`holds-focus?/490:43/remove->filter`: its definition, line, column and swap, and a place: the hash of its top-level
-definition's text, its line and column inside that definition, and its swap. The cache's key is a hash of every file
-under `src/`, `test/`, `dev/`, `resources/`, `test-projects/` and `docs/` and of `deps.edn` and `README.md`, the sorted
-`-t` namespaces, a hash of the runner's own sources (`mutate.clj` and `mutate/*.clj`), and `-a` and `--timeout`. A run
-with the same key reuses each cached outcome, a plain timeout included, and runs only the other mutants, so a stopped or
-killed run goes on where it ended, and `-d` and `-s` runs share one cache. A mutant whose tests kept running after the
-timeout is never reused: the next run runs it again after every other mutant, so a loop that comes back stops the run
-with nothing else lost. When a run with the same key finds every mutant in scope cached, no test runs, the baseline
-included. Another key makes the run start over. `--iterate` needs only the same `-t` namespaces, runner and options: it
-reuses the caught and unviable outcomes by place, so an edit runs again only the definitions it touches, and it always
-runs the baseline so each definition has a test plan. It marks those outcomes `:trusted?`, and a run without `--iterate`
-runs them again. `--fresh` runs every mutant again. The cache keeps the outcomes the last run reported, by place: each
-gap whose place the last run reported is tagged new or still open, on the console and the page, the others count as "not
-run then", and the report counts the gaps closed since. A run exits 0 when nothing survives, 1 when something survives
-or has no coverage, and 2 when it cannot start or stops early. A value a `def` computes when the namespace loads keeps
-the original, so a mutant only it reaches survives.
+waits for `--restore`. A run writes `.mutate-cache/<target-ns>.edn` in the directory it runs from again after each
+mutant's outcome, with the safe write of `--apply`, so a stopped or killed run keeps what it finished; a run that
+records no outcome, such as one whose baseline fails, leaves the cache as it was. A cache that cannot be read or
+written, or a key that cannot be made, prints one warning, and the run goes on without the cache. Each mutant has an
+`:id` in the cache and the EDN report, such as `holds-focus?/490:43/remove->filter`: its definition, line, column and
+swap, and a place: the hash of its top-level definition's text, its line and column inside that definition, and its
+swap. The cache's key is a hash of every file under `src/`, `test/`, `dev/`, `resources/`, `test-projects/` and `docs/`
+and of `deps.edn` and `README.md`, the sorted `-t` namespaces, a hash of the runner's own sources (`mutate.clj` and
+`mutate/*.clj`), and `-a` and `--timeout`. A run with the same key reuses each cached outcome, a plain timeout included,
+and runs only the other mutants, and `-d` and `-s` runs share one cache. A mutant whose tests kept running after the
+timeout is never reused: the next run runs it again after every other mutant. When a run with the same key finds every
+mutant in scope cached, no test runs, the baseline included. Another key makes the run start over. `--iterate` needs
+only the same `-t` namespaces, runner and options: it reuses the caught and unviable outcomes by place, so an edit runs
+again only the definitions it touches; it runs the baseline, and a definition whose outcomes are all reused shows the
+tests the baseline saw call it. It marks those outcomes `:trusted?`, and a run without `--iterate` runs them again.
+`--fresh` runs every mutant again. At the end of a run that prints its report, the cache keeps what that run reported,
+by place, as the last run: each gap whose place the last run reported is tagged new or still open, on the console and
+the page, the others count as "not run then", and the report counts the gaps closed since. A run exits 0 when nothing
+survives, 1 when something survives or has no coverage, and 2 when it cannot start or stops early. A value a `def`
+computes when the namespace loads keeps the original, so a mutant only it reaches survives.
 
 The runner's command line is `dev/cljs_patrol/dev/mutate.clj`. Each job has its namespace under
 `dev/cljs_patrol/dev/mutate/`, and its tests under `test/cljs_patrol/dev/mutate/`: `forms` reads the target into

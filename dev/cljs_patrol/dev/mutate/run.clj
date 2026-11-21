@@ -207,6 +207,18 @@
     (or (get @plans def-name)
         (get (swap! plans assoc def-name (decide)) def-name))))
 
+(defn recorded-plans
+  "Return, for the report, the tests that the coverage pass `covered` saw call each of `def-names`.
+
+  A definition whose calls the pass did not record, or that no test called, gets none."
+  [{:keys [tests recorded]} def-names]
+  (into {}
+        (keep (fn [def-name]
+                (when (and (contains? recorded def-name) (seq (get tests def-name)))
+                  [def-name {:kind :subset
+                             :tests (get tests def-name)}])))
+        def-names))
+
 (defn- run-mutant
   "Apply a mutant, run the tests, restore the namespace, and return the mutant with its :outcome.
 

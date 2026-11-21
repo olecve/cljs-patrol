@@ -30,7 +30,7 @@
                            :to 81}))
       "number at same place as body mutant"))
 
-(defn- mutants-of [source] (map cache/with-id (:selected (forms/scope source {}))))
+(defn- mutants-of [source] (cache/with-ids (:selected (forms/scope source {}))))
 
 (defn- by-swap [source] (into {} (map (juxt #(str (:def %) " " (:from %)) identity)) (mutants-of source)))
 
@@ -313,7 +313,8 @@
           (spit file text)
           (let [store (atom nil)
                 output (with-out-str (reset! store (open file {:make-key (key-of "s1")})))]
-            (is (str/starts-with? output (str "Warning: the cache " file " could not be read, so the run starts over: "))
+            (is (str/starts-with? output (str "Warning: the cache " file " could not be read, so the run does not use"
+                                              " it; its first outcome replaces it: "))
                 text)
             (is (str/includes? output error)
                 text)
@@ -335,7 +336,7 @@
                           :outcome :failed}
                    {}
                    nil)
-    (cache/finish! store {})
+    (cache/finish! store {"p" :failed})
     (is (= {"f/1:1/when->when-not" {:outcome :failed
                                     :place nil}}
            (:results @(:entry store)))
@@ -351,11 +352,10 @@
                        (is (nil? (:previous store)))
                        (cache/record! store (mutant "f/1") {} nil)
                        (cache/finish! store {})))]
-        (is (= (str "Warning: the cache key could not be made, so the run goes on without the cache: reading the"
+        (is (= (str "Warning: the cache key could not be made, so the run does not use the cache: reading the"
                     " runner files failed: gone\n")
                output))
-        (is (= before (slurp file)))
-        (is (not (.exists (cache/log-file file))))))))
+        (is (= before (slurp file)))))))
 
 (deftest plan-run-splits-reused-from-mutants-to-run
   (with-old-cache
@@ -364,8 +364,6 @@
             {:keys [reused to-run]} (cache/plan-run store (map mutant ["f/1:1/when->when-not" "f/9:9/new->old"]))]
         (is (= ["f/1:1/when->when-not"] (keys reused)))
         (is (= [(mutant "f/9:9/new->old")] to-run))
-        (is (= {"p1" :failed} @(:ran store))
-            "reused outcome counts as reported by this run")
         (is (= "Reused the last run's outcome for 1 of 2 mutants; running the rest."
                (plan-message store ["f/1:1/when->when-not" "f/9:9/new->old"])))
         (is (= "All 3 mutants come from the last run, so no test runs."
@@ -417,7 +415,7 @@
         (is (= (str "Reused the last run's outcome for 2 of 4 mutants (1 caught, 1 did not compile), as --iterate"
                     " asks; running the rest." trust-warning)
                (plan-message store ["f/9:1/when->when-not" "f/9:4/=->not=" "f/9:6/>->>=" "f/9:2/if->if-not"])))
-        (is (= (str "All 1 mutants come from the last run, as --iterate asks; the tests run once to plan which tests"
+        (is (= (str "All 1 mutants come from the last run, as --iterate asks; the tests run once to find which tests"
                     " reach each definition." trust-warning)
                (plan-message store ["f/9:1/when->when-not"]))
             "all from cache still warns")))))
@@ -446,14 +444,10 @@
           :outcome :failed}
          more))
 
-(defn- log-lines [file] (mapv edn/read-string (str/split-lines (slurp (cache/log-file file)))))
-
-(deftest record-appends-each-outcome-to-log-at-once
+(deftest record-writes-cache-after-each-outcome
   (with-old-cache
     (fn [file]
-      (let [before (slurp file)
-            store (open file {:make-key (key-of "s2")})]
-        (cache/plan-run store [])
+      (let [store (open file {:make-key (key-of "s2")})]
         (cache/record! store
                        {:id "f/1:1/when->when-not"
                         :place "p1"
@@ -465,148 +459,77 @@
                              :tests #{#'clojure.core/inc}
                              :timeout-ms 10}}
                        "a note")
-        (cache/record! store
-                       (outcome "g/1" "pg" :outcome :timeout :at-load? true :stuck? true)
-                       {"f" {:kind :subset
-                             :tests #{#'clojure.core/inc}}}
-                       "a note")
-        (cache/record! store
-                       (outcome "h/1" "ph")
-                       {"f" {:kind :subset
-                             :tests #{#'clojure.core/inc}}
-                        "h" {:kind :every}}
-                       nil)
-        (is (= before (slurp file))
-            "cache file waits for end of run")
-        (is (= [{:key (run-key "s2")
-                 :base {:key (run-key "s2")
-                        :results {}
-                        :plans {}
-                        :notes []}
-                 :ran {}}
-                {:id "f/1:1/when->when-not"
-                 :result {:outcome :failed
-                          :place "p1"
-                          :killed-by "clojure.core/inc"}}
-                {:plans {"f" {:kind :subset
-                              :tests ["clojure.core/inc"]}}}
-                {:note "a note"}
-                {:id "g/1"
-                 :result {:outcome :timeout
-                          :place "pg"
-                          :at-load? true
-                          :stuck? true}}
-                {:id "h/1"
-                 :result {:outcome :failed
-                          :place "ph"}}
-                {:plans {"h" {:kind :every}}}]
-               (log-lines file))
-            "header once, test vars as names, false flags left out, only new plans and notes written")))))
-
-(deftest finish-folds-run-into-cache-and-deletes-log
-  (with-old-cache
-    (fn [file]
-      (let [store (open file {:make-key (key-of "s1")})]
-        (cache/plan-run store (map #(mutant % (:place (old-results %))) ["f/1:1/when->when-not"]))
-        (cache/record! store (outcome "f/1:2/if->if-not" "p2") {} "new note")
-        (cache/finish! store {"g" {:kind :every}})
-        (is (= {:key (run-key "s1")
-                :results (assoc old-results "f/1:2/if->if-not" {:outcome :failed
-                                                                :place "p2"})
-                :plans {"f" {:kind :every}
-                        "g" {:kind :every}}
-                :notes ["old note" "new note"]
-                :last-run {"p1" :failed
-                           "p2" :failed}}
+        (is (= {:key (run-key "s2")
+                :results {"f/1:1/when->when-not" {:outcome :failed
+                                                  :place "p1"
+                                                  :killed-by "clojure.core/inc"}}
+                :plans {"f" {:kind :subset
+                             :tests ["clojure.core/inc"]}}
+                :notes ["a note"]
+                :last-run old-last-run}
                (read-cache file))
-            "last run is what this run reported, reused and run")
-        (is (not (.exists (cache/log-file file))))))))
+            "test vars as names, false flags left out, last run kept until run ends")
+        (cache/record! store (outcome "g/1" "pg" :outcome :timeout :at-load? true :stuck? true) {} "a note")
+        (cache/record! store (outcome "h/1" "ph") {} "other note")
+        (cache/record! store (outcome "h/2" "ph2") {} nil)
+        (is (= {"g/1" {:outcome :timeout
+                       :place "pg"
+                       :at-load? true
+                       :stuck? true}
+                "h/1" {:outcome :failed
+                       :place "ph"}}
+               (-> file read-cache :results (select-keys ["g/1" "h/1"]))))
+        (is (= ["a note" "other note"] (:notes (read-cache file)))
+            "note kept once")
+        (is (= 4 (-> file read-cache :results count)))))))
 
-(deftest finish-without-outcome-leaves-cache-alone
-  (with-old-cache
-    (fn [file]
-      (let [before (slurp file)
-            store (open file {:make-key (key-of "s2")
-                              :fresh true})]
-        (cache/finish! store {"g" {:kind :every}})
-        (is (= before (slurp file))
-            "run that stops before its first outcome keeps last run")))))
-
-(deftest open-folds-log-that-killed-run-left
+(deftest finish-records-what-run-reported-as-last-run
   (with-old-cache
     (fn [file]
       (let [store (open file {:make-key (key-of "s2")})]
-        (cache/plan-run store [])
-        (cache/record! store (outcome "f/9" "p9") {} nil)
-        (cache/record! store (outcome "f/10" "p10" :outcome :passed) {} nil))
-      (spit (cache/log-file file) "{:id \"f/11\" :result {:outc" :append true)
-      (let [output (with-out-str
-                     (let [store (open file {:make-key (key-of "s2")})]
-                       (is (= :resume (:mode store))
-                           "log folded under key of run that wrote it")
-                       (is (= {"f/9" {:outcome :failed
-                                      :place "p9"}
-                               "f/10" {:outcome :passed
-                                       :place "p10"}}
-                              (:results @(:entry store))))
-                       (is (= {"p9" :failed
-                               "p10" :passed}
-                              (:previous store)))))]
-        (is (str/starts-with? output (str "Warning: the cache " (cache/log-file file) " could not be read"))
-            "cut last line warns and lines before it count")
-        (is (not (.exists (cache/log-file file))))))))
+        (cache/record! store (outcome "f/1" "p1") {} nil)
+        (cache/finish! store {"p1" :failed
+                              "p9" :passed})
+        (is (= {"p1" :failed
+                "p9" :passed}
+               (:last-run (read-cache file))))))))
 
-(deftest open-drops-log-whose-start-cannot-be-read
+(deftest finish-of-resumed-run-records-last-run-without-new-outcome
+  (with-old-cache
+    (fn [file]
+      (let [store (open file {:make-key (key-of "s1")})]
+        (cache/finish! store {"p1" :failed})
+        (is (= {"p1" :failed} (:last-run (read-cache file)))
+            "-d run that reuses all sets last run to what it reported")
+        (is (= old-results (:results (read-cache file))))))))
+
+(deftest finish-without-outcome-under-other-key-leaves-cache-alone
   (with-old-cache
     (fn [file]
       (let [before (slurp file)]
-        (spit (cache/log-file file) "{:key\n")
-        (is (str/includes? (with-out-str (open file {:make-key (key-of "s1")})) "could not be read"))
-        (is (= before (slurp file)))
-        (is (not (.exists (cache/log-file file))))))))
+        (doseq [options [{:make-key (key-of "s2")}
+                         {:make-key (key-of "s1")
+                          :fresh true}]]
+          (cache/finish! (open file options) {"p1" :failed})
+          (is (= before (slurp file))
+              (str options)))))))
 
-(deftest open-warns-on-log-it-cannot-read
-  (with-old-cache
-    (fn [file]
-      (.mkdirs (cache/log-file file))
-      (is (str/starts-with? (with-out-str (open file {:make-key (key-of "s1")}))
-                            (str "Warning: the cache " (cache/log-file file) " could not be read"))))))
-
-(deftest open-warns-on-log-it-cannot-delete
-  (with-old-cache
-    (fn [file]
-      (let [log (cache/log-file file)]
-        (.mkdirs log)
-        (spit (io/file log "inside") "x")
-        (is (str/includes? (with-out-str (open file {:make-key (key-of "s1")}))
-                           (str "Warning: the cache " log " could not be deleted, so the next run reads it again:")))))))
-
-(deftest log-that-cannot-be-written-warns-once-and-drops-cache
+(deftest cache-that-cannot-be-written-warns-once-and-is-dropped
   (fixtures/with-temp-dir
     (fn [dir]
+      (spit (io/file dir "cache") "a file, not a directory")
       (let [file (cache/cache-file (io/file dir "cache") 'a)
             store (open file {:make-key (key-of "s1")})
-            _ (.mkdirs (cache/log-file file))
             output (with-out-str
                      (cache/record! store (outcome "f/1" "p1") {} nil)
                      (cache/record! store (outcome "f/2" "p2") {} nil)
                      (cache/finish! store {}))]
-        (is (str/starts-with? output (str "Warning: the cache " file " failed, so the run goes on without it:")))
+        (is (str/starts-with? output (str "Warning: the cache " file " could not be written, so the run goes on"
+                                          " without it:")))
         (is (= 1 (count (re-seq #"Warning" output))))
         (is (nil? @(:file store)))
-        (is (not (.exists file)))
         (is (= 2 (count (:results @(:entry store))))
             "run keeps going")))))
-
-(deftest finish-that-cannot-write-warns
-  (fixtures/with-temp-dir
-    (fn [dir]
-      (let [file (cache/cache-file (io/file dir "cache") 'a)
-            store (open file {:make-key (key-of "s1")})]
-        (cache/record! store (outcome "f/1" "p1") {} nil)
-        (.mkdirs (io/file file))
-        (is (str/starts-with? (with-out-str (cache/finish! store {}))
-                              (str "Warning: the cache " file " failed, so the run goes on without it:")))))))
 
 (deftest run-note-joins-distinct-notes
   (with-old-cache
@@ -661,6 +584,4 @@
            {"b" "pb"}))))
 
 (deftest cache-file-is-named-after-target
-  (is (str/ends-with? (str (cache/cache-file ".mutate-cache" 'app.core)) ".mutate-cache/app.core.edn"))
-  (is (str/ends-with? (str (cache/log-file (cache/cache-file ".mutate-cache" 'app.core)))
-                      ".mutate-cache/app.core.log.edn")))
+  (is (str/ends-with? (str (cache/cache-file ".mutate-cache" 'app.core)) ".mutate-cache/app.core.edn")))
