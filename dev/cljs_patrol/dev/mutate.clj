@@ -9,6 +9,7 @@
   that cannot be read or compiled is unviable, and one whose tests run too long timed out;
   neither is scored."
   (:require
+   [cljs-patrol.dev.mutate-html :as mutate-html]
    [cljs-patrol.parser :as parser]
    [clojure.java.io :as io]
    [clojure.java.shell :as shell]
@@ -259,10 +260,9 @@
 
   Given `test-vars`, only those tests run, with their namespaces' fixtures. The outcome is
   :passed, :failed or :timeout, and :killed-by is the test that failed first. A failure is
-  recorded before the run is cut
-  short, so an assertion that catches exceptions, such as `thrown?`, cannot hide it, and a
-  run that failed before it timed out counts as failed. A timed-out thread is interrupted, but
-  a loop that never checks for it keeps running."
+  recorded before the run is cut short, so an assertion that catches exceptions, such as
+  `thrown?`, cannot hide it, and a run that failed before it timed out counts as failed. A
+  timed-out thread is interrupted, but a loop that never checks for it keeps running."
   ([test-nss timeout-ms] (run-tests test-nss timeout-ms nil))
   ([test-nss timeout-ms test-vars]
    (let [failed (atom false)
@@ -654,83 +654,6 @@
         cwd (.toPath (.getCanonicalFile (io/file ".")))]
     (str (if (.startsWith path cwd) (.relativize cwd path) path))))
 
-(defn- json
-  "Write `value` as JSON: maps, sequences, strings, numbers, booleans, keywords as strings, and nil."
-  [value]
-  (cond
-    (map? value) (str "{" (str/join "," (map (fn [[k v]] (str (json (name k)) ":" (json v))) value)) "}")
-    (sequential? value) (str "[" (str/join "," (map json value)) "]")
-    (keyword? value) (json (name value))
-    (string? value) (str "\""
-                         (str/escape value {\" "\\\""
-                                            \\ "\\\\"
-                                            \newline "\\n"
-                                            \return "\\r"
-                                            \tab "\\t"
-                                            \< "\\u003c"})
-                         "\"")
-    (nil? value) "null"
-    :else (str value)))
-
-(def ^:private report-statuses
-  "Each outcome by its name in the mutation-testing-elements report schema."
-  {:killed "Killed"
-   :survived "Survived"
-   :no-coverage "NoCoverage"
-   :timeout "Timeout"
-   :unviable "CompileError"})
-
-(defn mutation-report
-  "Return the run as a mutation-testing-elements report, version 2 of its schema, for the viewer of the HTML report."
-  [{:keys [mutants]} {:keys [file source test-names]}]
-  {:schemaVersion "2"
-   :thresholds {:high 90
-                :low 70}
-   :files {file {:language "clojure"
-                 :source source
-                 :mutants (vec (map-indexed (fn [i {:keys [def row col from to outcome killed-by covered-by]}]
-                                              {:id (str i)
-                                               :mutatorName (str from " → " to)
-                                               :replacement to
-                                               :location {:start {:line row
-                                                                  :column col}
-                                                          :end {:line row
-                                                                :column (+ col (count from))}}
-                                               :status (report-statuses outcome)
-                                               :statusReason (str "in " def)
-                                               :killedBy (if killed-by [killed-by] [])
-                                               :coveredBy covered-by})
-                                            mutants))}}
-   :testFiles {"tests" {:tests (mapv (fn [test-name] {:id test-name
-                                                      :name test-name})
-                                     test-names)}}})
-
-(def ^:private viewer-script
-  "The mutation-testing-elements viewer, pinned, from a CDN the page can load without a server."
-  "https://cdn.jsdelivr.net/npm/mutation-testing-elements@3.9.0/dist/mutation-test-elements.js")
-
-(defn html-report
-  "Return one self-contained HTML page that shows the report in the mutation-testing-elements viewer."
-  [report title]
-  (str "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
-       "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-       "<title>" (str/escape title {\< "&lt;"
-                                    \> "&gt;"
-                                    \& "&amp;"}) "</title>\n"
-       "<script src=\"" viewer-script "\"></script>\n</head>\n<body>\n"
-       "<mutation-test-report-app title-postfix=\"" (str/escape title {\" "&quot;"
-                                                                       \< "&lt;"
-                                                                       \& "&amp;"})
-       "\"></mutation-test-report-app>\n"
-       "<script>\n"
-       "const app = document.querySelector('mutation-test-report-app');\n"
-       "app.report = " (json report) ";\n"
-       "const dark = matchMedia('(prefers-color-scheme: dark)');\n"
-       "const theme = () => { app.theme = dark.matches ? 'dark' : 'light'; };\n"
-       "theme();\n"
-       "dark.addEventListener('change', theme);\n"
-       "</script>\n</body>\n</html>\n"))
-
 (defn mutate-source
   "Mutate `target`, whose `source` is loaded from `file`, against `test-nss`, print the report, and return it.
 
@@ -776,13 +699,14 @@
                                                        :since since))))
       (println (str "Report written to " report)))
     (when html
-      (spit html (html-report (mutation-report summary {:file (relative-path file)
-                                                        :source source
-                                                        :test-names (->> (test-vars-of test-nss)
-                                                                         (map (comp str symbol))
-                                                                         sort
-                                                                         vec)})
-                              (str target " mutation report")))
+      (spit html (mutate-html/page summary {:target target
+                                            :file (relative-path file)
+                                            :source source
+                                            :test-nss test-nss
+                                            :test-names (->> (test-vars-of test-nss)
+                                                             (map (comp str symbol))
+                                                             sort)
+                                            :since since}))
       (println (str "HTML report written to " html)))
     summary))
 
@@ -820,7 +744,7 @@
     :parse-fn parse-long
     :validate [pos-int? "Must be a positive whole number of milliseconds"]]
    ["-r" "--report FILE" "Write every mutant and its outcome to this EDN file"]
-   [nil "--html FILE" "Write the report as an HTML page that shows each mutant on the source"]
+   [nil "--html FILE" "Write the report as an HTML page that leads with the test gaps and how to close them"]
    ["-a" "--all-tests" "Run every test for each mutant, as for a test that only reads state another test wrote"]])
 
 (def ^:private usage

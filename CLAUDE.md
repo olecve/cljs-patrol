@@ -121,11 +121,12 @@ captures then, nor top-level forms that are no definition, whose effects would r
 has a row per definition with its counts, two scores (killed over all scored mutants, and over the mutants the tests
 reach), names what was not mutated or has no coverage and why, and lists every survivor, unviable and timed-out mutant
 with its source line. `-d` limits the run to named top-level definitions, `-s REF` to the lines the branch changed since
-it left a git ref, `-r FILE` writes every mutant and its outcome to EDN, and `--html FILE` writes a page that shows each
-mutant on the source in the mutation-testing-elements viewer, with the tests that cover and kill it. The page loads the
-viewer from jsDelivr, so it needs a network connection. A run exits 0 when nothing survives, 1 when something survives
-or has no coverage, and 2 when it cannot start or stops early. A value a `def` computes when the namespace loads keeps
-the original, so a mutant only it reaches survives.
+it left a git ref, `-r FILE` writes every mutant and its outcome to EDN, and `--html FILE` writes a page that leads with
+the test gaps: each one's line before and after the change, a likely reason no test caught it, and the tests that run
+for it, then tables by function and by test, and the source. The page needs no network. Its plain words, such as
+"planted bug" for a mutant, map to the usual ones in [`docs/mutation-testing.md`](docs/mutation-testing.md). A run exits
+0 when nothing survives, 1 when something survives or has no coverage, and 2 when it cannot start or stops early. A
+value a `def` computes when the namespace loads keeps the original, so a mutant only it reaches survives.
 
 ## Linting
 

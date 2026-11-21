@@ -456,63 +456,14 @@
              (:tests-run (run-target {:defs ["positive?" "label"]
                                       :all-tests true})))))))
 
-(deftest mutation-report-follows-the-viewer-schema
-  (let [report (mutate/mutation-report {:mutants [{:def "label"
-                                                   :row 3
-                                                   :col 17
-                                                   :from "if"
-                                                   :to "if-not"
-                                                   :outcome :killed
-                                                   :killed-by "app-test/labels"
-                                                   :covered-by ["app-test/labels"]}
-                                                  {:def "unused"
-                                                   :row 4
-                                                   :col 19
-                                                   :from "when"
-                                                   :to "when-not"
-                                                   :outcome :no-coverage
-                                                   :covered-by []}]}
-                                       {:file "src/app.clj"
-                                        :source "(ns app)"
-                                        :test-names ["app-test/labels"]})
-        [killed uncovered] (get-in report [:files "src/app.clj" :mutants])]
-    (is (= "2" (:schemaVersion report)))
-    (is (= {:id "0"
-            :mutatorName "if → if-not"
-            :replacement "if-not"
-            :location {:start {:line 3
-                               :column 17}
-                       :end {:line 3
-                             :column 19}}
-            :status "Killed"
-            :statusReason "in label"
-            :killedBy ["app-test/labels"]
-            :coveredBy ["app-test/labels"]}
-           killed))
-    (is (= ["NoCoverage" []] [(:status uncovered) (:killedBy uncovered)]))
-    (is (= [{:id "app-test/labels"
-             :name "app-test/labels"}]
-           (get-in report [:testFiles "tests" :tests])))))
-
-(deftest html-report-holds-the-report-safely
-  (let [page (mutate/html-report {:files {"a.clj" {:source "(str \"</script>\" \"q\\\"\")"}}} "app <mutation> report")]
-    (is (re-find #"mutation-testing-elements@3\.9\.0" page))
-    (is (re-find #"<title>app &lt;mutation&gt; report</title>" page))
-    (is (not (re-find #"</script>\\\"" page))
-        "source cannot close the script element")
-    (is (re-find #"\\u003c/script>" page))))
-
 (deftest run-writes-the-html-report
   (with-target target-tests
     (fn []
       (let [file (java.io.File/createTempFile "mutate" ".html")]
         (try
           (run-target {:html (str file)})
-          (is (re-find #"\"killedBy\":\[\"cljs-patrol.dev.mutate-test.target-test/labels\"\]" (slurp file)))
+          (is (re-find #"<h1>The tests caught 1 of 3 planted bugs \(33%\)</h1>" (slurp file)))
           (finally (.delete file)))))))
-
-(deftest html-report-writes-missing-values-as-null
-  (is (re-find #"\"reason\":null" (mutate/html-report {:reason nil} "t"))))
 
 (deftest relative-path-starts-from-the-working-directory
   (is (= "src/app.clj" (mutate/relative-path "src/app.clj")))
