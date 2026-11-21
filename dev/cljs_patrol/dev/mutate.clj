@@ -289,6 +289,50 @@
             (changed-lines out))
           :all-lines)))))
 
+(defn relative-path
+  "Return the path of `file` from the working directory, or the whole path when it lies outside it."
+  [file]
+  (let [path (.toPath (.getCanonicalFile (io/file file)))
+        cwd (.toPath (.getCanonicalFile (io/file ".")))]
+    (str (if (.startsWith path cwd) (.relativize cwd path) path))))
+
+(defn apply-mutant
+  "Write the mutant at `position`, written ROW:COL, into `file`, whose text is `source`, and return how to restore it.
+
+  The file must be in a git work tree with no uncommitted change, so that `git restore` brings
+  back exactly what was there. Only the one token changes."
+  [file source position]
+  (let [[_ row col] (re-find #"^(\d+):(\d+)$" (str position))
+        row (some-> row parse-long)
+        col (some-> col parse-long)
+        _ (when-not row
+            (throw (setup-error (str "--apply takes ROW:COL, such as 490:43, not " position "."))))
+        on-row (->> source top-level-forms mutants (filter #(= row (:row %))))
+        {:keys [from to]
+         function :def
+         :as mutant} (first (filter #(= col (:col %)) on-row)) ; mutate: skip first: one mutant per line and column
+        dir (str (.getParentFile (io/file file)))
+        path (relative-path file)]
+    (when-not (= "true" (str/trim (:out (git dir "rev-parse" "--is-inside-work-tree"))))
+      (throw (setup-error (str file " is not in a git work tree, so --apply could not be undone with git restore."))))
+    (when (seq (str/trim (:out (git dir "status" "--porcelain" "--" (.getCanonicalPath (io/file file))))))
+      (throw (setup-error (str file " has uncommitted changes. Commit or stash them first, so that git restore"
+                               " brings back exactly your code."))))
+    (when-not mutant
+      (throw (setup-error (str "No mutant at " position "."
+                               (when (seq on-row)
+                                 (str " Line " row " has " (str/join ", " (map #(str row ":" (:col %) " " (:from %)) on-row))
+                                      "."))))))
+    (let [lines (str/split source #"\n" -1)
+          line (nth lines (dec row))
+          start (dec col)]
+      (spit file (str/join "\n" (assoc lines
+                                       (dec row)
+                                       (str (subs line 0 start) (pr-str to) (subs line (+ start (count from))))))))
+    (str "Applied " position "  " from " -> " (pr-str to) "  in " function " to " path ".\n"
+         "Run the tests and watch the new test fail, then restore the file with:\n"
+         "  git restore " path)))
+
 (defn- source-file [ns-sym]
   (let [path (-> (name ns-sym) (str/replace "-" "_") (str/replace "." "/"))]
     (or (some #(some-> (io/resource (str path %)) io/file) [".clj" ".cljc"])
@@ -661,7 +705,8 @@
 (defn- print-report [{:keys [definitions not-mutated not-covered loaded-once other-forms unreached totals score
                              covered-score mutants ignored stopped note]}
                      source-lines
-                     since]
+                     since
+                     target]
   (println)
   (pprint/print-table [:def :mutants :killed :survived :no-coverage :unviable :timeout] definitions)
   (print-list "No coverage, no test calls them through their var" not-covered)
@@ -678,6 +723,10 @@
     (doseq [{:keys [def row col from to]} shown]
       (println (format "  %d:%d  %s -> %s  in %s" row col from to def))
       (println (str "      " (str/trim (nth source-lines (dec row) ""))))))
+  ; mutate: skip first: any survivor makes a fine example
+  (when-let [{:keys [row col]} (first (filter #(= :survived (:outcome %)) mutants))]
+    (println (str "\nTo watch a new test fail on a survivor, apply it to the file, such as:\n"
+                  "  clojure -M:test:mutate " target " --apply " row ":" col)))
   (when (seq ignored)
     (println "\nIgnored, with a skip marker:")
     (doseq [{:keys [def row col from to reason]} ignored]
@@ -778,13 +827,6 @@
                                            restore-error)}
               :else (recur more results))))))))
 
-(defn relative-path
-  "Return the path of `file` from the working directory, or the whole path when it lies outside it."
-  [file]
-  (let [path (.toPath (.getCanonicalFile (io/file file)))
-        cwd (.toPath (.getCanonicalFile (io/file ".")))]
-    (str (if (.startsWith path cwd) (.relativize cwd path) path))))
-
 (defn mutate-source
   "Mutate `target`, whose `source` is loaded from `file`, against `test-nss`, print the report, and return it.
 
@@ -826,7 +868,7 @@
                             :stopped stopped
                             :note note
                             :plans @plans})]
-    (print-report summary (str/split-lines source) since)
+    (print-report summary (str/split-lines source) since target)
     (when report
       (spit report (with-out-str (pprint/pprint (assoc summary
                                                        :target target
@@ -880,21 +922,29 @@
     :validate [pos-int? "Must be a positive whole number of milliseconds"]]
    ["-r" "--report FILE" "Write every mutant and its outcome to this EDN file"]
    [nil "--html FILE" "Write the report as an HTML page that leads with the test gaps and how to close them"]
-   ["-a" "--all-tests" "Run every test for each mutant, as for a test that only reads state another test wrote"]])
+   ["-a" "--all-tests" "Run every test for each mutant, as for a test that only reads state another test wrote"]
+   [nil "--apply ROW:COL" "Write the mutant at this line and column into the file, and run nothing; needs no -t"]])
 
 (def ^:private usage
   (str "Usage: clojure -M:test:mutate TARGET-NS -t TEST-NS [-t TEST-NS …] [-d DEF …] [-s REF] [--timeout MS]"
-       " [-r FILE] [--html FILE] [-a]"))
+       " [-r FILE] [--html FILE] [-a]\n"
+       "       clojure -M:test:mutate TARGET-NS --apply ROW:COL"))
 
 (defn -main
-  "Exit 0 when no mutant survives or lacks coverage, 1 when one does, and 2 when the run cannot start or stops early."
+  "Exit 0 when no mutant survives or lacks coverage, 1 when one does, and 2 when the run cannot start or stops early.
+
+  With --apply, write that one mutant into the file and exit 0, or 2 when it cannot."
   [& args]
   (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)
         target (some-> (first arguments) symbol)]
-    (if (or errors (nil? target) (empty? (:test options)))
+    (if (or errors (nil? target) (and (empty? (:test options)) (nil? (:apply options))))
       (do (println (str/join "\n" (concat errors [usage summary])))
           (System/exit 2))
       (try
+        (when-let [position (:apply options)]
+          (let [file (source-file target)]
+            (println (apply-mutant file (slurp file) position))
+            (System/exit 0)))
         (System/exit (exit-code (mutate target (:test options) {:defs (:def options)
                                                                 :since (:since options)
                                                                 :timeout (:timeout options)

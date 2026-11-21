@@ -53,6 +53,22 @@ every test has only one item there. When that is the only possible case, the cha
 Below the gaps are tables by function and by test, then, folded, the source with every planted bug marked, all the
 numbers, and the terms and sources.
 
+## Watch a new test fail
+
+A test that closes a gap must fail with the planted bug in place. `--apply` writes one planted bug into the file, at the
+line and column the console and the page show, and runs nothing. Run your new test, watch it fail, then put your code
+back with `git restore`:
+
+```bash
+clojure -M:test:mutate cljs-patrol.groups.reagent --apply 87:4
+# Applied 87:4  and -> or  in key-meta-map? to src/cljs_patrol/groups/reagent.clj.
+# Run the tests and watch the new test fail, then restore the file with:
+#   git restore src/cljs_patrol/groups/reagent.clj
+```
+
+It refuses a file with uncommitted changes, so that `git restore` brings back exactly your code. Each gap on the page
+has its `--apply` command.
+
 ## Skip a harmless planted bug
 
 When a planted bug behaves the same as the original in every case, no test can catch it. Mark it once with the operator

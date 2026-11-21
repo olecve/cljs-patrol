@@ -688,3 +688,41 @@
                         (mutate/scope "(ns app.x)\n(defmacro ^{:mutate/skip \"r\"} m [x] x)\n" {})))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata of f cannot be read: No value supplied"
                         (mutate/scope "(ns app.x)\n(defn ^{:mutate/skip} f [x] (when x 1))\n" {}))))
+
+(deftest apply-mutant-writes-one-swap-to-committed-file
+  (let [dir (.toFile (java.nio.file.Files/createTempDirectory "mutate" (make-array java.nio.file.attribute.FileAttribute 0)))
+        file (clojure.java.io/file dir "core.clj")
+        text "(ns app.core)\n(defn label [x]\n  (if (> x 0) :up :down))\n"]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not in a git work tree"
+                          (mutate/apply-mutant (str file) text "3:4")))
+    (sh! dir "git" "init" "-q" "-b" "main")
+    (sh! dir "git" "config" "user.email" "t@example.com")
+    (sh! dir "git" "config" "user.name" "t")
+    (spit file text)
+    (sh! dir "git" "add" ".")
+    (sh! dir "git" "commit" "-q" "-m" "base")
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"takes ROW:COL, such as 490:43, not 3"
+                          (mutate/apply-mutant (str file) text "3")))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No mutant at 3:5\. Line 3 has 3:4 if, 3:8 >\."
+                          (mutate/apply-mutant (str file) text "3:5"))
+        "names the mutants of that line")
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No mutant at 9:1\.$"
+                          (mutate/apply-mutant (str file) text "9:1")))
+    (is (str/includes? (mutate/apply-mutant (str file) text "3:8")
+                       (str "Applied 3:8  > -> >=  in label to " (.getCanonicalPath file) ".\n"
+                            "Run the tests and watch the new test fail, then restore the file with:\n"
+                            "  git restore " (.getCanonicalPath file))))
+    (is (= "(ns app.core)\n(defn label [x]\n  (if (>= x 0) :up :down))\n" (slurp file))
+        "only that token changes, final newline kept")
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"has uncommitted changes"
+                          (mutate/apply-mutant (str file) (slurp file) "3:99"))
+        "second apply refused until file is restored, before position is checked")))
+
+(deftest console-shows-how-to-apply-survivor
+  (with-target target-tests
+    (fn []
+      (is (str/includes? (with-out-str
+                           (mutate/mutate-source 'cljs-patrol.dev.mutate-test.target "target.clj" target-source
+                                                 ['cljs-patrol.dev.mutate-test.target-test] {:defs ["positive?"]}))
+                         (str "To watch a new test fail on a survivor, apply it to the file, such as:\n"
+                              "  clojure -M:test:mutate cljs-patrol.dev.mutate-test.target --apply 2:32"))))))

@@ -156,7 +156,7 @@
       (str ", and none failed with " (if these? "these planted bugs" "this planted bug"))]
      [:ul (for [test-name tests] [:li [:code test-name]])]]))
 
-(defn- gap-section [lines row mutants]
+(defn- gap-section [lines target row mutants]
   [:div {:class "gap"}
    [:div {:class "gap-head"}
     [:strong (interpose ", " (for [{:keys [from to]} mutants] (list [:code from] " to " [:code to])))]
@@ -170,11 +170,17 @@
    (for [hint (distinct (keep (comp hints swap-pair) mutants))]
      [:p {:class "why"} (str "Likely: " hint)])
    (for [reason (distinct (keep (comp maybe-harmless swap-pair) mutants))]
-     [:p {:class "harmless"} reason])])
+     [:p {:class "harmless"} reason])
+   [:details {:class "tests"}
+    [:summary "Watch a new test fail on it"]
+    [:p "Write the planted bug into the file, run the tests, then put the code back with " [:code "git restore"] ":"]
+    [:ul (for [{:keys [row col from]} mutants]
+           [:li [:code (str "clojure -M:test:mutate " target " --apply " row ":" col)]
+            (when (next mutants) (str " (" from ")"))])]]])
 
 (defn- function-card
   "Return the card of a definition with test gaps: the closest test to extend, then each gap line by line."
-  [lines {:keys [function anchor mutants gaps tests]}]
+  [lines target {:keys [function anchor mutants gaps tests]}]
   (if (never-run? gaps)
     [:article {:class "fn unrun"
                :id anchor}
@@ -202,7 +208,7 @@
                " in it).")])
        (tests-list function tests (next gaps))
        (for [[row on-row] (sort-by key (group-by :row gaps))]
-         (gap-section lines row on-row))])))
+         (gap-section lines target row on-row))])))
 
 (defn- bar [{:keys [killed survived no-coverage]}]
   (let [scored (+ killed survived no-coverage)
@@ -491,7 +497,7 @@
                " to catch one swap tends to break on every refactor. Several gaps in one function usually point to"
                " one missing case."]
               (if (seq cards)
-                (map #(function-card lines %) cards)
+                (map #(function-card lines target %) cards)
                 [:p {:class "ok"} "Nothing to fix."])]
              [:section
               [:h2 "By function"]
