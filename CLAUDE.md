@@ -131,9 +131,12 @@ in its form prints a warning. `-d` limits the run to named top-level definitions
 changed since it left a git ref, `-r FILE` writes every mutant and its outcome to EDN, and `--html FILE` writes a page
 that leads with the test gaps: each one's line before and after the change, a likely reason no test caught it, and the
 tests that run for it, then tables by function and by test, and the source. The page needs no network. Its plain words,
-such as "planted bug" for a mutant, map to the usual ones in [`docs/mutation-testing.md`](docs/mutation-testing.md). A
-run exits 0 when nothing survives, 1 when something survives or has no coverage, and 2 when it cannot start or stops
-early. A value a `def` computes when the namespace loads keeps the original, so a mutant only it reaches survives.
+such as "planted bug" for a mutant, map to the usual ones in [`docs/mutation-testing.md`](docs/mutation-testing.md).
+`--apply 'ROW:COL:OPERATOR'` writes that one mutant into the file and runs nothing, keeping the replaced text in
+`.mutate-applied.edn`, and `--restore` puts it back. Neither takes the options of a run, and a second `--apply` or a run
+waits for `--restore`. A run exits 0 when nothing survives, 1 when something survives or has no coverage, and 2 when it
+cannot start or stops early. A value a `def` computes when the namespace loads keeps the original, so a mutant only it
+reaches survives.
 
 ## Linting
 
