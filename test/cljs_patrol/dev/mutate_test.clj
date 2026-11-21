@@ -80,22 +80,32 @@
                                              {:def "b"
                                               :outcome :timeout}]
                                    :loaded-once ["d (defmulti)"]
-                                   :unreached [{:def "e"}]})]
+                                   :unreached [{:def "e"}]
+                                   :plans {"a" {:kind :subset
+                                                :tests [#'clojure.core/inc]}
+                                           "b" {:kind :every}}})]
     (is (= [{:def "a"
              :mutants 2
              :killed 1
              :survived 1
              :no-coverage 0
              :unviable 0
-             :timeout 0}
+             :timeout 0
+             :tests ["clojure.core/inc"]}
             {:def "b"
              :mutants 2
              :killed 0
              :survived 0
              :no-coverage 0
              :unviable 1
-             :timeout 1}]
+             :timeout 1
+             :tests :every}]
            (:definitions summary)))
+    (is (= {"a" :subset
+            "b" :every}
+           (:tests-run summary)))
+    (is (not-any? #(contains? % :killed-by) (:mutants summary))
+        "no killing test, no key")
     (is (= ["c"] (:not-mutated summary))
         "definition with no mutant is named, one never reached is not")
     (is (= [{:def "e"
@@ -455,3 +465,40 @@
               "label" :every}
              (:tests-run (run-target {:defs ["positive?" "label"]
                                       :all-tests true})))))))
+
+(deftest run-writes-the-html-report
+  (with-target target-tests
+    (fn []
+      (let [file (java.io.File/createTempFile "mutate" ".html")]
+        (try
+          (run-target {:html (str file)})
+          (is (re-find #"<h1>The tests caught 1 of 3 planted bugs \(33%\)</h1>" (slurp file)))
+          (finally (.delete file)))))))
+
+(deftest relative-path-starts-from-the-working-directory
+  (is (= "src/app.clj" (mutate/relative-path "src/app.clj")))
+  (is (= (.getCanonicalPath (clojure.java.io/file "/tmp/app.clj")) (mutate/relative-path "/tmp/app.clj"))
+      "file outside the working directory keeps its whole path"))
+
+(deftest run-names-killing-test-and-tests-that-ran
+  (with-target (str target-tests "(deftest unrelated (is true))\n")
+    (fn []
+      (let [{:keys [mutants definitions]} (run-target {:defs ["label"]})]
+        (is (= ["cljs-patrol.dev.mutate-test.target-test/labels"]
+               (keep :killed-by mutants)))
+        (is (= [["label" ["cljs-patrol.dev.mutate-test.target-test/labels"]]]
+               (map (juxt :def :tests) definitions)))))))
+
+(deftest run-tests-names-innermost-failing-test
+  (with-target (str target-tests
+                    "(deftest inner (is (= :down (target/label 1))))\n"
+                    "(deftest outer (inner))\n")
+    (fn []
+      (is (= "cljs-patrol.dev.mutate-test.target-test/inner"
+             (-> (mutate/run-tests ['cljs-patrol.dev.mutate-test.target-test]
+                                   5000
+                                   [(ns-resolve 'cljs-patrol.dev.mutate-test.target-test 'outer)])
+                 :killed-by
+                 symbol
+                 str))
+          "failure inside nested test names that test"))))
