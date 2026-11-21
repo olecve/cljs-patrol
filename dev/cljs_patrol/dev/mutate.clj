@@ -66,14 +66,20 @@
     (and (= :reader-macro (some-> conditional z/tag))
          (not (identical? (z/node loc) (some-> (read-branch conditional) z/node))))))
 
+(defn- parameter-vector?
+  "True when `loc` is a vector, also one under a type hint such as `^String [x]`."
+  [loc]
+  (or (= :vector (z/tag loc))
+      (and (= :meta (z/tag loc)) (= :vector (some-> loc z/down z/rightmost z/tag)))))
+
 (defn- attr-map?
-  "True when `loc` is the attribute map of a `defn`, written after its name and before its parameter vector."
+  "True when `loc` is the attribute map of a `defn`: before its parameter vector, or after its last arity."
   [loc]
   (let [parent (z/up loc)]
     (and (= :map (z/tag loc))
          (= :list (some-> parent z/tag))
          (contains? #{"defn" "defn-"} (parser/sym-name (z/down parent)))
-         (not-any? #(= :vector (z/tag %)) (take-while some? (iterate z/left loc))))))
+         (not-any? parameter-vector? (take-while some? (iterate z/left loc))))))
 
 (defn- skipped?
   "True when `loc` holds no code a test reaches through this namespace.
@@ -152,10 +158,10 @@
   Return nil when neither has the key."
   [loc]
   (let [name-slot (some-> loc z/down z/right)
-        attr-map (->> (when (contains? #{"defn" "defn-"} (parser/sym-name (z/down loc))) (some-> name-slot z/right))
+        attr-map (->> (some-> name-slot z/right)
                       (iterate z/right)
-                      (take-while #(and (some? %) (not (contains? #{:vector :list} (z/tag %)))))
-                      (filter #(= :map (z/tag %)))
+                      (take-while some?)
+                      (filter attr-map?)
                       first)]
     (some (fn [metadata]
             (when (contains? metadata :mutate/skip)
@@ -167,8 +173,8 @@
   "Return a mutant for every swap the definitions among the top-level `forms` allow.
 
   Each is {:def … :row … :col … :from … :to … :form-loc … :mutant-loc …}; the mutated text of
-  its form is built only when the mutant runs. A definition whose name carries `:mutate/skip`
-  metadata gives each of its mutants that reason as :skip-reason."
+  its form is built only when the mutant runs. A definition with `:mutate/skip` on its name or in
+  its attribute map gives each of its mutants that reason as :skip-reason."
   [forms]
   (for [{:keys [loc wrapper name kind]} forms
         :when (= :mutated kind)
@@ -211,7 +217,7 @@
 
 (def ^:private skip-marker-like
   "A comment that starts like a skip marker, written right or not."
-  #"(?i)^;+\s*mutate\b")
+  #"(?i)^;+\s*mutate\W*skip")
 
 (defn- code-loc?
   "True when `loc` is code that runs: not whitespace, a newline, a comma, a comment or a `#_` form."
@@ -694,8 +700,8 @@
 
   Return {:defs-in-scope … :loaded-once … :other-forms … :selected … :ignored … :unused-markers …}.
   The run stops when a definition named with `-d` does not exist, when a comment starts like a
-  skip marker but is not one, and when a definition's `:mutate/skip` is no reason string,
-  anywhere in the file. A marker is unused when no mutant of its line has its operator: on
+  skip marker but is not one, and when a `:mutate/skip` anywhere in the file is no reason string
+  or sits on a form the runner does not mutate. A marker is unused when no mutant of its line has its operator: on
   a full run anywhere in the file, and with `-d` or `-s` only on the lines in scope."
   [source {:keys [defs lines]}]
   (let [forms (top-level-forms source)
@@ -703,13 +709,21 @@
         unknown (remove (set (map :name forms)) wanted)]
     (when (seq unknown)
       (throw (setup-error (str "No top-level definition named " (str/join ", " (sort unknown)) "."))))
-    (doseq [{:keys [loc name kind]} forms
-            :when (= :mutated kind)
+    (doseq [{:keys [loc name kind head]} forms
             :let [{:keys [reason]
-                   :as found} (skip-reason loc)]
-            :when (and found (not (and (string? reason) (not (str/blank? reason)))))]
-      (throw (setup-error (str "The :mutate/skip metadata on " name " needs a reason as a string, such as"
-                               " ^{:mutate/skip \"wraps a JDK call\"}."))))
+                   :as found} (try
+                                (skip-reason loc)
+                                (catch Exception e
+                                  (throw (setup-error (str "The metadata of " name " cannot be read: " (ex-message e))))))]
+            :when found]
+      (cond
+        (not= :mutated kind)
+        (throw (setup-error (str name " is a " head ", which the runner does not mutate, so its :mutate/skip does"
+                                 " nothing. Remove it.")))
+
+        (or (not (string? reason)) (str/blank? reason))
+        (throw (setup-error (str "The :mutate/skip metadata on " name " needs a reason as a string, such as"
+                                 " ^{:mutate/skip \"wraps a JDK call\"}.")))))
     (let [full-run? (and (empty? wanted) (not (set? lines)))
           in-scope (filter #(and (or (empty? wanted) (contains? wanted (:name %)))
                                  (or (not (set? lines)) (some lines (form-lines %))))

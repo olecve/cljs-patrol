@@ -661,3 +661,30 @@
                                              "  (if x 1 2)) ; mutate: skip if: stale\n"
                                              "(defn f [x] (when x 1))\n")
                                         {})))))
+
+(deftest skip-markers-leave-other-mutate-comments-alone
+  (is (= []
+         (mutate/skip-markers "(ns app.x)\n;; Mutate the atom in place for speed\n; mutate! is only for tests\n")))
+  (is (= [] (mutate/skip-markers ""))
+      "empty source"))
+
+(deftest scope-reads-attribute-map-only-before-parameters-or-after-arities
+  (is (= ["if"]
+         (map :from (:selected (mutate/scope "(ns app.x)\n(defn f ^String [x] {:mutate/skip (if x \"a\" \"b\")})\n" {}))))
+      "map after hinted parameter vector is body")
+  (is (= [["f" "when" "wraps a JDK call"] ["f" "if" "wraps a JDK call"]]
+         (map (juxt :def :from :skip-reason)
+              (:ignored (mutate/scope (str "(ns app.x)\n"
+                                           "(defn f ([x] (when x 1)) ([x y] (if x y 2)) {:mutate/skip \"wraps a JDK call\"})\n")
+                                      {}))))
+      "trailing attribute map after arities")
+  (is (= ["r"]
+         (map :skip-reason
+              (:ignored (mutate/scope "(ns app.x)\n(defn ^:private f {:mutate/skip \"r\"} [x] (if x 1 2))\n" {}))))
+      "name under metadata is no parameter vector"))
+
+(deftest scope-rejects-skip-metadata-that-does-nothing-or-cannot-be-read
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"m is a defmacro, which the runner does not mutate"
+                        (mutate/scope "(ns app.x)\n(defmacro ^{:mutate/skip \"r\"} m [x] x)\n" {})))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata of f cannot be read: No value supplied"
+                        (mutate/scope "(ns app.x)\n(defn ^{:mutate/skip} f [x] (when x 1))\n" {}))))

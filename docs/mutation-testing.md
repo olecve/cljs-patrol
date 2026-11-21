@@ -67,14 +67,20 @@ list it as ignored, with the reason.
   (when x :one))
 
 (defn ^{:mutate/skip "wraps a JDK call"} wrapped [x] (if x 1 2))
+
+(defn also-wrapped
+  {:mutate/skip "wraps a JDK call"}
+  [x]
+  (if x 1 2))
 ```
 
 A comment after code skips that operator on its own line, and a comment on a line of its own skips it on the next line
-of code. Other planted bugs on the same line still run. Metadata on a definition's name skips all of its planted bugs,
-and its value must be the reason, as a string. Only real comments count, not the same words in a string or docstring. A
-comment that reads like a marker but does not follow the pattern, such as `; mutate:skip first: ...`, stops the run, and
-the run warns about a marker that matches no planted bug or has no code after it, so stale markers do not pile up. Skip
-only what you have read and judged harmless: a skipped line is a line no test checks.
+of code in the same form. Other planted bugs on the same line still run. `:mutate/skip` on a definition's name, or in a
+`defn`'s attribute map, skips all of its planted bugs, and its value must be the reason, as a string. Only real comments
+count, not the same words in a string or docstring. A comment that starts like a marker but does not follow the pattern,
+such as `; mutate:skip first: ...`, stops the run, and so does `:mutate/skip` on a form the runner does not mutate, such
+as a `defmacro`. The run warns about a marker that matches no planted bug or has no code after it in its form, so stale
+markers do not pile up. Skip only what you have read and judged harmless: a skipped line is a line no test checks.
 
 ## Words
 
