@@ -40,8 +40,8 @@ harmless, and must give a reason.
 
 - **Integer literals in function code.** `0` and `1` swap, and any other integer goes up by one. Only a plain decimal
   literal changes, so the mutant keeps the written form: `0x10`, `+1`, `1N`, `1.5` and `1/2` stay. Function code is the
-  body of a `defn`, `defn-` or `defmethod`. It is also any `fn` or `#(…)`, such as one in the value of a `def`. A number
-  in other data stays.
+  body of a `defn`, `defn-` or `defmethod`, or a `def` whose value is a `fn` or `#(…)`. A number in other data stays,
+  also in a `fn` inside data, which runs once when the namespace loads.
 - **Never a name or a dispatch value.** No operator changes the name slot of a definition or the dispatch value of a
   `defmethod`.
 - **Never a `^:const` def.** The report lists it apart, as "Not mutated, ^:const, callers copy its value". `-d` with its
@@ -75,6 +75,12 @@ harmless, and must give a reason.
 - Good, because it leaves all data out.
 - Bad, because a function that a `def` holds, such as `(def f (fn [x] (+ x 1)))`, loses its number mutants, though the
   runner records it as it records a `defn`. The review of pull request 170 found this.
+
+### Change the integer literals inside any `fn` or `#(…)` (rejected)
+
+Rejected because a `fn` inside data, such as `(def table (into {} (map (fn [k] [k 0])) ks))`, runs once when the
+namespace loads. Its numbers are data, the `def` cannot be recorded, and each mutant would run every test. The review of
+pull request 170 found this.
 
 ### Change the integer literals of function code (chosen)
 
@@ -111,8 +117,8 @@ on `cljs-patrol.groups.reagent` shows two survivors on line 490, `remove` and `=
 ## Confirmation
 
 - `clojure -M:test -n cljs-patrol.dev.mutate-test -n cljs-patrol.dev.mutate-html-test` passes.
-- The tests show that a dispatch value, a definition name, a `def` value and a `^:const` def get no mutant, and that a
-  number in a `fn` or `#(…)` of a `def` gets one.
+- The tests show that a dispatch value, a definition name, a `def` value, a `fn` inside data and a `^:const` def get no
+  mutant, and that a number in a `def` whose value is a `fn` or `#(…)` gets one.
 
 ## Revisit when
 
