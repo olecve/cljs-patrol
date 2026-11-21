@@ -70,10 +70,11 @@ list it as ignored, with the reason.
 ```
 
 A comment after code skips that operator on its own line, and a comment on a line of its own skips it on the next line
-of code. Other planted bugs on the same line still run. Metadata on a definition's name skips all of its planted bugs. A
-comment without an operator and a reason stops the run, and the run warns about a comment that matches no planted bug,
-so stale comments do not pile up. Skip only what you have read and judged harmless: a skipped line is a line no test
-checks.
+of code. Other planted bugs on the same line still run. Metadata on a definition's name skips all of its planted bugs,
+and its value must be the reason, as a string. Only real comments count, not the same words in a string or docstring. A
+comment that reads like a marker but does not follow the pattern, such as `; mutate:skip first: ...`, stops the run, and
+the run warns about a marker that matches no planted bug or has no code after it, so stale markers do not pile up. Skip
+only what you have read and judged harmless: a skipped line is a line no test checks.
 
 ## Words
 

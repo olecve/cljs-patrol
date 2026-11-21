@@ -147,11 +147,11 @@
   (->> (z/subzip loc) (iterate z/next) (take-while (complement z/end?))))
 
 (defn- skip-reason
-  "Return the reason that `:mutate/skip` metadata on the name of the definition at `loc` gives, or nil."
+  "Return the `:mutate/skip` metadata on the name of the definition at `loc`, as written, or nil."
   [loc]
   (let [name-slot (some-> loc z/down z/right)]
     (when (= :meta (some-> name-slot z/tag))
-      (some-> (try (z/sexpr name-slot) (catch Exception _ nil)) meta :mutate/skip str))))
+      (some-> (try (z/sexpr name-slot) (catch Exception _ nil)) meta :mutate/skip))))
 
 (defn mutants
   "Return a mutant for every swap the definitions among the top-level `forms` allow.
@@ -196,41 +196,51 @@
   (ex-info message {::setup true}))
 
 (def ^:private skip-marker
-  "A `; mutate: skip OPERATOR: REASON` comment, with the code before it."
-  #"^(.*?);+\s*mutate: skip\b(.*)$")
+  "A `; mutate: skip OPERATOR: REASON` comment."
+  #"^;+\s*mutate: skip\s+(\S+):\s+(\S.*?)\s*$")
+
+(def ^:private skip-marker-like
+  "Any comment that looks meant as a skip marker, written right or not."
+  #"(?i)mutate\W*skip")
+
+(defn- code-loc?
+  "True when `loc` is a code node, not whitespace, a newline, a comma or a comment."
+  [loc]
+  (not (contains? #{:whitespace :newline :comma :comment} (z/tag loc))))
 
 (defn skip-markers
-  "Return each `; mutate: skip OPERATOR: REASON` comment of `source` as {row {operator reason}}.
+  "Return each `; mutate: skip OPERATOR: REASON` comment of `source` as {:line … :row … :operator … :reason …}.
 
-  A comment after code skips that operator on its own line, and a comment on a line of its own
-  skips it on the next line of code. A comment that names no operator and reason stops the run."
+  `:line` is the comment's own line, and `:row` the line it skips: its own line when code comes
+  before it there, else the line of the next code, or nil when no code follows. Only comments
+  count, so the words in a string or docstring are no marker. A comment that looks meant as a
+  marker but does not read as one stops the run."
   [source]
-  (->> (str/split-lines source)
-       (map-indexed vector)
-       (reduce (fn [{:keys [pending]
-                     :as state}
-                    [i line]]
-                 (let [row (inc i)
-                       [marked code rest-of-line] (re-find skip-marker line)
-                       [_ operator reason] (some->> rest-of-line (re-find #"^\s+(\S+):\s+(\S.*?)\s*$"))]
-                   (cond
-                     (and marked (nil? reason))
-                     (throw (setup-error (str "The mutate: skip comment on line " row " needs an operator and a reason,"
-                                              " such as ; mutate: skip first: the list holds one item.")))
-
-                     marked (if (str/blank? code)
-                              (update state :pending merge {operator reason})
-                              (update-in state [:markers row] merge {operator reason}))
-
-                     (and pending (not (str/blank? line)) (not (str/starts-with? (str/trim line) ";")))
-                     (-> state
-                         (update-in [:markers row] merge pending)
-                         (assoc :pending nil))
-
-                     :else state)))
-               {:markers {}
-                :pending nil})
-       :markers))
+  (let [lines (str/split-lines source)]
+    (vec (for [loc (->> (z/of-string source {:track-position? true})
+                        (iterate z/next*)
+                        (take-while (complement z/end?)))
+               :when (= :comment (z/tag loc))
+               :let [text (str/trim (z/string loc))]
+               :when (re-find skip-marker-like text)
+               :let [[line col] (z/position loc)
+                     [_ operator reason] (re-find skip-marker text)]]
+           (if-not reason
+             (throw (setup-error (str "The comment on line " line " reads like a skip marker but is not one."
+                                      " Write it as ; mutate: skip OPERATOR: REASON, such as"
+                                      " ; mutate: skip first: the list holds one item.")))
+             {:line line
+              :row (if (str/blank? (subs (nth lines (dec line)) 0 (dec col)))
+                     (some->> (iterate z/next* loc)
+                              rest
+                              (take-while (complement z/end?))
+                              (filter code-loc?)
+                              first
+                              z/position
+                              first)
+                     line)
+              :operator operator
+              :reason reason})))))
 
 (defn- git [dir & args]
   (apply shell/sh "git" "-C" dir args))
@@ -681,10 +691,16 @@
                            forms)
           of-kind (fn [kind] (filter #(= kind (:kind %)) in-scope))
           markers (skip-markers source)
+          marker-reasons (into {} (map (juxt (juxt :row :operator) :reason)) markers)
           marked (fn [{:keys [row from]
                        :as mutant}]
-                   (update mutant :skip-reason #(or % (get-in markers [row from]))))
+                   (update mutant :skip-reason #(if (some? %) % (marker-reasons [row from]))))
           in-scope-mutants (map marked (mutants in-scope))
+          _ (when-let [{function :def} (first (remove #(let [reason (:skip-reason %)]
+                                                         (or (nil? reason) (and (string? reason) (not (str/blank? reason)))))
+                                                      in-scope-mutants))]
+              (throw (setup-error (str "The :mutate/skip metadata on " function " needs a reason, such as"
+                                       " ^{:mutate/skip \"wraps a JDK call\"}."))))
           in-scope-rows (set (mapcat form-lines in-scope))
           [ignored selected] ((juxt filter remove)
                               :skip-reason
@@ -694,11 +710,12 @@
        :other-forms (mapv :name (of-kind :other))
        :selected selected
        :ignored ignored
-       :unused-markers (vec (for [[row operators] (sort markers)
-                                  :when (contains? in-scope-rows row)
-                                  operator (sort (keys operators))
-                                  :when (not-any? #(and (= row (:row %)) (= operator (:from %))) in-scope-mutants)]
-                              (str "line " row " (" operator ")")))})))
+       :unused-markers (vec (for [{:keys [line row operator]} markers
+                                  :when (or (and (nil? row) (empty? wanted) (not (set? lines)))
+                                            (and (contains? in-scope-rows row)
+                                                 (not-any? #(and (= row (:row %)) (= operator (:from %)))
+                                                           in-scope-mutants)))]
+                              (str "line " line " (" operator ")")))})))
 
 (defn- run-all
   "Run each mutant in turn, stopping at the first test run that keeps looping or the first restore that fails."

@@ -293,23 +293,25 @@
       [:pre
        (for [[i text] (map-indexed vector lines)
              :let [row (inc i)
-                   here (get by-row row)
+                   [ignored here] ((juxt filter remove) #(= :ignored (:outcome %)) (get by-row row))
                    gaps (filter gap? here)
                    caught (count (filter #(= :killed (:outcome %)) here))]]
          (list [:span {:class (str "ln"
                                    (when (seq gaps) " missed")
                                    (when (pos? caught) " caught")
-                                   (when (and (seq here) (empty? gaps) (zero? caught)) " other"))
+                                   (when (and (seq here) (empty? gaps) (zero? caught)) " other")
+                                   (when (and (empty? here) (seq ignored)) " ignored"))
                        :id (str "L" row)}
                 [:span {:class "no"} row]
                 [:span {:class "mk"
-                        :title (when (seq here) (str caught " of " (count here) " planted bugs caught"))}
+                        :title (cond
+                                 (seq here) (str caught " of " (count here) " planted bugs caught")
+                                 (seq ignored) (str "ignored: " (str/join "; " (map :reason ignored))))}
                  (cond
                    (seq gaps) (plural (count gaps) "gap" "gaps")
                    (pos? caught) (str caught " caught")
-                   (empty? here) nil
-                   (every? #(= :ignored (:outcome %)) here) "ignored"
-                   :else "left out")]
+                   (seq here) "left out"
+                   (seq ignored) "ignored")]
                 (str text "\n")]
                (for [{:keys [from to outcome]} gaps]
                  [:span {:class "sub"} [:span] [:span]

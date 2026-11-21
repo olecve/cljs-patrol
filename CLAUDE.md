@@ -124,12 +124,13 @@ has a row per definition with its counts, two scores (killed over all scored mut
 reach), names what was not mutated or has no coverage and why, and lists every survivor, unviable and timed-out mutant
 with its source line. A `; mutate: skip OPERATOR: REASON` comment after a line, or on the line above it, leaves that
 operator's mutant out, and `^{:mutate/skip "REASON"}` on a definition's name leaves out all of its mutants: they do not
-run, are not scored, and are listed as ignored with the reason. A comment with no operator and reason stops the run, and
-one that matches no mutant prints a warning. `-d` limits the run to named top-level definitions, `-s REF` to the lines
-the branch changed since it left a git ref, `-r FILE` writes every mutant and its outcome to EDN, and `--html FILE`
-writes a page that leads with the test gaps: each one's line before and after the change, a likely reason no test caught
-it, and the tests that run for it, then tables by function and by test, and the source. The page needs no network. Its
-plain words, such as "planted bug" for a mutant, map to the usual ones in
+run, are not scored, and are listed as ignored with the reason. Only real comments count, the metadata value must be a
+non-blank string, a comment that reads like a marker but is not one stops the run, and a marker that matches no mutant
+or has no code after it prints a warning. `-d` limits the run to named top-level definitions, `-s REF` to the lines the
+branch changed since it left a git ref, `-r FILE` writes every mutant and its outcome to EDN, and `--html FILE` writes a
+page that leads with the test gaps: each one's line before and after the change, a likely reason no test caught it, and
+the tests that run for it, then tables by function and by test, and the source. The page needs no network. Its plain
+words, such as "planted bug" for a mutant, map to the usual ones in
 [`docs/mutation-testing.md`](docs/mutation-testing.md). A run exits 0 when nothing survives, 1 when something survives
 or has no coverage, and 2 when it cannot start or stops early. A value a `def` computes when the namespace loads keeps
 the original, so a mutant only it reaches survives.
