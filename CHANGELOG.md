@@ -1,5 +1,22 @@
 # Changelog
 
+## [v0.0.61] - 2026-11-21
+
+* Report a presence check on a get-by helper by @olecve in https://github.com/olecve/cljs-patrol/pull/162
+* Flag a condition whose branches remount the same child by @olecve in https://github.com/olecve/cljs-patrol/pull/163
+* Add a dev-only mutation testing runner by @olecve in https://github.com/olecve/cljs-patrol/pull/164
+* Mutation runner: run only the tests that call a mutated function by @olecve in https://github.com/olecve/cljs-patrol/pull/165
+* Mutation runner: HTML report that leads with the test gaps by @olecve in https://github.com/olecve/cljs-patrol/pull/166
+* Mutation runner: skip a harmless mutant with a marker and a reason by @olecve in https://github.com/olecve/cljs-patrol/pull/167
+* Mutation runner: --apply one mutant and --restore the code by @olecve in https://github.com/olecve/cljs-patrol/pull/168
+* Mutation runner: plant bugs in integer literals by @olecve in https://github.com/olecve/cljs-patrol/pull/170
+* Split the mutation runner into one namespace for each job by @olecve in https://github.com/olecve/cljs-patrol/pull/172
+* Mutation runner: show each survivor's line before and after the swap by @olecve in https://github.com/olecve/cljs-patrol/pull/173
+* Mutation runner: plant a bug that replaces a function body with nil by @olecve in https://github.com/olecve/cljs-patrol/pull/174
+* Record the mutation runner's later decisions as ADRs 0006 to 0009 by @olecve in https://github.com/olecve/cljs-patrol/pull/171
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.60...v0.0.61
+
 ## [v0.0.60] - 2026-11-20
 
 * Judge a focus ring that reads a custom property by the values the file sets it to by @olecve in https://github.com/olecve/cljs-patrol/pull/161
