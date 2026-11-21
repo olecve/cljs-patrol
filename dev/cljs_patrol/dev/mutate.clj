@@ -10,6 +10,7 @@
   neither is scored."
   (:require
    [cljs-patrol.parser :as parser]
+   [clojure.edn :as edn]
    [clojure.java.io :as io]
    [clojure.java.shell :as shell]
    [clojure.pprint :as pprint]
@@ -193,6 +194,16 @@
      :mutant-loc token
      :skip-reason reason}))
 
+(defn- mutated-form-text
+  "Return the text of a mutant's form with its one token swapped."
+  [{:keys [mutant-loc to]}]
+  (-> mutant-loc (z/replace (n/token-node to)) z/root n/string))
+
+(defn apply-command
+  "Return the command that writes `mutant` of `target` into its file, as the reports show it."
+  [target {:keys [row col from]}]
+  (str "clojure -M:test:mutate " target " --apply " row ":" col ":" from))
+
 (defn changed-lines
   "Return the line numbers `git diff -U0` output adds or changes in the new version of a file.
 
@@ -296,42 +307,74 @@
         cwd (.toPath (.getCanonicalFile (io/file ".")))]
     (str (if (.startsWith path cwd) (.relativize cwd path) path))))
 
-(defn apply-mutant
-  "Write the mutant at `position`, written ROW:COL, into `file`, whose text is `source`, and return how to restore it.
+(def applied-file
+  "Where --apply keeps the text it replaced, until --restore puts it back."
+  "target/mutate-applied.edn")
 
-  The file must be in a git work tree with no uncommitted change, so that `git restore` brings
-  back exactly what was there. Only the one token changes."
-  [file source position]
-  (let [[_ row col] (re-find #"^(\d+):(\d+)$" (str position))
-        row (some-> row parse-long)
-        col (some-> col parse-long)
+(defn- offset
+  "Return the index in a text of `lines` where `row` and `col` start."
+  [lines row col]
+  (+ (->> lines (take (dec row)) (map (comp inc count)) (reduce +)) (dec col)))
+
+(defn apply-mutant
+  "Write the mutant at `position`, written ROW:COL:OPERATOR, into `file`, keep its text in `kept`, and return a message.
+
+  Only the one token changes, as in a run. The operator must still be at that place, so a
+  position from an older report cannot write another mutant. A second mutant cannot be applied
+  before --restore puts the first one back."
+  [file position kept]
+  (when (.exists (io/file kept))
+    (throw (setup-error (str "A mutant is already applied to " (relative-path (:file (edn/read-string (slurp kept))))
+                             ". Put the code back with --restore first."))))
+  (let [[_ row col operator] (re-find #"^(\d+):(\d+):(\S+)$" (str position))
         _ (when-not row
-            (throw (setup-error (str "--apply takes ROW:COL, such as 490:43, not " position "."))))
+            (throw (setup-error (str "--apply takes ROW:COL:OPERATOR, such as 490:43:remove, not " position "."))))
+        row (parse-long row)
+        col (parse-long col)
+        source (slurp file)
         on-row (->> source top-level-forms mutants (filter #(= row (:row %))))
-        {:keys [from to]
+        {:keys [from to form-loc]
          function :def
          :as mutant} (first (filter #(= col (:col %)) on-row)) ; mutate: skip first: one mutant per line and column
-        dir (str (.getParentFile (io/file file)))
         path (relative-path file)]
-    (when-not (= "true" (str/trim (:out (git dir "rev-parse" "--is-inside-work-tree"))))
-      (throw (setup-error (str file " is not in a git work tree, so --apply could not be undone with git restore."))))
-    (when (seq (str/trim (:out (git dir "status" "--porcelain" "--" (.getCanonicalPath (io/file file))))))
-      (throw (setup-error (str file " has uncommitted changes. Commit or stash them first, so that git restore"
-                               " brings back exactly your code."))))
     (when-not mutant
-      (throw (setup-error (str "No mutant at " position "."
+      (throw (setup-error (str "No mutant at " row ":" col "."
                                (when (seq on-row)
                                  (str " Line " row " has " (str/join ", " (map #(str row ":" (:col %) " " (:from %)) on-row))
-                                      "."))))))
+                                      "."))
+                               " Run the report again for the current positions."))))
+    (when-not (= operator from)
+      (throw (setup-error (str "At " row ":" col " the operator is now " from ", not " operator "."
+                               " Run the report again for the current positions."))))
     (let [lines (str/split source #"\n" -1)
-          line (nth lines (dec row))
-          start (dec col)]
-      (spit file (str/join "\n" (assoc lines
-                                       (dec row)
-                                       (str (subs line 0 start) (pr-str to) (subs line (+ start (count from))))))))
-    (str "Applied " position "  " from " -> " (pr-str to) "  in " function " to " path ".\n"
-         "Run the tests and watch the new test fail, then restore the file with:\n"
-         "  git restore " path)))
+          [[start-row start-col] [end-row end-col]] (parser/position-span form-loc)
+          start (offset lines start-row start-col)
+          end (offset lines end-row end-col)
+          applied (str (subs source 0 start) (mutated-form-text mutant) (subs source end))]
+      (io/make-parents kept)
+      (spit kept (pr-str {:file (.getCanonicalPath (io/file file))
+                          :original source
+                          :applied applied}))
+      (spit file applied))
+    (str "Applied " row ":" col "  " from " -> " (pr-str to) "  in " function " to " path ".\n"
+         "Run the tests and watch the new test fail, then put the code back with:\n"
+         "  clojure -M:test:mutate --restore")))
+
+(defn restore-mutant
+  "Put back the text that --apply replaced, as kept in `kept`, and return a message.
+
+  It refuses when the file changed since, so an edit made after the apply is never lost; the
+  text before the apply stays in `kept` then."
+  [kept]
+  (when-not (.exists (io/file kept))
+    (throw (setup-error "No mutant is applied, so there is nothing to restore.")))
+  (let [{:keys [file original applied]} (edn/read-string (slurp kept))]
+    (when-not (= applied (slurp file))
+      (throw (setup-error (str (relative-path file) " changed since the mutant was applied, so --restore leaves it alone."
+                               " The text from before the apply is in " kept "."))))
+    (spit file original)
+    (io/delete-file kept)
+    (str "Restored " (relative-path file) ".")))
 
 (defn- source-file [ns-sym]
   (let [path (-> (name ns-sym) (str/replace "-" "_") (str/replace "." "/"))]
@@ -549,7 +592,7 @@
   mutation is returned as :plan-stuck?, with no outcome, since the mutant never ran."
   [{:keys [target file test-nss timeout-ms]
     :as context}
-   {:keys [form-loc wrapper mutant-loc to]
+   {:keys [form-loc wrapper]
     :as mutant}]
   (let [line (first (parser/position (or wrapper form-loc)))
         original (z/string form-loc)
@@ -559,7 +602,7 @@
                              start (str/last-index-of wrapper-text original)]
                          (str (subs wrapper-text 0 start) form-text (subs wrapper-text (+ start (count original)))))
                        form-text))
-        mutated-text (in-wrapper (-> mutant-loc (z/replace (n/token-node to)) z/root n/string))
+        mutated-text (in-wrapper (mutated-form-text mutant))
         {:keys [kind tests]
          :as plan} (test-plan context (:def mutant))]
     (if (= :stuck kind)
@@ -724,9 +767,9 @@
       (println (format "  %d:%d  %s -> %s  in %s" row col from to def))
       (println (str "      " (str/trim (nth source-lines (dec row) ""))))))
   ; mutate: skip first: any survivor makes a fine example
-  (when-let [{:keys [row col]} (first (filter #(= :survived (:outcome %)) mutants))]
+  (when-let [mutant (first (filter #(= :survived (:outcome %)) mutants))]
     (println (str "\nTo watch a new test fail on a survivor, apply it to the file, such as:\n"
-                  "  clojure -M:test:mutate " target " --apply " row ":" col)))
+                  "  " (apply-command target mutant))))
   (when (seq ignored)
     (println "\nIgnored, with a skip marker:")
     (doseq [{:keys [def row col from to reason]} ignored]
@@ -923,28 +966,54 @@
    ["-r" "--report FILE" "Write every mutant and its outcome to this EDN file"]
    [nil "--html FILE" "Write the report as an HTML page that leads with the test gaps and how to close them"]
    ["-a" "--all-tests" "Run every test for each mutant, as for a test that only reads state another test wrote"]
-   [nil "--apply ROW:COL" "Write the mutant at this line and column into the file, and run nothing; needs no -t"]])
+   [nil "--apply ROW:COL:OPERATOR" "Write the mutant at this place into the file, and run nothing; needs no -t"]
+   [nil "--restore" "Put back the code that --apply replaced; needs no target"]])
 
 (def ^:private usage
   (str "Usage: clojure -M:test:mutate TARGET-NS -t TEST-NS [-t TEST-NS …] [-d DEF …] [-s REF] [--timeout MS]"
        " [-r FILE] [--html FILE] [-a]\n"
-       "       clojure -M:test:mutate TARGET-NS --apply ROW:COL"))
+       "       clojure -M:test:mutate TARGET-NS --apply ROW:COL:OPERATOR\n"
+       "       clojure -M:test:mutate --restore"))
+
+(defn usage-errors
+  "Return what is wrong with the parsed command-line `options` and `target`, each as a sentence; none means it can run."
+  [options target]
+  (let [editing? (or (:apply options) (:restore options))
+        run-option? (or (seq (:test options))
+                        (seq (:def options))
+                        (some #(some? (get options %)) [:since :timeout :report :html :all-tests]))]
+    (cond-> []
+      (and (:apply options) (:restore options))
+      (conj "Give --apply or --restore, not both.")
+
+      (and editing? run-option?)
+      (conj "--apply and --restore run no tests, so they take no -t, -d, -s, --timeout, -r, --html or -a.")
+
+      (and (not (:restore options)) (nil? target))
+      (conj "Name the target namespace.")
+
+      (and (not editing?) (empty? (:test options)))
+      (conj "Name a test namespace with -t."))))
 
 (defn -main
   "Exit 0 when no mutant survives or lacks coverage, 1 when one does, and 2 when the run cannot start or stops early.
 
-  With --apply, write that one mutant into the file and exit 0, or 2 when it cannot."
+  With --apply, write that one mutant into the file, and with --restore put the code back; each
+  exits 0, or 2 when it cannot. Neither takes the options of a run."
   [& args]
   (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)
-        target (some-> (first arguments) symbol)]
-    (if (or errors (nil? target) (and (empty? (:test options)) (nil? (:apply options))))
+        target (some-> (first arguments) symbol)
+        errors (into (vec errors) (usage-errors options target))]
+    (if (seq errors)
       (do (println (str/join "\n" (concat errors [usage summary])))
           (System/exit 2))
       (try
+        (when (:restore options)
+          (println (restore-mutant applied-file))
+          (System/exit 0))
         (when-let [position (:apply options)]
-          (let [file (source-file target)]
-            (println (apply-mutant file (slurp file) position))
-            (System/exit 0)))
+          (println (apply-mutant (source-file target) position applied-file))
+          (System/exit 0))
         (System/exit (exit-code (mutate target (:test options) {:defs (:def options)
                                                                 :since (:since options)
                                                                 :timeout (:timeout options)

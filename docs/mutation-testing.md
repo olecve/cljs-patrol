@@ -56,18 +56,21 @@ numbers, and the terms and sources.
 ## Watch a new test fail
 
 A test that closes a gap must fail with the planted bug in place. `--apply` writes one planted bug into the file, at the
-line and column the console and the page show, and runs nothing. Run your new test, watch it fail, then put your code
-back with `git restore`:
+place the console and the page show, and runs nothing. Run your new test, watch it fail, then put your code back with
+`--restore`:
 
 ```bash
-clojure -M:test:mutate cljs-patrol.groups.reagent --apply 87:4
+clojure -M:test:mutate cljs-patrol.groups.reagent --apply 87:4:and
 # Applied 87:4  and -> or  in key-meta-map? to src/cljs_patrol/groups/reagent.clj.
-# Run the tests and watch the new test fail, then restore the file with:
-#   git restore src/cljs_patrol/groups/reagent.clj
+# Run the tests and watch the new test fail, then put the code back with:
+#   clojure -M:test:mutate --restore
 ```
 
-It refuses a file with uncommitted changes, so that `git restore` brings back exactly your code. Each gap on the page
-has its `--apply` command.
+The position names the operator too, so a position from an older report cannot write a different planted bug. `--apply`
+keeps the file's text in `target/mutate-applied.edn`, so it works on a file with uncommitted changes, and `--restore`
+writes that text back exactly. A second `--apply` waits for `--restore`, and `--restore` leaves a file alone that
+changed after the apply. Each gap the tests ran has its command on the page; code no test calls has none, since no test
+can fail on it yet.
 
 ## Skip a harmless planted bug
 

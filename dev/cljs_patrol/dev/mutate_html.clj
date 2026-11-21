@@ -173,10 +173,10 @@
      [:p {:class "harmless"} reason])
    [:details {:class "tests"}
     [:summary "Watch a new test fail on it"]
-    [:p "Write the planted bug into the file, run the tests, then put the code back with " [:code "git restore"] ":"]
-    [:ul (for [{:keys [row col from]} mutants]
-           [:li [:code (str "clojure -M:test:mutate " target " --apply " row ":" col)]
-            (when (next mutants) (str " (" from ")"))])]]])
+    [:p "Write the planted bug into the file, run the tests, then put the code back with "
+     [:code "clojure -M:test:mutate --restore"] ":"]
+    [:ul (for [mutant mutants]
+           [:li [:code (mutate/apply-command target mutant)]])]]])
 
 (defn- function-card
   "Return the card of a definition with test gaps: the closest test to extend, then each gap line by line."

@@ -371,10 +371,9 @@
 
 (deftest gap-shows-command-that-applies-each-planted-bug
   (let [text (-> mutants summary page gaps-of text-of)]
-    (is (str/includes? text "Watch a new test fail on it Write the planted bug into the file"))
-    (is (str/includes? text "clojure -M:test:mutate app.core --apply 7:8"))
-    (is (not (str/includes? text "--apply 7:8 (first)"))
-        "one planted bug needs no operator name"))
+    (is (str/includes? text (str "Watch a new test fail on it Write the planted bug into the file, run the tests,"
+                                 " then put the code back with clojure -M:test:mutate --restore")))
+    (is (str/includes? text "clojure -M:test:mutate app.core --apply 7:8:first")))
   (is (str/includes? (text-of (page (summary [(mutant "label" 5 6 "if" "if-not" :survived)
                                               (mutant "label" 5 10 "pos?" "neg?" :survived)])))
-                     "--apply 5:6 (if) clojure -M:test:mutate app.core --apply 5:10 (pos?)")))
+                     "--apply 5:6:if clojure -M:test:mutate app.core --apply 5:10:pos?")))
