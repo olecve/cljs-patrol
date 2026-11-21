@@ -26,7 +26,9 @@
        " show();"))
 
 (def hints
-  "The likely reason a test misses a swap, by the two operators it swaps: one for each pair of `mutate/swaps`."
+  "The likely reason a test misses a swap, by the two operators it swaps: one for each pair of `mutate/swaps`.
+
+  A swap of integer literals has one hint of its own, `number-hint`."
   {#{"<" "<="} "no test uses the boundary value, where both sides are equal."
    #{">" ">="} "no test uses the boundary value, where both sides are equal."
    #{"=" "not="} "no test checks both outcomes of this comparison."
@@ -41,6 +43,10 @@
    #{"if" "if-not"} "no test checks both sides of this condition."
    #{"nil?" "some?"} "no test checks both a nil and a non-nil value here."
    #{"when" "when-not"} "no test checks both sides of this condition."})
+
+(def ^:private number-hint
+  "The likely reason a test misses a swap of one integer literal for another."
+  "no test checks the exact number here, or the boundary it sets.")
 
 (def ^:private maybe-harmless
   "Why a swap may behave the same as the original in every case, by the two operators it swaps."
@@ -81,6 +87,14 @@
 (defn- never-run? [gaps] (every? #(= :no-coverage (:outcome %)) gaps))
 
 (defn- swap-pair [{:keys [from to]}] #{from to})
+
+(defn- hint
+  "Return the likely reason a test misses `mutant`, by the operators it swaps, or nil when there is none."
+  [{:keys [swap]
+    :as mutant}]
+  (if (= :number swap)
+    number-hint
+    (hints (swap-pair mutant))))
 
 (defn- indent [line] (count (re-find #"^ *" line)))
 
@@ -167,8 +181,8 @@
      [:p {:class "shared"}
       (str (plural (count mutants) "planted bug" "planted bugs") " on this line went unnoticed, so no test makes this"
            " part of the line matter. One new test will likely catch all of them.")])
-   (for [hint (distinct (keep (comp hints swap-pair) mutants))]
-     [:p {:class "why"} (str "Likely: " hint)])
+   (for [reason (distinct (keep hint mutants))]
+     [:p {:class "why"} (str "Likely: " reason)])
    (for [reason (distinct (keep (comp maybe-harmless swap-pair) mutants))]
      [:p {:class "harmless"} reason])
    [:details {:class "tests"}

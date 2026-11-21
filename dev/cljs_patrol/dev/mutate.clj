@@ -2,8 +2,8 @@
   "Mutation testing in one warm JVM: break one operator of a namespace at a time, and check its tests notice.
 
   The code under test changes, never the tests. A first run records which tests call each
-  function. Each mutant swaps one symbol or literal, such as `when` for `when-not` or `<` for
-  `<=`, in one definition. That form is evaluated over the namespace, the tests that call it run
+  function. Each mutant swaps one symbol or literal, such as `when` for `when-not`, `<` for
+  `<=` or `0` for `1`, in one definition. That form is evaluated over the namespace, the tests that call it run
   until the first failure, and the original form is evaluated back. A mutant the tests still pass
   on is a survivor: a branch no test pins. A function no test calls has no coverage. A mutant
   that cannot be read or compiled is unviable, and one whose tests run too long timed out;
@@ -82,26 +82,81 @@
          (contains? #{"defn" "defn-"} (parser/sym-name (z/down parent)))
          (not-any? parameter-vector? (take-while some? (iterate z/left loc))))))
 
-(defn- skipped?
-  "True when `loc` holds no code a test reaches through this namespace.
+(def ^:private definition-heads
+  "Every head whose second form names what it defines."
+  (into mutated-heads loaded-once-heads))
 
-  That is metadata, a `defn`'s attribute map, a `#_`, a quoted form, a `comment`, and a
-  reader-conditional branch Clojure does not read."
+(defn- name-slot?
+  "True when `loc` holds the name a definition declares: a mutant of it would define a second var the restore keeps."
+  [loc]
+  (let [parent (z/up loc)]
+    (and (= :list (some-> parent z/tag))
+         (contains? definition-heads (parser/sym-name (z/down parent)))
+         (identical? (z/node loc) (some-> parent z/down z/right z/node)))))
+
+(defn- dispatch-value?
+  "True when `loc` is the dispatch value of a `defmethod`, which names the method a mutant would add beside the original."
+  [loc]
+  (let [parent (z/up loc)]
+    (and (= :list (some-> parent z/tag))
+         (= "defmethod" (parser/sym-name (z/down parent)))
+         (identical? (z/node loc) (some-> parent z/down z/right z/right z/node)))))
+
+(defn- skipped?
+  "True when `loc` holds no code a test reaches through this namespace, or code a mutant could not put back.
+
+  That is metadata, a `defn`'s attribute map, a `#_`, a quoted form, a `comment`, a
+  reader-conditional branch Clojure does not read, a definition's name, and a `defmethod`'s
+  dispatch value: a mutant of either would add a var or a method that restoring the form does
+  not remove."
   [loc]
   (some (fn [ancestor]
           (let [parent (z/up ancestor)]
             (or (contains? #{:uneval :quote :syntax-quote} (z/tag ancestor))
+                (dispatch-value? ancestor)
+                (name-slot? ancestor)
                 (and (= :list (z/tag ancestor)) (= "comment" (parser/sym-name (z/down ancestor))))
                 (and (= :meta (some-> parent z/tag)) (identical? (z/node ancestor) (z/node (z/down parent))))
                 (attr-map? ancestor)
                 (unread-branch? ancestor))))
         (take-while some? (iterate z/up loc))))
 
+(defn- number-replacement
+  "Return the integer to put in place of the integer literal `value` written as `text`, or nil for any other value.
+
+  `0` and `1` swap, and any other integer goes up by one. Only a plain decimal literal counts,
+  such as `7` or `-1`, so the mutant keeps the written form: `0x10`, `+1`, `1N`, `1.5` and `1/2`
+  are left alone."
+  [text value]
+  (when (and (int? value) (= text (str value)))
+    (case value
+      0 1
+      1 0
+      (inc' value))))
+
+(defn- function-def?
+  "True when the definition at `loc`, headed `head`, holds a function that runs when called.
+
+  That is a `defn`, `defn-` or `defmethod`, or a `def` whose value is a `fn` or `#(…)`. A `def`
+  that builds data, also with a `fn` inside, is read once and cannot be recorded."
+  [loc head]
+  (or (contains? #{"defn" "defn-" "defmethod"} head)
+      (and (= "def" head)
+           (let [value (some-> loc z/down z/rightmost)]
+             (or (= :fn (some-> value z/tag))
+                 (and (= :list (some-> value z/tag)) (contains? #{"fn" "fn*"} (parser/sym-name (z/down value)))))))))
+
 (defn- replacement
-  "Return the value to put in place of the token at `loc`, or nil when no operator swaps it."
-  [loc]
+  "Return the value to put in place of the token at `loc`, or nil when no operator swaps it.
+
+  A symbol or boolean in `swaps` gets its pair, and an integer literal a near number when
+  `numbers?` is true."
+  [loc numbers?]
   (when (= :token (z/tag loc))
-    (get swaps (try (z/sexpr loc) (catch Exception _ nil)))))
+    (let [value (try (z/sexpr loc) (catch Exception _ nil))]
+      (cond
+        (contains? swaps value) (get swaps value)
+        numbers? (number-replacement (z/string loc) value)))))
 
 (defn- form-name
   "Name a top-level form by what it defines, or by its head and line, such as `extend-type@12`."
@@ -124,12 +179,21 @@
                       (unwrapped branch)))
     [{:loc loc}]))
 
+(defn- const-def?
+  "True when the form at `loc` is a `def` whose name is `^:const`: Clojure copies its value into each caller as it compiles."
+  [loc head]
+  (and (= "def" head)
+       (let [name-slot (some-> loc z/down z/right)]
+         (and (= :meta (some-> name-slot z/tag))
+              (true? (:const (meta (try (z/sexpr name-slot) (catch Exception _ nil)))))))))
+
 (defn top-level-forms
   "Return {:loc … :wrapper … :head … :name … :kind …} for each top-level form of `source` but `ns` and `comment`.
 
   `:kind` is :mutated for a definition evaluating again replaces, :loaded-once for one it does
-  not, and :other for any other form, whose effects would run again with every mutant. A form
-  under metadata keeps that metadata as its `:wrapper`."
+  not, :const for a `^:const` def, whose value callers copied as they compiled, and :other for
+  any other form, whose effects would run again with every mutant. A form under metadata keeps that metadata as
+  its `:wrapper`."
   [source]
   (->> (z/of-string source)
        (iterate z/right)
@@ -144,6 +208,7 @@
                             :head head
                             :name (form-name loc head)
                             :kind (cond
+                                    (const-def? loc head) :const
                                     (contains? mutated-heads head) :mutated
                                     (contains? loaded-once-heads head) :loaded-once
                                     :else :other)))))))))
@@ -173,15 +238,19 @@
 (defn mutants
   "Return a mutant for every swap the definitions among the top-level `forms` allow.
 
-  Each is {:def … :row … :col … :from … :to … :form-loc … :mutant-loc …}; the mutated text of
-  its form is built only when the mutant runs. A definition with `:mutate/skip` on its name or in
-  its attribute map gives each of its mutants that reason as :skip-reason."
+  Each is {:def … :row … :col … :from … :to … :swap … :form-loc … :mutant-loc …}; :swap is
+  :number for an integer literal and :operator for any other swap, and the mutated text of its
+  form is built only when the mutant runs. Integer literals change only in function code: the body of a
+  `defn`, `defn-` or `defmethod`, or a `def` whose value is a `fn` or `#(…)`. A definition with
+  `:mutate/skip` on its name or in its attribute map gives each of its mutants that reason as
+  :skip-reason."
   [forms]
-  (for [{:keys [loc wrapper name kind]} forms
+  (for [{:keys [loc wrapper name kind head]} forms
         :when (= :mutated kind)
-        :let [reason (:reason (skip-reason loc))]
+        :let [reason (:reason (skip-reason loc))
+              numbers? (function-def? loc head)]
         token (form-locs loc)
-        :let [to (replacement token)]
+        :let [to (replacement token numbers?)]
         :when (and (some? to) (not (skipped? token)))
         :let [[row col] (parser/position token)]]
     {:def name
@@ -189,6 +258,7 @@
      :col col
      :from (z/string token)
      :to to
+     :swap (if (number? to) :number :operator)
      :form-loc loc
      :wrapper wrapper
      :mutant-loc token
@@ -715,7 +785,7 @@
   survived and no-coverage mutants; the covered score leaves the mutants no test reaches out, so it
   shows how well the tests check the code they run. Each definition names the tests its mutants
   ran, from its plan in `plans`, or :every when they ran every test."
-  [{:keys [defs-in-scope loaded-once other-forms unreached results ignored stopped note plans]}]
+  [{:keys [defs-in-scope loaded-once const-defs other-forms unreached results ignored stopped note plans]}]
   (let [reached (set (keep #(when (and (contains? #{:failed :timeout} (:outcome %)) (not (:at-load? %))) (:def %))
                            results))
         results (map #(cond-> %
@@ -743,6 +813,7 @@
                        distinct
                        vec)
      :loaded-once (vec (distinct loaded-once))
+     :const-defs (vec (distinct const-defs))
      :other-forms (vec (distinct other-forms))
      :unreached (vec (for [def-name (distinct (map :def unreached))]
                        {:def def-name
@@ -756,13 +827,13 @@
      :score (when (pos? scored) (double (/ (:killed counts) scored)))
      :covered-score (when (pos? covered) (double (/ (:killed counts) covered)))
      :mutants (mapv #(-> %
-                         (select-keys [:def :row :col :from :at-load?])
+                         (select-keys [:def :row :col :from :swap :at-load?])
                          (assoc :to (pr-str (:to %))
                                 :outcome (outcome-key (:outcome %)))
                          (cond-> (:killed-by %) (assoc :killed-by (test-name (:killed-by %)))))
                     results)
      :ignored (mapv #(-> %
-                         (select-keys [:def :row :col :from])
+                         (select-keys [:def :row :col :from :swap])
                          (assoc :to (pr-str (:to %))
                                 :reason (:skip-reason %)))
                     ignored)
@@ -777,7 +848,7 @@
   [ratio]
   (if ratio (format "%.0f%%" (* 100.0 ratio)) "n/a"))
 
-(defn- print-report [{:keys [definitions not-mutated not-covered loaded-once other-forms unreached totals score
+(defn- print-report [{:keys [definitions not-mutated not-covered loaded-once const-defs other-forms unreached totals score
                              covered-score mutants ignored stopped note]}
                      source-lines
                      since
@@ -787,6 +858,7 @@
   (print-list "No coverage, no test calls them through their var" not-covered)
   (print-list (str "Not mutated, no operator " (if since "on the changed lines" "applies")) not-mutated)
   (print-list "Not mutated, loaded once" loaded-once)
+  (print-list "Not mutated, ^:const, callers copy its value" const-defs)
   (print-list "Not mutated, not a definition" other-forms)
   (print-list "Not reached, the run stopped early" (map #(str (:def %) " (" (:mutants %) " mutants)") unreached))
   (doseq [[outcome title] [[:survived "Survived"]
@@ -822,7 +894,7 @@
 (defn scope
   "Return the definitions and mutants a run covers, the ones a skip marker leaves out, and the markers that match none.
 
-  Return {:defs-in-scope … :loaded-once … :other-forms … :selected … :ignored … :unused-markers …}.
+  Return {:defs-in-scope … :loaded-once … :const-defs … :other-forms … :selected … :ignored … :unused-markers …}.
   The run stops when a definition named with `-d` does not exist, when a comment starts like a
   skip marker but is not one, and when a `:mutate/skip` anywhere in the file is no reason string
   or sits on a form the runner does not mutate. A marker is unused when no mutant of its line has its operator: on
@@ -842,8 +914,10 @@
             :when found]
       (cond
         (not= :mutated kind)
-        (throw (setup-error (str name " is a " head ", which the runner does not mutate, so its :mutate/skip does"
-                                 " nothing. Remove it.")))
+        (throw (setup-error (str name (if (= :const kind)
+                                        " is a ^:const def, whose value callers copy, so the runner does not mutate it"
+                                        (str " is a " head ", which the runner does not mutate"))
+                                 ", and its :mutate/skip does nothing. Remove it.")))
 
         (or (not (string? reason)) (str/blank? reason))
         (throw (setup-error (str "The :mutate/skip metadata on " name " needs a reason as a string, such as"
@@ -866,6 +940,7 @@
                               (filter #(or (not (set? lines)) (contains? lines (:row %))) in-scope-mutants))]
       {:defs-in-scope (mapv :name (of-kind :mutated))
        :loaded-once (mapv #(str (:name %) " (" (:head %) ")") (of-kind :loaded-once))
+       :const-defs (mapv :name (of-kind :const))
        :other-forms (mapv :name (of-kind :other))
        :selected selected
        :ignored ignored
@@ -909,8 +984,8 @@
   also written to `report` when given."
   [target file source test-nss {:keys [defs since timeout report html all-tests]}]
   (let [lines (when since (lines-since file since))
-        {:keys [defs-in-scope loaded-once other-forms selected ignored unused-markers]} (scope source {:defs defs
-                                                                                                       :lines lines})
+        {:keys [defs-in-scope loaded-once const-defs other-forms selected ignored unused-markers]} (scope source {:defs defs
+                                                                                                                  :lines lines})
         _ (doseq [marker unused-markers]
             (println (str "Warning: the skip marker on " marker " matches no mutant; remove it or fix its operator.")))
         {:keys [ms covered note]} (when (seq selected)
@@ -936,6 +1011,7 @@
                                                      selected)
         summary (summarize {:defs-in-scope defs-in-scope
                             :loaded-once loaded-once
+                            :const-defs const-defs
                             :other-forms other-forms
                             :unreached unreached
                             :results results
