@@ -203,7 +203,7 @@
             source (str "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
                         "(defn done? [] true)\n")]
         (try
-          (let [{:keys [stopped unreached]}
+          (let [{:keys [stopped unreached stop-reason]}
                 (binding [*out* (java.io.StringWriter.)]
                   (run/run-all {:target 'cljs-patrol.dev.mutate.fixtures.target
                                 :file "target.clj"
@@ -215,6 +215,32 @@
                                (:selected (forms/scope source {}))))]
             (is (str/starts-with? stopped "the tests of the mutant at 2:16 body still run after the timeout")
                 "message names position and operator")
+            (is (= :stuck stop-reason))
             (is (= ["true"] (map :from unreached))
                 "later mutant at same position left unreached"))
+          (finally (reset! release true)))))))
+
+(deftest run-all-stops-at-definition-whose-tests-loop-without-mutation
+  (fixtures/with-target (str fixtures/target-tests
+                             "(def release (atom false))\n"
+                             "(deftest spins (while (not @release)) (is true))\n")
+    (fn []
+      (let [release @(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'release)
+            spins (ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'spins)]
+        (try
+          (let [{:keys [stop-reason results unreached]}
+                (binding [*out* (java.io.StringWriter.)]
+                  (run/run-all {:target 'cljs-patrol.dev.mutate.fixtures.target
+                                :file "target.clj"
+                                :test-nss ['cljs-patrol.dev.mutate.fixtures.target-test]
+                                :timeout-ms 200
+                                :select? true
+                                :covered {:tests {"label" #{spins}}
+                                          :recorded #{"label"}
+                                          :test-count 2}
+                                :plans (atom {})}
+                               (filter #(= "label" (:def %)) (:selected (forms/scope fixtures/target-source {})))))]
+            (is (= :plan-stuck stop-reason))
+            (is (empty? results))
+            (is (= 2 (count unreached))))
           (finally (reset! release true)))))))

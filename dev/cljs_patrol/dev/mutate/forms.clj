@@ -396,7 +396,8 @@
 (defn scope
   "Return the definitions and mutants a run covers, the ones a skip marker leaves out, and the markers that match none.
 
-  Return {:defs-in-scope … :loaded-once … :const-defs … :other-forms … :selected … :ignored … :unused-markers …}.
+  Return {:defs-in-scope … :loaded-once … :const-defs … :other-forms … :selected … :ignored … :unused-markers …
+  :forms …}, where :forms are the top-level forms of the whole file.
   The run stops when a definition named with `-d` does not exist, when a comment starts like a
   skip marker but is not one, and when a `:mutate/skip` anywhere in the file is no reason string
   or sits on a form the runner does not mutate. A marker is unused when no mutant of its line has its operator: on
@@ -448,6 +449,7 @@
        :other-forms (mapv :name (of-kind :other))
        :selected selected
        :ignored ignored
+       :forms forms
        :unused-markers (vec (for [{:keys [line row operator]} markers
                                   :when (and (or full-run? (contains? in-scope-rows row))
                                              (not (contains? mutant-swaps [row operator])))]

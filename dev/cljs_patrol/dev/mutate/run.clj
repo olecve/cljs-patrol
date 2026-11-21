@@ -286,7 +286,9 @@
   "Run each mutant in turn, stopping at the first test run that keeps looping or the first restore that fails.
 
   The context's :on-result, when given, gets each result as soon as it is known, also the one
-  the run stops at."
+  the run stops at. A run that stops says why as :stop-reason: :plan-stuck, when the tests of a
+  definition keep running without a mutation, :stuck, when those of a mutant do, or
+  :restore-error."
   [context selected]
   (loop [[mutant & more] selected
          results []]
@@ -297,6 +299,7 @@
         (if plan-stuck?
           {:results results
            :unreached (cons mutant more)
+           :stop-reason :plan-stuck
            :stopped (str "the tests that call " (:def mutant) " keep running past the timeout without any mutation,"
                          " and would disturb every later run. Fix them, or raise --timeout.")}
           (let [results (conj results result)]
@@ -307,11 +310,13 @@
             (cond
               stuck? {:results results
                       :unreached more
+                      :stop-reason :stuck
                       :stopped (str "the tests of the mutant at " (:row result) ":" (:col result) " " (:from result)
                                     " still run after the timeout, and would disturb every later run. Fix the loop,"
                                     " or raise --timeout.")}
               restore-error {:results results
                              :unreached more
+                             :stop-reason :restore-error
                              :stopped (str "restoring " (:def result) " failed, so the namespace stays mutated: "
                                            restore-error)}
               :else (recur more results))))))))

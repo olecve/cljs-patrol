@@ -354,6 +354,11 @@
                                       :new 0
                                       :still-open 3}})]
     (is (str/includes? output "Since the last run: 0 gaps closed, 0 new, 3 still open.\n"))
+    (is (str/includes? (report-of {:progress {:closed []
+                                              :new 0
+                                              :still-open 1
+                                              :not-run-before 2}})
+                       "Since the last run: 0 gaps closed, 0 new, 1 still open, 2 not run then.\n"))
     (is (not (str/includes? output "Closed:"))))
   (is (str/includes? (report-of {:progress {:closed ["f/1:1/when->when-not"]
                                             :new 0

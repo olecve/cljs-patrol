@@ -230,9 +230,10 @@
                      (:mutants totals) (:killed totals) (:survived totals) (:no-coverage totals) (:unviable totals)
                      (:timeout totals)))
     (println (str "Score " (percent score) ", covered score " (percent covered-score) "."))
-    (when-let [{:keys [closed new still-open]} progress]
+    (when-let [{:keys [closed new still-open not-run-before]} progress]
       (println (str "Since the last run: " (count closed) (if (= 1 (count closed)) " gap" " gaps") " closed, " new " new, "
-                    still-open " still open."))
+                    still-open " still open" (when (pos? (or not-run-before 0)) (str ", " not-run-before " not run then"))
+                    "."))
       (when (seq closed)
         (println (str "  Closed: " (str/join ", " closed)))))
     (when note

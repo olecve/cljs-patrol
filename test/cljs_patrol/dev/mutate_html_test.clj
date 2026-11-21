@@ -436,6 +436,12 @@
                                                 :new 0
                                                 :still-open 2})))]
     (is (str/includes? text "Since the last run: 0 gaps closed, 0 new, 2 still open."))
+    (is (str/includes? (text-of (page (summary [(first mutants)]
+                                               :progress {:closed []
+                                                          :new 0
+                                                          :still-open 0
+                                                          :not-run-before 3})))
+                       "Since the last run: 0 gaps closed, 0 new, 0 still open, 3 not run then."))
     (is (str/includes? text "label : 1 gap, line 5 unused"))
     (is (not (str/includes? text "(new)")))
     (is (not (str/includes? text "never run New")))))

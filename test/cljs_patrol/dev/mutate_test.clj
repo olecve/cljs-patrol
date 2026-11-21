@@ -3,6 +3,7 @@
    [cljs-patrol.dev.mutate :as mutate]
    [cljs-patrol.dev.mutate.cache :as cache]
    [cljs-patrol.dev.mutate.fixtures :as fixtures]
+   [cljs-patrol.dev.mutate.report :as report]
    [cljs-patrol.dev.mutate.run :as run]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
@@ -195,9 +196,9 @@
                           (mutate/mutate-source 'cljs-patrol.dev.mutate.fixtures.target "target.clj" source
                                                 ['cljs-patrol.dev.mutate.fixtures.target-test]
                                                 (merge {:cache {:file file
-                                                                :key (cache/run-key
-                                                                      {:sources (cache/text-hash (str source tests))
-                                                                       :runner "runner"})}}
+                                                                :make-key #(cache/run-key
+                                                                            {:sources (cache/text-hash (str source tests))
+                                                                             :runner "runner"})}}
                                                        options))))]
      [@summary output])))
 
@@ -233,7 +234,8 @@
                 "same report as run that ran every mutant")
             (is (= {:closed []
                     :new 0
-                    :still-open 4}
+                    :still-open 4
+                    :not-run-before 0}
                    (:progress second-run)))))))))
 
 (deftest run-goes-on-from-mutants-earlier-run-finished
@@ -322,7 +324,8 @@
                                            " as --iterate asks; running the rest.")))
             (is (= {:closed ["positive?/2:32/>->>="]
                     :new 0
-                    :still-open 3}
+                    :still-open 3
+                    :not-run-before 0}
                    (:progress summary)))
             (is (str/includes? output "Since the last run: 1 gap closed, 0 new, 3 still open.\n  Closed: positive?/2:32/>->>="))
             (is (= {:mutants 8
@@ -359,26 +362,57 @@
               (is (= (:note first-run) (:note cached-run))
                   "note of baseline that did not run comes from cache"))))))))
 
-(deftest run-with-iterate-reuses-caught-mutants-of-changed-target-by-id
+(deftest run-with-iterate-reruns-only-definitions-edit-touched
   (fixtures/with-temp-dir
     (fn [dir]
       (fixtures/with-target fixtures/target-tests
         (fn []
           (let [file (io/file dir "target.edn")
-                marked (str/replace fixtures/target-source "(> x 0))\n" "(> x 0)) ; mutate: skip >: checked elsewhere\n")
+                marked (str/replace fixtures/target-source
+                                    "(defn unused [x] (when x 1))\n"
+                                    "(defn unused [x]\n  ; mutate: skip when: never called\n  (when x 1))\n")
                 _ (run-cached file fixtures/target-tests {})
                 [summary output] (run-cached marked file fixtures/target-tests {:iterate true})
                 [_ plain-output] (run-cached marked file fixtures/target-tests {})]
             (is (str/includes? output (str "Reused the last run's outcome for 4 of 7 mutants (4 caught, 0 did not compile),"
-                                           " as --iterate asks; running the rest. --iterate trusts these outcomes")))
+                                           " as --iterate asks; running the rest. --iterate trusts the caught outcomes")))
             (is (= {:mutants 7
                     :killed 4
-                    :survived 0
-                    :no-coverage 3
+                    :survived 1
+                    :no-coverage 2
                     :unviable 0
                     :timeout 0}
                    (:totals summary)))
+            (is (= {"positive?" :every
+                    "label" []}
+                   (->> summary :definitions (take 2) (into {} (map (juxt :def :tests)))))
+                "definition with every outcome reused shows no test list from other sources")
             (is (nil? (:progress summary))
                 "other target text, no progress")
             (is (str/includes? plain-output "Reused the last run's outcome for 3 of 7 mutants; running the rest.")
                 "run without --iterate runs again what --iterate trusted")))))))
+
+(deftest failing-baseline-keeps-last-run-in-cache
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/with-target fixtures/target-tests
+        (fn []
+          (let [file (io/file dir "target.edn")
+                _ (run-cached file fixtures/target-tests {})
+                before (slurp file)]
+            (run/load-text 'cljs-patrol.dev.mutate.fixtures.target-test "(deftest broken (is (= 1 2)))")
+            (is (thrown-with-msg? clojure.lang.ExceptionInfo #"The tests fail before any mutation"
+                                  (run-cached file "changed tests" {})))
+            (is (= before (slurp file)))))))))
+
+(deftest cache-that-cannot-be-written-leaves-run-alone
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/with-target fixtures/target-tests
+        (fn []
+          (spit (io/file dir "cache") "a file, not a directory")
+          (let [file (io/file dir "cache" "target.edn")
+                [summary output] (run-cached file fixtures/target-tests {})]
+            (is (str/includes? output (str "Warning: the cache " file " failed, so the run goes on without it:")))
+            (is (= 8 (:mutants (:totals summary))))
+            (is (= 1 (report/exit-code summary)))))))))

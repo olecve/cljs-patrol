@@ -35,13 +35,13 @@
   "Mutate `target`, whose `source` is loaded from `file`, against `test-nss`, print the report, and return it.
 
   The tests must pass before any mutation, whether or not `timeout` is given. The report is
-  also written to `report` when given. With `cache`, {:file … :key …}, each outcome goes to
-  that file as soon as it is known, and the outcomes it already holds are reused as
+  also written to `report` when given. With `cache`, {:file … :make-key …}, the outcomes go
+  to that file as the run goes, and the outcomes it already holds are reused as
   [[cache/open!]] decides, with `fresh` and `iterate`. When every mutant is reused, no test
-  runs, the baseline included."
+  runs, the baseline included. A run whose baseline fails leaves the file as it was."
   [target file source test-nss {:keys [defs since timeout report html all-tests cache fresh iterate]}]
   (let [lines (when since (git/lines-since file since))
-        {:keys [defs-in-scope loaded-once const-defs other-forms selected ignored unused-markers]}
+        {:keys [defs-in-scope loaded-once const-defs other-forms selected ignored unused-markers forms]}
         (forms/scope source {:defs defs
                              :lines lines})
         selected (mapv cache/with-id selected)
@@ -50,7 +50,11 @@
             (println (str "Warning: the skip marker on " marker " matches no mutant; remove it or fix its operator.")))
         store (cache/open! (assoc cache
                                   :target (cache/text-hash source)
-                                  :current-ids (->> (forms/top-level-forms source) forms/mutants (map cache/mutant-id) set)
+                                  :current-places (when iterate
+                                                    (->> forms
+                                                         forms/mutants
+                                                         (map cache/with-id)
+                                                         (into {} (map (juxt :place :id)))))
                                   :fresh fresh
                                   :iterate iterate))
         {:keys [reused to-run message]} (cache/plan-run store selected)
@@ -67,16 +71,18 @@
                              timeout-ms (str ", timeout " timeout-ms " ms for every test, less for selected tests")
                              :else "")))
         plans (atom {})
-        {:keys [results unreached stopped]} (run/run-all {:target target
-                                                          :file (str file)
-                                                          :test-nss test-nss
-                                                          :timeout-ms timeout-ms
-                                                          :fixed-timeout? (some? timeout)
-                                                          :select? (not all-tests)
-                                                          :covered covered
-                                                          :plans plans
-                                                          :on-result #(cache/record! store % @plans note)}
-                                                         to-run)
+        {:keys [results unreached stopped stop-reason]} (try
+                                                          (run/run-all {:target target
+                                                                        :file (str file)
+                                                                        :test-nss test-nss
+                                                                        :timeout-ms timeout-ms
+                                                                        :fixed-timeout? (some? timeout)
+                                                                        :select? (not all-tests)
+                                                                        :covered covered
+                                                                        :plans plans
+                                                                        :on-result #(cache/record! store % @plans note)}
+                                                                       to-run)
+                                                          (finally (cache/flush! store)))
         fresh-results (into {} (map (juxt :id identity)) results)
         summary (cache/with-progress
                   (report/summarize {:defs-in-scope defs-in-scope
@@ -89,10 +95,8 @@
                                                     selected)
                                      :ignored ignored
                                      :stopped (when stopped
-                                                (str stopped (when (:file cache)
-                                                               (str " The cache keeps the mutants that finished, so the"
-                                                                    " next run runs the rest, and this one last."))))
-                                     :note (if (seq to-run) note (cache/cached-note store))
+                                                (str stopped (when @(:file store) (cache/stop-note stop-reason))))
+                                     :note (cache/run-note store note)
                                      :plans (merge (cache/cached-plans store) @plans)})
                   store)]
     (report/print-report summary {:html html
@@ -134,10 +138,11 @@
         (throw (error/setup-error (str "Could not load the namespaces: " (ex-message e))))))
     (mutate-source target file source test-nss
                    (assoc options :cache {:file (cache/cache-file cache-dir target)
-                                          :key (cache/run-key {:sources (cache/sources-hash ".")
-                                                               :runner (cache/runner-version)
-                                                               :timeout timeout
-                                                               :all-tests all-tests})}))))
+                                          :make-key #(cache/run-key {:sources (cache/sources-hash ".")
+                                                                     :test-nss test-nss
+                                                                     :runner (cache/runner-version)
+                                                                     :timeout timeout
+                                                                     :all-tests all-tests})}))))
 
 (def ^:private cli-options
   [["-t" "--test NS" "A test namespace to run, given once per namespace"

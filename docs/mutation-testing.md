@@ -104,8 +104,8 @@ ran has its command on the page; code no test calls has none, since no test can 
 
 ## Run again
 
-Each run keeps the outcome of each planted bug in `.mutate-cache/<target-ns>.edn`, as soon as it is known. The next run
-of the same code reuses it:
+Each run keeps the outcome of each planted bug in `.mutate-cache/<target-ns>.edn`, every few outcomes and at the end.
+The next run of the same code reuses it:
 
 - **Resume.** A run that stopped early, or was cut short, goes on where it ended. A planted bug whose tests kept running
   runs again last, after every other one: if it loops again, the run stops there with nothing else lost. `-d` and `-s`
@@ -113,14 +113,15 @@ of the same code reuses it:
 - **No change, no tests.** When every planted bug in scope is cached, the run reads the cache and runs no test. A plain
   timeout is reused too; run with `--fresh` to give it another try.
 - **`--iterate`.** After you add tests or change code, run with `--iterate`: it keeps the caught planted bugs, and those
-  that did not compile, by their name, and runs the others, such as the gaps, the timeouts and new planted bugs. It says
-  how many it kept. It trusts that those are still caught, so run once without it before a merge: that run checks them
-  again.
+  that did not compile, of each function whose text did not change, and runs the others, such as the gaps, the timeouts
+  and every planted bug of a function you edited. It says how many it kept. It trusts that those are still caught, so
+  run once without it before a merge: that run checks them again.
 - **`--fresh`.** Runs every planted bug again and replaces the cache.
 
-A plain run reuses an outcome only when nothing changed in `src/`, `test/`, `dev/`, `test-projects/`, `docs/` or
-`deps.edn`, in the runner, or in `-a` and `--timeout`. A run with the same target source as the last one tags each gap
-as new or still open, on the console and the page, and counts the gaps closed since:
+A plain run reuses an outcome only when nothing changed in `src/`, `test/`, `dev/`, `resources/`, `test-projects/`,
+`docs/`, `deps.edn` or `README.md`, in the `-t` namespaces, in the runner, or in `-a` and `--timeout`. A run whose tests
+fail before any mutation leaves the cache as it was. A run with the same target source as the last one tags each gap
+that the last run also ran as new or still open, on the console and the page, and counts the gaps closed since:
 
 ```text
 Since the last run: 1 gap closed, 0 new, 3 still open.
