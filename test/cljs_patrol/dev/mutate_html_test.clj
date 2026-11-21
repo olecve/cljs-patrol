@@ -334,3 +334,35 @@
                      "<b>n/a</b><div aria-hidden=\"true\" class=\"bar\"><i class=\"c\" style=\"width:0%\">")
       "nothing scored, empty bar"))
 
+(deftest page-lists-ignored-planted-bugs-with-reasons
+  (let [html (page (summary mutants
+                            :ignored [{:def "label"
+                                       :row 4
+                                       :col 12
+                                       :from "inc"
+                                       :to "dec"
+                                       :reason "only the sign matters"}]))]
+    (is (str/includes? (text-of html) "Ignored with a skip marker (left out of the score): 1"))
+    (is (str/includes? (text-of (slice html "<summary>Ignored with a skip marker" "</details>"))
+                       "Ignored with a skip marker: 1 line 4 inc to dec label only the sign matters"))
+    (is (str/includes? html (str "<span class=\"ln other\" id=\"L4\"><span class=\"no\">4</span>"
+                                 "<span class=\"mk\" title=\"0 of 1 planted bugs caught\">ignored</span>"))))
+  (is (not (str/includes? (page (summary mutants)) "Ignored with a skip marker"))
+      "nothing ignored, no list")
+  (is (str/includes? (text-of (page (summary [] :ignored [{:def "label"
+                                                           :row 4
+                                                           :col 12
+                                                           :from "inc"
+                                                           :to "dec"
+                                                           :reason "r"}])))
+                     "No planted bugs ran: a skip marker left out every one in scope.")))
+
+(deftest source-line-with-ignored-and-timed-out-planted-bugs-is-left-out
+  (is (str/includes? (page (summary [(mutant "label" 4 12 "inc" "dec" :timeout)]
+                                    :ignored [{:def "label"
+                                               :row 4
+                                               :col 4
+                                               :from "let"
+                                               :to "if"
+                                               :reason "r"}]))
+                     "title=\"0 of 2 planted bugs caught\">left out</span>")))

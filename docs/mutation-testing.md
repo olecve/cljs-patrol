@@ -53,6 +53,28 @@ every test has only one item there. When that is the only possible case, the cha
 Below the gaps are tables by function and by test, then, folded, the source with every planted bug marked, all the
 numbers, and the terms and sources.
 
+## Skip a harmless planted bug
+
+When a planted bug behaves the same as the original in every case, no test can catch it. Mark it once with the operator
+and the reason, and the runner leaves it out of later runs and of the score. The console, the EDN report and the page
+list it as ignored, with the reason.
+
+```clojure
+(defn pick [xs] (first xs)) ; mutate: skip first: xs holds one item
+
+(defn both [x]
+  ; mutate: skip when: x is never nil here
+  (when x :one))
+
+(defn ^{:mutate/skip "wraps a JDK call"} wrapped [x] (if x 1 2))
+```
+
+A comment after code skips that operator on its own line, and a comment on a line of its own skips it on the next line
+of code. Other planted bugs on the same line still run. Metadata on a definition's name skips all of its planted bugs. A
+comment without an operator and a reason stops the run, and the run warns about a comment that matches no planted bug,
+so stale comments do not pile up. Skip only what you have read and judged harmless: a skipped line is a line no test
+checks.
+
 ## Words
 
 The HTML page is written for a reader who has not met mutation testing before, so it uses plain words. The console
@@ -68,6 +90,7 @@ report and the EDN file use the usual words, which also name the outcomes in the
 | may be harmless | (none)                          | equivalent mutant            | A change that may behave the same as the original in every case, so no test can catch it.                                                                   |
 | timed out       | timed out (`:timeout`)          | timeout                      | The tests ran past the time limit. Left out of the score. Stryker counts a timeout as detected; we do not.                                                  |
 | did not compile | unviable (`:unviable`)          | unviable, compile error      | The changed code could not be read or compiled. Left out of the score.                                                                                      |
+| ignored         | ignored (`:ignored`)            | ignored                      | Left out with a `; mutate: skip` comment or `:mutate/skip` metadata, with a reason. Not run, and left out of the score.                                     |
 | score           | score                           | mutation score               | Caught, divided by caught, not caught and never run.                                                                                                        |
 | covered score   | covered score                   | covered score, test strength | Caught, divided by caught and not caught: how well the tests check the code they run.                                                                       |
 | reaches         | a definition's tests (`:tests`) | covered by                   | The test ran for the planted bug: every test its function ran when none failed, or only the test that caught it, since the run stops there.                 |

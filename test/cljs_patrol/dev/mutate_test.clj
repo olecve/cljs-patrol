@@ -3,6 +3,7 @@
    [cljs-patrol.dev.mutate :as mutate]
    [clojure.java.io]
    [clojure.java.shell]
+   [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
 
 (def ^:private source
@@ -502,3 +503,80 @@
                  symbol
                  str))
           "failure inside nested test names that test"))))
+
+(def ^:private marked-source
+  (str "(ns app.marked)\n"
+       "(defn pick [xs] (first xs)) ; mutate: skip first: xs holds one item\n"
+       "(defn both [x]\n"
+       "  ; mutate: skip when: x is never nil here\n"
+       "  ; mutate: skip =: two checks for one case\n"
+       "\n"
+       "  (when (= x 1) :one))\n"
+       "(defn ^{:mutate/skip \"wraps a JDK call\"} wrapped [x] (if x 1 2))\n"
+       "(defn stale [x] (if x 1 2)) ; mutate: skip first: no first here any more\n"))
+
+(deftest skip-markers-read-trailing-and-own-line-comments
+  (is (= {2 {"first" "xs holds one item"}
+          7 {"when" "x is never nil here"
+             "=" "two checks for one case"}
+          9 {"first" "no first here any more"}}
+         (mutate/skip-markers marked-source))
+      "comment on own line skips next line of code, past blank lines")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"line 1 needs an operator and a reason"
+                        (mutate/skip-markers "(inc 1) ; mutate: skip because\n"))))
+
+(deftest scope-leaves-skipped-mutants-out-with-reason
+  (let [{:keys [selected ignored unused-markers]} (mutate/scope marked-source {})]
+    (is (= [["pick" "first" "xs holds one item"]
+            ["both" "when" "x is never nil here"]
+            ["both" "=" "two checks for one case"]
+            ["wrapped" "if" "wraps a JDK call"]]
+           (map (juxt :def :from :skip-reason) ignored)))
+    (is (= [["stale" "if"]]
+           (map (juxt :def :from) selected))
+        "only unmarked mutant runs")
+    (is (= ["line 9 (first)"] unused-markers)
+        "marker naming no mutant on its line is reported"))
+  (is (= [] (:unused-markers (mutate/scope marked-source {:defs ["pick"]})))
+      "markers outside scope are not checked")
+  (is (= [7 7] (map :row (:ignored (mutate/scope marked-source {:lines #{7}}))))
+      "changed lines limit ignored mutants too"))
+
+(deftest summary-lists-ignored-mutants-apart-from-not-mutated
+  (let [summary (mutate/summarize {:defs-in-scope ["a" "b"]
+                                   :results [{:def "a"
+                                              :outcome :failed}]
+                                   :ignored [{:def "b"
+                                              :row 3
+                                              :col 4
+                                              :from "if"
+                                              :to 'if-not
+                                              :skip-reason "wraps a JDK call"}]})]
+    (is (= [{:def "b"
+             :row 3
+             :col 4
+             :from "if"
+             :to "if-not"
+             :reason "wraps a JDK call"}]
+           (:ignored summary)))
+    (is (= [] (:not-mutated summary))
+        "definition with only ignored mutants is no unmutated one")
+    (is (= 1 (:mutants (:totals summary)))
+        "ignored mutants are not counted")))
+
+(deftest run-skips-marked-mutants
+  (with-target target-tests
+    (fn []
+      (let [marked (str/replace target-source
+                                "(> x 0))\n"
+                                "(> x 0)) ; mutate: skip >: the boundary is checked elsewhere\n")
+            {:keys [totals ignored]} (run-target marked {})]
+        (is (= 2 (:mutants totals))
+            "marked mutant does not run")
+        (is (= [["positive?" ">" "the boundary is checked elsewhere"]]
+               (map (juxt :def :from :reason) ignored)))
+        (is (str/includes? (with-out-str
+                             (mutate/mutate-source 'cljs-patrol.dev.mutate-test.target "target.clj" marked
+                                                   ['cljs-patrol.dev.mutate-test.target-test] {}))
+                           "Ignored, with a skip marker:\n  2:32  > -> >=  in positive?: the boundary is checked elsewhere")
+            "console names ignored mutant and its reason")))))

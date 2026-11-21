@@ -77,6 +77,7 @@
 
 (defn- gap? [{:keys [outcome]}] (contains? #{:survived :no-coverage} outcome))
 
+; mutate: skip every?: a function's gaps are all not caught or all never run, never a mix
 (defn- never-run? [gaps] (every? #(= :no-coverage (:outcome %)) gaps))
 
 (defn- swap-pair [{:keys [from to]}] #{from to})
@@ -111,6 +112,7 @@
         (let [text (nth lines (dec r))
               opens-form? (and (not (in-string (dec r))) (re-find #"^\s*[(\[{#]" text))]
           (if (and opens-form? (< (indent text) limit))
+            ; mutate: skip dec: stepping back down past the form just taken only meets lines already left out
             (recur (dec r) (indent text) (conj shown r))
             (recur (dec r) limit shown)))))))
 
@@ -305,7 +307,9 @@
                  (cond
                    (seq gaps) (plural (count gaps) "gap" "gaps")
                    (pos? caught) (str caught " caught")
-                   (seq here) "left out")]
+                   (empty? here) nil
+                   (every? #(= :ignored (:outcome %)) here) "ignored"
+                   :else "left out")]
                 (str text "\n")]
                (for [{:keys [from to outcome]} gaps]
                  [:span {:class "sub"} [:span] [:span]
@@ -359,7 +363,20 @@
     [:ol (for [[authors title link note] sources]
            [:li authors [:a {:href link} title] note])]]])
 
-(defn- header [{:keys [target file test-nss since]} {:keys [totals score stopped unreached note]} cards]
+(defn- ignored-table
+  "Return the planted bugs a skip marker left out, each with its reason, or nil when there are none."
+  [ignored]
+  (when (seq ignored)
+    [:details {:class "fold"}
+     [:summary (str "Ignored with a skip marker: " (count ignored))]
+     [:table
+      [:tbody
+       (for [{function :def
+              :keys [row from to reason]} ignored]
+         [:tr [:td [:a {:href (str "#L" row)} (str "line " row)]] [:td [:code from] " to " [:code to]]
+          [:td [:code function]] [:td reason]])]]]))
+
+(defn- header [{:keys [target file test-nss since]} {:keys [totals score stopped unreached note ignored]} cards]
   (let [{:keys [killed survived no-coverage timeout unviable]} totals
         scored (+ killed survived no-coverage)
         gaps (+ survived no-coverage)]
@@ -390,10 +407,13 @@
                  [:span {:class "where"} (line-range (map :row gaps))]])])
        [:p {:class "lead"} (if (pos? (:mutants totals))
                              "No test gaps: every planted bug the tests ran made a test fail."
-                             "No planted bugs: nothing in scope could be changed.")])
+                             (if (seq ignored)
+                               "No planted bugs ran: a skip marker left out every one in scope."
+                               "No planted bugs: nothing in scope could be changed."))])
      (let [counts (remove (comp zero? first) [[no-coverage "Never run (no test calls this code)"]
                                               [timeout "Timed out (left out of the score)"]
-                                              [unviable "Did not compile (left out of the score)"]])]
+                                              [unviable "Did not compile (left out of the score)"]
+                                              [(count ignored) "Ignored with a skip marker (left out of the score)"]])]
        (when (seq counts)
          [:div {:class "strip"} (for [[n label] counts] [:span (str label ": " n)])]))
      [:p {:class "meta"} "The tool changed " [:code file] " one small step at a time and ran "
@@ -442,6 +462,7 @@
                                 :gaps gaps
                                 :tests (get tests-by-def function)}))))
                    (sort-by (juxt (comp - count :gaps) (comp #(apply min %) #(map :row %) :gaps)))
+                   ; mutate: skip inc: an anchor only needs to be unique
                    (map-indexed #(assoc %2 :anchor (str "fn-" (inc %1)))))]
     (str "<!doctype html>\n"
          (h/html
@@ -479,7 +500,8 @@
               [:p {:class "note"} "A test reaches a planted bug when it runs for the changed function. Tests that"
                " reach a gap and still pass are the ones to sharpen."]
               (test-table mutants tests-of)]
-             (source-view lines mutants)
+             (ignored-table (:ignored summary))
+             (source-view lines (concat mutants (map #(assoc % :outcome :ignored) (:ignored summary))))
              (numbers-table summary)
              terms]
             [:script (h/raw script)]]]))))
