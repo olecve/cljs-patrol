@@ -28,16 +28,6 @@ branch. At acceptance, the Decision and Revisit when sections are aligned with t
 
 The second Revisit when condition, "the runner runs only the tests that reach a mutated definition", is now met.
 
-2026-11-21, later: integer literals are mutated too, because the survivors so far sit on boundaries. `0` and `1` swap,
-and any other integer written in decimal goes up by one. Only numbers in a `defn`, `defn-` or `defmethod` body change:
-
-- **Not a `def` value.** A number in data, such as a table or a limit, cannot be recorded, so each mutant would run
-  every test, mostly for a change no test checks on purpose.
-- **Not a `defmethod` dispatch value.** A changed dispatch value adds a method beside the original, and evaluating the
-  original form back does not remove it.
-- **Not a `^:const` def.** Clojure copies its value into each caller as the caller compiles, so a new value takes no
-  effect. Such a def is listed with the forms loaded once.
-
 ## Context
 
 Each branch that a change adds must have a test that fails when the branch breaks. A test that stays green when its code
@@ -68,9 +58,9 @@ A dev-only runner in this repository mutates the code under test in one warm JVM
 `clojure -M:test:mutate TARGET-NS -t TEST-NS`.
 
 - **One form for each mutant.** The runner parses the target namespace with rewrite-clj. Each mutant swaps one operator
-  in one `def`, `defn`, `defn-` or `defmethod`, such as `when` for `when-not`, `<` for `<=`, `true` for `false`, or `0`
-  for `1`. The runner evaluates the changed form over the namespace, runs the tests, and evaluates the original form
-  back. Clojure calls a function through its var, so the tests run the changed code.
+  in one `def`, `defn`, `defn-` or `defmethod`, such as `when` for `when-not`, `<` for `<=`, or `true` for `false`. The
+  runner evaluates the changed form over the namespace, runs the tests, and evaluates the original form back. Clojure
+  calls a function through its var, so the tests run the changed code.
 - **Only the tests that reach a mutant.** The first test run records which tests call each function. Each mutant runs
   those tests, timed by their own unmutated run. The Outcome lists when every test runs instead.
 - **Stop at the first failure.** One failing test is enough to kill a mutant. The runner records the failure before it

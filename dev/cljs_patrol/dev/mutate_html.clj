@@ -90,9 +90,9 @@
 
 (defn- hint
   "Return the likely reason a test misses `mutant`, by the operators it swaps, or nil when there is none."
-  [{:keys [kind]
+  [{:keys [swap]
     :as mutant}]
-  (if (= :number kind)
+  (if (= :number swap)
     number-hint
     (hints (swap-pair mutant))))
 

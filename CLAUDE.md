@@ -91,18 +91,19 @@ clojure -M:test:mutate cljs-patrol.groups.reagent -t cljs-patrol.groups.reagent-
 
 It changes the code under test, never the tests: it swaps one operator at a time in a `def`, `defn`, `defn-` or
 `defmethod` of the target namespace, such as `when` for `when-not`, `<` for `<=`, `some` for `every?` or `true` for
-`false`. An integer literal written in decimal changes too, in a `defn`, `defn-` or `defmethod` body: `0` and `1` swap,
-and any other goes up by one, such as `-1` to `0`. A `def` value, a `defmethod` dispatch value and a `^:const` def,
-whose value callers copy, keep their numbers. A skip marker names it by its text, such as `; mutate: skip 0: REASON`. A
-first run of the tests records which tests call each function of the target. Then, for each mutant, it evaluates the
-mutated form over the namespace, runs the tests that call that function until the first failure, and evaluates the
-original back. Pass every test namespace that exercises the target with `-t`: the run knows only those. Every test runs
-instead when the function cannot be recorded (a `defmethod`, a `def` that holds data, or a function with a primitive
-type hint), when it is called from a fixture, when a test namespace has a `test-ns-hook`, when the selected tests fail
-on their own, and with `-a` (`--all-tests`). A test that only reads what another test wrote is not selected for the
-function that wrote it, and a call that a background thread makes after its test ended counts for the test running then,
-so use `-a` for such a namespace. If recording the calls makes the tests fail, or run past a timeout given with
-`--timeout`, every mutant runs every test, and the report says so. Each mutant ends as one of:
+`false`. An integer literal written in decimal changes too, in function code (a `defn`, `defn-` or `defmethod` body, or
+a `fn` or `#(…)` anywhere): `0` and `1` swap, and any other goes up by one, such as `-1` to `0`. A definition's name, a
+`defmethod` dispatch value and a `^:const` def, whose value callers copy, get no mutant at all, and the report lists
+`^:const` defs apart. A skip marker names it by its text, such as `; mutate: skip 0: REASON`. A first run of the tests
+records which tests call each function of the target. Then, for each mutant, it evaluates the mutated form over the
+namespace, runs the tests that call that function until the first failure, and evaluates the original back. Pass every
+test namespace that exercises the target with `-t`: the run knows only those. Every test runs instead when the function
+cannot be recorded (a `defmethod`, a `def` that holds data, or a function with a primitive type hint), when it is called
+from a fixture, when a test namespace has a `test-ns-hook`, when the selected tests fail on their own, and with `-a`
+(`--all-tests`). A test that only reads what another test wrote is not selected for the function that wrote it, and a
+call that a background thread makes after its test ended counts for the test running then, so use `-a` for such a
+namespace. If recording the calls makes the tests fail, or run past a timeout given with `--timeout`, every mutant runs
+every test, and the report says so. Each mutant ends as one of:
 
 - **killed**: a test failed, or the mutated form threw while it loaded. A failure is recorded before the run is cut
   short, so an assertion that catches exceptions, such as `thrown?`, cannot hide it.

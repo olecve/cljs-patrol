@@ -897,17 +897,37 @@
           (is (str/includes? output "A mutant is still applied to") output)
           (is (str/includes? output "Put the code back with --restore before a run. If --restore cannot finish, delete")))))))
 
-(deftest mutants-leave-dispatch-values-data-and-const-defs-alone
-  (let [forms (mutate/top-level-forms (str "(ns app.x)\n"
-                                           "(defmethod area 1 [_] (if true 2 3))\n"
-                                           "(defmethod area [0 true] [_] 4)\n"
-                                           "(def limit 129)\n"
-                                           "(def ^:const width 80)\n"
-                                           "(defn f [x] (+ x 1))\n"))]
-    (is (= [["area" 2 "if"] ["area" 2 "true"] ["area" 2 "2"] ["area" 2 "3"] ["area" 3 "4"] ["f" 6 "1"]]
-           (map (juxt :def :row :from) (mutate/mutants forms)))
-        "dispatch value, def value and const def left out")
-    (is (= [:operator :operator :number :number :number :number]
-           (map :kind (mutate/mutants forms))))
-    (is (= ["width (def)"] (:loaded-once (mutate/scope "(ns app.x)\n(def ^:const width 80)\n" {}))))))
+(deftest mutants-change-numbers-only-in-function-code
+  (let [mutants (mutate/mutants (mutate/top-level-forms (str "(ns app.x)\n"
+                                                             "(defmethod area 1 [_] (if true 2 3))\n"
+                                                             "(defmethod area [0 true] [_] 4)\n"
+                                                             "(def limit 129)\n"
+                                                             "(def ^:const width 80)\n"
+                                                             "(defn f [x] (+ x 1))\n"
+                                                             "(def g (fn [x] (+ x 5)))\n"
+                                                             "(def h #(* % 6))\n"
+                                                             "(def table {:fn (fn [] 7) :size 8})\n")))]
+    (is (= [["area" 2 "if"] ["area" 2 "true"] ["area" 2 "2"] ["area" 2 "3"] ["area" 3 "4"] ["f" 6 "1"] ["g" 7 "5"]
+            ["h" 8 "6"] ["table" 9 "7"]]
+           (map (juxt :def :row :from) mutants))
+        "dispatch value, def data and const def left out; numbers in fn and #() of a def kept")
+    (is (= [:operator :operator :number :number :number :number :number :number :number]
+           (map :swap mutants))
+        "integer literals marked number, other swaps operator")))
 
+(deftest mutants-leave-definition-names-alone
+  (is (= [["last" "first"]]
+         (map (juxt :from #(pr-str (:to %)))
+              (mutate/mutants (mutate/top-level-forms (str "(ns app.x (:refer-clojure :exclude [first]))\n"
+                                                           "(defn first [xs] (last xs))\n"
+                                                           "(defmethod first :a [xs] xs)\n"
+                                                           "(defn ^:private last [xs] xs)\n")))))
+      "only body swap; names of defn, defmethod and metadata-wrapped name kept"))
+
+(deftest scope-lists-const-defs-apart
+  (is (= ["width"] (:const-defs (mutate/scope "(ns app.x)\n(def ^:const width 80)\n(def ^:private height 9)\n" {})))
+      "other metadata makes no const def")
+  (is (= [] (:loaded-once (mutate/scope "(ns app.x)\n(def ^:const width 80)\n" {}))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                        #"width is a \^:const def, whose value callers copy, so the runner does not mutate it, and its"
+                        (mutate/scope "(ns app.x)\n(def ^{:const true :mutate/skip \"fixed\"} width 80)\n" {}))))
