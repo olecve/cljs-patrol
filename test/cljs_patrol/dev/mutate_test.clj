@@ -718,14 +718,14 @@
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No mutant is applied"
                               (mutate/restore-mutant kept)))
         (is (str/includes? (mutate/apply-mutant (str file) "3:8:>" kept)
-                           (str "Applied 3:8  > -> >=  in label to " (.getCanonicalPath file) ".\n"
+                           (str "Applied 3:8  > -> >=  in label to " (mutate/relative-path file) ".\n"
                                 "Run the tests and watch the new test fail, then put the code back with:\n"
                                 "  clojure -M:test:mutate --restore")))
         (is (= "(ns app.core)\n(defn label [x]\n  (if (>= x 0) :up :down))\n; end\n" (slurp file))
             "only that token changes")
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"already applied to .*core.clj\. Put the code back with --restore"
                               (mutate/apply-mutant (str file) "3:4:if" kept)))
-        (is (= (str "Restored " (.getCanonicalPath file) ".") (mutate/restore-mutant kept)))
+        (is (= (str "Restored " (mutate/relative-path file) ".") (mutate/restore-mutant kept)))
         (is (= text (slurp file)))
         (is (not (.exists (clojure.java.io/file kept)))
             "kept text is removed once restored")
@@ -752,7 +752,7 @@
                            (mutate/mutate-source 'cljs-patrol.dev.mutate-test.target "target.clj" target-source
                                                  ['cljs-patrol.dev.mutate-test.target-test] {:defs ["positive?"]}))
                          (str "To watch a new test fail on a survivor, apply it to the file, such as:\n"
-                              "  clojure -M:test:mutate cljs-patrol.dev.mutate-test.target --apply 2:32:>"))))))
+                              "  clojure -M:test:mutate cljs-patrol.dev.mutate-test.target --apply '2:32:>'"))))))
 
 (deftest usage-errors-keep-apply-and-restore-apart-from-runs
   (is (= [] (mutate/usage-errors {:test ['a-test]} 'a)))
@@ -776,3 +776,61 @@
                                  option value}
                                 nil))
         (str option))))
+
+(deftest apply-mutant-keeps-line-endings-and-recovers-from-mishaps
+  (with-temp-dir
+    (fn [dir]
+      (let [file (clojure.java.io/file dir "core.clj")
+            kept (str (clojure.java.io/file dir "applied.edn"))
+            text "(ns app.core)\r\n(defn label [x]\r\n  (if (> x 0) :up :down))\r\n"]
+        (spit file text)
+        (mutate/apply-mutant (str file) "3:8:>" kept)
+        (is (= "(ns app.core)\r\n(defn label [x]\r\n  (if (>= x 0) :up :down))\r\n" (slurp file))
+            "crlf line endings kept")
+        (spit file text)
+        (is (str/ends-with? (mutate/restore-mutant kept) "was already back as before the apply.")
+            "file put back by hand clears kept text")
+        (is (not (.exists (clojure.java.io/file kept))))
+        (spit kept "")
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"does not hold what --apply keeps\. If no mutant is applied, delete it"
+                              (mutate/apply-mutant (str file) "3:8:>" kept)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"does not hold what --apply keeps"
+                              (mutate/restore-mutant kept)))
+        (spit kept (pr-str {:file (str file)}))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"does not hold what --apply keeps"
+                              (mutate/restore-mutant kept))
+            "kept text missing its parts")
+        (clojure.java.io/delete-file kept)
+        (.setReadOnly file)
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Could not write"
+                              (mutate/apply-mutant (str file) "3:8:>" kept)))
+        (is (not (.exists (clojure.java.io/file kept)))
+            "failed write leaves no kept text")
+        (.setWritable file true)))))
+
+(deftest run-cli-applies-restores-and-refuses-run-while-applied
+  (with-temp-dir
+    (fn [dir]
+      (let [kept (str (clojure.java.io/file dir "applied.edn"))
+            run (fn [& args]
+                  (let [code (atom nil)
+                        output (with-out-str (reset! code (mutate/run-cli args kept)))]
+                    [@code output]))]
+        (is (= [2 "No mutant is applied, so there is nothing to restore.\n"] (run "--restore")))
+        (let [[code output] (run "cljs-patrol.dev.mutate-html" "--apply" "1:1:if")]
+          (is (= 2 code))
+          (is (str/starts-with? output "No mutant at 1:1.")))
+        (let [[code output] (run "app.core" "app.other" "-t" "app.core-test")]
+          (is (= 2 code))
+          (is (str/starts-with? output "Give one target namespace, not app.core app.other.")))
+        (let [[code output] (run "app.core")]
+          (is (= 2 code))
+          (is (str/starts-with? output "Name a test namespace with -t.")))
+        (spit kept (pr-str {:file (str (clojure.java.io/file dir "core.clj"))
+                            :original "a"
+                            :applied "b"}))
+        (let [[code output] (run "cljs-patrol.dev.mutate-test.target" "-t" "cljs-patrol.dev.mutate-test.target-test")]
+          (is (= 2 code))
+          (is (str/includes? output "A mutant is still applied to") output)
+          (is (str/includes? output "Put the code back with --restore before a run.")))))))
+
