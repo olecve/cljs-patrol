@@ -81,7 +81,9 @@
                                               :outcome :timeout}]
                                    :loaded-once ["d (defmulti)"]
                                    :unreached [{:def "e"}]
-                                   :tests-by-def {"a" ["app-test/one"]}})]
+                                   :plans {"a" {:kind :subset
+                                                :tests [#'clojure.core/inc]}
+                                           "b" {:kind :every}}})]
     (is (= [{:def "a"
              :mutants 2
              :killed 1
@@ -89,7 +91,7 @@
              :no-coverage 0
              :unviable 0
              :timeout 0
-             :tests ["app-test/one"]}
+             :tests ["clojure.core/inc"]}
             {:def "b"
              :mutants 2
              :killed 0
@@ -97,8 +99,13 @@
              :no-coverage 0
              :unviable 1
              :timeout 1
-             :tests []}]
+             :tests :every}]
            (:definitions summary)))
+    (is (= {"a" :subset
+            "b" :every}
+           (:tests-run summary)))
+    (is (not-any? #(contains? % :killed-by) (:mutants summary))
+        "no killing test, no key")
     (is (= ["c"] (:not-mutated summary))
         "definition with no mutant is named, one never reached is not")
     (is (= [{:def "e"

@@ -521,8 +521,8 @@
   while it loaded shows nothing about the tests. The score is killed over killed,
   survived and no-coverage mutants; the covered score leaves the mutants no test reaches out, so it
   shows how well the tests check the code they run. Each definition names the tests its mutants
-  ran, from `tests-by-def`, or :every when they ran every test."
-  [{:keys [defs-in-scope loaded-once other-forms unreached results stopped note plans tests-by-def]}]
+  ran, from its plan in `plans`, or :every when they ran every test."
+  [{:keys [defs-in-scope loaded-once other-forms unreached results stopped note plans]}]
   (let [reached (set (keep #(when (and (contains? #{:failed :timeout} (:outcome %)) (not (:at-load? %))) (:def %))
                            results))
         results (map #(cond-> %
@@ -539,7 +539,11 @@
                          (assoc (outcome-counts def-results)
                                 :def def-name
                                 :mutants (count def-results)
-                                :tests (get tests-by-def def-name []))))
+                                :tests (let [{:keys [kind tests]} (get plans def-name)]
+                                         (cond
+                                           (= :subset kind) (->> tests (map test-name) sort vec)
+                                           kind :every
+                                           :else [])))))
      :not-mutated (->> defs-in-scope
                        (remove #(or (contains? by-def %) (contains? unreached-counts %)))
                        distinct
@@ -553,15 +557,15 @@
                              :when (some #(= :no-coverage (:outcome %)) (get by-def def-name))]
                          def-name))
      :note note
-     :tests-run (or plans {})
+     :tests-run (update-vals (or plans {}) :kind)
      :totals (assoc counts :mutants (count results))
      :score (when (pos? scored) (double (/ (:killed counts) scored)))
      :covered-score (when (pos? covered) (double (/ (:killed counts) covered)))
      :mutants (mapv #(-> %
                          (select-keys [:def :row :col :from :at-load?])
                          (assoc :to (pr-str (:to %))
-                                :outcome (outcome-key (:outcome %))
-                                :killed-by (some-> (:killed-by %) test-name)))
+                                :outcome (outcome-key (:outcome %)))
+                         (cond-> (:killed-by %) (assoc :killed-by (test-name (:killed-by %)))))
                     results)
      :stopped stopped}))
 
@@ -695,11 +699,7 @@
                             :results results
                             :stopped stopped
                             :note note
-                            :plans (update-vals @plans :kind)
-                            :tests-by-def (update-vals @plans (fn [{:keys [kind tests]}]
-                                                                (if (= :subset kind)
-                                                                  (->> tests (map test-name) sort vec)
-                                                                  :every)))})]
+                            :plans @plans})]
     (print-report summary (str/split-lines source) since)
     (when report
       (spit report (with-out-str (pprint/pprint (assoc summary

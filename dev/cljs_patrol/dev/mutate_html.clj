@@ -13,7 +13,7 @@
 (def ^:private css (slurp (io/resource "cljs_patrol/dev/mutate_report.css")))
 
 (def ^:private script
-  "Open the source at the line that a `#L<row>` link names, with every line shown."
+  "Open the source at the line that a `#L<row>` link names, with every line shown, also when the link is followed again."
   (str "const show = () => {"
        " const row = location.hash.match(/^#L(\\d+)$/);"
        " if (!row) return;"
@@ -22,6 +22,7 @@
        " document.getElementById('L' + row[1])?.scrollIntoView({block: 'center'});"
        "};"
        " addEventListener('hashchange', show);"
+       " addEventListener('click', event => { if (event.target.closest('a[href^=\"#L\"]')) setTimeout(show); });"
        " show();"))
 
 (def hints
@@ -141,10 +142,10 @@
               [:span {:class "row ctx"} [:span {:class "no"} r] [:span] (str (subs (line-text r) cut) "\n")]))
       (when (and (seq context) (> row (inc (last context)))) skipped)
       [:span {:class "row mine"} [:span {:class "no"} row] [:span {:class "lab"} "now"]
-       [:span (marked text cut mutants "was" :from) "\n"]]
+       [:span (marked text cut mutants "from" :from) "\n"]]
       (for [mutant (sort-by :col mutants)]
         [:span {:class "row bug"} [:span {:class "no"}] [:span {:class "lab"} "with bug"]
-         [:span (marked text cut [mutant] "now" :to) "\n"]])]]))
+         [:span (marked text cut [mutant] "to" :to) "\n"]])]]))
 
 (defn- tests-list [function tests these?]
   (when (seq tests)
@@ -201,9 +202,9 @@
        (for [[row on-row] (sort-by key (group-by :row gaps))]
          (gap-section lines row on-row))])))
 
-(defn- bar [{:keys [mutants killed survived no-coverage]}]
-  (let [width #(str "width:" (/ (* 100.0 %) mutants) "%")
-        scored (+ killed survived no-coverage)]
+(defn- bar [{:keys [killed survived no-coverage]}]
+  (let [scored (+ killed survived no-coverage)
+        width #(str "width:" (if (pos? scored) (/ (* 100.0 %) scored) 0) "%")]
     [:div {:class "share"}
      [:b (mutate/percent (when (pos? scored) (/ killed scored)))]
      [:div {:class "bar"
@@ -293,7 +294,10 @@
                    here (get by-row row)
                    gaps (filter gap? here)
                    caught (count (filter #(= :killed (:outcome %)) here))]]
-         (list [:span {:class (str "ln" (cond (seq gaps) " missed" (pos? caught) " caught" (seq here) " other"))
+         (list [:span {:class (str "ln"
+                                   (when (seq gaps) " missed")
+                                   (when (pos? caught) " caught")
+                                   (when (and (seq here) (empty? gaps) (zero? caught)) " other"))
                        :id (str "L" row)}
                 [:span {:class "no"} row]
                 [:span {:class "mk"
@@ -384,7 +388,9 @@
                    ": no test calls it, "
                    (str ": " (plural (count gaps) "gap" "gaps") ", "))
                  [:span {:class "where"} (line-range (map :row gaps))]])])
-       [:p {:class "lead"} "No test gaps: every planted bug the tests ran made a test fail."])
+       [:p {:class "lead"} (if (pos? (:mutants totals))
+                             "No test gaps: every planted bug the tests ran made a test fail."
+                             "No planted bugs: nothing in scope could be changed.")])
      (let [counts (remove (comp zero? first) [[no-coverage "Never run (no test calls this code)"]
                                               [timeout "Timed out (left out of the score)"]
                                               [unviable "Did not compile (left out of the score)"]])]
@@ -399,25 +405,31 @@
   "Return the HTML page of a run's `summary`, for `target` loaded from `file` with `source`, tested by `test-nss`.
 
   `test-names` lists every test, for a definition that ran them all. Test names are shown without
-  their namespace when one test namespace holds them all. A test
-  reaches a mutant when it ran for it: a mutant with no coverage, or that did not load, reaches
-  none."
+  their namespace when they all share one. A test reaches a mutant when it ran for it: every
+  test its definition ran when the mutant survived, and only the killing test when one failed,
+  since the run stops there. A mutant with no coverage, that timed out, or that did not load
+  reaches none."
   [{:keys [mutants definitions]
     :as summary}
-   {:keys [target source test-nss test-names]
+   {:keys [target source test-names]
     :as run}]
   (let [lines (str/split-lines source)
-        short-name (if (= 1 (count test-nss)) #(str/replace % #"^[^/]*/" "") identity)
+        test-namespace #(first (str/split % #"/"))
+        named (concat test-names
+                      (mapcat #(when (sequential? (:tests %)) (:tests %)) definitions)
+                      (keep :killed-by mutants))
+        short-name (if (>= 1 (->> named (map test-namespace) distinct count)) #(str/replace % #"^[^/]*/" "") identity)
         mutants (map #(update % :killed-by (fn [test-name] (some-> test-name short-name))) mutants)
         tests-by-def (into {}
                            (map (fn [{function :def
                                       :keys [tests]}]
                                   [function (map short-name (if (= :every tests) test-names tests))]))
                            definitions)
-        tests-of (fn [{:keys [outcome at-load?]
+        tests-of (fn [{:keys [outcome killed-by]
                        :as mutant}]
-                   (if (and (contains? #{:killed :survived :timeout} outcome) (not at-load?))
-                     (get tests-by-def (:def mutant))
+                   (case outcome
+                     :survived (get tests-by-def (:def mutant))
+                     :killed (if killed-by [killed-by] [])
                      []))
         by-def (group-by :def mutants)
         cards (->> (map :def definitions)

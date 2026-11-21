@@ -12,21 +12,21 @@ the page's advice. How to run the runner is in the "Mutation testing" section of
 The HTML page is written for a reader who has not met mutation testing before, so it uses plain words. The console
 report and the EDN file use the usual words, which also name the outcomes in the code.
 
-| Page            | Console and EDN                 | Other tools                  | Meaning                                                                                                               |
-| --------------- | ------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| planted bug     | mutant                          | mutant                       | One small change to the code under test, such as `when` to `when-not`. The tests never change.                        |
-| caught          | killed (`:killed`)              | killed, detected             | A test failed, or the changed code threw while it loaded.                                                             |
-| not caught      | survived (`:survived`)          | survived, undetected, missed | Every test that ran passed.                                                                                           |
-| never run       | no coverage (`:no-coverage`)    | no coverage, NoCoverage      | No test calls the changed function, so no test could catch the change.                                                |
-| test gap        | survivor or no coverage         | survivor, undetected mutant  | A planted bug that is not caught or never run: a real bug of that shape could hide there.                             |
-| may be harmless | (none)                          | equivalent mutant            | A change that may behave the same as the original in every case, so no test can catch it.                             |
-| timed out       | timed out (`:timeout`)          | timeout                      | The tests ran past the time limit. Left out of the score. Stryker counts a timeout as detected; we do not.            |
-| did not compile | unviable (`:unviable`)          | unviable, compile error      | The changed code could not be read or compiled. Left out of the score.                                                |
-| score           | score                           | mutation score               | Caught, divided by caught, not caught and never run.                                                                  |
-| covered score   | covered score                   | covered score, test strength | Caught, divided by caught and not caught: how well the tests check the code they run.                                 |
-| reaches         | a definition's tests (`:tests`) | covered by                   | The test ran for the planted bug: it is one of the tests its function ran, and the planted bug loaded.                |
-| caught by       | killed by (`:killed-by`)        | killed by                    | The test that failed first for one planted bug. A run stops there, so a test that would also fail later is not named. |
-| closest test    | (none)                          | (none)                       | On the page only: among the tests a function ran, the one that caught the most of its other planted bugs.             |
+| Page            | Console and EDN                 | Other tools                  | Meaning                                                                                                                                                     |
+| --------------- | ------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| planted bug     | mutant                          | mutant                       | One small change to the code under test, such as `when` to `when-not`. The tests never change.                                                              |
+| caught          | killed (`:killed`)              | killed, detected             | A test failed, or the changed code threw while it loaded.                                                                                                   |
+| not caught      | survived (`:survived`)          | survived, undetected, missed | Every test that ran passed.                                                                                                                                 |
+| never run       | no coverage (`:no-coverage`)    | no coverage, NoCoverage      | No test calls the changed function, so no test could catch the change.                                                                                      |
+| test gap        | survivor or no coverage         | survivor, undetected mutant  | A planted bug that is not caught or never run: a real bug of that shape could hide there.                                                                   |
+| may be harmless | (none)                          | equivalent mutant            | A change that may behave the same as the original in every case, so no test can catch it.                                                                   |
+| timed out       | timed out (`:timeout`)          | timeout                      | The tests ran past the time limit. Left out of the score. Stryker counts a timeout as detected; we do not.                                                  |
+| did not compile | unviable (`:unviable`)          | unviable, compile error      | The changed code could not be read or compiled. Left out of the score.                                                                                      |
+| score           | score                           | mutation score               | Caught, divided by caught, not caught and never run.                                                                                                        |
+| covered score   | covered score                   | covered score, test strength | Caught, divided by caught and not caught: how well the tests check the code they run.                                                                       |
+| reaches         | a definition's tests (`:tests`) | covered by                   | The test ran for the planted bug: every test its function ran when none failed, or only the test that caught it, since the run stops there.                 |
+| caught by       | killed by (`:killed-by`)        | killed by                    | The test that failed first for one planted bug. A run stops there, so a test that would also fail later is not named. A failure in a fixture names no test. |
+| closest test    | (none)                          | (none)                       | On the page only: among the tests a function ran, the one that caught the most of its other planted bugs.                                                   |
 
 A run stops each planted bug at the first failing test, so only that test is recorded as the one that caught it. A test
 that would also fail later gets no credit. The page's "By test" table therefore counts the planted bugs a test reaches,

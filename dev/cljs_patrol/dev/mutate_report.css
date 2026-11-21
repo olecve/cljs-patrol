@@ -247,12 +247,12 @@ pre {
 .code .bug {
   background: var(--missed-soft);
 }
-.was {
+.from {
   outline: 1.5px solid var(--muted);
   border-radius: 2px;
   padding: 0 1px;
 }
-.now {
+.to {
   background: var(--missed);
   color: var(--panel);
   border-radius: 2px;

@@ -114,9 +114,9 @@
 
 (deftest page-shows-gap-line-before-and-after-swap
   (let [html (page (summary mutants))]
-    (is (str/includes? html "<span class=\"was\">first</span> [:down]))))")
+    (is (str/includes? html "<span class=\"from\">first</span> [:down]))))")
         "original operator marked in place")
-    (is (str/includes? html "<span class=\"now\">last</span> [:down]))))")
+    (is (str/includes? html "<span class=\"to\">last</span> [:down]))))")
         "swapped operator marked in place")))
 
 (deftest page-escapes-source-text
@@ -233,14 +233,15 @@
                      "signs 2 1 labels 1 1")
       "same gaps, more reaches first"))
 
-(deftest test-table-counts-only-planted-bugs-whose-tests-ran
+(deftest test-table-counts-only-tests-that-ran
   (is (str/includes? (tests-of (page (summary [(mutant "label" 7 8 "first" "last" :survived)
                                                (mutant "label" 5 6 "if" "if-not" :unviable)
                                                (mutant "label" 4 12 "inc" "dec" :killed :at-load? true)
-                                               (mutant "label" 6 7 "true" "false" :timeout)]
+                                               (mutant "label" 6 7 "true" "false" :timeout)
+                                               (mutant "label" 5 10 "pos?" "neg?" :killed :killed-by "app.core-test/signs")]
                                               :tests {"label" ["app.core-test/labels"]})))
-                     "labels 2 1")
-      "unviable and killed at load reach no test"))
+                     "labels 1 1 1 more test that reaches no gap signs 1 0")
+      "caught planted bug reaches only its killing test; unviable, load kill and timeout reach none"))
 
 (deftest source-view-marks-each-line
   (let [html (-> mutants (conj (mutant "label" 4 12 "inc" "dec" :timeout)) summary page)
@@ -286,8 +287,8 @@
   (let [code (slice (page (summary [(mutant "label" 5 6 "if" "if-not" :survived)
                                     (mutant "label" 5 10 "pos?" "neg?" :survived)]))
                     "<div class=\"code\">" "</pre>")]
-    (is (str/includes? code "(<span class=\"now\">if-not</span> (pos? y)"))
-    (is (str/includes? code "(if (<span class=\"now\">neg?</span> y)"))))
+    (is (str/includes? code "(<span class=\"to\">if-not</span> (pos? y)"))
+    (is (str/includes? code "(if (<span class=\"to\">neg?</span> y)"))))
 
 (deftest function-without-scored-planted-bugs-shows-no-share
   (is (str/includes? (-> mutants (conj (mutant "other" 2 2 "if" "if-not" :timeout)) summary page text-of)
@@ -298,4 +299,38 @@
                                              :tests {"label" :every})
                                     {:test-names ["app.core-test/labels" "app.core-test/signs" "app.core-test/more"]}))
                      "3 tests run for label")))
+
+(deftest context-rows-read-escaped-quotes-and-comments
+  (is (= [1 3]
+         (mutate-html/context-rows ["(defn f [x]" "  (str \"a \\\" b\")" "  (do" "    (when x 1)))"] 4))
+      "escaped quote keeps string closed")
+  (is (= [1 3]
+         (mutate-html/context-rows ["(defn f [x]" "  ; say \"hi" "  (do" "    (when x 1)))"] 4))
+      "quote in comment opens no string"))
+
+(deftest page-keeps-namespace-when-tests-come-from-several
+  (let [text (text-of (page (summary [(mutant "label" 5 6 "if" "if-not" :killed :killed-by "other-test/helper")
+                                      (mutant "label" 7 8 "first" "last" :survived)]
+                                     :tests {"label" ["app.core-test/labels" "other-test/helper"]})))]
+    (is (str/includes? text "Closest test to extend: other-test/helper"))
+    (is (str/includes? text "app.core-test/labels"))))
+
+(deftest source-line-with-caught-and-missed-planted-bugs-has-both-classes
+  (is (str/includes? (page (summary [(mutant "label" 5 6 "if" "if-not" :killed :killed-by "app.core-test/labels")
+                                     (mutant "label" 5 10 "pos?" "neg?" :survived)]))
+                     "<span class=\"ln missed caught\" id=\"L5\">")))
+
+(deftest page-without-planted-bugs-says-nothing-was-in-scope
+  (let [text (text-of (page (summary [])))]
+    (is (str/includes? text "No planted bugs: nothing in scope could be changed."))
+    (is (not (str/includes? text "No test gaps")))))
+
+(deftest share-bar-sizes-on-scored-planted-bugs
+  (is (str/includes? (page (summary [(mutant "label" 5 6 "if" "if-not" :killed :killed-by "app.core-test/labels")
+                                     (mutant "label" 5 10 "pos?" "neg?" :timeout)
+                                     (mutant "label" 7 8 "first" "last" :survived)]))
+                     "<b>50%</b><div aria-hidden=\"true\" class=\"bar\"><i class=\"c\" style=\"width:50.0%\">"))
+  (is (str/includes? (-> mutants (conj (mutant "other" 2 2 "if" "if-not" :timeout)) summary page)
+                     "<b>n/a</b><div aria-hidden=\"true\" class=\"bar\"><i class=\"c\" style=\"width:0%\">")
+      "nothing scored, empty bar"))
 
