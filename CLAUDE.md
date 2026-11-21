@@ -95,15 +95,19 @@ It changes the code under test, never the tests: it swaps one operator at a time
 a `def` whose value is a `fn` or `#(…)`): `0` and `1` swap, and any other goes up by one, such as `-1` to `0`. A
 definition's name, a `defmethod` dispatch value and a `^:const` def, whose value callers copy, get no mutant at all, and
 the report lists `^:const` defs apart. A skip marker names a changed number by its text, such as
-`; mutate: skip 0: REASON`. A first run of the tests records which tests call each function of the target. Then, for
-each mutant, it evaluates the mutated form over the namespace, runs the tests that call that function until the first
-failure, and evaluates the original back. Pass every test namespace that exercises the target with `-t`: the run knows
-only those. Every test runs instead when the function cannot be recorded (a `defmethod`, a `def` that holds data, or a
-function with a primitive type hint), when it is called from a fixture, when a test namespace has a `test-ns-hook`, when
-the selected tests fail on their own, and with `-a` (`--all-tests`). A test that only reads what another test wrote is
-not selected for the function that wrote it, and a call that a background thread makes after its test ended counts for
-the test running then, so use `-a` for such a namespace. If recording the calls makes the tests fail, or run past a
-timeout given with `--timeout`, every mutant runs every test, and the report says so. Each mutant ends as one of:
+`; mutate: skip 0: REASON`. Each arity of that function code, but a `#(…)`, also gets a body mutant (`:swap :body`), as
+cargo-mutants does for Rust: its whole body becomes `nil`, so a function with no operator, or one whose result no test
+checks, still shows up. Its operator is `body`, and it sits at the body's first form, so `--apply 'ROW:COL:body'` and
+`; mutate: skip body: REASON` on that line name it. An empty body or a lone `nil` gets none, since it already gives nil.
+A first run of the tests records which tests call each function of the target. Then, for each mutant, it evaluates the
+mutated form over the namespace, runs the tests that call that function until the first failure, and evaluates the
+original back. Pass every test namespace that exercises the target with `-t`: the run knows only those. Every test runs
+instead when the function cannot be recorded (a `defmethod`, a `def` that holds data, or a function with a primitive
+type hint), when it is called from a fixture, when a test namespace has a `test-ns-hook`, when the selected tests fail
+on their own, and with `-a` (`--all-tests`). A test that only reads what another test wrote is not selected for the
+function that wrote it, and a call that a background thread makes after its test ended counts for the test running then,
+so use `-a` for such a namespace. If recording the calls makes the tests fail, or run past a timeout given with
+`--timeout`, every mutant runs every test, and the report says so. Each mutant ends as one of:
 
 - **killed**: a test failed, or the mutated form threw while it loaded. A failure is recorded before the run is cut
   short, so an assertion that catches exceptions, such as `thrown?`, cannot hide it.

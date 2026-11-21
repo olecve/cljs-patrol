@@ -3,8 +3,8 @@
 [← back to the README](../README.md)
 
 A dev-only runner that checks whether the tests would notice a bug: it plants one small bug at a time in the code under
-test, such as `when` to `when-not`, `<` to `<=` or `0` to `1`, and runs the tests. A planted bug that every test lets
-through marks a line no test really checks.
+test, such as `when` to `when-not`, `<` to `<=`, `0` to `1` or a whole function body to `nil`, and runs the tests. A
+planted bug that every test lets through marks a line no test really checks.
 
 ## Why
 
@@ -72,6 +72,11 @@ from the two operators, so it starts with "Likely". For example, `first` to `las
 every test has only one item there. When that is the only possible case, the change is harmless, and the page tags it
 "May be harmless".
 
+Each function also gets one planted bug that replaces its whole body with `nil`, one for each arity, shown as `body` to
+`nil`. It finds a function that has no operator to swap, or one that a test calls but never checks: "Likely: no test
+checks what this function returns or does." A function that runs only for its side effects, such as printing, gives this
+gap when no test checks those effects. A body that is empty or only `nil` gets no such planted bug.
+
 Below the gaps are tables by function and by test, then, folded, the source with every planted bug marked, all the
 numbers, and the terms and sources.
 
@@ -115,11 +120,12 @@ list it as ignored, with the reason.
   (if x 1 2))
 ```
 
-A changed number is named by its text, such as `; mutate: skip 0: zero is the floor`. A comment after code skips that
-operator on its own line, and a comment on a line of its own skips it on the next line of code in the same form. Other
-planted bugs on the same line still run. `:mutate/skip` on a definition's name, or in a `defn`'s attribute map, skips
-all of its planted bugs, and its value must be the reason, as a string. Only real comments count, not the same words in
-a string or docstring. A comment that starts like a marker but does not follow the pattern, such as
+A changed number is named by its text, such as `; mutate: skip 0: zero is the floor`, and a body replaced by `nil` by
+`body`, on the line where the body's first form starts, such as `; mutate: skip body: only logs`. A comment after code
+skips that operator on its own line, and a comment on a line of its own skips it on the next line of code in the same
+form. Other planted bugs on the same line still run. `:mutate/skip` on a definition's name, or in a `defn`'s attribute
+map, skips all of its planted bugs, and its value must be the reason, as a string. Only real comments count, not the
+same words in a string or docstring. A comment that starts like a marker but does not follow the pattern, such as
 `; mutate:skip first: ...`, stops the run, and so does `:mutate/skip` on a form the runner does not mutate, such as a
 `defmacro`. The run warns about a marker that matches no planted bug or has no code after it in its form, so stale
 markers do not pile up. Skip only what you have read and judged harmless: a skipped line is a line no test checks.
@@ -132,6 +138,7 @@ report and the EDN file use the usual words, which also name the outcomes in the
 | Page            | Console and EDN                 | Other tools                  | Meaning                                                                                                                                                     |
 | --------------- | ------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | planted bug     | mutant                          | mutant                       | One small change to the code under test, such as `when` to `when-not`. The tests never change.                                                              |
+| body to nil     | body mutant (`:swap :body`)     | replace function body        | One planted bug for each arity of a function: its whole body becomes `nil`. `--apply` and skip markers name it `body`.                                      |
 | caught          | killed (`:killed`)              | killed, detected             | A test failed, or the changed code threw while it loaded.                                                                                                   |
 | not caught      | survived (`:survived`)          | survived, undetected, missed | Every test that ran passed.                                                                                                                                 |
 | never run       | no coverage (`:no-coverage`)    | no coverage, NoCoverage      | No test calls the changed function, so no test could catch the change.                                                                                      |

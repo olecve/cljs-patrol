@@ -4,6 +4,7 @@
    [cljs-patrol.dev.mutate.error :as error]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
+   [rewrite-clj.node :as n]
    [rewrite-clj.zip :as z]))
 
 (def swaps
@@ -220,34 +221,112 @@
           [(when (= :meta (some-> name-slot z/tag)) (meta (z/sexpr name-slot)))
            (some-> attr-map z/sexpr)])))
 
+(defn- arity-bodies
+  "Return the body forms of each arity of the function the definition at `loc`, headed `head`, holds, one list per arity.
+
+  The forms are locs in a zipper of that definition alone. Only a `fn` that a `def` holds counts,
+  not a `#(…)`, whose whole form is its body. A body that is empty, or a lone `nil`, already
+  gives nil, so it is left out."
+  [loc head]
+  (let [root (z/subzip loc)
+        fn-loc (if (= "def" head) (z/rightmost (z/down root)) root)
+        skipped-slots (case head
+                        ; mutate: skip 1: the fn symbol is no parameter vector and no arity, so keeping it changes nothing
+                        "def" 1
+                        "defmethod" 3
+                        2)]
+    (when (= :list (z/tag fn-loc))
+      (let [after-name (drop skipped-slots (parser/written-child-locs fn-loc))
+            arity-body #(next (drop-while (complement parameter-vector?) %))
+            bodies (if (some parameter-vector? after-name)
+                     [(arity-body after-name)]
+                     (for [arity after-name
+                           :when (and (= :list (z/tag arity)) (parameter-vector? (z/down arity)))]
+                       (arity-body (parser/written-child-locs arity))))]
+        (remove (fn [body] (or (empty? body) (= ["nil"] (map z/string body)))) bodies)))))
+
+(defn- body-mutants
+  "Return a mutant for each arity body of the function the definition at `loc` holds, with the body replaced by `nil`.
+
+  Its :from is `body`, so a skip marker and `--apply` name it as `body`, and it sits where the
+  body's first form starts. Its :text runs from the first form to the end of the last."
+  [loc head]
+  (for [body (arity-bodies loc head)
+        :let [last-node (z/node (last body))
+              [[row col]] (parser/position-span (first body))
+              [_ [end-row end-col]] (parser/position-span (last body))
+              [before [last-loc]] (->> (iterate z/right* (first body))
+                                       (take-while some?)
+                                       (split-with #(not (identical? (z/node %) last-node))))]]
+    {:row row
+     :col col
+     :end-row end-row
+     :end-col end-col
+     :from "body"
+     :to nil
+     :swap :body
+     :text (str/join (map z/string (concat before [last-loc])))
+     :mutant-loc (first body)
+     :last-node last-node}))
+
+(defn- token-mutants
+  "Return a mutant for each token of the definition at `loc` that an operator swaps, or, when `numbers?`, an integer."
+  [loc numbers?]
+  (for [token (form-locs loc)
+        :let [to (replacement token numbers?)]
+        :when (and (some? to) (not (skipped? token)))
+        :let [[[row col] [end-row end-col]] (parser/position-span token)
+              from (z/string token)]]
+    {:row row
+     :col col
+     :end-row end-row
+     :end-col end-col
+     :from from
+     :to to
+     :swap (if (number? to) :number :operator)
+     :text from
+     :mutant-loc token}))
+
 (defn mutants
   "Return a mutant for every swap the definitions among the top-level `forms` allow.
 
-  Each is {:def … :row … :col … :from … :to … :swap … :form-loc … :mutant-loc …}; :swap is
-  :number for an integer literal and :operator for any other swap, and the mutated text of its
-  form is built only when the mutant runs. Integer literals change only in function code: the body of a
-  `defn`, `defn-` or `defmethod`, or a `def` whose value is a `fn` or `#(…)`. A definition with
-  `:mutate/skip` on its name or in its attribute map gives each of its mutants that reason as
-  :skip-reason."
+  Each is {:def … :row … :col … :end-row … :end-col … :from … :to … :swap … :text … :form-loc …
+  :mutant-loc …}, and `mutated-text` builds the text of its form only when the mutant runs.
+  :swap is :body for a function body replaced by `nil`, :number for an integer literal and
+  :operator for any other swap. :text is the source the mutant replaces, with each line break
+  read as a `\\n`, and it ends at :end-row and :end-col. Function code is the body of a `defn`,
+  `defn-` or `defmethod`, or a `def` whose value is a `fn` or `#(…)`. Only there do integer
+  literals change, and each arity of it, but of a `#(…)`, gets a body mutant, listed before the
+  definition's other mutants. A definition with `:mutate/skip` on its name or in its attribute
+  map gives each of its mutants that reason as :skip-reason."
   [forms]
   (for [{:keys [loc wrapper name kind head]} forms
         :when (= :mutated kind)
-        :let [reason (:reason (skip-reason loc))
-              numbers? (function-def? loc head)]
-        token (form-locs loc)
-        :let [to (replacement token numbers?)]
-        :when (and (some? to) (not (skipped? token)))
-        :let [[row col] (parser/position token)]]
-    {:def name
-     :row row
-     :col col
-     :from (z/string token)
-     :to to
-     :swap (if (number? to) :number :operator)
-     :form-loc loc
-     :wrapper wrapper
-     :mutant-loc token
-     :skip-reason reason}))
+        :let [function? (function-def? loc head)
+              reason (:reason (skip-reason loc))]
+        mutant (concat (when function? (body-mutants loc head)) (token-mutants loc function?))]
+    (assoc mutant
+           :def name
+           :form-loc loc
+           :wrapper wrapper
+           :skip-reason reason)))
+
+(defn mutated-text
+  "Return the text of the definition of `mutant` with the mutant in it, without the metadata around it.
+
+  A body mutant puts `nil` in place of the body's first form and removes the forms after it, up
+  to the body's last one."
+  [{:keys [mutant-loc to swap last-node]}]
+  (-> (if (= :body swap)
+        (loop [loc (z/replace mutant-loc (n/token-node nil))
+               done? (identical? (z/node mutant-loc) last-node)]
+          (if done?
+            loc
+            (let [next-loc (z/right loc)]
+              (recur (z/remove next-loc) (identical? (z/node next-loc) last-node)))))
+        (z/replace mutant-loc (n/token-node to)))
+      z/root
+      n/string))
 
 (def ^:private skip-marker
   "A `; mutate: skip OPERATOR: REASON` comment."

@@ -384,3 +384,27 @@
   (is (str/includes? (text-of (page (summary [(mutant "label" 5 6 "if" "if-not" :survived)
                                               (mutant "label" 5 10 "pos?" "neg?" :survived)])))
                      "--apply '5:6:if' clojure -M:test:mutate app.core --apply '5:10:pos?'")))
+
+(deftest body-gap-shows-nil-in-place-of-body-and-its-hint
+  (let [gaps (gaps-of (page (summary [(mutant "label" 4 3 "body" "nil" :survived :swap :body :end-row 7 :end-col 24)
+                                      (mutant "label" 5 6 "if" "if-not" :killed)])))]
+    (is (str/includes? gaps "<span class=\"from\">(let [y (inc x)]</span>")
+        "body going on below marks rest of line")
+    (is (str/includes? gaps "<span class=\"to\">nil</span>\n")
+        "rest of line gives way to nil")
+    (is (str/includes? gaps "Likely: no test checks what this function returns or does."))))
+
+(deftest one-line-body-gap-marks-body-alone
+  (let [code (slice (page (summary [(mutant "unused" 8 18 "body" "nil" :survived :swap :body :end-row 8 :end-col 28)
+                                    (mutant "unused" 8 19 "when" "when-not" :survived)]))
+                    "<div class=\"code\">" "</pre>")]
+    (is (str/includes? code "(defn unused [x] <span class=\"from\">(when x 1)</span>)\n")
+        "operator inside marked body is not marked again")
+    (is (str/includes? code "(defn unused [x] <span class=\"to\">nil</span>)\n"))
+    (is (str/includes? code "(defn unused [x] (<span class=\"to\">when-not</span> x 1))\n"))))
+
+(deftest body-at-start-of-unindented-line-is-marked
+  (is (str/includes? (slice (page (summary [(mutant "flat" 3 1 "body" "nil" :survived :swap :body :end-row 3 :end-col 8)])
+                                  {:source "(ns app.core)\n(defn flat [x]\n(inc x))\n"})
+                            "<div class=\"code\">" "</pre>")
+                     "<span class=\"from\">(inc x)</span>)\n")))

@@ -51,10 +51,10 @@
 (defn apply-mutant
   "Write the mutant at `position`, written ROW:COL:OPERATOR, into `file`, keep its text in `kept`, and return a message.
 
-  Only the one token changes, and only when that operator is found at that place, so a position
-  from an older report cannot write another mutant. The file is replaced whole, so a failed
-  write leaves it as it was. A second mutant cannot be applied before --restore puts the first
-  one back."
+  Only the text of that one mutant changes, a token or a whole function body, and only when that
+  operator is found at that place, so a position from an older report cannot write another
+  mutant. The file is replaced whole, so a failed write leaves it as it was. A second mutant
+  cannot be applied before --restore puts the first one back."
   [file position kept]
   (when-let [{applied-file :file} (applied-mutant kept)]
     (throw (error/setup-error (str "A mutant is already applied to " (relative-path applied-file)
@@ -66,7 +66,7 @@
         col (parse-long col)
         source (slurp file)
         on-row (->> source forms/top-level-forms forms/mutants (filter #(= row (:row %))))
-        {:keys [from to]
+        {:keys [from to text end-row end-col]
          function :def
          :as mutant} (first (filter #(= col (:col %)) on-row)) ; mutate: skip first: one mutant per line and column
         path (relative-path file)]
@@ -80,10 +80,11 @@
     (when-not (= operator from)
       (throw (error/setup-error (str "At " row ":" col " the operator is now " from ", not " operator "."
                                      " Run the report again for the current positions."))))
-    (let [start (offset (str/split source #"\n" -1) row col)
-          end (+ start (count from))]
+    (let [lines (str/split source #"\n" -1)
+          start (offset lines row col)
+          end (offset lines end-row end-col)]
       ; mutate: skip <=: a form ends after its operator, so end never passes the last character
-      (when-not (and (<= end (count source)) (= from (subs source start end)))
+      (when-not (and (<= end (count source)) (= text (str/replace (subs source start end) "\r\n" "\n")))
         (throw (error/setup-error (str "The text at " row ":" col " of " path " is not " from ", so nothing was written."
                                        " The file may break lines in a way the runner does not count."))))
       (spit kept (pr-str {:file (.getCanonicalPath (io/file file))

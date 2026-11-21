@@ -79,7 +79,7 @@
      :score (when (pos? scored) (double (/ (:killed counts) scored)))
      :covered-score (when (pos? covered) (double (/ (:killed counts) covered)))
      :mutants (mapv #(-> %
-                         (select-keys [:def :row :col :from :swap :at-load?])
+                         (select-keys [:def :row :col :end-row :end-col :from :swap :at-load?])
                          (assoc :to (pr-str (:to %))
                                 :outcome (outcome-key (:outcome %)))
                          (cond-> (:killed-by %) (assoc :killed-by (test-name (:killed-by %)))))

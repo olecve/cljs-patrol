@@ -21,7 +21,9 @@
        "(defn two-lines [x]\n"
        "  (when x 1))\n"))
 
-(defn- swaps-of [mutants] (mapv (juxt :def :row :from #(pr-str (:to %))) mutants))
+(defn- without-bodies [mutants] (remove #(= :body (:swap %)) mutants))
+
+(defn- swaps-of [mutants] (mapv (juxt :def :row :from #(pr-str (:to %))) (without-bodies mutants)))
 
 (deftest mutants-swap-each-operator-of-each-definition
   (is (= [["visible?" 2 "when" "when-not"]
@@ -44,18 +46,18 @@
            " mutated; forms loaded once and other forms left out; numbers in def values left out")))
 
 (deftest mutants-change-plain-integer-literals
-  (is (= [["0" "1"] ["1" "0"] ["7" "8"] ["-1" "0"] ["-5" "-4"] ["9223372036854775807" "9223372036854775808N"]]
-         (map (juxt :from #(pr-str (:to %)))
-              (forms/mutants (forms/top-level-forms (str "(ns app.n)\n"
-                                                         "(defn numbers [] [0 1 7 -1 -5 9223372036854775807"
-                                                         " 0x10 +1 007 -0 2r101 1N 1M 1.5 1/2 \\1 \"1\" :1])\n")))))
-      "0 and 1 swap, other integers go up by one; other notations, numbers that are no integer and characters kept"))
+  (let [source (str "(ns app.n)\n"
+                    "(defn numbers [] [0 1 7 -1 -5 9223372036854775807"
+                    " 0x10 +1 007 -0 2r101 1N 1M 1.5 1/2 \\1 \"1\" :1])\n")]
+    (is (= [["0" "1"] ["1" "0"] ["7" "8"] ["-1" "0"] ["-5" "-4"] ["9223372036854775807" "9223372036854775808N"]]
+           (map (juxt :from #(pr-str (:to %))) (without-bodies (forms/mutants (forms/top-level-forms source)))))
+        "0 and 1 swap, other integers go up by one; other notations, numbers that are no integer and characters kept")))
 
 (deftest scope-skips-number-mutant-named-in-marker
   (let [{:keys [selected ignored unused-markers]}
         (forms/scope "(ns app.x)\n(defn f [x] (max x 0 -1)) ; mutate: skip 0: zero is the floor\n" {})]
     (is (= [["0" "zero is the floor"]] (map (juxt :from :skip-reason) ignored)))
-    (is (= ["-1"] (map :from selected)))
+    (is (= ["-1"] (map :from (without-bodies selected))))
     (is (= [] unused-markers))))
 
 (deftest scope-names-what-is-not-mutated-and-unknown-definitions
@@ -69,7 +71,7 @@
         "one changed line of several brings definition in")
     (is (empty? selected)
         "mutant on unchanged line of changed definition is left out"))
-  (is (= [[16 "when"] [16 "1"]] (map (juxt :row :from) (:selected (forms/scope source {:lines #{16}}))))
+  (is (= [[16 "body"] [16 "when"] [16 "1"]] (map (juxt :row :from) (:selected (forms/scope source {:lines #{16}}))))
       "mutants on changed line are kept")
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No top-level definition named nope"
                         (forms/scope source {:defs ["nope"]}))))
@@ -140,12 +142,13 @@
     (is (= [["pick" "first" "xs holds one item"]
             ["both" "when" "x is never nil here"]
             ["both" "=" "two checks for one case"]
+            ["wrapped" "body" "wraps a JDK call"]
             ["wrapped" "if" "wraps a JDK call"]
             ["told" "when" "r1"]]
            (map (juxt :def :from :skip-reason) ignored)))
     (is (= [["stale" "if"]
             ["told" "when"]]
-           (map (juxt :def :from) selected))
+           (map (juxt :def :from) (without-bodies selected)))
         "only unmarked mutants run")
     (is (= ["line 9 (first)" "line 12 (str)" "line 14 (if)"] unused-markers)
         "marker naming no mutant on its line, or with no code after it, is reported"))
@@ -187,7 +190,7 @@
       "no code after marker in its form gives no row; #_ form is no code"))
 
 (deftest scope-reads-skip-reason-from-attribute-map
-  (is (= [["f" "if" "wraps a JDK call"]]
+  (is (= [["f" "body" "wraps a JDK call"] ["f" "if" "wraps a JDK call"]]
          (map (juxt :def :from :skip-reason)
               (:ignored (forms/scope "(ns app.x)\n(defn f \"Doc.\" {:mutate/skip \"wraps a JDK call\"} [x] (if x :a :b))\n"
                                      {})))))
@@ -225,17 +228,20 @@
       "empty source"))
 
 (deftest scope-reads-attribute-map-only-before-parameters-or-after-arities
-  (is (= ["if"]
+  (is (= ["body" "if"]
          (map :from (:selected (forms/scope "(ns app.x)\n(defn f ^String [x] {:mutate/skip (if x \"a\" \"b\")})\n" {}))))
       "map after hinted parameter vector is body")
-  (is (= [["f" "when" "wraps a JDK call"] ["f" "if" "wraps a JDK call"]]
+  (is (= [["f" "body" "wraps a JDK call"]
+          ["f" "body" "wraps a JDK call"]
+          ["f" "when" "wraps a JDK call"]
+          ["f" "if" "wraps a JDK call"]]
          (map (juxt :def :from :skip-reason)
               (:ignored (forms/scope (str "(ns app.x)\n"
                                           "(defn f ([x] (when x :a)) ([x y] (if x y :b))"
                                           " {:mutate/skip \"wraps a JDK call\"})\n")
                                      {}))))
       "trailing attribute map after arities")
-  (is (= ["r"]
+  (is (= ["r" "r"]
          (map :skip-reason
               (:ignored (forms/scope "(ns app.x)\n(defn ^:private f {:mutate/skip \"r\"} [x] (if x :a :b))\n" {}))))
       "name under metadata is no parameter vector"))
@@ -257,21 +263,22 @@
                                                            "(def h #(* % 6))\n"
                                                            "(def table {:fn (fn [] 7) :size 8})\n"
                                                            "(def built (let [f (fn [] 9)] (f)))\n")))]
-    (is (= [["area" 2 "if"] ["area" 2 "true"] ["area" 2 "2"] ["area" 2 "3"] ["area" 3 "4"] ["f" 6 "1"] ["g" 7 "5"]
-            ["h" 8 "6"]]
+    (is (= [["area" 2 "body"] ["area" 2 "if"] ["area" 2 "true"] ["area" 2 "2"] ["area" 2 "3"] ["area" 3 "body"]
+            ["area" 3 "4"] ["f" 6 "body"] ["f" 6 "1"] ["g" 7 "body"] ["g" 7 "5"] ["h" 8 "6"]]
            (map (juxt :def :row :from) mutants))
-        "dispatch value, def data, fn inside def data and const def left out; def whose value is fn or #() kept")
-    (is (= [:operator :operator :number :number :number :number :number :number]
+        (str "dispatch value, def data, fn inside def data and const def left out; def whose value is fn or #() kept;"
+             " #() gets no body mutant"))
+    (is (= [:body :operator :operator :number :number :body :number :body :number :body :number :number]
            (map :swap mutants))
-        "integer literals marked number, other swaps operator")))
+        "body replaced by nil marked body, integer literals number, other swaps operator")))
 
 (deftest mutants-leave-definition-names-alone
   (is (= [["last" "first"]]
          (map (juxt :from #(pr-str (:to %)))
-              (forms/mutants (forms/top-level-forms (str "(ns app.x (:refer-clojure :exclude [first]))\n"
-                                                         "(defn first [xs] (last xs))\n"
-                                                         "(defmethod first :a [xs] xs)\n"
-                                                         "(defn ^:private last [xs] xs)\n")))))
+              (without-bodies (forms/mutants (forms/top-level-forms (str "(ns app.x (:refer-clojure :exclude [first]))\n"
+                                                                         "(defn first [xs] (last xs))\n"
+                                                                         "(defmethod first :a [xs] xs)\n"
+                                                                         "(defn ^:private last [xs] xs)\n"))))))
       "only body swap; names of defn, defmethod and metadata-wrapped name kept"))
 
 (deftest scope-lists-const-defs-apart
@@ -281,3 +288,64 @@
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
                         #"width is a \^:const def, whose value callers copy, so the runner does not mutate it, and its"
                         (forms/scope "(ns app.x)\n(def ^{:const true :mutate/skip \"fixed\"} width 80)\n" {}))))
+
+(def ^:private bodies-source
+  (str "(ns app.b)\n"
+       "(defn long-body \"Doc.\" {:added 1} [x]\n"
+       "  ; first\n"
+       "  (prn x) #_(gone)\n"
+       "  (inc x) #_(after))\n"
+       "(defn arities \"Doc.\" ([x] (arities x 1)) ([x y] (+ x y)) {:added 1})\n"
+       "(defmethod area [:a :b] [x] (str x))\n"
+       "(def named (fn named [x] {:pre [(pos? x)]} (* 2 x)))\n"
+       "(defn ^String hinted ^String [x] x)\n"
+       "(defn already-nil [x] nil)\n"
+       "(defn empty-body [x])\n"
+       "(defn nil-first [x] nil (prn x))\n"
+       "(def short-fn #(prn %))\n"))
+
+(deftest mutants-replace-each-arity-body-with-nil
+  (let [bodies (filter #(= :body (:swap %)) (forms/mutants (forms/top-level-forms bodies-source)))]
+    (is (= [["long-body" 4 3 5 10 "(prn x) #_(gone)\n  (inc x)"]
+            ["arities" 6 27 6 40 "(arities x 1)"]
+            ["arities" 6 49 6 56 "(+ x y)"]
+            ["area" 7 29 7 36 "(str x)"]
+            ["named" 8 26 8 51 "{:pre [(pos? x)]} (* 2 x)"]
+            ["hinted" 9 34 9 35 "x"]
+            ["nil-first" 12 21 12 32 "nil (prn x)"]]
+           (map (juxt :def :row :col :end-row :end-col :text) bodies))
+        (str "docstring, attribute maps, name, dispatch value and hint left out; one per arity; lone nil, empty body"
+             " and #() give none"))
+    (is (= [["odd-attrs" "(inc x)"]]
+           (->> (forms/top-level-forms "(ns app.b)\n(defn odd-attrs ([x] (inc x)) {[:key] :value})\n")
+                forms/mutants
+                (filter #(= :body (:swap %)))
+                (map (juxt :def :text))))
+        "attribute map after arities is no arity, even with vector key")
+    (is (= [["body" nil]] (distinct (map (juxt :from :to) bodies)))
+        "body mutant reads as body to nil")
+    (is (= ["(defn long-body \"Doc.\" {:added 1} [x]\n  ; first\n  nil #_(after))"
+            "(defn arities \"Doc.\" ([x] nil) ([x y] (+ x y)) {:added 1})"
+            "(defn arities \"Doc.\" ([x] (arities x 1)) ([x y] nil) {:added 1})"
+            "(defmethod area [:a :b] [x] nil)"
+            "(def named (fn named [x] nil))"
+            "(defn ^String hinted ^String [x] nil)"
+            "(defn nil-first [x] nil)"]
+           (map forms/mutated-text bodies))
+        "every form of body gives way to one nil, up to its last form")))
+
+(deftest scope-skips-body-mutant-named-in-marker
+  (let [{:keys [selected ignored unused-markers]}
+        (forms/scope (str "(ns app.x)\n"
+                          "(defn log! [x]\n"
+                          "  ; mutate: skip body: only prints\n"
+                          "  (prn x))\n"
+                          "(defn g [x] (inc x)) ; mutate: skip body: stale\n"
+                          "(defn h [x]\n"
+                          "  (prn x)\n"
+                          "  (inc x)) ; mutate: skip body: past first line\n")
+                     {})]
+    (is (= [["log!" 4 "only prints"] ["g" 5 "stale"]] (map (juxt :def :row :skip-reason) ignored)))
+    (is (= [["g" "inc"] ["h" "body"] ["h" "inc"]] (map (juxt :def :from) selected)))
+    (is (= ["line 8 (body)"] unused-markers)
+        "marker names body only on line where body starts")))
