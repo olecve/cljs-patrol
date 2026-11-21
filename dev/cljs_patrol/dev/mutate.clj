@@ -82,15 +82,25 @@
          (contains? #{"defn" "defn-"} (parser/sym-name (z/down parent)))
          (not-any? parameter-vector? (take-while some? (iterate z/left loc))))))
 
-(defn- skipped?
-  "True when `loc` holds no code a test reaches through this namespace.
+(defn- dispatch-value?
+  "True when `loc` is the dispatch value of a `defmethod`, which names the method a mutant would add beside the original."
+  [loc]
+  (let [parent (z/up loc)]
+    (and (= :list (some-> parent z/tag))
+         (= "defmethod" (parser/sym-name (z/down parent)))
+         (identical? (z/node loc) (some-> parent z/down z/right z/right z/node)))))
 
-  That is metadata, a `defn`'s attribute map, a `#_`, a quoted form, a `comment`, and a
-  reader-conditional branch Clojure does not read."
+(defn- skipped?
+  "True when `loc` holds no code a test reaches through this namespace, or code a mutant could not put back.
+
+  That is metadata, a `defn`'s attribute map, a `#_`, a quoted form, a `comment`, a
+  reader-conditional branch Clojure does not read, and a `defmethod`'s dispatch value: a mutant
+  of it would add a method that restoring the form does not remove."
   [loc]
   (some (fn [ancestor]
           (let [parent (z/up ancestor)]
             (or (contains? #{:uneval :quote :syntax-quote} (z/tag ancestor))
+                (dispatch-value? ancestor)
                 (and (= :list (z/tag ancestor)) (= "comment" (parser/sym-name (z/down ancestor))))
                 (and (= :meta (some-> parent z/tag)) (identical? (z/node ancestor) (z/node (z/down parent))))
                 (attr-map? ancestor)
@@ -110,14 +120,21 @@
       1 0
       (inc' value))))
 
+(def ^:private number-heads
+  "Definitions whose integer literals are mutated: only code in a function, not the data a `def` holds."
+  #{"defn" "defn-" "defmethod"})
+
 (defn- replacement
   "Return the value to put in place of the token at `loc`, or nil when no operator swaps it.
 
-  A symbol or boolean in `swaps` gets its pair, and an integer literal a near number."
-  [loc]
+  A symbol or boolean in `swaps` gets its pair, and an integer literal a near number when
+  `numbers?` is true."
+  [loc numbers?]
   (when (= :token (z/tag loc))
     (let [value (try (z/sexpr loc) (catch Exception _ nil))]
-      (get swaps value (number-replacement (z/string loc) value)))))
+      (cond
+        (contains? swaps value) (get swaps value)
+        numbers? (number-replacement (z/string loc) value)))))
 
 (defn- form-name
   "Name a top-level form by what it defines, or by its head and line, such as `extend-type@12`."
@@ -140,12 +157,21 @@
                       (unwrapped branch)))
     [{:loc loc}]))
 
+(defn- const-def?
+  "True when the form at `loc` is a `def` whose name is `^:const`: Clojure copies its value into each caller as it compiles."
+  [loc head]
+  (and (= "def" head)
+       (let [name-slot (some-> loc z/down z/right)]
+         (and (= :meta (some-> name-slot z/tag))
+              (true? (:const (meta (try (z/sexpr name-slot) (catch Exception _ nil)))))))))
+
 (defn top-level-forms
   "Return {:loc … :wrapper … :head … :name … :kind …} for each top-level form of `source` but `ns` and `comment`.
 
   `:kind` is :mutated for a definition evaluating again replaces, :loaded-once for one it does
-  not, and :other for any other form, whose effects would run again with every mutant. A form
-  under metadata keeps that metadata as its `:wrapper`."
+  not or whose value callers copied, such as a `^:const` def, and :other for any other form,
+  whose effects would run again with every mutant. A form under metadata keeps that metadata as
+  its `:wrapper`."
   [source]
   (->> (z/of-string source)
        (iterate z/right)
@@ -160,6 +186,7 @@
                             :head head
                             :name (form-name loc head)
                             :kind (cond
+                                    (const-def? loc head) :loaded-once
                                     (contains? mutated-heads head) :mutated
                                     (contains? loaded-once-heads head) :loaded-once
                                     :else :other)))))))))
@@ -189,15 +216,17 @@
 (defn mutants
   "Return a mutant for every swap the definitions among the top-level `forms` allow.
 
-  Each is {:def … :row … :col … :from … :to … :form-loc … :mutant-loc …}; the mutated text of
-  its form is built only when the mutant runs. A definition with `:mutate/skip` on its name or in
-  its attribute map gives each of its mutants that reason as :skip-reason."
+  Each is {:def … :row … :col … :from … :to … :kind … :form-loc … :mutant-loc …}; :kind is
+  :number for an integer literal and :operator for any other swap, and the mutated text of its
+  form is built only when the mutant runs. A definition with `:mutate/skip` on its name or in its
+  attribute map gives each of its mutants that reason as :skip-reason."
   [forms]
-  (for [{:keys [loc wrapper name kind]} forms
+  (for [{:keys [loc wrapper name kind head]} forms
         :when (= :mutated kind)
-        :let [reason (:reason (skip-reason loc))]
+        :let [reason (:reason (skip-reason loc))
+              numbers? (contains? number-heads head)]
         token (form-locs loc)
-        :let [to (replacement token)]
+        :let [to (replacement token numbers?)]
         :when (and (some? to) (not (skipped? token)))
         :let [[row col] (parser/position token)]]
     {:def name
@@ -205,6 +234,7 @@
      :col col
      :from (z/string token)
      :to to
+     :kind (if (number? to) :number :operator)
      :form-loc loc
      :wrapper wrapper
      :mutant-loc token
@@ -772,7 +802,7 @@
      :score (when (pos? scored) (double (/ (:killed counts) scored)))
      :covered-score (when (pos? covered) (double (/ (:killed counts) covered)))
      :mutants (mapv #(-> %
-                         (select-keys [:def :row :col :from :at-load?])
+                         (select-keys [:def :row :col :from :kind :at-load?])
                          (assoc :to (pr-str (:to %))
                                 :outcome (outcome-key (:outcome %)))
                          (cond-> (:killed-by %) (assoc :killed-by (test-name (:killed-by %)))))

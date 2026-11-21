@@ -114,7 +114,7 @@
     (is (str/includes? text "2 tests run for label , and none failed with this planted bug"))))
 
 (deftest gap-gives-number-swap-its-hint
-  (is (str/includes? (text-of (page (summary [(mutant "unused" 8 26 "1" "0" :survived)])))
+  (is (str/includes? (text-of (page (summary [(mutant "unused" 8 26 "1" "0" :survived :kind :number)])))
                      "Likely: no test checks the exact number here, or the boundary it sets."))
   (is (not (str/includes? (text-of (page (summary [(mutant "label" 7 8 "[" "(" :survived)]))) "Likely:"))
       "swap with no hint gives no reason"))

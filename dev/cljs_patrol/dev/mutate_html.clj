@@ -90,10 +90,11 @@
 
 (defn- hint
   "Return the likely reason a test misses `mutant`, by the operators it swaps, or nil when there is none."
-  [{:keys [from]
+  [{:keys [kind]
     :as mutant}]
-  (or (hints (swap-pair mutant))
-      (when (re-matches #"-?\d+" from) number-hint)))
+  (if (= :number kind)
+    number-hint
+    (hints (swap-pair mutant))))
 
 (defn- indent [line] (count (re-find #"^ *" line)))
 

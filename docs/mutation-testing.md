@@ -28,7 +28,7 @@ clojure -M:test:mutate cljs-patrol.groups.reagent -t cljs-patrol.groups.reagent-
 ```
 
 ```text
-60 mutants: 49 killed, 10 survived, 0 no coverage, 0 unviable, 1 timed out.
+59 mutants: 48 killed, 10 survived, 0 no coverage, 0 unviable, 1 timed out.
 Score 83%, covered score 83%.
 HTML report written to reagent.html
 ```

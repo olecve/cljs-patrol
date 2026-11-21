@@ -28,6 +28,16 @@ branch. At acceptance, the Decision and Revisit when sections are aligned with t
 
 The second Revisit when condition, "the runner runs only the tests that reach a mutated definition", is now met.
 
+2026-11-21, later: integer literals are mutated too, because the survivors so far sit on boundaries. `0` and `1` swap,
+and any other integer written in decimal goes up by one. Only numbers in a `defn`, `defn-` or `defmethod` body change:
+
+- **Not a `def` value.** A number in data, such as a table or a limit, cannot be recorded, so each mutant would run
+  every test, mostly for a change no test checks on purpose.
+- **Not a `defmethod` dispatch value.** A changed dispatch value adds a method beside the original, and evaluating the
+  original form back does not remove it.
+- **Not a `^:const` def.** Clojure copies its value into each caller as the caller compiles, so a new value takes no
+  effect. Such a def is listed with the forms loaded once.
+
 ## Context
 
 Each branch that a change adds must have a test that fails when the branch breaks. A test that stays green when its code

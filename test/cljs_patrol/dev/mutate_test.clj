@@ -38,8 +38,6 @@
           ["visible?" 2 "seq" "empty?"]
           ["visible?" 2 "true" "false"]
           ["count-up" 3 "inc" "dec"]
-          ["plain" 7 "1" "0"]
-          ["hidden" 8 "1" "0"]
           ["hinted" 11 "first" "last"]
           ["attrs" 12 "if" "if-not"]
           ["attrs" 12 "1" "0"]
@@ -53,13 +51,13 @@
           ["two-lines" 16 "1" "0"]]
          (swaps-of (mutate/mutants (mutate/top-level-forms source))))
       (str "ns form, comment, discarded, quoted, metadata, attr map and cljs-branch code skipped; a hinted form"
-           " mutated; forms loaded once and other forms left out")))
+           " mutated; forms loaded once and other forms left out; numbers in def values left out")))
 
 (deftest mutants-change-plain-integer-literals
   (is (= [["0" "1"] ["1" "0"] ["7" "8"] ["-1" "0"] ["-5" "-4"] ["9223372036854775807" "9223372036854775808N"]]
          (map (juxt :from #(pr-str (:to %)))
               (mutate/mutants (mutate/top-level-forms (str "(ns app.n)\n"
-                                                           "(def numbers [0 1 7 -1 -5 9223372036854775807"
+                                                           "(defn numbers [] [0 1 7 -1 -5 9223372036854775807"
                                                            " 0x10 +1 007 -0 2r101 1N 1M 1.5 1/2 \\1 \"1\" :1])\n")))))
       "0 and 1 swap, other integers go up by one; other notations, numbers that are no integer and characters kept"))
 
@@ -195,7 +193,6 @@
           ["defaulted" 6 "when" "when-not"]
           ["defaulted" 6 "1" "0"]
           ["table" 7 "when" "when-not"]
-          ["table" 7 "1" "0"]
           ["spliced-a" 8 "when" "when-not"]
           ["spliced-a" 8 "1" "0"]
           ["spliced-b" 8 "if" "if-not"]
@@ -899,4 +896,18 @@
           (is (= 2 code))
           (is (str/includes? output "A mutant is still applied to") output)
           (is (str/includes? output "Put the code back with --restore before a run. If --restore cannot finish, delete")))))))
+
+(deftest mutants-leave-dispatch-values-data-and-const-defs-alone
+  (let [forms (mutate/top-level-forms (str "(ns app.x)\n"
+                                           "(defmethod area 1 [_] (if true 2 3))\n"
+                                           "(defmethod area [0 true] [_] 4)\n"
+                                           "(def limit 129)\n"
+                                           "(def ^:const width 80)\n"
+                                           "(defn f [x] (+ x 1))\n"))]
+    (is (= [["area" 2 "if"] ["area" 2 "true"] ["area" 2 "2"] ["area" 2 "3"] ["area" 3 "4"] ["f" 6 "1"]]
+           (map (juxt :def :row :from) (mutate/mutants forms)))
+        "dispatch value, def value and const def left out")
+    (is (= [:operator :operator :number :number :number :number]
+           (map :kind (mutate/mutants forms))))
+    (is (= ["width (def)"] (:loaded-once (mutate/scope "(ns app.x)\n(def ^:const width 80)\n" {}))))))
 
