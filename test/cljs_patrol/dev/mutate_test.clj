@@ -80,21 +80,24 @@
                                              {:def "b"
                                               :outcome :timeout}]
                                    :loaded-once ["d (defmulti)"]
-                                   :unreached [{:def "e"}]})]
+                                   :unreached [{:def "e"}]
+                                   :tests-by-def {"a" ["app-test/one"]}})]
     (is (= [{:def "a"
              :mutants 2
              :killed 1
              :survived 1
              :no-coverage 0
              :unviable 0
-             :timeout 0}
+             :timeout 0
+             :tests ["app-test/one"]}
             {:def "b"
              :mutants 2
              :killed 0
              :survived 0
              :no-coverage 0
              :unviable 1
-             :timeout 1}]
+             :timeout 1
+             :tests []}]
            (:definitions summary)))
     (is (= ["c"] (:not-mutated summary))
         "definition with no mutant is named, one never reached is not")
@@ -469,3 +472,26 @@
   (is (= "src/app.clj" (mutate/relative-path "src/app.clj")))
   (is (= (.getCanonicalPath (clojure.java.io/file "/tmp/app.clj")) (mutate/relative-path "/tmp/app.clj"))
       "file outside the working directory keeps its whole path"))
+
+(deftest run-names-killing-test-and-tests-that-ran
+  (with-target target-tests
+    (fn []
+      (let [{:keys [mutants definitions]} (run-target {:defs ["label"]})]
+        (is (= ["cljs-patrol.dev.mutate-test.target-test/labels"]
+               (keep :killed-by mutants)))
+        (is (= [["label" ["cljs-patrol.dev.mutate-test.target-test/labels"]]]
+               (map (juxt :def :tests) definitions)))))))
+
+(deftest run-tests-names-innermost-failing-test
+  (with-target (str target-tests
+                    "(deftest inner (is (= :down (target/label 1))))\n"
+                    "(deftest outer (inner))\n")
+    (fn []
+      (is (= "cljs-patrol.dev.mutate-test.target-test/inner"
+             (-> (mutate/run-tests ['cljs-patrol.dev.mutate-test.target-test]
+                                   5000
+                                   [(ns-resolve 'cljs-patrol.dev.mutate-test.target-test 'outer)])
+                 :killed-by
+                 symbol
+                 str))
+          "failure inside nested test names that test"))))

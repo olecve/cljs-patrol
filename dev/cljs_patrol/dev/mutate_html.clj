@@ -67,8 +67,8 @@
 
 (defn- plural [n one many] (str n " " (if (= 1 n) one many)))
 
-(defn- percent [part whole]
-  (if (pos? whole) (str (Math/round (* 100.0 (/ part whole))) "%") "n/a"))
+(defn- percent [ratio]
+  (if ratio (str (Math/round (* 100.0 ratio)) "%") "n/a"))
 
 (defn- line-range [rows]
   (let [first-row (apply min rows)
@@ -77,6 +77,8 @@
 
 (defn- gap? [{:keys [outcome]}] (contains? #{:survived :no-coverage} outcome))
 
+(defn- never-run? [gaps] (every? #(= :no-coverage (:outcome %)) gaps))
+
 (defn- swap-pair [{:keys [from to]}] #{from to})
 
 (defn- indent [line] (count (re-find #"^ *" line)))
@@ -84,7 +86,8 @@
 (defn context-rows
   "Return the rows of the forms around `row` in `lines`, each less indented than the next, up to an unindented one.
 
-  Blank lines and lines that start a string, such as a docstring, are left out."
+  Only a line that opens a form counts, so a docstring, a comment or the rest of a multi-line
+  string is left out."
   [lines row]
   (loop [r (dec row)
          limit (indent (nth lines (dec row) ""))
@@ -92,8 +95,8 @@
     (if (or (< r 1) (zero? limit))
       shown
       (let [text (nth lines (dec r))
-            trimmed (str/trim text)]
-        (if (and (< (indent text) limit) (not (str/blank? trimmed)) (not (str/starts-with? trimmed "\"")))
+            opens-form? (re-find #"^\s*[(\[{#]" text)]
+        (if (and opens-form? (< (indent text) limit))
           (recur (dec r) (indent text) (conj shown r))
           (recur (dec r) limit shown))))))
 
@@ -136,7 +139,7 @@
       (str ", and none failed with " (if these? "these planted bugs" "this planted bug"))]
      [:ul (for [test-name tests] [:li [:code test-name]])]]))
 
-(defn- gap-section [{:keys [lines]} function row mutants tests]
+(defn- gap-section [lines row mutants]
   [:div {:class "gap"}
    [:div {:class "gap-head"}
     [:strong (interpose ", " (for [{:keys [from to]} mutants] (list [:code from] " to " [:code to])))]
@@ -150,15 +153,12 @@
    (for [hint (distinct (map #(get hints (swap-pair %) "no test depends on this part of the line.") mutants))]
      [:p {:class "why"} (str "Likely: " hint)])
    (for [reason (distinct (keep (comp maybe-harmless swap-pair) mutants))]
-     [:p {:class "harmless"} reason])
-   (when tests (tests-list function tests (next mutants)))])
+     [:p {:class "harmless"} reason])])
 
 (defn- function-card
   "Return the card of a definition with test gaps: the closest test to extend, then each gap line by line."
-  [{:keys [tests-of]
-    :as context}
-   {:keys [function anchor mutants gaps]}]
-  (if (every? #(= :no-coverage (:outcome %)) gaps)
+  [lines {:keys [function anchor mutants gaps tests]}]
+  (if (never-run? gaps)
     [:article {:class "fn unrun"
                :id anchor}
      [:div {:class "fn-head"} [:h3 [:code function]] [:span {:class "count"} "never run"]]
@@ -166,14 +166,12 @@
       (str "No test calls this function, so none of its " (plural (count gaps) "planted bug" "planted bugs") " on ")
       [:a {:href (str "#L" (apply min (map :row gaps)))} (line-range (map :row gaps))]
       " can be caught. Start with one test that calls it."]]
-    (let [reaching (set (mapcat tests-of gaps))
-          [nearest caught] (->> mutants
+    (let [[nearest caught] (->> mutants
                                 (keep :killed-by)
-                                (filter reaching)
+                                (filter (set tests))
                                 frequencies
                                 (sort-by (juxt (comp - val) key))
-                                first)
-          shared-tests (when (apply = (map tests-of gaps)) (tests-of (first gaps)))]
+                                first)]
       [:article {:class "fn"
                  :id anchor}
        [:div {:class "fn-head"}
@@ -185,14 +183,14 @@
          [:p {:class "nearest"} "Closest test to extend: " [:code nearest]
           (str " (it runs for this function and caught " (plural caught "other planted bug" "other planted bugs")
                " in it).")])
-       (tests-list function shared-tests (next gaps))
+       (tests-list function tests (next gaps))
        (for [[row on-row] (sort-by key (group-by :row gaps))]
-         (gap-section context function row on-row (when-not shared-tests (tests-of (first on-row)))))])))
+         (gap-section lines row on-row))])))
 
 (defn- bar [{:keys [mutants killed survived no-coverage]}]
   (let [width #(str "width:" (/ (* 100.0 %) mutants) "%")]
     [:div {:class "share"}
-     [:b (percent killed (+ killed survived no-coverage))]
+     [:b (percent (/ killed (+ killed survived no-coverage)))]
      [:div {:class "bar"
             :aria-hidden "true"}
       [:i {:class "c"
@@ -308,10 +306,10 @@
                                           ["Not run: the run stopped first" (reduce + (map :mutants unreached))]])
                                  [["Planted bugs" (:mutants totals)]
                                   ["Score: caught, of all that the tests ran or should have run"
-                                   (if score (str (Math/round (* 100 score)) "%") "n/a")]]
+                                   (percent score)]]
                                  (when (pos? (:no-coverage totals))
                                    [["Covered score: leaves out never run"
-                                     (if covered-score (str (Math/round (* 100 covered-score)) "%") "n/a")]]))]
+                                     (percent covered-score)]]))]
        [:tr [:td label] [:td {:class "num"} value]])]]])
 
 (def ^:private terms
@@ -342,7 +340,7 @@
     [:ol (for [[authors title link note] sources]
            [:li authors [:a {:href link} title] note])]]])
 
-(defn- header [{:keys [target file test-nss since]} {:keys [totals stopped unreached note]} cards]
+(defn- header [{:keys [target file test-nss since]} {:keys [totals score stopped unreached note]} cards]
   (let [{:keys [killed survived no-coverage timeout unviable]} totals
         scored (+ killed survived no-coverage)
         gaps (+ survived no-coverage)]
@@ -359,8 +357,7 @@
         ". Code that the change affects only through other functions was not checked."])
      [:p {:class "eyebrow"} "Mutation report · " [:code (str target)] " · " [:code file]]
      [:h1 (if (pos? scored)
-            (str "The tests caught " killed " of " (plural scored "planted bug" "planted bugs") " ("
-                 (percent killed scored) ")")
+            (str "The tests caught " killed " of " (plural scored "planted bug" "planted bugs") " (" (percent score) ")")
             "No planted bug counts toward the score")]
      (if (seq cards)
        (list [:p {:class "lead"} (str (plural gaps "test gap" "test gaps") " in "
@@ -368,7 +365,7 @@
              [:ol {:class "todo"}
               (for [{:keys [function anchor gaps]} cards]
                 [:li [:a {:href (str "#" anchor)} [:code function]]
-                 (if (every? #(= :no-coverage (:outcome %)) gaps)
+                 (if (never-run? gaps)
                    ": no test calls it, "
                    (str ": " (plural (count gaps) "gap" "gaps") ", "))
                  [:span {:class "where"} (line-range (map :row gaps))]])])
@@ -386,25 +383,22 @@
 (defn page
   "Return the HTML page of a run's `summary`, for `target` loaded from `file` with `source`, tested by `test-nss`.
 
-  `test-names` lists every test var. Test names are shown without their namespace when one test
-  namespace holds them all."
-  [{:keys [mutants definitions tests-run]
+  Test names are shown without their namespace when one test namespace holds them all. A test
+  reaches a mutant when it ran for it: a mutant with no coverage, or that did not load, reaches
+  none."
+  [{:keys [mutants definitions]
     :as summary}
-   {:keys [target source test-nss test-names]
+   {:keys [target source test-nss]
     :as run}]
   (let [lines (str/split-lines source)
         short-name (if (= 1 (count test-nss)) #(str/replace % #"^[^/]*/" "") identity)
-        mutants (map #(-> %
-                          (update :killed-by (fn [test-name] (some-> test-name short-name)))
-                          (update :covered-by (fn [test-names] (map short-name test-names))))
-                     mutants)
-        every-test (map short-name test-names)
-        tests-of (fn [{function :def
-                       :keys [outcome covered-by]}]
-                   (cond
-                     (= :no-coverage outcome) []
-                     (contains? #{:every :uncovered} (get tests-run function)) every-test
-                     :else covered-by))
+        mutants (map #(update % :killed-by (fn [test-name] (some-> test-name short-name))) mutants)
+        tests-by-def (into {} (map (juxt :def #(map short-name (:tests %)))) definitions)
+        tests-of (fn [{:keys [outcome at-load?]
+                       :as mutant}]
+                   (if (and (contains? #{:killed :survived :timeout} outcome) (not at-load?))
+                     (get tests-by-def (:def mutant))
+                     []))
         by-def (group-by :def mutants)
         cards (->> (map :def definitions)
                    (keep (fn [function]
@@ -413,11 +407,10 @@
                              (when (seq gaps)
                                {:function function
                                 :mutants function-mutants
-                                :gaps gaps}))))
+                                :gaps gaps
+                                :tests (get tests-by-def function)}))))
                    (sort-by (juxt (comp - count :gaps) (comp #(apply min %) #(map :row %) :gaps)))
-                   (map-indexed #(assoc %2 :anchor (str "fn-" (inc %1)))))
-        context {:lines lines
-                 :tests-of tests-of}]
+                   (map-indexed #(assoc %2 :anchor (str "fn-" (inc %1)))))]
     (str "<!doctype html>\n"
          (h/html
           [:html {:lang "en"}
@@ -438,7 +431,7 @@
                " to catch one swap tends to break on every refactor. Several gaps in one function usually point to"
                " one missing case."]
               (if (seq cards)
-                (map #(function-card context %) cards)
+                (map #(function-card lines %) cards)
                 [:p {:class "ok"} "Nothing to fix."])]
              [:section
               [:h2 "By function"]

@@ -9,7 +9,6 @@
   that cannot be read or compiled is unviable, and one whose tests run too long timed out;
   neither is scored."
   (:require
-   [cljs-patrol.dev.mutate-html :as mutate-html]
    [cljs-patrol.parser :as parser]
    [clojure.java.io :as io]
    [clojure.java.shell :as shell]
@@ -273,8 +272,8 @@
                       :as event}]
                   (default-report event)
                   (when (contains? #{:fail :error} type)
-                    (reset! failed true)
                     (compare-and-set! killed-by nil (first t/*testing-vars*))
+                    (reset! failed true)
                     (throw (AssertionError. "A test failed; the mutant is killed."))))
          result (promise)
          thread (Thread. ^Runnable (fn []
@@ -399,10 +398,9 @@
   past the timeout without any mutation. Every test runs when selection is off, when the
   definition could not be recorded, when something called it outside a test, when a test
   namespace orders its tests with `test-ns-hook`, when every test calls it anyway, and when its
-  tests fail on their own, since
-  one may rely on what an earlier test left behind. That last check runs once for each
-  definition, on the unmutated namespace, and its time sets the subset's timeout unless one was
-  given."
+  tests fail on their own, since one may rely on what an earlier test left behind. That last
+  check runs once for each definition, on the unmutated namespace, and its time sets the
+  subset's timeout unless one was given."
   [{:keys [test-nss timeout-ms fixed-timeout? select? covered plans]} def-name]
   (let [{:keys [tests recorded reached-outside hooked? test-count]} covered
         def-tests (get tests def-name)
@@ -431,7 +429,7 @@
   was caught by loading it, and is killed. A restore that fails is returned as :restore-error,
   since the namespace is then left mutated. A definition whose own tests keep running without a
   mutation is returned as :plan-stuck?, with no outcome, since the mutant never ran."
-  [{:keys [target file test-nss timeout-ms covered]
+  [{:keys [target file test-nss timeout-ms]
     :as context}
    {:keys [form-loc wrapper mutant-loc to]
     :as mutant}]
@@ -445,8 +443,7 @@
                        form-text))
         mutated-text (in-wrapper (-> mutant-loc (z/replace (n/token-node to)) z/root n/string))
         {:keys [kind tests]
-         :as plan} (test-plan context (:def mutant))
-        mutant (assoc mutant :covered-by (get (:tests covered) (:def mutant)))]
+         :as plan} (test-plan context (:def mutant))]
     (if (= :stuck kind)
       (assoc mutant :plan-stuck? true)
       (let [load-result (load-outcome #(load-text target mutated-text {:file file
@@ -518,8 +515,9 @@
   other passing mutants survived, even when the coverage pass saw no call. A mutant that threw
   while it loaded shows nothing about the tests. The score is killed over killed,
   survived and no-coverage mutants; the covered score leaves the mutants no test reaches out, so it
-  shows how well the tests check the code they run."
-  [{:keys [defs-in-scope loaded-once other-forms unreached results stopped note plans]}]
+  shows how well the tests check the code they run. Each definition names the tests its mutants
+  ran, from `tests-by-def`."
+  [{:keys [defs-in-scope loaded-once other-forms unreached results stopped note plans tests-by-def]}]
   (let [reached (set (keep #(when (and (contains? #{:failed :timeout} (:outcome %)) (not (:at-load? %))) (:def %))
                            results))
         results (map #(cond-> %
@@ -535,7 +533,8 @@
                              :when (seq def-results)]
                          (assoc (outcome-counts def-results)
                                 :def def-name
-                                :mutants (count def-results))))
+                                :mutants (count def-results)
+                                :tests (get tests-by-def def-name []))))
      :not-mutated (->> defs-in-scope
                        (remove #(or (contains? by-def %) (contains? unreached-counts %)))
                        distinct
@@ -554,11 +553,10 @@
      :score (when (pos? scored) (double (/ (:killed counts) scored)))
      :covered-score (when (pos? covered) (double (/ (:killed counts) covered)))
      :mutants (mapv #(-> %
-                         (select-keys [:def :row :col :from])
+                         (select-keys [:def :row :col :from :at-load?])
                          (assoc :to (pr-str (:to %))
                                 :outcome (outcome-key (:outcome %))
-                                :killed-by (some-> (:killed-by %) symbol str)
-                                :covered-by (->> (:covered-by %) (map (comp str symbol)) sort vec)))
+                                :killed-by (some-> (:killed-by %) symbol str)))
                     results)
      :stopped stopped}))
 
@@ -683,6 +681,7 @@
                                                       :covered covered
                                                       :plans plans}
                                                      selected)
+        test-names (->> (test-vars-of test-nss) (map (comp str symbol)) sort vec)
         summary (summarize {:defs-in-scope defs-in-scope
                             :loaded-once loaded-once
                             :other-forms other-forms
@@ -690,7 +689,11 @@
                             :results results
                             :stopped stopped
                             :note note
-                            :plans (update-vals @plans :kind)})]
+                            :plans (update-vals @plans :kind)
+                            :tests-by-def (update-vals @plans (fn [{:keys [kind tests]}]
+                                                                (if (= :subset kind)
+                                                                  (->> tests (map (comp str symbol)) sort vec)
+                                                                  test-names)))})]
     (print-report summary (str/split-lines source) since)
     (when report
       (spit report (with-out-str (pprint/pprint (assoc summary
@@ -699,14 +702,11 @@
                                                        :since since))))
       (println (str "Report written to " report)))
     (when html
-      (spit html (mutate-html/page summary {:target target
-                                            :file (relative-path file)
-                                            :source source
-                                            :test-nss test-nss
-                                            :test-names (->> (test-vars-of test-nss)
-                                                             (map (comp str symbol))
-                                                             sort)
-                                            :since since}))
+      (spit html ((requiring-resolve 'cljs-patrol.dev.mutate-html/page) summary {:target target
+                                                                                 :file (relative-path file)
+                                                                                 :source source
+                                                                                 :test-nss test-nss
+                                                                                 :since since}))
       (println (str "HTML report written to " html)))
     summary))
 
