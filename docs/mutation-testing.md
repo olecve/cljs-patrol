@@ -118,6 +118,8 @@ reuses them:
   run once without it before a merge: that run checks them again.
 - **`--fresh`.** Runs every planted bug again and replaces the cache.
 
+Run one runner at a time on a target: each run writes the whole cache, so the last write wins.
+
 A plain run reuses an outcome only when nothing changed in `src/`, `test/`, `dev/`, `resources/`, `test-projects/`,
 `docs/`, `deps.edn`, `README.md` or the classpath directories of the project, in the `-t` namespaces, in the runner, or
 in `-a` and `--timeout`. A file that git ignores, such as `.DS_Store`, does not count. A run that reports no outcome,

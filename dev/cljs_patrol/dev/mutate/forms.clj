@@ -287,16 +287,6 @@
      :swap (if (number? to) :number :operator)
      :mutant-loc token}))
 
-(defn digest-hex
-  "Write what the SHA-256 `digest` has read as 64 hex digits."
-  [^java.security.MessageDigest digest]
-  (format "%064x" (BigInteger. 1 (.digest digest))))
-
-(defn text-hash
-  "Hash `text` with SHA-256, as 64 hex digits."
-  [^String text]
-  (digest-hex (doto (java.security.MessageDigest/getInstance "SHA-256") (.update (.getBytes text "UTF-8")))))
-
 (defn mutants
   "Return a mutant for every swap the definitions among the top-level `forms` allow.
 

@@ -3,7 +3,6 @@
    [cljs-patrol.dev.mutate :as mutate]
    [cljs-patrol.dev.mutate.cache :as cache]
    [cljs-patrol.dev.mutate.fixtures :as fixtures]
-   [cljs-patrol.dev.mutate.forms :as forms]
    [cljs-patrol.dev.mutate.report :as report]
    [cljs-patrol.dev.mutate.run :as run]
    [clojure.edn :as edn]
@@ -198,7 +197,7 @@
                                                 ['cljs-patrol.dev.mutate.fixtures.target-test]
                                                 (merge {:cache {:file file
                                                                 :make-key #(cache/run-key
-                                                                            {:sources (forms/text-hash (str source tests))
+                                                                            {:sources (cache/text-hash (str source tests))
                                                                              :runner "runner"})}}
                                                        options))))]
      [@summary output])))
@@ -439,7 +438,7 @@
                 "baseline ran")
             (is (= [["label" ["cljs-patrol.dev.mutate.fixtures.target-test/labels"]]]
                    (map (juxt :def :tests) (:definitions summary))))
-            (is (= (cache/run-key {:sources (forms/text-hash (str fixtures/target-source "changed tests"))
+            (is (= (cache/run-key {:sources (cache/text-hash (str fixtures/target-source "changed tests"))
                                    :runner "runner"})
                    (:key (edn/read-string (slurp file))))
                 "run that reused every outcome saves its key")
@@ -451,6 +450,30 @@
                       :still-open 0
                       :not-run-before 0}
                      (:progress plain))))))))))
+
+(deftest second-iterate-run-on-same-sources-still-names-tests
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/with-target fixtures/target-tests
+        (fn []
+          (let [file (io/file dir "target.edn")
+                _ (run-cached file fixtures/target-tests {:defs ["label"]})
+                _ (run-cached file "changed tests" {:defs ["label"]
+                                                    :iterate true})
+                [summary output] (run-cached file "changed tests" {:defs ["label"]
+                                                                   :iterate true})]
+            (is (str/includes? output "All 2 mutants come from the last run, so no test runs."))
+            (is (= [["label" ["cljs-patrol.dev.mutate.fixtures.target-test/labels"]]]
+                   (map (juxt :def :tests) (:definitions summary))))))))))
+
+(deftest failed-page-write-keeps-last-run-saved
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/with-target fixtures/target-tests
+        (fn []
+          (let [file (io/file dir "target.edn")]
+            (is (thrown? java.io.IOException (run-cached file fixtures/target-tests {:html (str dir)})))
+            (is (= 8 (count (:last-run (edn/read-string (slurp file))))))))))))
 
 (deftest run-keeps-progress-tags-of-untouched-definitions-after-edit
   (fixtures/with-temp-dir

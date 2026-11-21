@@ -43,7 +43,8 @@
   records what the run reported as the last run."
   [target file source test-nss {:keys [defs since timeout report html all-tests cache fresh iterate]}]
   (let [lines (when since (git/lines-since file since))
-        {:keys [defs-in-scope loaded-once const-defs other-forms selected ignored unused-markers forms]}
+        {:keys [defs-in-scope loaded-once const-defs other-forms selected ignored unused-markers]
+         top-forms :forms}
         (forms/scope source {:defs defs
                              :lines lines})
         selected (cache/with-ids selected)
@@ -51,7 +52,7 @@
         _ (doseq [marker unused-markers]
             (println (str "Warning: the skip marker on " marker " matches no mutant; remove it or fix its operator.")))
         store (cache/open! (assoc cache
-                                  :current-places #(->> forms
+                                  :current-places #(->> top-forms
                                                         forms/mutants
                                                         cache/with-ids
                                                         (into {} (map (juxt :place :id))))
@@ -86,6 +87,10 @@
         reported (keep #(or (get fresh-results (:id %))
                             (some->> (get reused (:id %)) (merge %)))
                        selected)
+        places (into {} (map (juxt :id :place)) selected)
+        report-plans (merge (run/recorded-plans covered def-names)
+                            (cache/cached-plans store)
+                            @plans)
         summary (cache/with-progress
                   (report/summarize {:defs-in-scope defs-in-scope
                                      :loaded-once loaded-once
@@ -95,19 +100,19 @@
                                      :results reported
                                      :ignored ignored
                                      :stopped (when stopped
-                                                (str stopped (when @(:file store) (cache/stop-note stop-reason))))
+                                                (str stopped (when @(:file store)
+                                                               (cache/stop-note stop-reason @(:recorded? store)))))
                                      :note (cache/run-note store note)
-                                     :plans (merge (run/recorded-plans covered def-names)
-                                                   (cache/cached-plans store)
-                                                   @plans)})
+                                     :plans report-plans})
                   store
-                  (into {} (map (juxt :id :place)) selected))]
+                  places)]
     (report/print-report summary {:html html
                                   :report report
                                   :since since
                                   :source-lines (str/split-lines source)
                                   :target target
                                   :cached? (some? @(:file store))})
+    (cache/finish! store (into {} (map (juxt (comp places :id) :outcome)) (:mutants summary)) report-plans)
     (when report
       (spit report (with-out-str (pprint/pprint (assoc summary
                                                        :target target
@@ -124,7 +129,6 @@
                                                                                                   sort)
                                                                                  :since since}))
       (println (str "HTML report written to " html)))
-    (cache/finish! store (into {} (map (juxt :place :outcome)) reported))
     summary))
 
 (defn mutate
@@ -132,7 +136,7 @@
 
   The cache key hashes every source the target and its tests may read, from the directory the
   command runs from and the classpath directories under it, and the runner's own."
-  [target test-nss {:keys [cache-dir timeout all-tests]
+  [target test-nss {:keys [cache-dir]
                     :as options}]
   (let [file (source-file target)
         source (slurp file)]
@@ -143,18 +147,7 @@
         (throw (error/setup-error (str "Could not load the namespaces: " (ex-message e))))))
     (mutate-source target file source test-nss
                    (assoc options :cache {:file (cache/cache-file cache-dir target)
-                                          :make-key #(cache/run-key {:sources (cache/sources-hash
-                                                                               "."
-                                                                               (distinct
-                                                                                (concat cache/source-roots
-                                                                                        (cache/classpath-roots
-                                                                                         (System/getProperty
-                                                                                          "java.class.path")
-                                                                                         "."))))
-                                                                     :test-nss test-nss
-                                                                     :runner (cache/runner-version)
-                                                                     :timeout timeout
-                                                                     :all-tests all-tests})}))))
+                                          :make-key #(cache/project-key "." test-nss options)}))))
 
 (def ^:private cli-options
   [["-t" "--test NS" "A test namespace to run, given once per namespace"

@@ -8,7 +8,6 @@
   outcome."
   (:require
    [cljs-patrol.dev.mutate.apply :as apply]
-   [cljs-patrol.dev.mutate.forms :as forms]
    [cljs-patrol.parser :as parser]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
@@ -31,6 +30,23 @@
   [{:keys [def row col from to]}]
   (str def "/" row ":" col "/" from "->" (pr-str to)))
 
+(defn- digest-hex [^java.security.MessageDigest digest]
+  (format "%064x" (BigInteger. 1 (.digest digest))))
+
+(defn text-hash
+  "Hash `text` with SHA-256, as 64 hex digits."
+  [^String text]
+  (digest-hex (doto (java.security.MessageDigest/getInstance "SHA-256") (.update (.getBytes text "UTF-8")))))
+
+(defn- files-hash
+  "Hash each of `files`, [name bytes] pairs, as its name, its length and its bytes, so no text can move between files."
+  [files]
+  (let [digest (java.security.MessageDigest/getInstance "SHA-256")]
+    (doseq [[file-name ^bytes content] files]
+      (.update digest (.getBytes (str file-name "\n" (alength content) "\n") "UTF-8"))
+      (.update digest content))
+    (digest-hex digest)))
+
 (defn- definition-of [{:keys [wrapper form-loc]}]
   (or wrapper form-loc))
 
@@ -45,7 +61,7 @@
         (mapcat (fn [same-definition]
                   ; mutate: skip first: every mutant of the group has this definition
                   (let [definition (definition-of (first same-definition))
-                        form-hash (forms/text-hash (z/string definition))
+                        form-hash (text-hash (z/string definition))
                         [start-row start-col] (parser/position definition)]
                     (for [{:keys [row col from to]
                            :as mutant} same-definition]
@@ -75,7 +91,8 @@
          (filter #(.isDirectory ^java.io.File %))
          (map #(.toPath ^java.io.File %))
          (filter #(.startsWith ^java.nio.file.Path % root-path))
-         (map #(str (.relativize root-path %))))))
+         (map #(let [relative (str (.relativize root-path %))]
+                 (if (str/blank? relative) "." relative))))))
 
 (defn- git-files
   "Return the paths under `roots` of `root` that git sees: tracked, or untracked and not ignored; nil when git fails."
@@ -87,14 +104,20 @@
         (remove str/blank? (str/split out #"\u0000"))))
     (catch Exception _ nil)))
 
+(def ^:private never-hashed
+  "The directories the walk outside git leaves out: git's own, and the cache's."
+  #{".git" default-dir})
+
 (defn- walked-files
-  "Return the paths of every file under `roots` of `root`, for a directory git does not know."
+  "Return the paths of every file under `roots` of `root`, for a directory git does not know, but in `never-hashed`."
   [root roots]
-  (let [root-path (.toPath (io/file root))]
+  (let [root-path (.toPath (.getCanonicalFile (io/file root)))]
     (->> roots
-         (mapcat #(file-seq (io/file root %)))
+         (mapcat #(file-seq (.getCanonicalFile (io/file root %))))
          (filter #(.isFile ^java.io.File %))
-         (map #(str (.relativize root-path (.toPath ^java.io.File %)))))))
+         (map #(.relativize root-path (.toPath ^java.io.File %)))
+         (remove #(contains? never-hashed (str (.getName ^java.nio.file.Path % 0))))
+         (map str))))
 
 (defn sources-hash
   "Hash the path and the bytes of every file under `roots` of `root` that git sees, in path order.
@@ -103,15 +126,13 @@
   file counts."
   [root roots]
   (try
-    (let [root-path (.toPath (io/file root))
-          digest (java.security.MessageDigest/getInstance "SHA-256")]
-      (doseq [path (->> (or (git-files root roots) (walked-files root roots))
-                        (filter #(.isFile (io/file root %)))
-                        distinct
-                        sort)]
-        (.update digest (.getBytes (str path "\n") "UTF-8"))
-        (.update digest (java.nio.file.Files/readAllBytes (.resolve root-path ^String path))))
-      (forms/digest-hex digest))
+    (let [root-path (.toPath (io/file root))]
+      (->> (or (git-files root roots) (walked-files root roots))
+           (filter #(.isFile (io/file root %)))
+           distinct
+           sort
+           (map (fn [path] [path (java.nio.file.Files/readAllBytes (.resolve root-path ^String path))]))
+           files-hash))
     (catch Exception e
       (throw (ex-info (str "reading the sources under " root " failed: " (ex-message e)) {} e)))))
 
@@ -131,7 +152,8 @@
   ([] (runner-version runner-files))
   ([find-files]
    (try
-     (forms/text-hash (str/join (map slurp (find-files))))
+     (files-hash (map (fn [^java.io.File file] [(.getName file) (java.nio.file.Files/readAllBytes (.toPath file))])
+                      (find-files)))
      (catch Exception e
        (throw (ex-info (str "reading the runner files failed: " (ex-message e)) {} e))))))
 
@@ -143,6 +165,19 @@
    :runner runner
    :options {:all-tests (boolean all-tests)
              :timeout timeout}})
+
+(defn project-key
+  "Make the key of a run in `root`, the directory the command runs from, against `test-nss` with `options`.
+
+  The sources are every file of [[source-roots]] and of the classpath directories under `root`."
+  [root test-nss {:keys [timeout all-tests]}]
+  (run-key {:sources (sources-hash root (distinct (concat source-roots
+                                                          (classpath-roots (System/getProperty "java.class.path")
+                                                                           root))))
+            :test-nss test-nss
+            :runner (runner-version)
+            :timeout timeout
+            :all-tests all-tests}))
 
 (defn- warn [message]
   (println (str "Warning: " message)))
@@ -176,8 +211,8 @@
         (reset! file nil)))))
 
 (def ^:private gap-outcomes
-  "The outcomes of a run, before the report names them, that are test gaps: survived and no coverage."
-  #{:passed :no-coverage})
+  "The outcomes, as the report names them, that are test gaps."
+  #{:survived :no-coverage})
 
 (defn- kept-by-iterate?
   "True when --iterate keeps a cached outcome: caught, or unviable, which no test changes; a loop is kept to run it last."
@@ -237,6 +272,7 @@
      :key key
      :old-key old-key
      :seen-plans (atom {})
+     :recorded? (atom false)
      :entry (atom {:key key
                    :results (case mode
                               :resume (:results old)
@@ -262,7 +298,8 @@
                                               (when (= ["the sources"] changed) "; --iterate keeps its caught mutants")
                                               ".")
       (zero? reused-count) nil
-      (empty? to-run) (str "All " reused-count " mutants come from the last run"
+      (empty? to-run) (str (if (= 1 reused-count) "The 1 mutant comes" (str "All " reused-count " mutants come"))
+                           " from the last run"
                            (if (= :iterate mode)
                              ", as --iterate asks; the tests run once to find which tests reach each definition."
                              ", so no test runs.")
@@ -296,12 +333,16 @@
      :message (start-message store reused to-run)}))
 
 (defn stop-note
-  "Say what the cache keeps for the next run after a run that stopped for `reason`, as `run/run-all` names it."
-  [reason]
+  "Say what the cache keeps for the next run after a run that stopped for `reason`, as `run/run-all` names it.
+
+  `recorded?` is true when the run recorded an outcome before it stopped."
+  [reason recorded?]
   (case reason
     :stuck " The cache keeps the mutants that finished, so the next run runs the rest, and this one last."
-    :plan-stuck (str " The cache keeps the mutants that finished, but the next run stops here again until these tests"
-                     " stop looping.")
+    :plan-stuck (str (if recorded?
+                       " The cache keeps the mutants that finished, but the next run stops here again"
+                       " The next run stops here again")
+                     " until these tests stop looping.")
     :restore-error " The cache keeps the mutants that finished, this one too, so the next run runs the rest."
     nil))
 
@@ -323,7 +364,7 @@
   The file is written again after each outcome, so a run that stops early, or is killed, keeps
   every outcome it finished. The last run's outcomes stay as they were until [[finish!]]. Only
   the plans that changed since the last outcome are turned into test names."
-  [{:keys [entry previous seen-plans]
+  [{:keys [entry previous seen-plans recorded?]
     :as store}
    result
    plans
@@ -334,16 +375,22 @@
                       (assoc-in [:results (:id result)] (result-entry result))
                       (update :plans merge (plan-entries changed))
                       (cond-> (and note (not-any? #{note} (:notes %))) (update :notes conj note)))))
+  (reset! recorded? true)
   (write! store previous))
 
 (defn finish!
-  "Record `last-run`, the outcomes by place that the run reported, as the last run, for the next run's progress.
+  "Record `last-run`, the outcomes by place that the run reported, as the last run, and the test `plans` the report used.
 
   Every run that prints its report writes it, in every mode, so a run that reused every outcome
-  still saves its key and what it reported. A run that reported nothing, such as one whose scope
-  is empty, leaves the file as it was."
-  [store last-run]
+  still saves its key, what it reported and the tests of each definition, which a later run
+  that runs no baseline shows. A run that reported nothing, such as one whose scope is empty,
+  leaves the file as it was."
+  [{:keys [entry]
+    :as store}
+   last-run
+   plans]
   (when (seq last-run)
+    (swap! entry update :plans merge (plan-entries plans))
     (write! store last-run)))
 
 (defn cached-plans
@@ -366,7 +413,7 @@
   [summary {:keys [previous]} places]
   (if-not previous
     summary
-    (let [gap? #(contains? #{:survived :no-coverage} (:outcome %))
+    (let [gap? #(contains? gap-outcomes (:outcome %))
           last-outcome #(get previous (get places (:id %)))
           was-gap? #(contains? gap-outcomes (last-outcome %))
           mutants (mapv #(cond-> %

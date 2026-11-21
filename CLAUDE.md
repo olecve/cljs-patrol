@@ -151,26 +151,29 @@ run for it, then tables by function and by test, and the source. The page needs 
 `.mutate-applied.edn`, and `--restore` puts it back. Neither takes the options of a run, and a second `--apply` or a run
 waits for `--restore`. A run writes `.mutate-cache/<target-ns>.edn` in the directory it runs from again after each
 mutant's outcome, with the safe write of `--apply`, so a stopped or killed run keeps what it finished; a run that
-records no outcome, such as one whose baseline fails, leaves the cache as it was. A cache that cannot be read prints one
+reports no outcome, such as one whose baseline fails, leaves the cache as it was. A cache that cannot be read prints one
 warning: the run does not use it, and its first outcome replaces it. A key that cannot be made, or a cache that cannot
 be written, prints one warning, and the run goes on without the cache. Each mutant has an `:id` in the cache and the EDN
 report, such as `holds-focus?/490:43/remove->filter`: its definition, line, column and swap, and a place: the hash of
 its top-level definition's text, its line and column inside that definition, and its swap. The cache's key is a hash of
 every file under `src/`, `test/`, `dev/`, `resources/`, `test-projects/` and `docs/`, of `deps.edn` and `README.md`, and
-of the classpath directories under the working directory, counting only the files git sees in a git work tree, the
-sorted `-t` namespaces, a hash of the runner's own sources (`mutate.clj` and `mutate/*.clj`), and `-a` and `--timeout`.
-A run with the same key reuses each cached outcome, a plain timeout included, and runs only the other mutants, and `-d`
-and `-s` runs share one cache. A mutant whose tests kept running after the timeout is never reused: the next run runs it
-again after every other mutant. When a run with the same key finds every mutant in scope cached, no test runs, the
-baseline included. Another key makes the run start over. `--iterate` needs only the same `-t` namespaces, runner and
-options: it reuses the caught and unviable outcomes by place, so an edit runs again only the definitions it touches; it
-runs the baseline, and a definition whose outcomes are all reused shows the tests the baseline saw call it. It marks
-those outcomes `:trusted?`, and a run without `--iterate` runs them again. `--fresh` runs every mutant again. At the end
-of a run that prints its report, in every mode, the cache keeps what that run reported, by place, as the last run: each
-gap whose place the last run reported is tagged new or still open, on the console and the page, the others count as "not
-run then", and the report counts the gaps closed since. A run exits 0 when nothing survives, 1 when something survives
-or has no coverage, and 2 when it cannot start or stops early. A value a `def` computes when the namespace loads keeps
-the original, so a mutant only it reaches survives.
+of the classpath directories under the working directory, counting only the files git sees in a git work tree (outside
+git, every file but `.git/` and `.mutate-cache/`), each by its path, length and bytes, the sorted `-t` namespaces, a
+hash of the runner's own sources (`mutate.clj` and `mutate/*.clj`), and `-a` and `--timeout`. A run with the same key
+reuses each cached outcome, a plain timeout included, and runs only the other mutants, and `-d` and `-s` runs share one
+cache. A mutant whose tests kept running after the timeout is never reused: the next run runs it again after every other
+mutant. When a run with the same key finds every mutant in scope cached, no test runs, the baseline included. Another
+key makes the run start over. `--iterate` needs only the same `-t` namespaces, runner and options: it reuses the caught
+and unviable outcomes by place, so an edit runs again only the definitions it touches; after a change it runs the
+baseline, and a definition whose outcomes are all reused shows the tests the baseline saw call it. The cache keeps the
+test lists the report used, so a later run with no baseline still shows them. On unchanged sources, `--iterate` resumes:
+it keeps reusing the outcomes it trusts and runs no baseline when nothing is left. Run one runner at a time on a target:
+the last write wins. It marks those outcomes `:trusted?`, and a run without `--iterate` runs them again. `--fresh` runs
+every mutant again. At the end of a run that prints its report, in every mode, the cache keeps what that run reported,
+by place, as the last run: each gap whose place the last run reported is tagged new or still open, on the console and
+the page, the others count as "not run then", and the report counts the gaps closed since. A run exits 0 when nothing
+survives, 1 when something survives or has no coverage, and 2 when it cannot start or stops early. A value a `def`
+computes when the namespace loads keeps the original, so a mutant only it reaches survives.
 
 The runner's command line is `dev/cljs_patrol/dev/mutate.clj`. Each job has its namespace under
 `dev/cljs_patrol/dev/mutate/`, and its tests under `test/cljs_patrol/dev/mutate/`: `forms` reads the target into

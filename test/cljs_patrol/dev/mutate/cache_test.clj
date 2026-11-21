@@ -58,7 +58,7 @@
         "each of two same definitions counts from its own start")
     (is (not= (:place (before "g if")) (:place (same-offset "g if")))
         "other text at same offset gives new place")
-    (is (= (str (forms/text-hash "^:x (defn f [x] (when x 1))") "/0:17/when->when-not") (:place (under-meta "f when")))
+    (is (= (str (cache/text-hash "^:x (defn f [x] (when x 1))") "/0:17/when->when-not") (:place (under-meta "f when")))
         "place counts from metadata that starts definition, hashes its text")))
 
 (def ^:private key-input
@@ -162,7 +162,59 @@
                                               [(io/file dir "src") (io/file dir "extra" "classes") (io/file dir "lib.jar")
                                                (io/file dir "missing") (System/getProperty "java.io.tmpdir")])
                                     dir))
-          "jar, missing and outside directories left out"))))
+          "jar, missing and outside directories left out")
+      (is (= ["."] (cache/classpath-roots (str dir) dir))
+          "root itself on classpath is whole project"))))
+
+(deftest sources-hash-keeps-text-inside-its-file
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (write-file dir "src/a" "x\nsrc/b\ny")
+      (let [one (cache/sources-hash dir ["src"])]
+        (write-file dir "src/a" "x\n")
+        (write-file dir "src/b" "y")
+        (is (not= one (cache/sources-hash dir ["src"]))
+            "text moved into next file changes hash")))))
+
+(deftest runner-version-keeps-text-inside-its-file
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (write-file dir "a.clj" "x\nb.clj\ny")
+      (let [one (cache/runner-version (constantly [(io/file dir "a.clj")]))]
+        (write-file dir "a.clj" "x\n")
+        (write-file dir "b.clj" "y")
+        (is (not= one (cache/runner-version (constantly [(io/file dir "a.clj") (io/file dir "b.clj")])))
+            "text moved into next file changes hash")
+        (is (= (cache/runner-version (constantly [(io/file dir "a.clj")]))
+               (cache/runner-version (constantly [(io/file dir "a.clj")]))))))))
+
+(deftest sources-hash-outside-git-skips-git-and-cache-directories
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (write-file dir "src/a.clj" "x")
+      (let [base (cache/sources-hash dir ["."])]
+        (write-file dir ".git/HEAD" "x")
+        (write-file dir ".mutate-cache/a.edn" "x")
+        (is (= base (cache/sources-hash dir ["."])))
+        (write-file dir "src/b.clj" "x")
+        (is (not= base (cache/sources-hash dir ["."])))))))
+
+(deftest project-key-hashes-project-and-names-tests-and-options
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (write-file dir "src/a.clj" "x")
+      (let [options {:timeout 5
+                     :all-tests true}
+            project-key (cache/project-key dir ['b-test 'a-test] options)]
+        (is (= {:test-nss ["a-test" "b-test"]
+                :runner (cache/runner-version)
+                :options {:all-tests true
+                          :timeout 5}}
+               (dissoc project-key :sources)))
+        (is (= (cache/sources-hash dir cache/source-roots) (:sources project-key))
+            "no classpath directory lies in temporary directory")
+        (write-file dir "src/a.clj" "y")
+        (is (not= project-key (cache/project-key dir ['b-test 'a-test] options)))))))
 
 (deftest sources-hash-names-root-it-could-not-read
   (fixtures/with-temp-dir
@@ -225,8 +277,8 @@
 
 (defn- read-cache [file] (edn/read-string (slurp file)))
 
-(def ^:private old-last-run {"p1" :failed
-                             "p2" :passed})
+(def ^:private old-last-run {"p1" :killed
+                             "p2" :survived})
 
 (defn- with-old-cache
   "Call `f` with a cache file that holds `old-results` under sources `s1`."
@@ -383,7 +435,7 @@
                           :outcome :failed}
                    {}
                    nil)
-    (cache/finish! store {"p" :failed})
+    (cache/finish! store {"p" :killed} {})
     (is (= {"f/1:1/when->when-not" {:outcome :failed
                                     :place nil}}
            (:results @(:entry store)))
@@ -398,7 +450,7 @@
                        (is (nil? @(:file store)))
                        (is (nil? (:previous store)))
                        (cache/record! store (mutant "f/1") {} nil)
-                       (cache/finish! store {})))]
+                       (cache/finish! store {} {})))]
         (is (= (str "Warning: the cache key could not be made, so the run does not use the cache: reading the"
                     " runner files failed: gone\n")
                output))
@@ -462,7 +514,7 @@
         (is (= (str "Reused the last run's outcome for 2 of 4 mutants (1 caught, 1 did not compile), as --iterate"
                     " asks; running the rest." trust-warning)
                (plan-message store ["f/9:1/when->when-not" "f/9:4/=->not=" "f/9:6/>->>=" "f/9:2/if->if-not"])))
-        (is (= (str "All 1 mutants come from the last run, as --iterate asks; the tests run once to find which tests"
+        (is (= (str "The 1 mutant comes from the last run, as --iterate asks; the tests run once to find which tests"
                     " reach each definition." trust-warning)
                (plan-message store ["f/9:1/when->when-not"]))
             "all from cache still warns")))))
@@ -473,17 +525,20 @@
       (let [file (io/file dir "a.edn")]
         (write-cache file {:key (run-key "s1")
                            :results {"f/1" {:outcome :unviable}}})
-        (is (= "All 1 mutants come from the last run, so no test runs."
+        (is (= "The 1 mutant comes from the last run, so no test runs."
                (plan-message (open file {:make-key (key-of "s1")
                                          :iterate true})
                              ["f/1"]))
             "same key resumes, also with --iterate")))))
 
 (deftest stop-note-matches-why-run-stopped
-  (is (str/includes? (cache/stop-note :stuck) "the next run runs the rest, and this one last"))
-  (is (str/includes? (cache/stop-note :plan-stuck) "the next run stops here again"))
-  (is (str/includes? (cache/stop-note :restore-error) "this one too, so the next run runs the rest"))
-  (is (nil? (cache/stop-note nil))))
+  (is (str/includes? (cache/stop-note :stuck true) "the next run runs the rest, and this one last"))
+  (is (= " The cache keeps the mutants that finished, but the next run stops here again until these tests stop looping."
+         (cache/stop-note :plan-stuck true)))
+  (is (= " The next run stops here again until these tests stop looping." (cache/stop-note :plan-stuck false))
+      "nothing recorded, nothing kept")
+  (is (str/includes? (cache/stop-note :restore-error true) "this one too, so the next run runs the rest"))
+  (is (nil? (cache/stop-note nil true))))
 
 (defn- outcome [id place & {:as more}]
   (merge {:id id
@@ -538,18 +593,25 @@
     (fn [file]
       (let [store (open file {:make-key (key-of "s2")})]
         (cache/record! store (outcome "f/1" "p1") {} nil)
-        (cache/finish! store {"p1" :failed
-                              "p9" :passed})
-        (is (= {"p1" :failed
-                "p9" :passed}
-               (:last-run (read-cache file))))))))
+        (cache/finish! store
+                       {"p1" :killed
+                        "p9" :survived}
+                       {"g" {:kind :subset
+                             :tests #{#'clojure.core/inc}}})
+        (is (= {"p1" :killed
+                "p9" :survived}
+               (:last-run (read-cache file))))
+        (is (= {:kind :subset
+                :tests ["clojure.core/inc"]}
+               (get-in (read-cache file) [:plans "g"]))
+            "plans report used are saved for run with no baseline")))))
 
 (deftest finish-of-resumed-run-records-last-run-without-new-outcome
   (with-old-cache
     (fn [file]
       (let [store (open file {:make-key (key-of "s1")})]
-        (cache/finish! store {"p1" :failed})
-        (is (= {"p1" :failed} (:last-run (read-cache file)))
+        (cache/finish! store {"p1" :killed} {})
+        (is (= {"p1" :killed} (:last-run (read-cache file)))
             "-d run that reuses all sets last run to what it reported")
         (is (= old-results (:results (read-cache file))))))))
 
@@ -561,7 +623,7 @@
                          {:make-key (key-of "s2")}
                          {:make-key (key-of "s1")
                           :fresh true}]]
-          (cache/finish! (open file options) {})
+          (cache/finish! (open file options) {} {"g" {:kind :every}})
           (is (= before (slurp file))
               (str options)))))))
 
@@ -571,7 +633,8 @@
       (cache/finish! (open file {:make-key (key-of "s2")
                                  :current-places (constantly {"p1" "f/9:1/when->when-not"})
                                  :iterate true})
-                     {"p1" :failed})
+                     {"p1" :killed}
+                     {})
       (let [{:keys [key results last-run]} (read-cache file)]
         (is (= (run-key "s2") key))
         (is (= {"f/9:1/when->when-not" {:outcome :failed
@@ -579,7 +642,7 @@
                                         :place "p1"
                                         :trusted? true}}
                results))
-        (is (= {"p1" :failed} last-run))))))
+        (is (= {"p1" :killed} last-run))))))
 
 (deftest open-looks-for-current-places-only-under-iterate
   (with-old-cache
@@ -599,7 +662,7 @@
             output (with-out-str
                      (cache/record! store (outcome "f/1" "p1") {} nil)
                      (cache/record! store (outcome "f/2" "p2") {} nil)
-                     (cache/finish! store {}))]
+                     (cache/finish! store {} {}))]
         (is (str/starts-with? output (str "Warning: the cache " file " could not be written, so the run goes on"
                                           " without it:")))
         (is (= 1 (count (re-seq #"Warning" output))))
@@ -630,10 +693,10 @@
                                                   :outcome :killed}
                                                  {:id "f"
                                                   :outcome :survived})
-                                     {:previous {"pa" :passed
+                                     {:previous {"pa" :survived
                                                  "pb" :no-coverage
-                                                 "pc" :failed
-                                                 "pd" :passed
+                                                 "pc" :killed
+                                                 "pd" :survived
                                                  "pe" :timeout
                                                  "gone" :passed}}
                                      {"a" "pa"
@@ -661,3 +724,9 @@
 
 (deftest cache-file-is-named-after-target
   (is (str/ends-with? (str (cache/cache-file ".mutate-cache" 'app.core)) ".mutate-cache/app.core.edn")))
+
+(deftest record-marks-run-as-having-recorded-outcome
+  (let [store (cache/open! {})]
+    (is (false? @(:recorded? store)))
+    (cache/record! store (outcome "f/1" "p1") {} nil)
+    (is (true? @(:recorded? store)))))

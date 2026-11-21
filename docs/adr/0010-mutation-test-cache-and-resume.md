@@ -39,9 +39,10 @@ The runner keeps the outcome of each mutant in a cache, and reuses an outcome wh
   directory the command runs from. The target and its tests load from the classpath, and the code reads `resources/`.
   The tests read the fixtures in `test-projects/` and the examples in `docs/` and `README.md`. In a git work tree, only
   the files that git sees count: tracked files, and untracked files that git does not ignore, so a `.DS_Store` or a
-  generated report does not change the key. Outside git, every file counts. The key also holds the names of the `-t`
-  namespaces in name order, the hash of the runner's own source, and the options that change an outcome, `-a` and
-  `--timeout`.
+  generated report does not change the key. Outside git, every file counts but those in `.git/` and `.mutate-cache/`.
+  Each file adds its path and its length before its bytes, so text that moves from one file to the next changes the key.
+  The key also holds the names of the `-t` namespaces in name order, the hash of the runner's own source, and the
+  options that change an outcome, `-a` and `--timeout`.
 - **When an outcome is reused.** A run with the same key reuses every cached outcome and runs only the other mutants.
   When any part of the key differs, the run uses no cached outcome and says which part changed. Its first outcome
   replaces the cache. A run that reports no outcome, such as one whose tests fail before any mutation or whose scope is
@@ -57,15 +58,17 @@ The runner keeps the outcome of each mutant in a cache, and reuses an outcome wh
   cannot make, or a cache that it cannot write, gives one warning that names the file or what failed, and the run goes
   on without the cache.
 - **`--iterate`.** For the work of writing tests and fixing gaps: when the sources changed, `--iterate` reuses the
-  cached outcomes of the mutants that were caught or did not compile. When nothing changed, it resumes as a plain run
-  does. It matches by place, not by id. An edit thus keeps the outcomes of every definition it does not touch, also a
+  cached outcomes of the mutants that were caught or did not compile. When nothing changed since the last `--iterate`
+  run, it resumes: it keeps reusing the outcomes it trusts, runs only what is left, and runs no baseline when nothing is
+  left. It matches by place, not by id. An edit thus keeps the outcomes of every definition it does not touch, also a
   definition that moved, and runs again each mutant of a definition it touches, also for a skip marker inside it. It
   runs again the mutants that survived, had no coverage or timed out, and the new mutants. It does not keep the test
-  plans or the notes of the last run, because the sources changed. It runs the baseline, also when it reuses every
-  outcome, and the report names for each definition the tests that the baseline saw call it. The `-t` namespaces, the
-  runner's source and the options must be the same as in the cache. The run says how many outcomes it reused, and that
-  it trusts them. The cache marks these outcomes as trusted, and only another `--iterate` run reuses them: a plain run
-  checks them again.
+  plans or the notes of the last run, because the sources changed. After a change, it runs the baseline, also when it
+  reuses every outcome, and the report names for each definition the tests that the baseline saw call it. The cache
+  keeps the test lists that the report used, so a later run that runs no baseline still names them. The `-t` namespaces,
+  the runner's source and the options must be the same as in the cache. The run says how many outcomes it reused, and
+  that it trusts them. The cache marks these outcomes as trusted, and only another `--iterate` run reuses them: a plain
+  run checks them again.
 - **`--fresh`.** It ignores the cache and starts over.
 - **No work when all is known.** When a run with the same key finds every outcome in the cache, it runs no baseline and
   no test, and uses the test plans and the notes that the cache holds. When the reused outcomes ran under a note, such
@@ -135,6 +138,8 @@ Rejected because `clojure -T:build uber` deletes `target/`, as
   slower or faster machine with the same sources can disagree on it.
 - The JVM is not in the key. A run on another JVM version with the same sources reuses the outcomes.
 - The cache is one more directory, `.mutate-cache/`, with one file for each target.
+- Two runs on one target at the same time each write the whole file, and the last write wins, so the outcomes of the
+  other run are lost. Run one runner at a time on a target.
 
 ## Confirmation
 
