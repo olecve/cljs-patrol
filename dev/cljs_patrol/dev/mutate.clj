@@ -66,14 +66,20 @@
     (and (= :reader-macro (some-> conditional z/tag))
          (not (identical? (z/node loc) (some-> (read-branch conditional) z/node))))))
 
+(defn- parameter-vector?
+  "True when `loc` is a vector, also one under a type hint such as `^String [x]`."
+  [loc]
+  (or (= :vector (z/tag loc))
+      (and (= :meta (z/tag loc)) (= :vector (some-> loc z/down z/rightmost z/tag)))))
+
 (defn- attr-map?
-  "True when `loc` is the attribute map of a `defn`, written after its name and before its parameter vector."
+  "True when `loc` is the attribute map of a `defn`: before its parameter vector, or after its last arity."
   [loc]
   (let [parent (z/up loc)]
     (and (= :map (z/tag loc))
          (= :list (some-> parent z/tag))
          (contains? #{"defn" "defn-"} (parser/sym-name (z/down parent)))
-         (not-any? #(= :vector (z/tag %)) (take-while some? (iterate z/left loc))))))
+         (not-any? parameter-vector? (take-while some? (iterate z/left loc))))))
 
 (defn- skipped?
   "True when `loc` holds no code a test reaches through this namespace.
@@ -146,14 +152,33 @@
   [loc]
   (->> (z/subzip loc) (iterate z/next) (take-while (complement z/end?))))
 
+(defn- skip-reason
+  "Return {:reason …} for `:mutate/skip` on the name or in the attribute map of the definition at `loc`, as written.
+
+  Return nil when neither has the key."
+  [loc]
+  (let [name-slot (some-> loc z/down z/right)
+        attr-map (->> (some-> name-slot z/right)
+                      (iterate z/right)
+                      (take-while some?)
+                      (filter attr-map?)
+                      first)]
+    (some (fn [metadata]
+            (when (contains? metadata :mutate/skip)
+              {:reason (:mutate/skip metadata)}))
+          [(when (= :meta (some-> name-slot z/tag)) (meta (z/sexpr name-slot)))
+           (some-> attr-map z/sexpr)])))
+
 (defn mutants
   "Return a mutant for every swap the definitions among the top-level `forms` allow.
 
   Each is {:def … :row … :col … :from … :to … :form-loc … :mutant-loc …}; the mutated text of
-  its form is built only when the mutant runs."
+  its form is built only when the mutant runs. A definition with `:mutate/skip` on its name or in
+  its attribute map gives each of its mutants that reason as :skip-reason."
   [forms]
   (for [{:keys [loc wrapper name kind]} forms
         :when (= :mutated kind)
+        :let [reason (:reason (skip-reason loc))]
         token (form-locs loc)
         :let [to (replacement token)]
         :when (and (some? to) (not (skipped? token)))
@@ -165,7 +190,8 @@
      :to to
      :form-loc loc
      :wrapper wrapper
-     :mutant-loc token}))
+     :mutant-loc token
+     :skip-reason reason}))
 
 (defn changed-lines
   "Return the line numbers `git diff -U0` output adds or changes in the new version of a file.
@@ -184,6 +210,54 @@
 
 (defn- setup-error [message]
   (ex-info message {::setup true}))
+
+(def ^:private skip-marker
+  "A `; mutate: skip OPERATOR: REASON` comment."
+  #"^;+\s*mutate: skip\s+(\S+):\s+(\S.*?)\s*$")
+
+(def ^:private skip-marker-like
+  "A comment that starts like a skip marker, written right or not."
+  #"(?i)^;+\s*mutate\W*skip")
+
+(defn- code-loc?
+  "True when `loc` is code that runs: not whitespace, a newline, a comma, a comment or a `#_` form."
+  [loc]
+  (not (contains? #{:whitespace :newline :comma :comment :uneval} (z/tag loc))))
+
+(defn skip-markers
+  "Return each `; mutate: skip OPERATOR: REASON` comment of `source` as {:line … :row … :operator … :reason …}.
+
+  `:line` is the comment's own line, and `:row` the line it skips: its own line when code comes
+  before it there, else the line of the next code in the same form, or nil when none follows.
+  Only comments count, so the words in a string or docstring are no marker. A comment that
+  starts like a marker but does not read as one stops the run."
+  [source]
+  (let [lines (str/split-lines source)
+        root (let [loc (z/of-string source)] (or (z/up loc) loc))]
+    (vec (for [loc (->> root
+                        (iterate z/next*)
+                        (take-while (complement z/end?)))
+               :when (= :comment (z/tag loc))
+               :let [text (str/trim (z/string loc))]
+               :when (re-find skip-marker-like text)
+               :let [[line col] (parser/position loc)
+                     [_ operator reason] (re-find skip-marker text)]]
+           (if-not reason
+             (throw (setup-error (str "The comment on line " line " reads like a skip marker but is not one."
+                                      " Write it as ; mutate: skip OPERATOR: REASON, such as"
+                                      " ; mutate: skip first: the list holds one item.")))
+             {:line line
+              :row (if (str/blank? (subs (nth lines (dec line)) 0 (dec col)))
+                     (some->> (iterate z/right* loc)
+                              rest
+                              (take-while some?)
+                              (filter code-loc?)
+                              first
+                              parser/position
+                              first)
+                     line)
+              :operator operator
+              :reason reason})))))
 
 (defn- git [dir & args]
   (apply shell/sh "git" "-C" dir args))
@@ -522,7 +596,7 @@
   survived and no-coverage mutants; the covered score leaves the mutants no test reaches out, so it
   shows how well the tests check the code they run. Each definition names the tests its mutants
   ran, from its plan in `plans`, or :every when they ran every test."
-  [{:keys [defs-in-scope loaded-once other-forms unreached results stopped note plans]}]
+  [{:keys [defs-in-scope loaded-once other-forms unreached results ignored stopped note plans]}]
   (let [reached (set (keep #(when (and (contains? #{:failed :timeout} (:outcome %)) (not (:at-load? %))) (:def %))
                            results))
         results (map #(cond-> %
@@ -545,6 +619,7 @@
                                            kind :every
                                            :else [])))))
      :not-mutated (->> defs-in-scope
+                       (remove (set (map :def ignored)))
                        (remove #(or (contains? by-def %) (contains? unreached-counts %)))
                        distinct
                        vec)
@@ -567,6 +642,11 @@
                                 :outcome (outcome-key (:outcome %)))
                          (cond-> (:killed-by %) (assoc :killed-by (test-name (:killed-by %)))))
                     results)
+     :ignored (mapv #(-> %
+                         (select-keys [:def :row :col :from])
+                         (assoc :to (pr-str (:to %))
+                                :reason (:skip-reason %)))
+                    ignored)
      :stopped stopped}))
 
 (defn- print-list [title names]
@@ -579,7 +659,7 @@
   (if ratio (format "%.0f%%" (* 100.0 ratio)) "n/a"))
 
 (defn- print-report [{:keys [definitions not-mutated not-covered loaded-once other-forms unreached totals score
-                             covered-score mutants stopped note]}
+                             covered-score mutants ignored stopped note]}
                      source-lines
                      since]
   (println)
@@ -598,6 +678,10 @@
     (doseq [{:keys [def row col from to]} shown]
       (println (format "  %d:%d  %s -> %s  in %s" row col from to def))
       (println (str "      " (str/trim (nth source-lines (dec row) ""))))))
+  (when (seq ignored)
+    (println "\nIgnored, with a skip marker:")
+    (doseq [{:keys [def row col from to reason]} ignored]
+      (println (format "  %d:%d  %s -> %s  in %s: %s" row col from to def reason))))
   (println (format "\n%d mutants: %d killed, %d survived, %d no coverage, %d unviable, %d timed out."
                    (:mutants totals) (:killed totals) (:survived totals) (:no-coverage totals) (:unviable totals)
                    (:timeout totals)))
@@ -612,21 +696,59 @@
     (range start (inc end))))
 
 (defn scope
-  "Return the definitions and mutants a run covers, and check every definition named with `-d` exists."
+  "Return the definitions and mutants a run covers, the ones a skip marker leaves out, and the markers that match none.
+
+  Return {:defs-in-scope … :loaded-once … :other-forms … :selected … :ignored … :unused-markers …}.
+  The run stops when a definition named with `-d` does not exist, when a comment starts like a
+  skip marker but is not one, and when a `:mutate/skip` anywhere in the file is no reason string
+  or sits on a form the runner does not mutate. A marker is unused when no mutant of its line has its operator: on
+  a full run anywhere in the file, and with `-d` or `-s` only on the lines in scope."
   [source {:keys [defs lines]}]
   (let [forms (top-level-forms source)
         wanted (set defs)
         unknown (remove (set (map :name forms)) wanted)]
     (when (seq unknown)
       (throw (setup-error (str "No top-level definition named " (str/join ", " (sort unknown)) "."))))
-    (let [in-scope (filter #(and (or (empty? wanted) (contains? wanted (:name %)))
+    (doseq [{:keys [loc name kind head]} forms
+            :let [{:keys [reason]
+                   :as found} (try
+                                (skip-reason loc)
+                                (catch Exception e
+                                  (throw (setup-error (str "The metadata of " name " cannot be read: " (ex-message e))))))]
+            :when found]
+      (cond
+        (not= :mutated kind)
+        (throw (setup-error (str name " is a " head ", which the runner does not mutate, so its :mutate/skip does"
+                                 " nothing. Remove it.")))
+
+        (or (not (string? reason)) (str/blank? reason))
+        (throw (setup-error (str "The :mutate/skip metadata on " name " needs a reason as a string, such as"
+                                 " ^{:mutate/skip \"wraps a JDK call\"}.")))))
+    (let [full-run? (and (empty? wanted) (not (set? lines)))
+          in-scope (filter #(and (or (empty? wanted) (contains? wanted (:name %)))
                                  (or (not (set? lines)) (some lines (form-lines %))))
                            forms)
-          of-kind (fn [kind] (filter #(= kind (:kind %)) in-scope))]
+          of-kind (fn [kind] (filter #(= kind (:kind %)) in-scope))
+          markers (skip-markers source)
+          marker-reasons (into {} (map (juxt (juxt :row :operator) :reason)) markers)
+          marked (fn [{:keys [row from]
+                       :as mutant}]
+                   (update mutant :skip-reason #(or % (marker-reasons [row from]))))
+          in-scope-mutants (map marked (mutants in-scope))
+          mutant-swaps (set (map (juxt :row :from) in-scope-mutants))
+          in-scope-rows (set (mapcat form-lines in-scope))
+          [ignored selected] ((juxt filter remove)
+                              :skip-reason
+                              (filter #(or (not (set? lines)) (contains? lines (:row %))) in-scope-mutants))]
       {:defs-in-scope (mapv :name (of-kind :mutated))
        :loaded-once (mapv #(str (:name %) " (" (:head %) ")") (of-kind :loaded-once))
        :other-forms (mapv :name (of-kind :other))
-       :selected (filter #(or (not (set? lines)) (contains? lines (:row %))) (mutants in-scope))})))
+       :selected selected
+       :ignored ignored
+       :unused-markers (vec (for [{:keys [line row operator]} markers
+                                  :when (and (or full-run? (contains? in-scope-rows row))
+                                             (not (contains? mutant-swaps [row operator])))]
+                              (str "line " line " (" operator ")")))})))
 
 (defn- run-all
   "Run each mutant in turn, stopping at the first test run that keeps looping or the first restore that fails."
@@ -669,14 +791,17 @@
   The tests must pass before any mutation, whether or not `timeout` is given. The report is
   also written to `report` when given."
   [target file source test-nss {:keys [defs since timeout report html all-tests]}]
-  (let [{:keys [defs-in-scope loaded-once other-forms selected]} (scope source {:defs defs
-                                                                                :lines (when since
-                                                                                         (lines-since file since))})
+  (let [lines (when since (lines-since file since))
+        {:keys [defs-in-scope loaded-once other-forms selected ignored unused-markers]} (scope source {:defs defs
+                                                                                                       :lines lines})
+        _ (doseq [marker unused-markers]
+            (println (str "Warning: the skip marker on " marker " matches no mutant; remove it or fix its operator.")))
         {:keys [ms covered note]} (when (seq selected)
                                     (baseline target (distinct (map :def selected)) test-nss timeout))
         timeout-ms (when ms (or timeout (default-timeout-ms ms)))
-        _ (println (format "%d mutants of %s against %s%s%s"
+        _ (println (format "%d mutants of %s against %s%s%s%s"
                            (count selected) target (str/join ", " test-nss)
+                           (if (seq ignored) (str ", " (count ignored) " ignored") "")
                            (if since (str ", lines changed since " since) "")
                            (cond
                              timeout (str ", timeout " timeout " ms")
@@ -697,6 +822,7 @@
                             :other-forms other-forms
                             :unreached unreached
                             :results results
+                            :ignored ignored
                             :stopped stopped
                             :note note
                             :plans @plans})]

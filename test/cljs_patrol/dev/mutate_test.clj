@@ -3,6 +3,7 @@
    [cljs-patrol.dev.mutate :as mutate]
    [clojure.java.io]
    [clojure.java.shell]
+   [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
 
 (def ^:private source
@@ -502,3 +503,188 @@
                  symbol
                  str))
           "failure inside nested test names that test"))))
+
+(def ^:private marked-source
+  (str "(ns app.marked)\n"
+       "(defn pick [xs] (first xs)) ; mutate: skip first: xs holds one item\n"
+       "(defn both [x]\n"
+       "  ; mutate: skip when: x is never nil here\n"
+       "  ; mutate: skip =: two checks for one case\n"
+       "\n"
+       "  (when (= x 1) :one))\n"
+       "(defn ^{:mutate/skip \"wraps a JDK call\"} wrapped [x] (if x 1 2))\n"
+       "(defn stale [x] (if x 1 2)) ; mutate: skip first: no first here any more\n"
+       "(defn told [x]\n"
+       "  ; mutate: skip when: r1\n"
+       "  (when (str \"; mutate: skip only words\") 1) ; mutate: skip str: r2\n"
+       "  (when x 2))\n"
+       "; mutate: skip if: nothing follows\n"))
+
+(deftest skip-markers-read-trailing-and-own-line-comments
+  (is (= [[2 2 "first" "xs holds one item"]
+          [4 7 "when" "x is never nil here"]
+          [5 7 "=" "two checks for one case"]
+          [9 9 "first" "no first here any more"]
+          [11 12 "when" "r1"]
+          [12 12 "str" "r2"]
+          [14 nil "if" "nothing follows"]]
+         (map (juxt :line :row :operator :reason) (mutate/skip-markers marked-source)))
+      "own line skips next code past blank lines and comments, also next to trailing marker; string is no marker")
+  (doseq [text ["(inc 1) ; mutate: skip because\n" "(inc 1) ; mutate:skip inc: r\n" "(inc 1) ; Mutate: skip inc: r\n"]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"line 1 reads like a skip marker"
+                          (mutate/skip-markers text))
+        text)))
+
+(deftest scope-leaves-skipped-mutants-out-with-reason
+  (let [{:keys [selected ignored unused-markers]} (mutate/scope marked-source {})]
+    (is (= [["pick" "first" "xs holds one item"]
+            ["both" "when" "x is never nil here"]
+            ["both" "=" "two checks for one case"]
+            ["wrapped" "if" "wraps a JDK call"]
+            ["told" "when" "r1"]]
+           (map (juxt :def :from :skip-reason) ignored)))
+    (is (= [["stale" "if"]
+            ["told" "when"]]
+           (map (juxt :def :from) selected))
+        "only unmarked mutants run")
+    (is (= ["line 9 (first)" "line 12 (str)" "line 14 (if)"] unused-markers)
+        "marker naming no mutant on its line, or with no code after it, is reported"))
+  (is (= [] (:unused-markers (mutate/scope marked-source {:defs ["pick"]})))
+      "markers outside scope are not checked")
+  (is (= [7 7] (map :row (:ignored (mutate/scope marked-source {:lines #{7}}))))
+      "changed lines limit ignored mutants too")
+  (doseq [metadata ["^:mutate/skip" "^{:mutate/skip false}" "^{:mutate/skip \"\"}"]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata on f needs a reason"
+                          (mutate/scope (str "(ns app.x)\n(defn " metadata " f [x] (when x 1))\n") {}))
+        metadata))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata on first needs a reason"
+                        (mutate/scope (str "(ns app.x)\n(defn ^:mutate/skip first [x] (when x 1))\n"
+                                           "(defn ^:mutate/skip second [x] (when x 1))\n")
+                                      {}))
+      "first bad definition named"))
+
+(deftest summary-lists-ignored-mutants-apart-from-not-mutated
+  (let [summary (mutate/summarize {:defs-in-scope ["a" "b"]
+                                   :results [{:def "a"
+                                              :outcome :failed}]
+                                   :ignored [{:def "b"
+                                              :row 3
+                                              :col 4
+                                              :from "if"
+                                              :to 'if-not
+                                              :skip-reason "wraps a JDK call"}]})]
+    (is (= [{:def "b"
+             :row 3
+             :col 4
+             :from "if"
+             :to "if-not"
+             :reason "wraps a JDK call"}]
+           (:ignored summary)))
+    (is (= [] (:not-mutated summary))
+        "definition with only ignored mutants is no unmutated one")
+    (is (= 1 (:mutants (:totals summary)))
+        "ignored mutants are not counted")))
+
+(deftest run-skips-marked-mutants
+  (with-target target-tests
+    (fn []
+      (let [marked (str/replace target-source
+                                "(> x 0))\n"
+                                "(> x 0)) ; mutate: skip >: the boundary is checked elsewhere\n")
+            marked (str marked "; mutate: skip if: stale\n")
+            summary (atom nil)
+            output (with-out-str
+                     (reset! summary (mutate/mutate-source 'cljs-patrol.dev.mutate-test.target "target.clj" marked
+                                                           ['cljs-patrol.dev.mutate-test.target-test] {})))]
+        (is (= 2 (:mutants (:totals @summary)))
+            "marked mutant does not run")
+        (is (= [["positive?" ">" "the boundary is checked elsewhere"]]
+               (map (juxt :def :from :reason) (:ignored @summary))))
+        (is (str/includes? output "Warning: the skip marker on line 5 (if) matches no mutant"))
+        (is (str/includes? output "2 mutants of cljs-patrol.dev.mutate-test.target against"))
+        (is (str/includes? output "target-test, 1 ignored, timeout"))
+        (is (str/includes? output
+                           "Ignored, with a skip marker:\n  2:32  > -> >=  in positive?: the boundary is checked elsewhere")
+            "console names ignored mutant and its reason")))))
+
+(deftest skip-markers-ignore-prose-that-mentions-them
+  (is (= []
+         (mutate/skip-markers (str "(ns app.x)\n"
+                                   ";; see ^{:mutate/skip ...} on wrapped\n"
+                                   "; never mutate; skip the copy\n"
+                                   "(defn f [x] (when x 1))\n"))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"line 1 reads like a skip marker"
+                        (mutate/skip-markers "; mutate:skip first: x\n(ns app.x)\n"))
+      "comment before first form is read"))
+
+(deftest skip-markers-stay-inside-their-form
+  (is (= [[3 nil] [6 8]]
+         (map (juxt :line :row)
+              (mutate/skip-markers (str "(defn f [x]\n"
+                                        "  (g x)\n"
+                                        "  ; mutate: skip when: last in its form\n"
+                                        "  )\n"
+                                        "(defn h [x]\n"
+                                        "  ; mutate: skip when: past a #_ form\n"
+                                        "  #_(old-call x)\n"
+                                        "  (when x 1))\n"))))
+      "no code after marker in its form gives no row; #_ form is no code"))
+
+(deftest scope-reads-skip-reason-from-attribute-map
+  (is (= [["f" "if" "wraps a JDK call"]]
+         (map (juxt :def :from :skip-reason)
+              (:ignored (mutate/scope "(ns app.x)\n(defn f \"Doc.\" {:mutate/skip \"wraps a JDK call\"} [x] (if x 1 2))\n"
+                                      {})))))
+  (is (= ["if"]
+         (map :from (:selected (mutate/scope "(ns app.x)\n(def m {:mutate/skip \"value\" :a (if x 1 2)})\n" {}))))
+      "map value of def is no attribute map"))
+
+(deftest scope-checks-skip-reason-of-every-definition
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata on helper needs a reason"
+                        (mutate/scope "(ns app.x)\n(defn ^:mutate/skip helper [x] (str x))\n" {}))
+      "definition with no mutants")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata on helper needs a reason"
+                        (mutate/scope "(ns app.x)\n(defn ^:mutate/skip helper [x] (when x 1))\n(defn g [x] (if x 1 2))\n"
+                                      {:defs ["g"]}))
+      "definition outside -d")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata on f needs a reason as a string"
+                        (mutate/scope (str "(ns app.x)\n"
+                                           "(defn ^{:mutate/skip #?(:clj \"jdk\" :cljs \"js\")} f [x] (when x 1))\n")
+                                      {}))
+      "reader conditional is no reason string"))
+
+(deftest scope-reports-markers-in-forms-that-are-not-mutated
+  (is (= ["line 2 (when)" "line 4 (if)"]
+         (:unused-markers (mutate/scope (str "(ns app.x)\n"
+                                             "(:require [a]) ; mutate: skip when: stale\n"
+                                             "(comment\n"
+                                             "  (if x 1 2)) ; mutate: skip if: stale\n"
+                                             "(defn f [x] (when x 1))\n")
+                                        {})))))
+
+(deftest skip-markers-leave-other-mutate-comments-alone
+  (is (= []
+         (mutate/skip-markers "(ns app.x)\n;; Mutate the atom in place for speed\n; mutate! is only for tests\n")))
+  (is (= [] (mutate/skip-markers ""))
+      "empty source"))
+
+(deftest scope-reads-attribute-map-only-before-parameters-or-after-arities
+  (is (= ["if"]
+         (map :from (:selected (mutate/scope "(ns app.x)\n(defn f ^String [x] {:mutate/skip (if x \"a\" \"b\")})\n" {}))))
+      "map after hinted parameter vector is body")
+  (is (= [["f" "when" "wraps a JDK call"] ["f" "if" "wraps a JDK call"]]
+         (map (juxt :def :from :skip-reason)
+              (:ignored (mutate/scope (str "(ns app.x)\n"
+                                           "(defn f ([x] (when x 1)) ([x y] (if x y 2)) {:mutate/skip \"wraps a JDK call\"})\n")
+                                      {}))))
+      "trailing attribute map after arities")
+  (is (= ["r"]
+         (map :skip-reason
+              (:ignored (mutate/scope "(ns app.x)\n(defn ^:private f {:mutate/skip \"r\"} [x] (if x 1 2))\n" {}))))
+      "name under metadata is no parameter vector"))
+
+(deftest scope-rejects-skip-metadata-that-does-nothing-or-cannot-be-read
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"m is a defmacro, which the runner does not mutate"
+                        (mutate/scope "(ns app.x)\n(defmacro ^{:mutate/skip \"r\"} m [x] x)\n" {})))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata of f cannot be read: No value supplied"
+                        (mutate/scope "(ns app.x)\n(defn ^{:mutate/skip} f [x] (when x 1))\n" {}))))
