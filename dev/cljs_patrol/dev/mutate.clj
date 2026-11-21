@@ -311,27 +311,45 @@
   [lines row col]
   (+ (->> lines (take (dec row)) (map (comp inc count)) (reduce +)) (dec col)))
 
-(defn- read-kept
-  "Return what --apply kept in `kept`: {:file … :original … :applied …}, or stop the run when it is not that."
+(defn- applied-mutant
+  "Return what --apply kept in `kept`, {:file … :original … :applied …}, or nil when no mutant is applied.
+
+  A kept file that holds anything else stops the run."
   [kept]
-  (let [value (try (edn/read-string (slurp kept)) (catch Exception _ nil))]
-    (if (and (map? value) (every? #(string? (get value %)) [:file :original :applied]))
-      value
-      (throw (setup-error (str kept " does not hold what --apply keeps. If no mutant is applied, delete it."))))))
+  (when (.exists (io/file kept))
+    (let [value (try (edn/read-string (slurp kept)) (catch Exception _ nil))]
+      (if (and (map? value) (every? #(string? (get value %)) [:file :original :applied]))
+        value
+        (throw (setup-error (str kept " does not hold what --apply keeps. If no mutant is applied, delete it.")))))))
+
+(defn write-whole
+  "Write `text` to `file` through a temporary file beside it, so that the file holds its old text or all of the new."
+  [file text]
+  (let [path (.toPath (.getCanonicalFile (io/file file)))
+        temp (java.nio.file.Files/createTempFile (.getParent path) ".mutate" ".tmp"
+                                                 (make-array java.nio.file.attribute.FileAttribute 0))]
+    (try
+      (spit (.toFile temp) text)
+      (java.nio.file.Files/move temp path (into-array java.nio.file.CopyOption
+                                                      [java.nio.file.StandardCopyOption/REPLACE_EXISTING
+                                                       java.nio.file.StandardCopyOption/ATOMIC_MOVE]))
+      (finally
+        (java.nio.file.Files/deleteIfExists temp)))))
 
 (defn apply-mutant
   "Write the mutant at `position`, written ROW:COL:OPERATOR, into `file`, keep its text in `kept`, and return a message.
 
-  Only the one token changes. The operator must still be at that place, so a position from an
-  older report cannot write another mutant. A second mutant cannot be applied before --restore
-  puts the first one back."
+  Only the one token changes, and only when that operator is found at that place, so a position
+  from an older report cannot write another mutant. The file is replaced whole, so a failed
+  write leaves it as it was. A second mutant cannot be applied before --restore puts the first
+  one back."
   [file position kept]
-  (when (.exists (io/file kept))
-    (throw (setup-error (str "A mutant is already applied to " (-> kept read-kept :file relative-path)
+  (when-let [{applied-file :file} (applied-mutant kept)]
+    (throw (setup-error (str "A mutant is already applied to " (relative-path applied-file)
                              ". Put the code back with --restore first."))))
   (let [[_ row col operator] (re-find #"^(\d+):(\d+):(\S+)$" (str position))
         _ (when-not row
-            (throw (setup-error (str "--apply takes ROW:COL:OPERATOR, such as 490:43:remove, not " position "."))))
+            (throw (setup-error (str "--apply takes ROW:COL:OPERATOR, such as '490:43:remove', not " position "."))))
         row (parse-long row)
         col (parse-long col)
         source (slurp file)
@@ -350,16 +368,19 @@
       (throw (setup-error (str "At " row ":" col " the operator is now " from ", not " operator "."
                                " Run the report again for the current positions."))))
     (let [start (offset (str/split source #"\n" -1) row col)
-          applied (str (subs source 0 start) (pr-str to) (subs source (+ start (count from))))]
-      (io/make-parents kept)
+          end (+ start (count from))]
+      ; mutate: skip <=: a form ends after its operator, so end never passes the last character
+      (when-not (and (<= end (count source)) (= from (subs source start end)))
+        (throw (setup-error (str "The text at " row ":" col " of " path " is not " from ", so nothing was written."
+                                 " The file may break lines in a way the runner does not count."))))
       (spit kept (pr-str {:file (.getCanonicalPath (io/file file))
                           :original source
-                          :applied applied}))
+                          :applied (str (subs source 0 start) (pr-str to) (subs source end))}))
       (try
-        (spit file applied)
+        (write-whole file (:applied (applied-mutant kept)))
         (catch Exception e
-          (io/delete-file kept true) ; mutate: skip true: kept was written just before, so it is there
-          (throw (setup-error (str "Could not write " path ": " (ex-message e)))))))
+          (io/delete-file kept)
+          (throw (setup-error (str "Could not write " path ", which is left as it was: " (ex-message e)))))))
     (str "Applied " row ":" col "  " from " -> " (pr-str to) "  in " function " to " path ".\n"
          "Run the tests and watch the new test fail, then put the code back with:\n"
          "  clojure -M:test:mutate --restore")))
@@ -367,22 +388,25 @@
 (defn restore-mutant
   "Put back the text that --apply replaced, as kept in `kept`, and return a message.
 
-  A file already back as it was only loses the kept text. A file that changed in any other way
-  is left alone, so an edit made after the apply is never lost."
+  A file already back as it was only loses the kept text. A file that changed in any other way,
+  or is gone, is left alone, so an edit made after the apply is never lost."
   [kept]
-  (when-not (.exists (io/file kept))
-    (throw (setup-error "No mutant is applied, so there is nothing to restore.")))
-  (let [{:keys [file original applied]} (read-kept kept)
-        current (slurp file)]
-    (cond
-      (= applied current) (do (spit file original)
-                              (io/delete-file kept)
-                              (str "Restored " (relative-path file) "."))
-      (= original current) (do (io/delete-file kept)
-                               (str (relative-path file) " was already back as before the apply."))
-      :else (throw (setup-error (str (relative-path file) " changed since the mutant was applied, so --restore leaves it"
-                                     " alone. The text from before the apply is in " kept "; once the file is as you"
-                                     " want it, delete " kept "."))))))
+  (let [{:keys [file original applied]
+         :as kept-text} (applied-mutant kept)
+        way-out (str "The text from before the apply is in " kept "; once the file is as you want it, delete " kept ".")]
+    (when-not kept-text
+      (throw (setup-error "No mutant is applied, so there is nothing to restore.")))
+    (when-not (.exists (io/file file))
+      (throw (setup-error (str (relative-path file) " is gone, so --restore cannot put it back. " way-out))))
+    (let [current (slurp file)]
+      (cond
+        (= applied current) (do (write-whole file original)
+                                (io/delete-file kept)
+                                (str "Restored " (relative-path file) "."))
+        (= original current) (do (io/delete-file kept)
+                                 (str (relative-path file) " was already back as before the apply."))
+        :else (throw (setup-error (str (relative-path file) " changed since the mutant was applied, so --restore leaves"
+                                       " it alone. " way-out)))))))
 
 (defn- source-file [ns-sym]
   (let [path (-> (name ns-sym) (str/replace "-" "_") (str/replace "." "/"))]
@@ -974,13 +998,13 @@
    ["-r" "--report FILE" "Write every mutant and its outcome to this EDN file"]
    [nil "--html FILE" "Write the report as an HTML page that leads with the test gaps and how to close them"]
    ["-a" "--all-tests" "Run every test for each mutant, as for a test that only reads state another test wrote"]
-   [nil "--apply ROW:COL:OPERATOR" "Write the mutant at this place into the file, and run nothing; needs no -t"]
+   [nil "--apply 'ROW:COL:OPERATOR'" "Write the mutant at this place into the file, and run nothing; needs no -t"]
    [nil "--restore" "Put back the code that --apply replaced; needs no target"]])
 
 (def ^:private usage
   (str "Usage: clojure -M:test:mutate TARGET-NS -t TEST-NS [-t TEST-NS …] [-d DEF …] [-s REF] [--timeout MS]"
        " [-r FILE] [--html FILE] [-a]\n"
-       "       clojure -M:test:mutate TARGET-NS --apply ROW:COL:OPERATOR\n"
+       "       clojure -M:test:mutate TARGET-NS --apply 'ROW:COL:OPERATOR'\n"
        "       clojure -M:test:mutate --restore"))
 
 (defn usage-errors
@@ -1023,9 +1047,11 @@
                                  0)
           (:apply options) (do (println (apply-mutant (source-file target) (:apply options) kept))
                                0)
-          (.exists (io/file kept)) (throw (setup-error (str "A mutant is still applied to "
-                                                            (-> kept read-kept :file relative-path)
-                                                            ". Put the code back with --restore before a run.")))
+          (applied-mutant kept) (throw (setup-error (str "A mutant is still applied to "
+                                                         (-> kept applied-mutant :file relative-path)
+                                                         ". Put the code back with --restore before a run. If --restore"
+                                                         " cannot finish, delete " kept " once you have what you need"
+                                                         " from it.")))
           :else (exit-code (mutate target (:test options) {:defs (:def options)
                                                            :since (:since options)
                                                            :timeout (:timeout options)

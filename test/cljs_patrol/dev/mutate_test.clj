@@ -702,10 +702,10 @@
   (with-temp-dir
     (fn [dir]
       (let [file (clojure.java.io/file dir "core.clj")
-            kept (str (clojure.java.io/file dir "target" "applied.edn"))
+            kept (str (clojure.java.io/file dir "applied.edn"))
             text "(ns app.core)\n(defn label [x]\n  (if (> x 0) :up :down))\n; end\n"]
         (spit file text)
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"takes ROW:COL:OPERATOR, such as 490:43:remove, not 3:8"
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"takes ROW:COL:OPERATOR, such as '490:43:remove', not 3:8"
                               (mutate/apply-mutant (str file) "3:8" kept)))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No mutant at 3:5\. Line 3 has 3:4 if, 3:8 >\. Run the report"
                               (mutate/apply-mutant (str file) "3:5:if" kept))
@@ -801,12 +801,40 @@
                               (mutate/restore-mutant kept))
             "kept text missing its parts")
         (clojure.java.io/delete-file kept)
-        (.setReadOnly file)
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Could not write"
-                              (mutate/apply-mutant (str file) "3:8:>" kept)))
+        (spit file "(ns app.core)\r(defn label [x] (when x 1))\n")
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"The text at 2:18 of .* is not when, so nothing was written"
+                              (mutate/apply-mutant (str file) "2:18:when" kept))
+            "lone carriage return shifts lines")
+        (is (not (.exists (clojure.java.io/file kept))))
+        (spit file text)
+        (with-redefs [mutate/write-whole (fn [_ _] (throw (java.io.IOException. "disk full")))]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Could not write .*, which is left as it was: disk full"
+                                (mutate/apply-mutant (str file) "3:8:>" kept))))
+        (is (= text (slurp file)))
         (is (not (.exists (clojure.java.io/file kept)))
-            "failed write leaves no kept text")
-        (.setWritable file true)))))
+            "failed write leaves no kept text")))))
+
+(deftest write-whole-replaces-file-and-leaves-no-temporary-file
+  (with-temp-dir
+    (fn [dir]
+      (let [file (clojure.java.io/file dir "core.clj")]
+        (spit file "old")
+        (mutate/write-whole (str file) "new")
+        (is (= "new" (slurp file)))
+        (is (= ["core.clj"] (map #(.getName %) (.listFiles dir))))))))
+
+(deftest restore-mutant-leaves-gone-file-to-user
+  (with-temp-dir
+    (fn [dir]
+      (let [file (clojure.java.io/file dir "core.clj")
+            kept (str (clojure.java.io/file dir "applied.edn"))]
+        (spit file "(ns app.core)\n(defn f [x] (when x 1))\n")
+        (mutate/apply-mutant (str file) "2:14:when" kept)
+        (clojure.java.io/delete-file file)
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #"core.clj is gone, so --restore cannot put it back\. The text from before the apply is in"
+                              (mutate/restore-mutant kept)))
+        (is (.exists (clojure.java.io/file kept)))))))
 
 (deftest run-cli-applies-restores-and-refuses-run-while-applied
   (with-temp-dir
@@ -817,9 +845,9 @@
                         output (with-out-str (reset! code (mutate/run-cli args kept)))]
                     [@code output]))]
         (is (= [2 "No mutant is applied, so there is nothing to restore.\n"] (run "--restore")))
-        (let [[code output] (run "cljs-patrol.dev.mutate-html" "--apply" "1:1:if")]
+        (let [[code output] (run "cljs-patrol.dev.mutate-html" "--apply" "999:1:if")]
           (is (= 2 code))
-          (is (str/starts-with? output "No mutant at 1:1.")))
+          (is (str/starts-with? output "No mutant at 999:1.")))
         (let [[code output] (run "app.core" "app.other" "-t" "app.core-test")]
           (is (= 2 code))
           (is (str/starts-with? output "Give one target namespace, not app.core app.other.")))
@@ -832,5 +860,5 @@
         (let [[code output] (run "cljs-patrol.dev.mutate-test.target" "-t" "cljs-patrol.dev.mutate-test.target-test")]
           (is (= 2 code))
           (is (str/includes? output "A mutant is still applied to") output)
-          (is (str/includes? output "Put the code back with --restore before a run.")))))))
+          (is (str/includes? output "Put the code back with --restore before a run. If --restore cannot finish, delete")))))))
 
