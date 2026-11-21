@@ -14,7 +14,7 @@
        "#_(defn gone [] (when x y))\n"
        "(def quoted '(when x y))\n"
        "(def plain {:a 1})\n"
-       "(def ^{:private true} hidden 1)\n"
+       "(def ^{:private true :added 2} hidden 1)\n"
        "(defonce cache (when x y))\n"
        "(extend-type Foo P (m [x] (when x 1)))\n"
        "(defn hinted [xs] ^String (first xs))\n"
@@ -38,14 +38,37 @@
           ["visible?" 2 "seq" "empty?"]
           ["visible?" 2 "true" "false"]
           ["count-up" 3 "inc" "dec"]
+          ["plain" 7 "1" "0"]
+          ["hidden" 8 "1" "0"]
           ["hinted" 11 "first" "last"]
           ["attrs" 12 "if" "if-not"]
+          ["attrs" 12 "1" "0"]
+          ["attrs" 12 "2" "3"]
           ["platform" 13 "when" "when-not"]
+          ["platform" 13 "1" "0"]
           ["body-map" 14 "if" "if-not"]
-          ["two-lines" 16 "when" "when-not"]]
+          ["body-map" 14 "1" "0"]
+          ["body-map" 14 "2" "3"]
+          ["two-lines" 16 "when" "when-not"]
+          ["two-lines" 16 "1" "0"]]
          (swaps-of (mutate/mutants (mutate/top-level-forms source))))
       (str "ns form, comment, discarded, quoted, metadata, attr map and cljs-branch code skipped; a hinted form"
            " mutated; forms loaded once and other forms left out")))
+
+(deftest mutants-change-plain-integer-literals
+  (is (= [["0" "1"] ["1" "0"] ["7" "8"] ["-1" "0"] ["-5" "-4"] ["9223372036854775807" "9223372036854775808N"]]
+         (map (juxt :from #(pr-str (:to %)))
+              (mutate/mutants (mutate/top-level-forms (str "(ns app.n)\n"
+                                                           "(def numbers [0 1 7 -1 -5 9223372036854775807"
+                                                           " 0x10 +1 007 -0 2r101 1N 1M 1.5 1/2 \\1 \"1\" :1])\n")))))
+      "0 and 1 swap, other integers go up by one; other notations, numbers that are no integer and characters kept"))
+
+(deftest scope-skips-number-mutant-named-in-marker
+  (let [{:keys [selected ignored unused-markers]}
+        (mutate/scope "(ns app.x)\n(defn f [x] (max x 0 -1)) ; mutate: skip 0: zero is the floor\n" {})]
+    (is (= [["0" "zero is the floor"]] (map (juxt :from :skip-reason) ignored)))
+    (is (= ["-1"] (map :from selected)))
+    (is (= [] unused-markers))))
 
 (deftest scope-names-what-is-not-mutated-and-unknown-definitions
   (let [{:keys [loaded-once other-forms]} (mutate/scope source {})]
@@ -58,8 +81,8 @@
         "one changed line of several brings definition in")
     (is (empty? selected)
         "mutant on unchanged line of changed definition is left out"))
-  (is (= [16] (map :row (:selected (mutate/scope source {:lines #{16}}))))
-      "mutant on changed line is kept")
+  (is (= [[16 "when"] [16 "1"]] (map (juxt :row :from) (:selected (mutate/scope source {:lines #{16}}))))
+      "mutants on changed line are kept")
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No top-level definition named nope"
                         (mutate/scope source {:defs ["nope"]}))))
 
@@ -163,12 +186,21 @@
 
 (deftest mutants-read-forms-as-clojure-loads-them
   (is (= [["tagged" 2 "when" "when-not"]
+          ["tagged" 2 "1" "0"]
           ["on-clj" 3 "when" "when-not"]
+          ["on-clj" 3 "1" "0"]
           ["spliced" 5 "if" "if-not"]
+          ["spliced" 5 "1" "0"]
+          ["spliced" 5 "2" "3"]
           ["defaulted" 6 "when" "when-not"]
+          ["defaulted" 6 "1" "0"]
           ["table" 7 "when" "when-not"]
+          ["table" 7 "1" "0"]
           ["spliced-a" 8 "when" "when-not"]
-          ["spliced-b" 8 "if" "if-not"]]
+          ["spliced-a" 8 "1" "0"]
+          ["spliced-b" 8 "if" "if-not"]
+          ["spliced-b" 8 "1" "0"]
+          ["spliced-b" 8 "2" "3"]]
          (swaps-of (mutate/mutants (mutate/top-level-forms wrapped-source))))
       (str "definition under metadata or in a clj branch kept; only branch Clojure reads mutated; a def's value"
            " map is no attribute map")))
@@ -207,16 +239,21 @@
 (deftest run-kills-and-keeps-mutants-and-restores-the-namespace
   (with-target target-tests
     (fn []
-      (let [{:keys [totals not-covered]} (run-target {})]
+      (let [{:keys [totals not-covered mutants]} (run-target {})]
         (is (= ["unused"] not-covered))
-        (is (= {:mutants 3
-                :killed 1
+        (is (= [["positive?" "0" "1" :killed] ["unused" "1" "0" :no-coverage]]
+               (->> mutants
+                    (filter #(re-matches #"\d+" (:from %)))
+                    (map (juxt :def :from :to :outcome))))
+            "number mutant runs with new number in its form")
+        (is (= {:mutants 5
+                :killed 2
                 :survived 1
-                :no-coverage 1
+                :no-coverage 2
                 :unviable 0
                 :timeout 0}
                totals)
-            "boundary at 0 is never tested, so > -> >= survives; no test calls unused"))
+            "boundary at 0 is never tested, so > -> >= survives while 0 -> 1 is caught; no test calls unused"))
       (is (true? (:checked (meta (ns-resolve 'cljs-patrol.dev.mutate-test.target 'positive?)))))
       (is (= :up ((ns-resolve 'cljs-patrol.dev.mutate-test.target 'label) 1))
           "original code is back after the run"))))
@@ -473,7 +510,7 @@
       (let [file (java.io.File/createTempFile "mutate" ".html")]
         (try
           (run-target {:html (str file)})
-          (is (re-find #"<h1>The tests caught 1 of 3 planted bugs \(33%\)</h1>" (slurp file)))
+          (is (re-find #"<h1>The tests caught 2 of 5 planted bugs \(40%\)</h1>" (slurp file)))
           (finally (.delete file)))))))
 
 (deftest relative-path-starts-from-the-working-directory
@@ -511,13 +548,13 @@
        "  ; mutate: skip when: x is never nil here\n"
        "  ; mutate: skip =: two checks for one case\n"
        "\n"
-       "  (when (= x 1) :one))\n"
-       "(defn ^{:mutate/skip \"wraps a JDK call\"} wrapped [x] (if x 1 2))\n"
-       "(defn stale [x] (if x 1 2)) ; mutate: skip first: no first here any more\n"
+       "  (when (= x :a) :one))\n"
+       "(defn ^{:mutate/skip \"wraps a JDK call\"} wrapped [x] (if x :a :b))\n"
+       "(defn stale [x] (if x :a :b)) ; mutate: skip first: no first here any more\n"
        "(defn told [x]\n"
        "  ; mutate: skip when: r1\n"
-       "  (when (str \"; mutate: skip only words\") 1) ; mutate: skip str: r2\n"
-       "  (when x 2))\n"
+       "  (when (str \"; mutate: skip only words\") :a) ; mutate: skip str: r2\n"
+       "  (when x :b))\n"
        "; mutate: skip if: nothing follows\n"))
 
 (deftest skip-markers-read-trailing-and-own-line-comments
@@ -596,12 +633,12 @@
             output (with-out-str
                      (reset! summary (mutate/mutate-source 'cljs-patrol.dev.mutate-test.target "target.clj" marked
                                                            ['cljs-patrol.dev.mutate-test.target-test] {})))]
-        (is (= 2 (:mutants (:totals @summary)))
+        (is (= 4 (:mutants (:totals @summary)))
             "marked mutant does not run")
         (is (= [["positive?" ">" "the boundary is checked elsewhere"]]
                (map (juxt :def :from :reason) (:ignored @summary))))
         (is (str/includes? output "Warning: the skip marker on line 5 (if) matches no mutant"))
-        (is (str/includes? output "2 mutants of cljs-patrol.dev.mutate-test.target against"))
+        (is (str/includes? output "4 mutants of cljs-patrol.dev.mutate-test.target against"))
         (is (str/includes? output "target-test, 1 ignored, timeout"))
         (is (str/includes? output
                            "Ignored, with a skip marker:\n  2:32  > -> >=  in positive?: the boundary is checked elsewhere")
@@ -633,10 +670,10 @@
 (deftest scope-reads-skip-reason-from-attribute-map
   (is (= [["f" "if" "wraps a JDK call"]]
          (map (juxt :def :from :skip-reason)
-              (:ignored (mutate/scope "(ns app.x)\n(defn f \"Doc.\" {:mutate/skip \"wraps a JDK call\"} [x] (if x 1 2))\n"
+              (:ignored (mutate/scope "(ns app.x)\n(defn f \"Doc.\" {:mutate/skip \"wraps a JDK call\"} [x] (if x :a :b))\n"
                                       {})))))
   (is (= ["if"]
-         (map :from (:selected (mutate/scope "(ns app.x)\n(def m {:mutate/skip \"value\" :a (if x 1 2)})\n" {}))))
+         (map :from (:selected (mutate/scope "(ns app.x)\n(def m {:mutate/skip \"value\" :a (if x :b :c)})\n" {}))))
       "map value of def is no attribute map"))
 
 (deftest scope-checks-skip-reason-of-every-definition
@@ -675,12 +712,13 @@
   (is (= [["f" "when" "wraps a JDK call"] ["f" "if" "wraps a JDK call"]]
          (map (juxt :def :from :skip-reason)
               (:ignored (mutate/scope (str "(ns app.x)\n"
-                                           "(defn f ([x] (when x 1)) ([x y] (if x y 2)) {:mutate/skip \"wraps a JDK call\"})\n")
+                                           "(defn f ([x] (when x :a)) ([x y] (if x y :b))"
+                                           " {:mutate/skip \"wraps a JDK call\"})\n")
                                       {}))))
       "trailing attribute map after arities")
   (is (= ["r"]
          (map :skip-reason
-              (:ignored (mutate/scope "(ns app.x)\n(defn ^:private f {:mutate/skip \"r\"} [x] (if x 1 2))\n" {}))))
+              (:ignored (mutate/scope "(ns app.x)\n(defn ^:private f {:mutate/skip \"r\"} [x] (if x :a :b))\n" {}))))
       "name under metadata is no parameter vector"))
 
 (deftest scope-rejects-skip-metadata-that-does-nothing-or-cannot-be-read

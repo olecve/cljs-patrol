@@ -2,8 +2,8 @@
   "Mutation testing in one warm JVM: break one operator of a namespace at a time, and check its tests notice.
 
   The code under test changes, never the tests. A first run records which tests call each
-  function. Each mutant swaps one symbol or literal, such as `when` for `when-not` or `<` for
-  `<=`, in one definition. That form is evaluated over the namespace, the tests that call it run
+  function. Each mutant swaps one symbol or literal, such as `when` for `when-not`, `<` for
+  `<=` or `0` for `1`, in one definition. That form is evaluated over the namespace, the tests that call it run
   until the first failure, and the original form is evaluated back. A mutant the tests still pass
   on is a survivor: a branch no test pins. A function no test calls has no coverage. A mutant
   that cannot be read or compiled is unviable, and one whose tests run too long timed out;
@@ -97,11 +97,27 @@
                 (unread-branch? ancestor))))
         (take-while some? (iterate z/up loc))))
 
+(defn- number-replacement
+  "Return the integer to put in place of the integer literal `value` written as `text`, or nil for any other value.
+
+  `0` and `1` swap, and any other integer goes up by one. Only a plain decimal literal counts,
+  such as `7` or `-1`, so the mutant keeps the written form: `0x10`, `+1`, `1N`, `1.5` and `1/2`
+  are left alone."
+  [text value]
+  (when (and (int? value) (= text (str value)))
+    (case value
+      0 1
+      1 0
+      (inc' value))))
+
 (defn- replacement
-  "Return the value to put in place of the token at `loc`, or nil when no operator swaps it."
+  "Return the value to put in place of the token at `loc`, or nil when no operator swaps it.
+
+  A symbol or boolean in `swaps` gets its pair, and an integer literal a near number."
   [loc]
   (when (= :token (z/tag loc))
-    (get swaps (try (z/sexpr loc) (catch Exception _ nil)))))
+    (let [value (try (z/sexpr loc) (catch Exception _ nil))]
+      (get swaps value (number-replacement (z/string loc) value)))))
 
 (defn- form-name
   "Name a top-level form by what it defines, or by its head and line, such as `extend-type@12`."

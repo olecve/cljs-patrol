@@ -3,7 +3,8 @@
 [← back to the README](../README.md)
 
 A dev-only runner that checks whether the tests would notice a bug: it plants one small bug at a time in the code under
-test and runs the tests. A planted bug that every test lets through marks a line no test really checks.
+test, such as `when` to `when-not`, `<` to `<=` or `0` to `1`, and runs the tests. A planted bug that every test lets
+through marks a line no test really checks.
 
 ## Why
 
@@ -27,8 +28,8 @@ clojure -M:test:mutate cljs-patrol.groups.reagent -t cljs-patrol.groups.reagent-
 ```
 
 ```text
-58 mutants: 47 killed, 10 survived, 0 no coverage, 0 unviable, 1 timed out.
-Score 82%, covered score 82%.
+60 mutants: 49 killed, 10 survived, 0 no coverage, 0 unviable, 1 timed out.
+Score 83%, covered score 83%.
 HTML report written to reagent.html
 ```
 
@@ -93,12 +94,13 @@ list it as ignored, with the reason.
   (if x 1 2))
 ```
 
-A comment after code skips that operator on its own line, and a comment on a line of its own skips it on the next line
-of code in the same form. Other planted bugs on the same line still run. `:mutate/skip` on a definition's name, or in a
-`defn`'s attribute map, skips all of its planted bugs, and its value must be the reason, as a string. Only real comments
-count, not the same words in a string or docstring. A comment that starts like a marker but does not follow the pattern,
-such as `; mutate:skip first: ...`, stops the run, and so does `:mutate/skip` on a form the runner does not mutate, such
-as a `defmacro`. The run warns about a marker that matches no planted bug or has no code after it in its form, so stale
+A changed number is named by its text, such as `; mutate: skip 0: zero is the floor`. A comment after code skips that
+operator on its own line, and a comment on a line of its own skips it on the next line of code in the same form. Other
+planted bugs on the same line still run. `:mutate/skip` on a definition's name, or in a `defn`'s attribute map, skips
+all of its planted bugs, and its value must be the reason, as a string. Only real comments count, not the same words in
+a string or docstring. A comment that starts like a marker but does not follow the pattern, such as
+`; mutate:skip first: ...`, stops the run, and so does `:mutate/skip` on a form the runner does not mutate, such as a
+`defmacro`. The run warns about a marker that matches no planted bug or has no code after it in its form, so stale
 markers do not pile up. Skip only what you have read and judged harmless: a skipped line is a line no test checks.
 
 ## Words
