@@ -133,7 +133,8 @@ and the gaps it reaches and still passes, not the planted bugs it caught.
 
 - [ADR 0005: Test The Tests By Mutation In One JVM](adr/0005-mutation-testing-in-one-jvm.md). The decision and the
   options it was weighed against.
-- The runner: [`dev/cljs_patrol/dev/mutate.clj`](../dev/cljs_patrol/dev/mutate.clj), and its page:
+- The runner: [`dev/cljs_patrol/dev/mutate.clj`](../dev/cljs_patrol/dev/mutate.clj), its command line, with one
+  namespace per job under [`dev/cljs_patrol/dev/mutate/`](../dev/cljs_patrol/dev/mutate/), and its page:
   [`dev/cljs_patrol/dev/mutate_html.clj`](../dev/cljs_patrol/dev/mutate_html.clj).
 - Petrović, Ivanković, Fraser, Just.
   [Practical Mutation Testing at Scale: A view from Google](https://arxiv.org/abs/2102.11378). IEEE TSE, 2021. Google

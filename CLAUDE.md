@@ -142,6 +142,11 @@ waits for `--restore`. A run exits 0 when nothing survives, 1 when something sur
 cannot start or stops early. A value a `def` computes when the namespace loads keeps the original, so a mutant only it
 reaches survives.
 
+The runner's command line is `dev/cljs_patrol/dev/mutate.clj`. Each job has its namespace under
+`dev/cljs_patrol/dev/mutate/`, and its tests under `test/cljs_patrol/dev/mutate/`: `forms` reads the target into
+mutants, skip markers and scope, `run` loads each mutant and runs the tests, `report` summarizes and prints, `apply`
+does `--apply` and `--restore`, `git` reads the lines `-s` changed, and `error` holds the error that stops a run.
+
 ## Linting
 
 ```bash
