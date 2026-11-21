@@ -185,6 +185,8 @@ analysis; `--list-rules` and argument errors print none.
 - **[Baseline](docs/baseline.md)** — adopting on a codebase that already has findings: snapshot what is there, then
   block only what is new
 - **[Severity tiers](docs/severity.md)** — which rules block CI, and choosing per tier or per rule with `--fail-on`
+- **[Mutation testing](docs/mutation-testing.md)** — for contributors: plant one small bug at a time in a rule and check
+  the tests notice, why it is needed, how to run it and how to read its report
 
 ## Configuration file
 

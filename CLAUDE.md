@@ -81,7 +81,9 @@ Tests live in `test/`, mirroring the `src/` structure. Fixture projects for the 
 
 ### Mutation testing
 
-Every branch a change adds needs a test that fails when the branch breaks. The dev-only runner checks that in one JVM:
+Every branch a change adds needs a test that fails when the branch breaks. The dev-only runner checks that in one JVM.
+[`docs/mutation-testing.md`](docs/mutation-testing.md) is the guide for people: why, how to run it, and how to read the
+report. The details for running it follow:
 
 ```bash
 clojure -M:test:mutate cljs-patrol.groups.reagent -t cljs-patrol.groups.reagent-test -s main
