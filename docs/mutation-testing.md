@@ -27,11 +27,32 @@ clojure -M:test:mutate cljs-patrol.groups.reagent -t cljs-patrol.groups.reagent-
 clojure -M:test:mutate cljs-patrol.groups.reagent -t cljs-patrol.groups.reagent-test
 ```
 
+The run of one definition ends with:
+
 ```text
-59 mutants: 48 killed, 10 survived, 0 no coverage, 0 unviable, 1 timed out.
-Score 83%, covered score 83%.
-HTML report written to reagent.html
+Survived:
+  490:43  remove -> filter  in holds-focus?
+    - (boolean (if-let [bodies (seq (remove #(= :uneval (z/tag %)) (mapping-body-locs loc ns-info)))]
+    + (boolean (if-let [bodies (seq (filter #(= :uneval (z/tag %)) (mapping-body-locs loc ns-info)))]
+  490:52  = -> not=  in holds-focus?
+    + (boolean (if-let [bodies (seq (remove #(not= :uneval (z/tag %)) (mapping-body-locs loc ns-info)))]
+  491:38  last -> first  in holds-focus?
+    - (holds-focus? (last bodies) ns-info)
+    + (holds-focus? (first bodies) ns-info)
+  493:52  some -> every?  in holds-focus?
+    - (and (not= [loc] results) (some #(holds-focus? % ns-info) results)))))))))
+    + (and (not= [loc] results) (every? #(holds-focus? % ns-info) results)))))))))
+
+To watch a new test fail on a survivor, apply it to the file, such as:
+  clojure -M:test:mutate cljs-patrol.groups.reagent --apply '490:43:remove'
+
+13 mutants: 9 killed, 4 survived, 0 no coverage, 0 unviable, 0 timed out.
+Score 69%, covered score 69%.
 ```
+
+The console lists each survivor by line and column, the swap, and its function. For the first 10 lines with survivors,
+it shows the line before the swaps (`-`) once, and the line after each swap (`+`) under that swap, cut around the swap
+when the line is long. For more, read the page that `--html FILE` writes.
 
 Pass every test namespace that tests the target with `-t`. The run exits 0 when every planted bug was caught, 1 when
 there is a test gap, and 2 when it cannot start or stops early. Every option, what is not mutated, and when every test

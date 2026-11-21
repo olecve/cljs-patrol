@@ -72,7 +72,11 @@
                                    :stopped stopped
                                    :note note
                                    :plans @plans})]
-    (report/print-report summary (str/split-lines source) since target)
+    (report/print-report summary {:html html
+                                  :report report
+                                  :since since
+                                  :source-lines (str/split-lines source)
+                                  :target target})
     (when report
       (spit report (with-out-str (pprint/pprint (assoc summary
                                                        :target target

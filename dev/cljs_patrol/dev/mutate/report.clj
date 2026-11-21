@@ -100,49 +100,123 @@
   [ratio]
   (if ratio (format "%.0f%%" (* 100.0 ratio)) "n/a"))
 
-(defn print-report
-  "Print the console report of `summary`: the counts, what was not mutated, each survivor with its line, and the score.
+(def ^:private lines-with-text
+  "How many source lines with survivors the console shows with their text before and after each swap."
+  10)
 
-  `source-lines` are the target's lines, `since` is the ref of `-s` or nil, and `target` names the
-  namespace for the example --apply command."
+(def ^:private line-width
+  "How many characters of a line the console shows before and after a swap, so a long line is cut around it."
+  100)
+
+(def ^:private context-width
+  "How many characters before a swap a cut line keeps, unless that leaves fewer than `line-width` up to the line end."
+  40)
+
+(defn- cut-line [line start]
+  (let [end (+ start line-width)]
+    (str (when (pos? start) "… ")
+         (subs line start (min end (count line)))
+         (when (< end (count line)) " …"))))
+
+(defn- print-head [{:keys [def row col from to]}]
+  (println (format "  %d:%d  %s -> %s  in %s" row col from to def)))
+
+(defn- swap-pair
+  "Pair `line` before and after `from` at `col` turns into `to`, without its indent, with one start to cut both at.
+
+  Return nil when `from` is not at its place."
+  [line {:keys [col from to]}]
+  (let [indent (- (count line) (count (str/triml line)))
+        start (dec col)
+        end (+ start (count from))]
+    (when (and (<= end (count line)) (= from (subs line start end)))
+      (let [before (subs line indent)
+            after (str (subs line indent start) to (subs line end))]
+        {:before before
+         :after after
+         :cut-start (max 0 (min (- start indent context-width)
+                                (- (max (count before) (count after)) line-width)))}))))
+
+(defn- print-swaps
+  "Print the survivors on `line`, each with its header and the line after its swap, below the line before the swaps.
+
+  The line before shows again when a swap needs another part of a long line. A survivor whose `from` is not at its
+  place shows the line once instead."
+  [line survivors]
+  (reduce (fn [shown-start mutant]
+            (print-head mutant)
+            (if-let [{:keys [before after cut-start]} (swap-pair line mutant)]
+              (do
+                (when (not= shown-start cut-start)
+                  (println (str "    - " (cut-line before cut-start))))
+                (println (str "    + " (cut-line after cut-start)))
+                cut-start)
+              (do
+                (println (str "      " (str/trim line)))
+                shown-start)))
+          nil
+          survivors))
+
+(defn- print-survivors [survivors source-lines {:keys [report html]}]
+  (println "\nSurvived:")
+  (let [line-groups (sort-by key (group-by :row survivors))]
+    (doseq [[index [row group]] (map-indexed vector line-groups)]
+      (if (< index lines-with-text)
+        (print-swaps (nth source-lines (dec row) "") group)
+        (run! print-head group)))
+    (when (< lines-with-text (count line-groups))
+      (println (str "  The first " lines-with-text " lines show their text; "
+                    (cond
+                      html (str "every survivor's line is in " html ".")
+                      report (str "--html FILE shows every survivor's line, and " report " has them all as EDN.")
+                      :else "--html FILE shows every survivor's line, and -r FILE writes them all as EDN."))))))
+
+(defn print-report
+  "Print the console report of `summary`: the counts, what was not mutated, the survivors, and the score.
+
+  The survivors on the first 10 lines show the line before and after each swap. `source-lines` are the target's lines,
+  `since` is the ref of `-s` or nil, `target` names the namespace for the example --apply command, and `report` and
+  `html` are the files of `-r` and `--html`, or nil."
   [{:keys [definitions not-mutated not-covered loaded-once const-defs other-forms unreached totals score
            covered-score mutants ignored stopped note]}
-   source-lines
-   since
-   target]
-  (println)
-  (pprint/print-table [:def :mutants :killed :survived :no-coverage :unviable :timeout] definitions)
-  (print-list "No coverage, no test calls them through their var" not-covered)
-  (print-list (str "Not mutated, no operator " (if since "on the changed lines" "applies")) not-mutated)
-  (print-list "Not mutated, loaded once" loaded-once)
-  (print-list "Not mutated, ^:const, callers copy its value" const-defs)
-  (print-list "Not mutated, not a definition" other-forms)
-  (print-list "Not reached, the run stopped early" (map #(str (:def %) " (" (:mutants %) " mutants)") unreached))
-  (doseq [[outcome title] [[:survived "Survived"]
-                           [:unviable "Unviable, could not be read or compiled"]
-                           [:timeout "Timed out"]]
-          :let [shown (filter #(= outcome (:outcome %)) mutants)]
-          :when (seq shown)]
-    (println (str "\n" title ":"))
-    (doseq [{:keys [def row col from to]} shown]
-      (println (format "  %d:%d  %s -> %s  in %s" row col from to def))
-      (println (str "      " (str/trim (nth source-lines (dec row) ""))))))
-  ; mutate: skip first: any survivor makes a fine example
-  (when-let [mutant (first (filter #(= :survived (:outcome %)) mutants))]
-    (println (str "\nTo watch a new test fail on a survivor, apply it to the file, such as:\n"
-                  "  " (apply-command target mutant))))
-  (when (seq ignored)
-    (println "\nIgnored, with a skip marker:")
-    (doseq [{:keys [def row col from to reason]} ignored]
-      (println (format "  %d:%d  %s -> %s  in %s: %s" row col from to def reason))))
-  (println (format "\n%d mutants: %d killed, %d survived, %d no coverage, %d unviable, %d timed out."
-                   (:mutants totals) (:killed totals) (:survived totals) (:no-coverage totals) (:unviable totals)
-                   (:timeout totals)))
-  (println (str "Score " (percent score) ", covered score " (percent covered-score) "."))
-  (when note
-    (println (str "\nNote: " note)))
-  (when stopped
-    (println (str "\nStopped early: " stopped))))
+   {:keys [source-lines since target]
+    :as options}]
+  (let [survivors (filter #(= :survived (:outcome %)) mutants)]
+    (println)
+    (pprint/print-table [:def :mutants :killed :survived :no-coverage :unviable :timeout] definitions)
+    (print-list "No coverage, no test calls them through their var" not-covered)
+    (print-list (str "Not mutated, no operator " (if since "on the changed lines" "applies")) not-mutated)
+    (print-list "Not mutated, loaded once" loaded-once)
+    (print-list "Not mutated, ^:const, callers copy its value" const-defs)
+    (print-list "Not mutated, not a definition" other-forms)
+    (print-list "Not reached, the run stopped early" (map #(str (:def %) " (" (:mutants %) " mutants)") unreached))
+    (when (seq survivors)
+      (print-survivors survivors source-lines options))
+    (doseq [[outcome title] [[:unviable "Unviable, could not be read or compiled"]
+                             [:timeout "Timed out"]]
+            :let [shown (filter #(= outcome (:outcome %)) mutants)]
+            :when (seq shown)]
+      (println (str "\n" title ":"))
+      (doseq [{:keys [row]
+               :as mutant} shown]
+        (print-head mutant)
+        (println (str "      " (str/trim (nth source-lines (dec row) ""))))))
+    ; mutate: skip first: any survivor makes a fine example
+    (when-let [mutant (first survivors)]
+      (println (str "\nTo watch a new test fail on a survivor, apply it to the file, such as:\n"
+                    "  " (apply-command target mutant))))
+    (when (seq ignored)
+      (println "\nIgnored, with a skip marker:")
+      (doseq [{:keys [def row col from to reason]} ignored]
+        (println (format "  %d:%d  %s -> %s  in %s: %s" row col from to def reason))))
+    (println (format "\n%d mutants: %d killed, %d survived, %d no coverage, %d unviable, %d timed out."
+                     (:mutants totals) (:killed totals) (:survived totals) (:no-coverage totals) (:unviable totals)
+                     (:timeout totals)))
+    (println (str "Score " (percent score) ", covered score " (percent covered-score) "."))
+    (when note
+      (println (str "\nNote: " note)))
+    (when stopped
+      (println (str "\nStopped early: " stopped)))))
 
 (defn exit-code
   "Return 2 when the run stopped early, 1 when a mutant survived or had no coverage, and 0 otherwise."

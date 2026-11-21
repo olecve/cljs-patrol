@@ -126,21 +126,25 @@ A definition under metadata or in the `#?` branch Clojure reads counts like any 
 captures then, nor top-level forms that are no definition, whose effects would run again with every mutant. The report
 has a row per definition with its counts, two scores (killed over all scored mutants, and over the mutants the tests
 reach), names what was not mutated or has no coverage and why, and lists every survivor, unviable and timed-out mutant
-with its source line. A `; mutate: skip OPERATOR: REASON` comment after a line, or on the line above it in the same
-form, leaves that operator's mutant out, and `:mutate/skip "REASON"` on a definition's name or in a `defn`'s attribute
-map leaves out all of its mutants: they do not run, are not scored, and are listed as ignored with the reason. Only real
-comments count. The run stops on a comment that starts like a marker but is not one, on a `:mutate/skip` that is no
-reason string, and on one on a form the runner does not mutate; a marker that matches no mutant or has no code after it
-in its form prints a warning. `-d` limits the run to named top-level definitions, `-s REF` to the lines the branch
-changed since it left a git ref, `-r FILE` writes every mutant and its outcome to EDN, and `--html FILE` writes a page
-that leads with the test gaps: each one's line before and after the change, a likely reason no test caught it, and the
-tests that run for it, then tables by function and by test, and the source. The page needs no network. Its plain words,
-such as "planted bug" for a mutant, map to the usual ones in [`docs/mutation-testing.md`](docs/mutation-testing.md).
-`--apply 'ROW:COL:OPERATOR'` writes that one mutant into the file and runs nothing, keeping the replaced text in
-`.mutate-applied.edn`, and `--restore` puts it back. Neither takes the options of a run, and a second `--apply` or a run
-waits for `--restore`. A run exits 0 when nothing survives, 1 when something survives or has no coverage, and 2 when it
-cannot start or stops early. A value a `def` computes when the namespace loads keeps the original, so a mutant only it
-reaches survives.
+with its source line. Survivors are grouped by line. On the first 10 lines, the line shows once before the swaps as a
+`- ` line, and each survivor shows the line after its swap as a `+ ` line, both without the indent. A line longer than
+100 characters is cut to 100, from 40 before the swap, or earlier so the cut ends at the line end; the `- ` line shows
+again when a swap needs another part of the line. The survivors on later lines show only their position and swap, and a
+line points to `--html` and `-r` for them, or to the files the run writes. A `; mutate: skip OPERATOR: REASON` comment
+after a line, or on the line above it in the same form, leaves that operator's mutant out, and `:mutate/skip "REASON"`
+on a definition's name or in a `defn`'s attribute map leaves out all of its mutants: they do not run, are not scored,
+and are listed as ignored with the reason. Only real comments count. The run stops on a comment that starts like a
+marker but is not one, on a `:mutate/skip` that is no reason string, and on one on a form the runner does not mutate; a
+marker that matches no mutant or has no code after it in its form prints a warning. `-d` limits the run to named
+top-level definitions, `-s REF` to the lines the branch changed since it left a git ref, `-r FILE` writes every mutant
+and its outcome to EDN, and `--html FILE` writes a page that leads with the test gaps: each one's line before and after
+the change, a likely reason no test caught it, and the tests that run for it, then tables by function and by test, and
+the source. The page needs no network. Its plain words, such as "planted bug" for a mutant, map to the usual ones in
+[`docs/mutation-testing.md`](docs/mutation-testing.md). `--apply 'ROW:COL:OPERATOR'` writes that one mutant into the
+file and runs nothing, keeping the replaced text in `.mutate-applied.edn`, and `--restore` puts it back. Neither takes
+the options of a run, and a second `--apply` or a run waits for `--restore`. A run exits 0 when nothing survives, 1 when
+something survives or has no coverage, and 2 when it cannot start or stops early. A value a `def` computes when the
+namespace loads keeps the original, so a mutant only it reaches survives.
 
 The runner's command line is `dev/cljs_patrol/dev/mutate.clj`. Each job has its namespace under
 `dev/cljs_patrol/dev/mutate/`, and its tests under `test/cljs_patrol/dev/mutate/`: `forms` reads the target into
