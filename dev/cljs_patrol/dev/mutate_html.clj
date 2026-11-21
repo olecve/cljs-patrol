@@ -5,7 +5,7 @@
   docs/mutation-testing.md: a planted bug is a mutant, caught means killed, and a test gap is a
   mutant that survived or that no test reaches."
   (:require
-   [cljs-patrol.dev.mutate :as mutate]
+   [cljs-patrol.dev.mutate.report :as report]
    [clojure.java.io :as io]
    [clojure.string :as str]
    [hiccup2.core :as h]))
@@ -26,9 +26,10 @@
        " show();"))
 
 (def hints
-  "The likely reason a test misses a swap, by the two operators it swaps: one for each pair of `mutate/swaps`.
+  "The likely reason a test misses a swap, by the two operators it swaps.
 
-  A swap of integer literals has one hint of its own, `number-hint`."
+  It has one hint for each pair of `cljs-patrol.dev.mutate.forms/swaps`. A swap of integer
+  literals has one hint of its own, `number-hint`."
   {#{"<" "<="} "no test uses the boundary value, where both sides are equal."
    #{">" ">="} "no test uses the boundary value, where both sides are equal."
    #{"=" "not="} "no test checks both outcomes of this comparison."
@@ -190,7 +191,7 @@
     [:p "Write the planted bug into the file, run the tests, then put the code back with "
      [:code "clojure -M:test:mutate --restore"] ":"]
     [:ul (for [mutant mutants]
-           [:li [:code (mutate/apply-command target mutant)]])]]])
+           [:li [:code (report/apply-command target mutant)]])]]])
 
 (defn- function-card
   "Return the card of a definition with test gaps: the closest test to extend, then each gap line by line."
@@ -228,7 +229,7 @@
   (let [scored (+ killed survived no-coverage)
         width #(str "width:" (if (pos? scored) (/ (* 100.0 %) scored) 0) "%")]
     [:div {:class "share"}
-     [:b (mutate/percent (when (pos? scored) (/ killed scored)))]
+     [:b (report/percent (when (pos? scored) (/ killed scored)))]
      [:div {:class "bar"
             :aria-hidden "true"}
       [:i {:class "c"
@@ -356,10 +357,10 @@
                                           ["Not run: the run stopped first" (reduce + (map :mutants unreached))]])
                                  [["Planted bugs" (:mutants totals)]
                                   ["Score: caught, of all that the tests ran or should have run"
-                                   (mutate/percent score)]]
+                                   (report/percent score)]]
                                  (when (pos? (:no-coverage totals))
                                    [["Covered score: leaves out never run"
-                                     (mutate/percent covered-score)]]))]
+                                     (report/percent covered-score)]]))]
        [:tr [:td label] [:td {:class "num"} value]])]]])
 
 (def ^:private terms
@@ -420,7 +421,7 @@
         ". Code that the change affects only through other functions was not checked."])
      [:p {:class "eyebrow"} "Mutation report · " [:code (str target)] " · " [:code file]]
      [:h1 (if (pos? scored)
-            (str "The tests caught " killed " of " (plural scored "planted bug" "planted bugs") " (" (mutate/percent score) ")")
+            (str "The tests caught " killed " of " (plural scored "planted bug" "planted bugs") " (" (report/percent score) ")")
             "No planted bug counts toward the score")]
      (if (seq cards)
        (list [:p {:class "lead"} (str (plural gaps "test gap" "test gaps") " in "

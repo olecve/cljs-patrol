@@ -1,7 +1,7 @@
 (ns cljs-patrol.dev.mutate-html-test
   (:require
-   [cljs-patrol.dev.mutate :as mutate]
    [cljs-patrol.dev.mutate-html :as mutate-html]
+   [cljs-patrol.dev.mutate.forms :as forms]
    [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
 
@@ -285,7 +285,7 @@
 
 (deftest every-swap-has-hint
   (is (= #{}
-         (->> mutate/swaps
+         (->> forms/swaps
               (map (fn [[from to]] #{(str from) (str to)}))
               (remove mutate-html/hints)
               set))))
