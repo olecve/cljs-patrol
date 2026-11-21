@@ -118,6 +118,8 @@ Each choice below has a record in [`docs/adr/`](adr/README.md) with the options 
 - **A page in plain words** ([ADR 0008](adr/0008-mutation-test-report-in-plain-words.md)). The Stryker viewer showed
   each mutant but not what to do. The page leads with the gaps and the next step, and uses the same score as the
   console.
+- **A body replaced by `nil`** ([ADR 0009](adr/0009-mutation-test-replace-a-body-with-nil.md)). A function with no
+  operator and no number gives no swap, so one more mutant per arity shows a function that no test checks at all.
 
 ## Words
 
