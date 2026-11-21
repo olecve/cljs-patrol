@@ -1,5 +1,6 @@
 (ns cljs-patrol.dev.mutate-html-test
   (:require
+   [cljs-patrol.dev.mutate :as mutate]
    [cljs-patrol.dev.mutate-html :as mutate-html]
    [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
@@ -268,3 +269,33 @@
   (let [numbers (text-of (slice (page (summary [(last mutants)] :score nil)) "<summary>All numbers" "</details>"))]
     (is (str/includes? numbers (str "Score: caught, of all that the tests ran or should have run n/a"
                                     " Covered score: leaves out never run n/a")))))
+
+(deftest context-rows-skip-string-lines-that-look-like-forms
+  (is (= [1 2]
+         (mutate-html/context-rows ["(defn f [x]" "  (let [q \"select" "(case when" "from t\"]" "    (when x q)))"] 5))
+      "line inside open string is no form"))
+
+(deftest every-swap-has-hint
+  (is (= #{}
+         (->> mutate/swaps
+              (map (fn [[from to]] #{(str from) (str to)}))
+              (remove mutate-html/hints)
+              set))))
+
+(deftest gap-shows-each-planted-bug-on-own-line
+  (let [code (slice (page (summary [(mutant "label" 5 6 "if" "if-not" :survived)
+                                    (mutant "label" 5 10 "pos?" "neg?" :survived)]))
+                    "<div class=\"code\">" "</pre>")]
+    (is (str/includes? code "(<span class=\"now\">if-not</span> (pos? y)"))
+    (is (str/includes? code "(if (<span class=\"now\">neg?</span> y)"))))
+
+(deftest function-without-scored-planted-bugs-shows-no-share
+  (is (str/includes? (-> mutants (conj (mutant "other" 2 2 "if" "if-not" :timeout)) summary page text-of)
+                     "1 more function with no gaps, 1 planted bug in all other 1 0 0 n/a")))
+
+(deftest function-that-ran-every-test-lists-them-all
+  (is (str/includes? (text-of (page (summary [(mutant "label" 7 8 "first" "last" :survived)]
+                                             :tests {"label" :every})
+                                    {:test-names ["app.core-test/labels" "app.core-test/signs" "app.core-test/more"]}))
+                     "3 tests run for label")))
+

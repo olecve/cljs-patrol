@@ -474,7 +474,7 @@
       "file outside the working directory keeps its whole path"))
 
 (deftest run-names-killing-test-and-tests-that-ran
-  (with-target target-tests
+  (with-target (str target-tests "(deftest unrelated (is true))\n")
     (fn []
       (let [{:keys [mutants definitions]} (run-target {:defs ["label"]})]
         (is (= ["cljs-patrol.dev.mutate-test.target-test/labels"]

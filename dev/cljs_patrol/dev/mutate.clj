@@ -494,6 +494,11 @@
                 (throw (setup-error (str "The tests fail before any mutation; fix them first.\n"
                                          (:output plain-run)))))))))
 
+(defn test-name
+  "Name a test var as the reports do: namespace/name."
+  [test-var]
+  (str (symbol test-var)))
+
 (defn- outcome-key [outcome]
   (case outcome
     :passed :survived
@@ -516,7 +521,7 @@
   while it loaded shows nothing about the tests. The score is killed over killed,
   survived and no-coverage mutants; the covered score leaves the mutants no test reaches out, so it
   shows how well the tests check the code they run. Each definition names the tests its mutants
-  ran, from `tests-by-def`."
+  ran, from `tests-by-def`, or :every when they ran every test."
   [{:keys [defs-in-scope loaded-once other-forms unreached results stopped note plans tests-by-def]}]
   (let [reached (set (keep #(when (and (contains? #{:failed :timeout} (:outcome %)) (not (:at-load? %))) (:def %))
                            results))
@@ -556,7 +561,7 @@
                          (select-keys [:def :row :col :from :at-load?])
                          (assoc :to (pr-str (:to %))
                                 :outcome (outcome-key (:outcome %))
-                                :killed-by (some-> (:killed-by %) symbol str)))
+                                :killed-by (some-> (:killed-by %) test-name)))
                     results)
      :stopped stopped}))
 
@@ -564,8 +569,10 @@
   (when (seq names)
     (println (str "\n" title ": " (str/join ", " names)))))
 
-(defn- percent [ratio]
-  (if ratio (format "%.0f%%" (* 100 ratio)) "n/a"))
+(defn percent
+  "Write a ratio as a whole percentage, or n/a when there is none."
+  [ratio]
+  (if ratio (format "%.0f%%" (* 100.0 ratio)) "n/a"))
 
 (defn- print-report [{:keys [definitions not-mutated not-covered loaded-once other-forms unreached totals score
                              covered-score mutants stopped note]}
@@ -681,7 +688,6 @@
                                                       :covered covered
                                                       :plans plans}
                                                      selected)
-        test-names (->> (test-vars-of test-nss) (map (comp str symbol)) sort vec)
         summary (summarize {:defs-in-scope defs-in-scope
                             :loaded-once loaded-once
                             :other-forms other-forms
@@ -692,8 +698,8 @@
                             :plans (update-vals @plans :kind)
                             :tests-by-def (update-vals @plans (fn [{:keys [kind tests]}]
                                                                 (if (= :subset kind)
-                                                                  (->> tests (map (comp str symbol)) sort vec)
-                                                                  test-names)))})]
+                                                                  (->> tests (map test-name) sort vec)
+                                                                  :every)))})]
     (print-report summary (str/split-lines source) since)
     (when report
       (spit report (with-out-str (pprint/pprint (assoc summary
@@ -706,6 +712,9 @@
                                                                                  :file (relative-path file)
                                                                                  :source source
                                                                                  :test-nss test-nss
+                                                                                 :test-names (->> (test-vars-of test-nss)
+                                                                                                  (map test-name)
+                                                                                                  sort)
                                                                                  :since since}))
       (println (str "HTML report written to " html)))
     summary))

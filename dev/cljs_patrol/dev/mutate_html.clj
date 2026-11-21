@@ -5,6 +5,7 @@
   docs/mutation-testing.md: a planted bug is a mutant, caught means killed, and a test gap is a
   mutant that survived or that no test reaches."
   (:require
+   [cljs-patrol.dev.mutate :as mutate]
    [clojure.java.io :as io]
    [clojure.string :as str]
    [hiccup2.core :as h]))
@@ -23,8 +24,8 @@
        " addEventListener('hashchange', show);"
        " show();"))
 
-(def ^:private hints
-  "The likely reason a test misses a swap, by the two operators it swaps."
+(def hints
+  "The likely reason a test misses a swap, by the two operators it swaps: one for each pair of `mutate/swaps`."
   {#{"<" "<="} "no test uses the boundary value, where both sides are equal."
    #{">" ">="} "no test uses the boundary value, where both sides are equal."
    #{"=" "not="} "no test checks both outcomes of this comparison."
@@ -49,16 +50,17 @@
   "The papers and docs behind the page's advice and words: each title, its link, and what it backs."
   [["Petrović, Ivanković, Fraser, Just. " "Practical Mutation Testing at Scale: A view from Google"
     "https://arxiv.org/abs/2102.11378"
-    ". IEEE TSE, 2021. Why one gap per line is enough, and why code such as logging is skipped."]
+    (str ". IEEE TSE, 2021. Google shows at most one surviving mutant per line, and skips \"arid\" code such as"
+         " logging, which raised the share of mutants developers found useful from about 15% to 89%.")]
    ["Petrović, Ivanković, Fraser, Just. " "Does mutation testing improve testing practices?"
     "https://arxiv.org/abs/2103.07189"
     " ICSE, 2021. Developers who saw mutants wrote more and better tests over time."]
    ["Petrović et al. " "Please fix this mutant: How do developers resolve mutants surfaced during code review?"
     "https://research.google/pubs/please-fix-this-mutant-how-do-developers-resolve-mutants-surfaced-during-code-review/"
-    " ICSE SEIP, 2023."]
+    " ICSE SEIP, 2023. How developers act on the mutants a review shows them."]
    ["Schuler, Zeller. " "(Un-)Covering Equivalent Mutants"
     "https://www.st.cs.uni-saarland.de/publications/files/schuler-icst-2010.pdf"
-    ". ICST, 2010. How often a survivor is equivalent, and what it costs to check one."]
+    ". ICST, 2010. How often a survivor is an equivalent mutant, and what it costs to check one by hand."]
    ["Stryker. " "Mutant states and metrics"
     "https://stryker-mutator.io/docs/mutation-testing-elements/mutant-states-and-metrics/"
     ". The usual names for each outcome and score."]
@@ -66,9 +68,6 @@
     ". Test the behavior, not the mutant."]])
 
 (defn- plural [n one many] (str n " " (if (= 1 n) one many)))
-
-(defn- percent [ratio]
-  (if ratio (str (Math/round (* 100.0 ratio)) "%") "n/a"))
 
 (defn- line-range [rows]
   (let [first-row (apply min rows)
@@ -83,22 +82,36 @@
 
 (defn- indent [line] (count (re-find #"^ *" line)))
 
+(defn- string-open-after
+  "True when a string or regex is still open at the end of `line`, given whether one was open at its start."
+  [line open?]
+  (loop [i 0
+         open? open?]
+    (if (>= i (count line))
+      open?
+      (case (.charAt ^String line i)
+        \\ (recur (+ i 2) open?)
+        \" (recur (inc i) (not open?))
+        \; (if open? (recur (inc i) open?) open?)
+        (recur (inc i) open?)))))
+
 (defn context-rows
   "Return the rows of the forms around `row` in `lines`, each less indented than the next, up to an unindented one.
 
-  Only a line that opens a form counts, so a docstring, a comment or the rest of a multi-line
-  string is left out."
+  Only a line that opens a form outside a string counts, so a docstring, a comment or the rest
+  of a multi-line string is left out."
   [lines row]
-  (loop [r (dec row)
-         limit (indent (nth lines (dec row) ""))
-         shown ()]
-    (if (or (< r 1) (zero? limit))
-      shown
-      (let [text (nth lines (dec r))
-            opens-form? (re-find #"^\s*[(\[{#]" text)]
-        (if (and opens-form? (< (indent text) limit))
-          (recur (dec r) (indent text) (conj shown r))
-          (recur (dec r) limit shown))))))
+  (let [in-string (vec (reductions #(string-open-after %2 %1) false (take row lines)))]
+    (loop [r (dec row)
+           limit (indent (nth lines (dec row) ""))
+           shown ()]
+      (if (or (< r 1) (zero? limit))
+        shown
+        (let [text (nth lines (dec r))
+              opens-form? (and (not (in-string (dec r))) (re-find #"^\s*[(\[{#]" text))]
+          (if (and opens-form? (< (indent text) limit))
+            (recur (dec r) (indent text) (conj shown r))
+            (recur (dec r) limit shown)))))))
 
 (defn- marked
   "Return the text of a line with each swapped operator wrapped in a span, written by `pick`."
@@ -129,8 +142,9 @@
       (when (and (seq context) (> row (inc (last context)))) skipped)
       [:span {:class "row mine"} [:span {:class "no"} row] [:span {:class "lab"} "now"]
        [:span (marked text cut mutants "was" :from) "\n"]]
-      [:span {:class "row bug"} [:span {:class "no"}] [:span {:class "lab"} "with bug"]
-       [:span (marked text cut mutants "now" :to) "\n"]]]]))
+      (for [mutant (sort-by :col mutants)]
+        [:span {:class "row bug"} [:span {:class "no"}] [:span {:class "lab"} "with bug"]
+         [:span (marked text cut [mutant] "now" :to) "\n"]])]]))
 
 (defn- tests-list [function tests these?]
   (when (seq tests)
@@ -150,7 +164,7 @@
      [:p {:class "shared"}
       (str (plural (count mutants) "planted bug" "planted bugs") " on this line went unnoticed, so no test makes this"
            " part of the line matter. One new test will likely catch all of them.")])
-   (for [hint (distinct (map #(get hints (swap-pair %) "no test depends on this part of the line.") mutants))]
+   (for [hint (distinct (keep (comp hints swap-pair) mutants))]
      [:p {:class "why"} (str "Likely: " hint)])
    (for [reason (distinct (keep (comp maybe-harmless swap-pair) mutants))]
      [:p {:class "harmless"} reason])])
@@ -188,9 +202,10 @@
          (gap-section lines row on-row))])))
 
 (defn- bar [{:keys [mutants killed survived no-coverage]}]
-  (let [width #(str "width:" (/ (* 100.0 %) mutants) "%")]
+  (let [width #(str "width:" (/ (* 100.0 %) mutants) "%")
+        scored (+ killed survived no-coverage)]
     [:div {:class "share"}
-     [:b (percent (/ killed (+ killed survived no-coverage)))]
+     [:b (mutate/percent (when (pos? scored) (/ killed scored)))]
      [:div {:class "bar"
             :aria-hidden "true"}
       [:i {:class "c"
@@ -306,10 +321,10 @@
                                           ["Not run: the run stopped first" (reduce + (map :mutants unreached))]])
                                  [["Planted bugs" (:mutants totals)]
                                   ["Score: caught, of all that the tests ran or should have run"
-                                   (percent score)]]
+                                   (mutate/percent score)]]
                                  (when (pos? (:no-coverage totals))
                                    [["Covered score: leaves out never run"
-                                     (percent covered-score)]]))]
+                                     (mutate/percent covered-score)]]))]
        [:tr [:td label] [:td {:class "num"} value]])]]])
 
 (def ^:private terms
@@ -357,7 +372,7 @@
         ". Code that the change affects only through other functions was not checked."])
      [:p {:class "eyebrow"} "Mutation report · " [:code (str target)] " · " [:code file]]
      [:h1 (if (pos? scored)
-            (str "The tests caught " killed " of " (plural scored "planted bug" "planted bugs") " (" (percent score) ")")
+            (str "The tests caught " killed " of " (plural scored "planted bug" "planted bugs") " (" (mutate/percent score) ")")
             "No planted bug counts toward the score")]
      (if (seq cards)
        (list [:p {:class "lead"} (str (plural gaps "test gap" "test gaps") " in "
@@ -383,17 +398,22 @@
 (defn page
   "Return the HTML page of a run's `summary`, for `target` loaded from `file` with `source`, tested by `test-nss`.
 
-  Test names are shown without their namespace when one test namespace holds them all. A test
+  `test-names` lists every test, for a definition that ran them all. Test names are shown without
+  their namespace when one test namespace holds them all. A test
   reaches a mutant when it ran for it: a mutant with no coverage, or that did not load, reaches
   none."
   [{:keys [mutants definitions]
     :as summary}
-   {:keys [target source test-nss]
+   {:keys [target source test-nss test-names]
     :as run}]
   (let [lines (str/split-lines source)
         short-name (if (= 1 (count test-nss)) #(str/replace % #"^[^/]*/" "") identity)
         mutants (map #(update % :killed-by (fn [test-name] (some-> test-name short-name))) mutants)
-        tests-by-def (into {} (map (juxt :def #(map short-name (:tests %)))) definitions)
+        tests-by-def (into {}
+                           (map (fn [{function :def
+                                      :keys [tests]}]
+                                  [function (map short-name (if (= :every tests) test-names tests))]))
+                           definitions)
         tests-of (fn [{:keys [outcome at-load?]
                        :as mutant}]
                    (if (and (contains? #{:killed :survived :timeout} outcome) (not at-load?))
