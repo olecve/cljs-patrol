@@ -20,11 +20,12 @@ Proposed, 2026-11-23
   of the runner stops a run when a test changes a file.
   [ADR 0011](0011-mutation-test-stop-when-a-test-changes-a-file.md) records that fix, and
   [ADR 0012](0012-mutation-test-guard-skips-what-git-ignores.md) sets the paths that the guard skips. `fs/join-path`
-  still gives a path without a root for a nil `base`. This ADR does not depend on ADR 0011 or ADR 0012.
-- **Failures are booleans.** `File.delete` and `File.mkdirs` return `false` and give no reason. `fs/delete-file!`,
-  `fs/mkdirs` and `fs/delete-tree!` ignore that value.
-- **Failures are empty lists.** `File.listFiles` returns nil when it cannot read a directory. `walk-files`
-  (`fs.clj:95-101`) maps over that nil. Discovery thus finds no files in an unreadable directory and prints nothing.
+  still gives a path without a root for a nil `base`. Step 1 of this ADR fixes that: `fs/join-path` then throws on a nil
+  `base`. This ADR does not depend on ADR 0011 or ADR 0012.
+- **Failures are booleans.** `File.delete` and `File.mkdirs` return `false` and give no reason. `fs/delete-file!` and
+  `fs/mkdirs` return that value, and `fs/delete-tree!` drops it. No caller of the three reads it.
+- **Failures are empty lists.** `File.listFiles` returns nil when it cannot read a directory. The private function
+  `walk-files` of `fs` maps over that nil. Discovery thus finds no files in an unreadable directory and prints nothing.
 
 `java.nio.file.Path` and `java.nio.file.Files` do not have these properties. A probe on Clojure 1.12.7 showed these
 facts:
@@ -53,7 +54,7 @@ The scope is small. In `src/`, 20 lines call `fs/`: 10 in `baseline`, 3 in `core
   (`parser.clj:534`). Each finding, each timing record and each parse warning holds that string as `:file`.
 - **The baseline file.** `resolve-baseline-path` joins the first source directory and `.cljs-patrol/baseline.edn`
   (`baseline.clj:213`). The baseline key `:file` is `(str (.relativize base target))` on absolute paths
-  (`fs.clj:39-43`), so it uses the separator of the OS.
+  (`fs/relativize`), so it uses the separator of the OS.
 - **The reporters.** The console prints `:file` as it is (`console.clj:22`). EDN, Markdown and the HTML `vscode://` link
   print `fs/absolute-path` of it. The HTML report goes to `report.html` in the working directory (`core.clj:341, 361`).
 - **The tests group.** `under-path?` splits the `:file` string on `/` and `\` (`groups/tests.clj:140-155`).
@@ -161,7 +162,8 @@ the tests do not run the production code.
 
 - A nil path throws `NullPointerException` in production and in tests. A test like `fs_test` with that mutant fails and
   writes nothing.
-- A failed delete and a failed directory create throw with the reason. Today they are ignored.
+- In the `Path` functions of `fs`, a failed delete and a failed directory create throw with the reason. Today they are
+  ignored.
 - A run on a tree with one unreadable directory skips that directory, as today, but now prints a warning with the
   directory and the reason. The run goes on, and its exit code does not change. A person who does not read stderr can
   still miss the files of that directory.
@@ -180,7 +182,7 @@ the tests do not run the production code.
 
 Before the status changes to `Accepted`, these checks must pass:
 
-- `clojure -M:test` passes, and `fs_test` runs on Jimfs.
+- `clojure -M:test` passes, and each test of `fs_test` that needs no real disk runs on Jimfs.
 - A test shows that each public function of `fs` throws on a nil path.
 - `grep -rnE 'java\.io\.File|io/file|\(File\. |io/writer|io/reader|\bspit\b' src/` finds nothing, and each `slurp` in
   `src/` reads an `io/resource`.
@@ -199,15 +201,30 @@ Each step is one pull request, and each one ships on its own.
    `:test`. Add `Path` functions that take a `FileSystem` or a `Path`, and test them on Jimfs. Keep each string function
    as an adapter that makes a `Path` on the default file system and returns the same value as before. Write the
    internals with `Files`: `createDirectories`, `deleteIfExists`, `move`, `newDirectoryStream`, and `walkFileTree` for
-   `delete-tree!`.
+   `delete-tree!`. The adapters keep the results of `java.io`, with these exceptions:
+   - NIO reads the empty string as the working directory. In the adapters, the empty string names no file, as in
+     `java.io`. `file-exists?` gives `false`, `mkdirs` and `delete-file!` give `false`, `delete-tree!` does nothing,
+     `list-source-files` gives `[]`, and `move-replace!` throws `NoSuchFileException`. `join-path` keeps the result of
+     `java.io`: `(join-path "" "x")` gives `/x`, and `(join-path "src" "/abs")` gives `src/abs`. Without this rule,
+     `(delete-tree! "")` deletes the working directory.
+   - NIO throws `InvalidPathException` on a string that `java.io` accepts, such as one with a NUL character. In the
+     adapters, such a string names no file: `file-exists?` gives `false`, and `missing-dirs` reports it.
+   - `absolute-path` gives back the text of a string that names no file. `java.io` gave it after the working directory.
+   - `mkdirs` throws with the reason when it cannot make a folder. `java.io` gave `false`, and the write after it then
+     threw.
+   - `delete-file!` keeps its contract: it gives `false` and does not throw when it cannot delete. The `finally` of the
+     baseline write calls it, and a throw there hides the first error.
+   - `delete-tree!` does not follow a link to a folder. It deletes the link, and the folder behind it stays. `java.io`
+     deleted the files behind the link. This change is intended, because a delete must stay in its tree.
+   - `join-path` throws on a nil `base`.
    - Risk: the text of the discovered paths changes. `File` and `Path` both drop a trailing `/` and a doubled `/`, and
      both keep `./` (a probe gave `./src/a` for `./src//a/` with both). A test compares the list for `src`, `src/` and
      `./src` with the list of `main`, in order.
    - Risk: a symbolic link to a directory is not followed. A test with a link on Jimfs proves that it is.
-   - Risk: an unreadable directory stops the run. Discovery catches the `IOException` of that directory, prints one
-     warning on stderr with the directory and the reason, and goes on, because one unreadable directory must not block a
-     whole lint run. A test on the real disk proves that the run finds the other files and that the warning names the
-     directory.
+   - Risk: an unreadable directory stops the run. Discovery catches the `IOException` or the
+     `DirectoryIteratorException` of that directory, prints one warning on stderr with the directory and the reason, and
+     goes on, because one unreadable directory must not block a whole lint run. A test on the real disk proves that the
+     run finds the other files and that the warning names the directory.
    - Risk: reflection. `reflection_test` proves there is none.
    - Risk: Jimfs gets into the uberjar. The `unzip -l` check proves it does not.
    - Risk: Guava conflicts with a test dependency. `clojure -M:test` proves it does not.
@@ -220,10 +237,11 @@ Each step is one pull request, and each one ships on its own.
    - Risk: a file that is not UTF-8 parses differently. A test with the bytes `C3 28` proves the parser gives the same
      result as `main`.
    - Risk: the native image. The `native-verify` job proves the binary writes and compares a baseline.
-3. **The tests move to Jimfs.** Move `fs_test`, the baseline write, read and config tests of `baseline_test`, the write
-   tests of `reporters/html_test`, the baseline write tests of `core_test` and the discovery tests of `parser_test` to
-   Jimfs. These tests then do not use `cljs-patrol.temp-dir`. The tests on the real disk keep it. Add the Windows test
-   of the baseline key.
+3. **The tests move to Jimfs.** Move the tests of `fs_test` that need no real disk, the baseline write, read and config
+   tests of `baseline_test`, the write tests of `reporters/html_test`, the baseline write tests of `core_test` and the
+   discovery tests of `parser_test` to Jimfs. These tests then do not use `cljs-patrol.temp-dir`. The tests on the real
+   disk keep it. In `fs_test`, these are the tests of an unreadable directory, the compare of the discovered paths with
+   `java.io`, and the tests of the string adapters. Add the Windows test of the baseline key.
 4. **Remove the string adapters.** Remove each string function of `fs` that has no caller. Keep `nano-time` while the
    baseline write names its temporary file with it.
    - Risk: a caller still passes a string. A string where a `Path` is hinted gives a `ClassCastException`, and
