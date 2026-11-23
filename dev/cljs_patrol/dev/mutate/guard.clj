@@ -1,8 +1,10 @@
 (ns cljs-patrol.dev.mutate.guard
-  "Find the files that the tests of a mutant add, change or delete in the working directory, which the runner cannot undo.
+  "Find the files that a mutant adds, changes or deletes in the working directory, which the runner cannot undo.
 
-  The guard compares a snapshot of every file and folder, with the size and time of change of
-  each file, with the one taken after the baseline, after each mutant that loaded."
+  The tests of a mutant can change files, and so can its form while it loads. After each mutant
+  that loaded, the guard compares a snapshot of every file and folder, with the size and time of
+  change of each file, with the reference: the last snapshot with no change, which is the one
+  after the baseline at first."
   (:require
    [cljs-patrol.dev.mutate.cache :as cache]
    [clojure.java.io :as io]
@@ -15,17 +17,27 @@
 (def tool-files
   "What editors, IDEs, linters and the Clojure CLI write while a run goes on, which a snapshot leaves out.
 
-  :folders are relative to the working directory. :names match the name of a file or folder at
-  any depth: the swap files of Vim (`*.swp`, `*.swo`, and `4913`, which Vim writes to test that
-  it may write a folder), the locks (`.#*`) and auto-saves (`#*#`) of Emacs, the backups of
-  several editors (`*~`), the folder files of macOS (`.DS_Store`), and the port file of nREPL."
-  {:folders #{".lsp" ".clj-kondo/.cache" ".cpcache" ".shadow-cljs" ".idea" ".calva"}
-   :names [#"\.sw[po]$" #"^4913$" #"^\.#" #"^#.*#$" #"~$" #"^\.DS_Store$" #"^\.nrepl-port$"]})
+  :folders are relative to the working directory. The other keys match the name of a file or
+  folder at any depth: the swap files of Vim (`*.swp`, `*.swo`, and `4913`, which Vim writes to
+  test that it may write a folder), the locks (`.#*`) and auto-saves (`#*#`) of Emacs, the
+  backups of several editors (`*~`), the folder files of macOS (`.DS_Store`), and the port file
+  of nREPL."
+  {:folders #{".lsp" ".clj-kondo" ".cpcache" ".shadow-cljs" ".idea" ".calva"}
+   :names #{"4913" ".DS_Store" ".nrepl-port"}
+   :prefix ".#"
+   :suffixes [".swp" ".swo" "~"]
+   :enclosed-by "#"})
 
 (defn tool-file?
   "True when `file-name` is the name of a file or folder that editors and tools write, at any depth."
   [file-name]
-  (boolean (some #(re-find % file-name) (:names tool-files))))
+  (let [{:keys [names prefix suffixes enclosed-by]} tool-files]
+    (boolean (or (contains? names file-name)
+                 (str/starts-with? file-name prefix)
+                 (some #(str/ends-with? file-name %) suffixes)
+                 (and (< (count enclosed-by) (count file-name))
+                      (str/starts-with? file-name enclosed-by)
+                      (str/ends-with? file-name enclosed-by))))))
 
 (def ^:private no-follow (into-array LinkOption [LinkOption/NOFOLLOW_LINKS]))
 
@@ -135,10 +147,11 @@
                  (changes root before after {}))})
 
 (defn look
-  "Take a snapshot, and return the files added, changed or deleted since the baseline as [path change] pairs, or nil.
+  "Take a snapshot, and return the files added, changed or deleted since the reference as [path change] pairs, or nil.
 
-  When nothing changed, the new snapshot becomes the reference, so a file that the baseline
-  wrote and a test wrote again with the same bytes is not hashed again."
+  The reference is the last snapshot with no change, which is the one after the baseline at
+  first. When nothing changed, the new snapshot becomes the reference, so a file that the
+  baseline wrote and a test wrote again with the same bytes is not hashed again."
   [{:keys [root skipped files hashes]}]
   (let [now (snapshot root skipped)
         changed (changes root @files now hashes)]

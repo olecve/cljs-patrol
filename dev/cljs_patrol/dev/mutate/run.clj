@@ -317,15 +317,17 @@
 (defn- files-changed-stop
   "Return how the run stops after the mutant `result`, whose tests changed the `changed` files in the guard's root.
 
-  The stop also tells when the tests of the mutant still run after the timeout, or when its
-  restore failed."
+  A mutant that failed while it loaded ran no test, so the stop names its loading instead. The
+  stop also tells when the tests of the mutant still run after the timeout, or when its restore
+  failed."
   [{:keys [root hashes]}
-   {:keys [id restore-error]
+   {:keys [id restore-error at-load?]
     stuck :stuck?
     :as result}
    changed]
   {:stop-reason :files-changed
-   :stopped (str "the tests of the mutant " id " changed files in " (guard/folder-name root)
+   :stopped (str (if at-load? "loading the mutant " "the tests of the mutant ") id " changed files in "
+                 (guard/folder-name root)
                  ", and the runner did not undo them:\n" (guard/describe changed hashes)
                  "\nDelete or restore them, and make the test take its folder from the JDK, such as"
                  " Files/createTempDirectory, not from the code under test."

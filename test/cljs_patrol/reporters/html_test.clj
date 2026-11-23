@@ -5,7 +5,9 @@
    [cljs-patrol.reporters.html :as html]
    [cljs-patrol.temp-dir :as temp-dir]
    [clojure.string :as str]
-   [clojure.test :refer [deftest is testing]]))
+   [clojure.test :refer [deftest is testing use-fixtures]]))
+
+(use-fixtures :each temp-dir/delete-created)
 
 (def ^:private key->title #'html/key->title)
 (def ^:private infer-columns #'html/infer-columns)

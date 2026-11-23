@@ -7,8 +7,10 @@
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.spade :as spade]
    [cljs-patrol.temp-dir :as temp-dir]
-   [clojure.test :refer [deftest is testing]]
+   [clojure.test :refer [deftest is testing use-fixtures]]
    [clojure.tools.cli :as cli]))
+
+(use-fixtures :each temp-dir/delete-created)
 
 (def ^:private filter-groups #'core/filter-groups)
 (def ^:private filter-run-results #'core/filter-run-results)

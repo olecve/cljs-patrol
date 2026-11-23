@@ -5,20 +5,30 @@
   when a mutant made that path relative.")
 
 (defn create-dir
-  "Create a new, empty folder in the OS temporary folder, its name starting with `prefix`, and return its absolute path."
+  "Create a new, empty folder in the OS temporary folder, its name starting with `prefix`, and return its absolute path.
+
+  The test deletes the folder when it is done."
   [prefix]
   (str (java.nio.file.Files/createTempDirectory prefix (make-array java.nio.file.attribute.FileAttribute 0))))
 
-(def ^:private shared-dir
-  "One temporary folder for the files of [[file-path]] in this JVM, which the JVM deletes when it exits, if it is empty."
-  (delay (doto (java.io.File. ^String (create-dir "cljs-patrol-"))
-           (.deleteOnExit))))
-
-(def ^:private file-count (atom 0))
+(def ^:private created
+  "The folders that [[file-path]] made, which [[delete-created]] deletes."
+  (atom []))
 
 (defn file-path
-  "Return the absolute path of a new file whose name ends with `file-name`, in a temporary folder, without creating it.
+  "Return the absolute path of a file named `file-name` in a new temporary folder, without creating the file.
 
-  The test deletes the file, or the folder of that name, when it is done."
+  A namespace that calls it deletes the folder with the fixture [[delete-created]]."
   [file-name]
-  (str (java.io.File. ^java.io.File @shared-dir (str (swap! file-count inc) "-" file-name))))
+  (let [dir (create-dir "cljs-patrol-")]
+    (swap! created conj dir)
+    (str (java.io.File. ^String dir ^String file-name))))
+
+(defn delete-created
+  "Run `f`, a test, then delete each folder that [[file-path]] made, with all it holds."
+  [f]
+  (try
+    (f)
+    (finally
+      (doseq [dir (first (reset-vals! created []))]
+        (run! #(.delete ^java.io.File %) (reverse (file-seq (java.io.File. ^String dir))))))))

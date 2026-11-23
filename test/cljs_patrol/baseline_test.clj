@@ -14,10 +14,12 @@
    [cljs-patrol.temp-dir :as temp-dir]
    [clojure.edn :as edn]
    [clojure.string :as str]
-   [clojure.test :refer [deftest is testing]])
+   [clojure.test :refer [deftest is testing use-fixtures]])
   (:import
    (java.io
     File)))
+
+(use-fixtures :each temp-dir/delete-created)
 
 (deftest issue->identity-test
   (testing "keyword-keyed rules use rule + key"

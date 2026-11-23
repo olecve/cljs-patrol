@@ -27,9 +27,9 @@
 (deftest skipped-dirs-name-root-git-tool-caches-and-cache-folder
   (fixtures/with-temp-dir
     (fn [dir]
-      (is (= #{".git" ".lsp" ".clj-kondo/.cache" ".cpcache" ".shadow-cljs" ".idea" ".calva" "cache/runs"}
+      (is (= #{".git" ".lsp" ".clj-kondo" ".cpcache" ".shadow-cljs" ".idea" ".calva" "cache/runs"}
              (guard/skipped-dirs dir (io/file dir "cache/runs"))))
-      (is (= #{".git" ".lsp" ".clj-kondo/.cache" ".cpcache" ".shadow-cljs" ".idea" ".calva"}
+      (is (= #{".git" ".lsp" ".clj-kondo" ".cpcache" ".shadow-cljs" ".idea" ".calva"}
              (guard/skipped-dirs dir (.getParentFile dir)))
           "cache folder outside root is no part of snapshot")
       (is (= (guard/skipped-dirs dir nil) (guard/skipped-dirs dir dir))
@@ -39,7 +39,7 @@
   (is (every? guard/tool-file? ["core.clj.swp" "core.clj.swo" ".#core.clj" "#core.clj#" "core.clj~" "4913" ".DS_Store"
                                 ".nrepl-port"]))
   (is (not-any? guard/tool-file? ["core.clj" "swp" "4914" "14913" "a.#b" "#a" "a#" "~a" "x.DS_Store" ".nrepl-port.edn"
-                                  "a.swpx"])))
+                                  "a.swpx" "#"])))
 
 (deftest snapshot-maps-files-and-skips-what-skipped-dirs-name
   (fixtures/with-temp-dir
@@ -49,9 +49,9 @@
         (write! dir path "(ns a)"))
       (.mkdir (io/file dir "empty"))
       (let [snapshot (guard/snapshot dir (guard/skipped-dirs dir (io/file dir "runs")))]
-        (is (= #{"src/" "src/a.clj" ".clj-kondo/" ".clj-kondo/config.edn" "sub/" "sub/.git/" "sub/.git/HEAD" "empty/"}
+        (is (= #{"src/" "src/a.clj" "sub/" "sub/.git/" "sub/.git/HEAD" "empty/"}
                (set (keys snapshot)))
-            "only root .git is skipped, only cache of .clj-kondo, and files of tools")
+            "only root .git is skipped, all of .clj-kondo, so a new one stops no run, and files of tools")
         (is (= :folder (get snapshot "empty/"))
             "empty folder counts")
         (is (= 6 (first (get snapshot "src/a.clj")))

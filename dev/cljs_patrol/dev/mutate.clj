@@ -41,9 +41,10 @@
   [[cache/open!]] decides, with `fresh` and `iterate`. A definition with no test plan from this
   run or the cache shows the tests the baseline saw call it. When a run with the same key
   reuses every mutant, no test runs, the baseline included. After the report, the cache
-  records what the run reported as the last run. With `guard-root`, the run stops when the
-  tests of a mutant add, change or delete a file under that folder, other than in its `.git`,
-  the cache folder, the tool caches and the swap and lock files of editors."
+  records what the run reported as the last run. With `guard-root`, the run stops when a
+  mutant that loaded, while it loads or in its tests, adds, changes or deletes a file or folder
+  under that folder. Its `.git`, the cache folder, the folders of editors, IDEs and tools, and
+  the swap, lock and backup files of editors do not count."
   [target file source test-nss {:keys [defs since timeout report html all-tests cache fresh iterate guard-root]}]
   (let [lines (when since (git/lines-since file since))
         {:keys [defs-in-scope loaded-once const-defs other-forms selected ignored unused-markers]

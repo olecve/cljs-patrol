@@ -795,3 +795,12 @@
         (cache/forget! store "f/1:2/if->if-not")
         (is (= (dissoc old-results "f/1:2/if->if-not") (:results (read-cache file))))
         (is (= (dissoc old-results "f/1:2/if->if-not") (:results @(:entry store))))))))
+
+(deftest forget-of-mutant-cache-does-not-hold-leaves-file-alone
+  (with-old-cache
+    (fn [file]
+      (let [before (slurp file)
+            store (open file {:make-key (key-of "s2")})]
+        (cache/forget! store "f/1:1/when->when-not")
+        (is (= before (slurp file))
+            "run that starts over and stops at its first mutant keeps last cache")))))
