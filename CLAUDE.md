@@ -167,13 +167,14 @@ key makes the run start over. `--iterate` needs only the same `-t` namespaces, r
 and unviable outcomes by place, so an edit runs again only the definitions it touches; after a change it runs the
 baseline, and a definition whose outcomes are all reused shows the tests the baseline saw call it. The cache keeps the
 test lists the report used, so a later run with no baseline still shows them. On unchanged sources, `--iterate` resumes:
-it keeps reusing the outcomes it trusts and runs no baseline when nothing is left. Run one runner at a time on a target:
-the last write wins. It marks those outcomes `:trusted?`, and a run without `--iterate` runs them again. `--fresh` runs
-every mutant again. At the end of a run that prints its report, in every mode, the cache keeps what that run reported,
-by place, as the last run: each gap whose place the last run reported is tagged new or still open, on the console and
-the page, the others count as "not run then", and the report counts the gaps closed since. A run exits 0 when nothing
-survives, 1 when something survives or has no coverage, and 2 when it cannot start or stops early. A value a `def`
-computes when the namespace loads keeps the original, so a mutant only it reaches survives.
+it keeps reusing the outcomes it trusts and runs no baseline when nothing is left. It marks those outcomes `:trusted?`,
+drops the name of the test that caught them, and a run without `--iterate` runs them again. `--fresh` runs every mutant
+again. Run one runner at a time on a target: the last write wins. At the end of a run that prints its report, in every
+mode, the cache keeps what that run reported, by place, as the last run: each gap whose place the last run reported is
+tagged new or still open, on the console and the page, the others count as "not run then", and the report counts the
+gaps closed since. A run exits 0 when nothing survives, 1 when something survives or has no coverage, and 2 when it
+cannot start or stops early. A value a `def` computes when the namespace loads keeps the original, so a mutant only it
+reaches survives.
 
 The runner's command line is `dev/cljs_patrol/dev/mutate.clj`. Each job has its namespace under
 `dev/cljs_patrol/dev/mutate/`, and its tests under `test/cljs_patrol/dev/mutate/`: `forms` reads the target into

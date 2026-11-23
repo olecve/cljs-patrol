@@ -51,7 +51,7 @@
         ignored (cache/with-ids ignored)
         _ (doseq [marker unused-markers]
             (println (str "Warning: the skip marker on " marker " matches no mutant; remove it or fix its operator.")))
-        store (cache/open! (assoc cache
+        store (cache/open! (assoc (when (seq selected) cache)
                                   :current-places #(->> top-forms
                                                         forms/mutants
                                                         cache/with-ids
@@ -88,9 +88,10 @@
                             (some->> (get reused (:id %)) (merge %)))
                        selected)
         places (into {} (map (juxt :id :place)) selected)
-        report-plans (merge (run/recorded-plans covered def-names)
-                            (cache/cached-plans store)
-                            @plans)
+        report-plans (select-keys (merge (run/recorded-plans covered def-names (not all-tests))
+                                         (cache/cached-plans store)
+                                         @plans)
+                                  def-names)
         summary (cache/with-progress
                   (report/summarize {:defs-in-scope defs-in-scope
                                      :loaded-once loaded-once
@@ -102,7 +103,7 @@
                                      :stopped (when stopped
                                                 (str stopped (when @(:file store)
                                                                (cache/stop-note stop-reason @(:recorded? store)))))
-                                     :note (cache/run-note store note)
+                                     :note (cache/run-note store note def-names)
                                      :plans report-plans})
                   store
                   places)]
@@ -146,8 +147,7 @@
       (catch Exception e
         (throw (error/setup-error (str "Could not load the namespaces: " (ex-message e))))))
     (mutate-source target file source test-nss
-                   (assoc options :cache {:file (cache/cache-file cache-dir target)
-                                          :make-key #(cache/project-key "." test-nss options)}))))
+                   (assoc options :cache (cache/project-cache cache-dir "." target test-nss options)))))
 
 (def ^:private cli-options
   [["-t" "--test NS" "A test namespace to run, given once per namespace"

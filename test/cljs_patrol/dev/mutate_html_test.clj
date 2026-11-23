@@ -447,3 +447,11 @@
     (is (str/includes? text "label : 1 gap, line 5 unused"))
     (is (not (str/includes? text "(new)")))
     (is (not (str/includes? text "never run New")))))
+
+(deftest never-run-card-shows-still-open-tag
+  (let [html (page (summary [(mutant "unused" 8 19 "when" "when-not" :no-coverage :since-last-run :still-open)]
+                            :progress {:closed []
+                                       :new 0
+                                       :still-open 1
+                                       :not-run-before 0}))]
+    (is (str/includes? (text-of html) "unused never run Still open"))))

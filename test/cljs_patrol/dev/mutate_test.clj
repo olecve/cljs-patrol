@@ -387,9 +387,9 @@
                     :timeout 0}
                    (:totals summary)))
             (is (= {"positive?" :every
-                    "label" ["cljs-patrol.dev.mutate.fixtures.target-test/labels"]}
+                    "label" :every}
                    (->> summary :definitions (take 2) (into {} (map (juxt :def :tests)))))
-                "definition with every outcome reused names tests baseline saw call it")
+                "definition with every outcome reused gets plan from baseline: one test, every test calls it")
             (is (= {:closed []
                     :new 0
                     :still-open 1
@@ -436,8 +436,8 @@
             (is (str/includes? output "All 2 mutants come from the last run, as --iterate asks; the tests run once"))
             (is (str/includes? output ", timeout ")
                 "baseline ran")
-            (is (= [["label" ["cljs-patrol.dev.mutate.fixtures.target-test/labels"]]]
-                   (map (juxt :def :tests) (:definitions summary))))
+            (is (= [["label" :every]] (map (juxt :def :tests) (:definitions summary)))
+                "only test calls it, so plan from baseline runs every test")
             (is (= (cache/run-key {:sources (cache/text-hash (str fixtures/target-source "changed tests"))
                                    :runner "runner"})
                    (:key (edn/read-string (slurp file))))
@@ -463,8 +463,8 @@
                 [summary output] (run-cached file "changed tests" {:defs ["label"]
                                                                    :iterate true})]
             (is (str/includes? output "All 2 mutants come from the last run, so no test runs."))
-            (is (= [["label" ["cljs-patrol.dev.mutate.fixtures.target-test/labels"]]]
-                   (map (juxt :def :tests) (:definitions summary))))))))))
+            (is (= [["label" :every]] (map (juxt :def :tests) (:definitions summary)))
+                "only test calls it, so plan from baseline runs every test")))))))
 
 (deftest failed-page-write-keeps-last-run-saved
   (fixtures/with-temp-dir
@@ -533,3 +533,34 @@
                     :not-run-before 4}
                    (:progress summary))
                 "gaps outside definition last run reported get no tag")))))))
+
+(deftest run-of-one-definition-reports-only-its-plans
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/with-target fixtures/target-tests
+        (fn []
+          (let [file (io/file dir "target.edn")
+                _ (run-cached file fixtures/target-tests {})
+                [summary] (run-cached file fixtures/target-tests {:defs ["label"]})]
+            (is (= ["label"] (keys (:tests-run summary))))))))))
+
+(deftest run-with-nothing-in-scope-makes-no-key
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (let [source (str "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
+                        "(def table {:a :b})\n")]
+        (fixtures/with-target source
+          (str "(ns cljs-patrol.dev.mutate.fixtures.target-test (:require [clojure.test :refer [deftest is]]))\n"
+               "(deftest passes (is true))\n")
+          (fn []
+            (let [file (io/file dir "target.edn")
+                  key-calls (atom 0)]
+              (spit file (pr-str {:key {:old true}
+                                  :results {}}))
+              (let [output (with-out-str
+                             (mutate/mutate-source 'cljs-patrol.dev.mutate.fixtures.target "target.clj" source
+                                                   ['cljs-patrol.dev.mutate.fixtures.target-test]
+                                                   {:cache {:file file
+                                                            :make-key #(do (swap! key-calls inc) {:new true})}}))]
+                (is (zero? @key-calls))
+                (is (not (str/includes? output "Running every mutant")))))))))))

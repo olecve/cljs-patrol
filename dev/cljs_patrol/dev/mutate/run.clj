@@ -210,13 +210,22 @@
 (defn recorded-plans
   "Return, for the report, the tests that the coverage pass `covered` saw call each of `def-names`.
 
-  A definition whose calls the pass did not record, or that no test called, gets none."
-  [{:keys [tests recorded]} def-names]
+  A definition whose calls the pass did not record, or that no test called, gets none. One runs
+  every test, as [[test-plan]] decides, when selection is off (`select?` false), when a test
+  namespace has a `test-ns-hook`, when something called it outside a test, or when every test
+  called it."
+  [{:keys [tests recorded reached-outside hooked? test-count]} def-names select?]
   (into {}
         (keep (fn [def-name]
-                (when (and (contains? recorded def-name) (seq (get tests def-name)))
-                  [def-name {:kind :subset
-                             :tests (get tests def-name)}])))
+                (let [def-tests (get tests def-name)]
+                  (when (and (contains? recorded def-name) (seq def-tests))
+                    [def-name (if (or hooked?
+                                      (not select?)
+                                      (contains? reached-outside def-name)
+                                      (= test-count (count def-tests)))
+                                {:kind :every}
+                                {:kind :subset
+                                 :tests def-tests})]))))
         def-names))
 
 (defn- run-mutant

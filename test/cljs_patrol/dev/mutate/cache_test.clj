@@ -143,6 +143,17 @@
         (is (not= base (cache/sources-hash dir ["src"]))
             "tracked file gone from disk counts as gone")))))
 
+(deftest sources-hash-walks-files-git-does-not-list
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (git dir "init" "-q")
+      (write-file dir ".gitignore" "*.tmp\n")
+      (write-file dir "src/a.tmp" "x")
+      (let [base (cache/sources-hash dir ["src"])]
+        (write-file dir "src/a.tmp" "y")
+        (is (not= base (cache/sources-hash dir ["src"]))
+            "git lists nothing under roots, so every file counts")))))
+
 (deftest sources-hash-outside-git-counts-every-file
   (fixtures/with-temp-dir
     (fn [dir]
@@ -231,9 +242,10 @@
 (deftest runner-files-are-runner-namespaces-without-page
   (let [names (map #(.getName ^java.io.File %) (cache/runner-files))]
     (is (= "mutate.clj" (first names)))
-    (is (= (sort (rest names)) (rest names))
-        "namespaces in name order")
-    (is (every? (set (rest names)) ["cache.clj" "forms.clj" "run.clj"]))
+    (is (= ["apply.clj" "cache.clj" "error.clj" "forms.clj" "git.clj" "report.clj" "run.clj" "fs.clj" "group.clj"
+            "parser.clj" "timings.clj"]
+           (rest names))
+        "runner namespaces in name order, then src files")
     (is (not-any? #{"mutate_html.clj" "mutate_report.css"} names)
         "page changes no outcome")
     (is (re-matches #"[0-9a-f]{64}" (cache/runner-version)))))
@@ -289,7 +301,7 @@
         (write-cache file {:key (run-key "s1")
                            :results old-results
                            :plans {"f" {:kind :every}}
-                           :notes ["old note"]
+                           :notes {"f" "old note"}
                            :last-run old-last-run})
         (f file)))))
 
@@ -304,7 +316,7 @@
         (is (= :resume (:mode store)))
         (is (= old-results (:results @(:entry store))))
         (is (= {"f" {:kind :every}} (cache/cached-plans store)))
-        (is (= "old note" (cache/run-note store nil)))
+        (is (= "old note" (cache/run-note store nil ["f"])))
         (is (= old-last-run (:previous store))
             "progress compares with outcomes last run reported")))))
 
@@ -315,7 +327,7 @@
         (is (= :start-over (:mode store)))
         (is (= {} (:results @(:entry store))))
         (is (= {} (cache/cached-plans store)))
-        (is (nil? (cache/run-note store nil)))
+        (is (nil? (cache/run-note store nil ["f"])))
         (is (= old-last-run (:previous store))
             "progress kept across edits")))))
 
@@ -334,7 +346,6 @@
                               :iterate true})]
         (is (= :iterate (:mode store)))
         (is (= {"f/9:1/when->when-not" {:outcome :failed
-                                        :killed-by "a-test/t"
                                         :place "p1"
                                         :trusted? true}
                 "f/9:6/>->>=" {:outcome :timeout
@@ -344,7 +355,7 @@
             "caught and loop kept under new id, unviable gone from target dropped, gaps and timeout run again")
         (is (= {} (cache/cached-plans store))
             "plans of other sources dropped")
-        (is (nil? (cache/run-note store nil)))))))
+        (is (nil? (cache/run-note store nil ["f"])))))))
 
 (deftest open-with-iterate-keeps-unviable-outcome-whose-place-stays
   (with-old-cache
@@ -364,8 +375,10 @@
             ids ["f/1:1/when->when-not" "f/1:2/if->if-not"]]
         (write-cache file {:key (run-key "s1")
                            :results {"f/1:1/when->when-not" {:outcome :failed
+                                                             :place "p1"
                                                              :trusted? true}
-                                     "f/1:2/if->if-not" {:outcome :failed}}})
+                                     "f/1:2/if->if-not" {:outcome :failed
+                                                         :place "p2"}}})
         (is (= ["f/1:2/if->if-not"]
                (-> (open file {:make-key (key-of "s1")}) (cache/plan-run (map mutant ids)) :reused keys))
             "plain run checks trusted outcome")
@@ -408,7 +421,12 @@
     (fn [dir]
       (let [file (io/file dir "a.edn")]
         (doseq [[text error] [["{:key" "EOF while reading"] ["[]" "it holds no cache"]
-                              ["{:key {} :results []}" "it holds no cache"]]]
+                              ["{:key {} :results []}" "it holds no cache"]
+                              ["{:key {} :results {\"f\" :failed}}" "it holds no cache"]
+                              ["{:key {} :results {\"f\" {:outcome :won :place \"p\"}}}" "it holds no cache"]
+                              ["{:key {} :results {\"f\" {:outcome :failed}}}" "it holds no cache"]
+                              ["{:key {} :results {\"a\" {:outcome :failed :place \"p\"} \"f\" {:outcome :failed}}}"
+                               "it holds no cache"]]]
           (spit file text)
           (let [store (atom nil)
                 output (with-out-str (reset! store (open file {:make-key (key-of "s1")})))]
@@ -524,7 +542,8 @@
     (fn [dir]
       (let [file (io/file dir "a.edn")]
         (write-cache file {:key (run-key "s1")
-                           :results {"f/1" {:outcome :unviable}}})
+                           :results {"f/1" {:outcome :unviable
+                                            :place "p"}}})
         (is (= "The 1 mutant comes from the last run, so no test runs."
                (plan-message (open file {:make-key (key-of "s1")
                                          :iterate true})
@@ -552,6 +571,7 @@
       (let [store (open file {:make-key (key-of "s2")})]
         (cache/record! store
                        {:id "f/1:1/when->when-not"
+                        :def "f"
                         :place "p1"
                         :outcome :failed
                         :killed-by #'clojure.core/inc
@@ -567,13 +587,13 @@
                                                   :killed-by "clojure.core/inc"}}
                 :plans {"f" {:kind :subset
                              :tests ["clojure.core/inc"]}}
-                :notes ["a note"]
+                :notes {"f" "a note"}
                 :last-run old-last-run}
                (read-cache file))
             "test vars as names, false flags left out, last run kept until run ends")
-        (cache/record! store (outcome "g/1" "pg" :outcome :timeout :at-load? true :stuck? true) {} "a note")
-        (cache/record! store (outcome "h/1" "ph") {} "other note")
-        (cache/record! store (outcome "h/2" "ph2") {} nil)
+        (cache/record! store (outcome "g/1" "pg" :def "g" :outcome :timeout :at-load? true :stuck? true) {} "a note")
+        (cache/record! store (outcome "h/1" "ph" :def "h") {} "other note")
+        (cache/record! store (outcome "h/2" "ph2" :def "h") {} nil)
         (is (= {"g/1" {:outcome :timeout
                        :place "pg"
                        :at-load? true
@@ -581,8 +601,11 @@
                 "h/1" {:outcome :failed
                        :place "ph"}}
                (-> file read-cache :results (select-keys ["g/1" "h/1"]))))
-        (is (= ["a note" "other note"] (:notes (read-cache file)))
-            "note kept once")
+        (is (= {"f" "a note"
+                "g" "a note"
+                "h" "other note"}
+               (:notes (read-cache file)))
+            "note kept for each definition, and run with no note keeps it")
         (is (= 4 (-> file read-cache :results count)))
         (cache/record! store (outcome "h/3" "ph3") {"f" {:kind :every}} nil)
         (is (= {:kind :every} (get-in (read-cache file) [:plans "f"]))
@@ -638,7 +661,6 @@
       (let [{:keys [key results last-run]} (read-cache file)]
         (is (= (run-key "s2") key))
         (is (= {"f/9:1/when->when-not" {:outcome :failed
-                                        :killed-by "a-test/t"
                                         :place "p1"
                                         :trusted? true}}
                results))
@@ -670,12 +692,22 @@
         (is (= 2 (count (:results @(:entry store))))
             "run keeps going")))))
 
-(deftest run-note-joins-distinct-notes
+(deftest run-note-joins-distinct-notes-of-definitions-in-scope
   (with-old-cache
     (fn [file]
       (let [store (open file {:make-key (key-of "s1")})]
-        (is (= "old note new" (cache/run-note store "new")))
-        (is (= "old note" (cache/run-note store "old note")))))))
+        (is (= "old note new" (cache/run-note store "new" ["f"])))
+        (is (= "old note" (cache/run-note store "old note" ["f"])))
+        (is (nil? (cache/run-note store nil ["g"]))
+            "note of other definition left out")))))
+
+(deftest project-cache-needs-directory
+  (is (nil? (cache/project-cache nil "." 'app.core ['app.core-test] {})))
+  (let [{:keys [file make-key]} (cache/project-cache ".mutate-cache" "." 'app.core ['app.core-test] {:timeout 9})]
+    (is (= (cache/cache-file ".mutate-cache" 'app.core) file))
+    (is (= {:all-tests false
+            :timeout 9}
+           (:options (make-key))))))
 
 (defn- summary-of [& mutants] {:mutants (vec mutants)})
 

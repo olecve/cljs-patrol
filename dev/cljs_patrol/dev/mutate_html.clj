@@ -231,7 +231,8 @@
     [:article {:class "fn unrun"
                :id anchor}
      [:div {:class "fn-head"} [:h3 [:code function]] [:span {:class "count"} "never run"]
-      (when (any-new? gaps) [:span {:class "tag"} (progress-tags :new)])]
+      (when-let [tag (some (set (keep :since-last-run gaps)) [:new :still-open])]
+        [:span {:class "tag"} (progress-tags tag)])]
      [:p {:class "why"}
       (str "No test calls this function, so none of its " (plural (count gaps) "planted bug" "planted bugs") " on ")
       [:a {:href (str "#L" (apply min (map :row gaps)))} (line-range (map :row gaps))]

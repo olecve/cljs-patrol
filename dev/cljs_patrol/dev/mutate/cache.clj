@@ -8,10 +8,10 @@
   outcome."
   (:require
    [cljs-patrol.dev.mutate.apply :as apply]
+   [cljs-patrol.dev.mutate.git :as git]
    [cljs-patrol.parser :as parser]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
-   [clojure.java.shell :as shell]
    [clojure.string :as str]
    [rewrite-clj.zip :as z]))
 
@@ -95,13 +95,15 @@
                  (if (str/blank? relative) "." relative))))))
 
 (defn- git-files
-  "Return the paths under `roots` of `root` that git sees: tracked, or untracked and not ignored; nil when git fails."
+  "Return the paths under `roots` of `root` that git sees: tracked, or untracked and not ignored.
+
+  Return nil when git fails or lists nothing, so the caller walks the files instead."
   [root roots]
   (try
-    (let [{:keys [exit out]} (apply shell/sh "git" "-C" (str root) "ls-files" "-z" "--cached" "--others"
-                                    "--exclude-standard" "--" roots)]
+    (let [{:keys [exit out]} (apply git/git (str root) "ls-files" "-z" "--cached" "--others" "--exclude-standard" "--"
+                                    roots)]
       (when (zero? exit)
-        (remove str/blank? (str/split out #"\u0000"))))
+        (seq (remove str/blank? (str/split out #"\u0000")))))
     (catch Exception _ nil)))
 
 (def ^:private never-hashed
@@ -136,16 +138,22 @@
     (catch Exception e
       (throw (ex-info (str "reading the sources under " root " failed: " (ex-message e)) {} e)))))
 
-(defn runner-files
-  "Find the runner's source files on the classpath: the command line and each namespace under `cljs-patrol.dev.mutate.`.
+(def ^:private runner-src-files
+  "The files under src/ that the runner reads forms through: the parser and what it requires."
+  ["cljs_patrol/fs.clj" "cljs_patrol/group.clj" "cljs_patrol/parser.clj" "cljs_patrol/timings.clj"])
 
-  The page code is left out, since it changes no outcome."
+(defn runner-files
+  "Find the runner's source files on the classpath, and the src files it reads forms through.
+
+  They are the command line, each namespace under `cljs-patrol.dev.mutate.`, and the parser with
+  what it requires. The page code is left out, since it changes no outcome."
   []
   (let [command-line (io/file (io/resource "cljs_patrol/dev/mutate.clj"))]
-    (cons command-line
-          (->> (.listFiles (io/file (.getParentFile command-line) "mutate"))
-               (filter #(str/ends-with? (.getName ^java.io.File %) ".clj"))
-               (sort-by #(.getName ^java.io.File %))))))
+    (concat [command-line]
+            (->> (.listFiles (io/file (.getParentFile command-line) "mutate"))
+                 (filter #(str/ends-with? (.getName ^java.io.File %) ".clj"))
+                 (sort-by #(.getName ^java.io.File %)))
+            (map #(io/file (io/resource %)) runner-src-files))))
 
 (defn runner-version
   "Hash the runner's source files, so a change to the runner makes the next run start over, also with --iterate."
@@ -188,7 +196,13 @@
   (when (.exists (io/file file))
     (try
       (let [entry (edn/read-string (slurp file))]
-        (if (and (map? (:key entry)) (map? (:results entry)))
+        (if (and (map? (:key entry))
+                 (map? (:results entry))
+                 (every? (fn [result]
+                           (and (map? result)
+                                (contains? #{:failed :passed :no-coverage :unviable :timeout} (:outcome result))
+                                (string? (:place result))))
+                         (vals (:results entry))))
           entry
           (throw (ex-info "it holds no cache" {}))))
       (catch Exception e
@@ -223,14 +237,15 @@
   "Return the outcomes of `old-results` that --iterate keeps, under the id each mutant has now, by `current-places`.
 
   `current-places` maps the :place of each mutant the target has now to its id. An outcome whose
-  place no mutant has now is dropped, and a kept one that is no loop is marked :trusted?."
+  place no mutant has now is dropped, and a kept one that is no loop is marked :trusted? and loses the name of the
+  test that caught it, which may be gone."
   [old-results current-places]
   (into {}
         (keep (fn [[_ {:keys [place stuck?]
                        :as result}]]
                 (when-let [id (get current-places place)]
                   (when (kept-by-iterate? result)
-                    [id (cond-> result (not stuck?) (assoc :trusted? true))]))))
+                    [id (cond-> result (not stuck?) (-> (dissoc :killed-by) (assoc :trusted? true)))]))))
         old-results))
 
 (def ^:private key-parts
@@ -279,7 +294,7 @@
                               :iterate (iterate-results (:results old) (current-places))
                               {})
                    :plans (if resume? (:plans old {}) {})
-                   :notes (if resume? (:notes old []) [])})
+                   :notes (if resume? (:notes old {}) {})})
      :previous (:last-run old)}))
 
 (defn- start-message
@@ -374,7 +389,7 @@
     (swap! entry #(-> %
                       (assoc-in [:results (:id result)] (result-entry result))
                       (update :plans merge (plan-entries changed))
-                      (cond-> (and note (not-any? #{note} (:notes %))) (update :notes conj note)))))
+                      (cond-> note (assoc-in [:notes (:def result)] note)))))
   (reset! recorded? true)
   (write! store previous))
 
@@ -399,9 +414,16 @@
   (:plans @entry))
 
 (defn run-note
-  "Join this run's baseline `note` with the notes the reused outcomes ran under, or nil when there is none."
-  [{:keys [entry]} note]
-  (some->> (cond-> (:notes @entry) note (conj note)) distinct seq (str/join " ")))
+  "Join this run's baseline `note` with the notes that the reused outcomes of `def-names` ran under, or nil when none."
+  [{:keys [entry]} note def-names]
+  (some->> (concat (keep (:notes @entry) def-names) [note]) (remove nil?) distinct seq (str/join " ")))
+
+(defn project-cache
+  "Return the cache of `target` in `dir` for a run in `root` against `test-nss` with `options`, or nil without a `dir`."
+  [dir root target test-nss options]
+  (when dir
+    {:file (cache-file dir target)
+     :make-key #(project-key root test-nss options)}))
 
 (defn with-progress
   "Tag each gap of `summary` against the outcomes the last run reported, and list its gaps now caught as :closed.

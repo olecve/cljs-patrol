@@ -246,13 +246,23 @@
           (finally (reset! release true)))))))
 
 (deftest recorded-plans-name-tests-coverage-saw-call-each-definition
-  (is (= {"a" {:kind :subset
-               :tests #{#'clojure.core/inc}}}
-         (run/recorded-plans {:tests {"a" #{#'clojure.core/inc}
-                                      "b" #{}
-                                      "c" #{#'clojure.core/inc}}
-                              :recorded #{"a" "b"}}
-                             ["a" "b" "c" "d"]))
-      "no call or no recording gives no test list")
-  (is (= {} (run/recorded-plans nil ["a"]))
+  (let [covered {:tests {"a" #{#'clojure.core/inc}
+                         "b" #{}
+                         "c" #{#'clojure.core/inc}
+                         "e" #{#'clojure.core/inc}}
+                 :recorded #{"a" "b" "e"}
+                 :reached-outside #{"e"}
+                 :test-count 2}]
+    (is (= {"a" {:kind :subset
+                 :tests #{#'clojure.core/inc}}
+            "e" {:kind :every}}
+           (run/recorded-plans covered ["a" "b" "c" "d" "e"] true))
+        "no call or no recording gives no test list, call outside test runs every test")
+    (is (= {:kind :every} (get (run/recorded-plans covered ["a"] false) "a"))
+        "selection off")
+    (is (= {:kind :every} (get (run/recorded-plans (assoc covered :hooked? true) ["a"] true) "a"))
+        "test-ns-hook")
+    (is (= {:kind :every} (get (run/recorded-plans (assoc covered :test-count 1) ["a"] true) "a"))
+        "every test calls it"))
+  (is (= {} (run/recorded-plans nil ["a"] true))
       "no baseline, no test lists"))

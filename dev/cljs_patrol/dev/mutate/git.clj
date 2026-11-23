@@ -21,7 +21,9 @@
                       (range start (+ start length))))))
         (re-seq #"(?m)^@@ -\S+ \+(\d+)(?:,(\d+))? @@" diff-text)))
 
-(defn- git [dir & args]
+(defn git
+  "Run git with `args` in `dir`, and return what `clojure.java.shell/sh` returns."
+  [dir & args]
   (apply shell/sh "git" "-C" dir args))
 
 (defn lines-since

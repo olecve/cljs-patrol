@@ -108,15 +108,16 @@ Each run writes the outcomes to `.mutate-cache/<target-ns>.edn` after each plant
 reuses them:
 
 - **Resume.** A run that stopped early, or was killed, goes on where it ended. A planted bug whose tests kept running
-  runs again last, after every other one: if it loops again, the run stops there with nothing else lost. `-d` and `-s`
-  runs share the cache with a full run.
+  runs again last, after every other one: if it loops again, the run stops there with nothing else lost. A function
+  whose tests keep running without any planted bug stops every run at the same place, until you fix those tests. `-d`
+  and `-s` runs share the cache with a full run.
 - **No change, no tests.** When every planted bug in scope is cached, the run reads the cache and runs no test. A plain
   timeout is reused too; run with `--fresh` to give it another try.
 - **`--iterate`.** After you add tests or change code, run with `--iterate`: it keeps the caught planted bugs, and those
   that did not compile, of each function whose text did not change, and runs the others, such as the gaps, the timeouts
   and every planted bug of a function you edited. It says how many it kept. It trusts that those are still caught, so
   run once without it before a merge: that run checks them again.
-- **`--fresh`.** Runs every planted bug again and replaces the cache.
+- **`--fresh`.** Runs every planted bug again and replaces the cache. It keeps the last run for the progress marks.
 
 Run one runner at a time on a target: each run writes the whole cache, so the last write wins.
 
@@ -132,7 +133,9 @@ Since the last run: 1 gap closed, 0 new, 3 still open.
   Closed: holds-focus?/490:43/remove->filter
 ```
 
-The name of each planted bug, its `:id` in the cache and in the `-r` report, is its function, its place and its swap.
+The name of each planted bug, its `:id` in the cache and in the `-r` report, is its function, its line and column, and
+its swap, such as `holds-focus?/490:43/remove->filter`. The cache also keeps a separate `:place`: a hash of the
+function's text with the line and column inside it, which `--iterate` and the progress marks use.
 
 ## Skip a harmless planted bug
 

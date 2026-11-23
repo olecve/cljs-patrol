@@ -39,10 +39,11 @@ The runner keeps the outcome of each mutant in a cache, and reuses an outcome wh
   directory the command runs from. The target and its tests load from the classpath, and the code reads `resources/`.
   The tests read the fixtures in `test-projects/` and the examples in `docs/` and `README.md`. In a git work tree, only
   the files that git sees count: tracked files, and untracked files that git does not ignore, so a `.DS_Store` or a
-  generated report does not change the key. Outside git, every file counts but those in `.git/` and `.mutate-cache/`.
-  Each file adds its path and its length before its bytes, so text that moves from one file to the next changes the key.
-  The key also holds the names of the `-t` namespaces in name order, the hash of the runner's own source, and the
-  options that change an outcome, `-a` and `--timeout`.
+  generated report does not change the key. Outside git, or when git lists no file under the roots, every file counts
+  but those in `.git/` and `.mutate-cache/`. Each file adds its path and its length before its bytes, so text that moves
+  from one file to the next changes the key. The key also holds the names of the `-t` namespaces in name order, the hash
+  of the runner's own source and of the parser it reads forms through, and the options that change an outcome, `-a` and
+  `--timeout`.
 - **When an outcome is reused.** A run with the same key reuses every cached outcome and runs only the other mutants.
   When any part of the key differs, the run uses no cached outcome and says which part changed. Its first outcome
   replaces the cache. A run that reports no outcome, such as one whose tests fail before any mutation or whose scope is
@@ -67,12 +68,13 @@ The runner keeps the outcome of each mutant in a cache, and reuses an outcome wh
   reuses every outcome, and the report names for each definition the tests that the baseline saw call it. The cache
   keeps the test lists that the report used, so a later run that runs no baseline still names them. The `-t` namespaces,
   the runner's source and the options must be the same as in the cache. The run says how many outcomes it reused, and
-  that it trusts them. The cache marks these outcomes as trusted, and only another `--iterate` run reuses them: a plain
-  run checks them again.
+  that it trusts them. The cache marks these outcomes as trusted, drops the name of the test that caught them, which may
+  be gone, and only another `--iterate` run reuses them: a plain run checks them again.
 - **`--fresh`.** It ignores the cache and starts over.
 - **No work when all is known.** When a run with the same key finds every outcome in the cache, it runs no baseline and
-  no test, and uses the test plans and the notes that the cache holds. When the reused outcomes ran under a note, such
-  as "every mutant runs every test", the report keeps that note, also beside the note of this run's baseline.
+  no test, and uses the test plans and the notes that the cache holds for the definitions in scope. The cache keeps a
+  baseline's note, such as "every mutant runs every test", for each definition whose outcomes ran under it, and the
+  report shows it beside the note of this run's baseline. A run with nothing in scope makes no key and uses no cache.
 - **Progress.** At the end of a run that prints its report, the cache keeps the outcomes that the run reported, by
   place, as the last run. A killed run does not change it, and a `-d` or `-s` run sets it to what that run reported. The
   console and the page say how many gaps closed since the last run, and mark a gap as new or still open when the last
