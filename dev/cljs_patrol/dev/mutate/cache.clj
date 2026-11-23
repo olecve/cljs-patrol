@@ -366,11 +366,6 @@
                      " until these tests stop looping.")
     :restore-error " The cache keeps the mutants that finished, this one too, so the next run runs the rest."
     :files-changed " The cache has no outcome of this mutant, so the next run runs it again."
-    :files-changed-at-end (str " The cache keeps every mutant of this run, so a run without --fresh runs no test."
-                               " Put the files back, and fix the test before you run with --fresh.")
-    :files-changed-unnamed (str " The cache keeps every mutant of this run, so a run without --fresh runs no test."
-                                " Put the files back, and run with --fresh, and -d for one definition at a time,"
-                                " to find the mutant.")
     nil))
 
 (defn- result-entry [{:keys [outcome killed-by at-load? stuck? place]}]

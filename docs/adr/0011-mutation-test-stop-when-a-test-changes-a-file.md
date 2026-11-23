@@ -14,7 +14,11 @@ the mutant is killed. When all tests pass, the mutant survived, and no test chec
   form into the running JVM, runs the tests, and then loads the original form again. It does not put back a file that
   the tests changed.
 - **The baseline.** Before the first mutant, the runner runs the tests once on the unchanged code. In this baseline run,
-  it records which tests call each function. Each mutant then runs only the tests that call its function.
+  it records which tests call each function: the record of test calls. Each mutant then runs only the tests that call
+  its function.
+- **The timeout.** The tests of a mutant time out when they run longer than 1.5 times their own baseline run, plus 2 s.
+  A test thread that still runs after the timeout disturbs every later mutant, so the run stops there.
+- **The option `-d`.** `-d NAME` runs only the mutants of the named top-level definition.
 - **The mutant id.** The id names the function, the line and column, and the change, such as
   `tmp-file-path/55:3/body->nil`: the body of `tmp-file-path`, at line 55, column 3, becomes `nil`.
 - **The cache.** The runner writes the outcome of each finished mutant to a cache file, `.mutate-cache/<target-ns>.edn`
@@ -37,95 +41,72 @@ temporary path from `fs/tmp-file-path` or `fs/tmp-dir` in the same way: `baselin
 `integration/baseline_test.clj` and `reporters/html_test.clj`.
 
 A JVM cannot move its tests to another directory. Since JDK 11, `java.io.File` reads `user.dir` once, at startup, so a
-change of the property does not change how a relative path resolves. `deps.edn` does not pin a JDK; the measurements
+change of the property does not change how a relative path resolves. `deps.edn` does not pin a JDK. The measurements
 below use JDK 22.
 
 ## Decision
 
-The runner compares a snapshot of the files in the working directory after the mutants whose tests could write a file,
-and stops the run when a file is new, changed or deleted. The tests take their temporary folders from the JDK, not from
-the code under test.
+After each mutant whose tests ran, the runner takes a snapshot of the files in the working directory and compares it
+with the snapshot after the baseline. When a file is new, changed or deleted, the run stops. The tests take their
+temporary folders from the JDK, not from the code under test.
 
 - **Snapshot.** The path, the size and the time of change of every file under the directory the command runs from. The
   snapshot does not enter the `.git/` folder of that directory, the cache folder of the run, which is `.mutate-cache/`
   by default, and the folders that tools write while a run goes on: `.lsp/`, `.clj-kondo/.cache/`, `.cpcache/` and
-  `.shadow-cljs/`. Other folders that git ignores, such as `target/` and `node_modules/`, count. The reference is the
-  snapshot after the baseline. A file that is deleted while the snapshot is taken is left out, and a folder that cannot
-  be read counts as one entry, "unreadable".
-- **Which mutants.** In the baseline, the runner records each test that may write. A test may write when Java Flight
-  Recorder (JFR), the event recorder of the JDK, records a `jdk.FileWrite` event of this JVM while the test runs, or
-  when the names directly in the working directory before and after the test are not the same. The second check finds a
-  folder that the test makes, or a file that a process it starts writes, which JFR does not record. A mutant gets a
-  snapshot when a test that may write runs for it. A write that falls in no test, such as one in a fixture, makes every
-  test one that may write. JFR uses a clock of its own, so before it reads the writes, the runner writes one marker file
-  and moves the JFR times by the difference. Every mutant gets a snapshot when the baseline left a file changed, or when
-  the baseline had to run without recording. That happens when the recording makes the tests fail or run past the
-  timeout. A file that the baseline wrote counts as changed only when its bytes change, because its test writes it again
-  for each mutant.
-- **Writes during the mutants.** A second JFR recording runs during the mutants, and the runner notes when the tests of
-  each mutant ran. A new or changed file stops the run only when this JVM wrote that file. Another file, such as a
-  source file that an editor saved, prints one warning, "FILE changed during the run, but not by this run's tests.", and
-  the snapshot takes its new state, so it does not warn again. JFR records no delete, so a deleted file always stops the
-  run.
-- **No JFR.** On a JDK without JFR, every mutant gets a snapshot, every new or changed file stops the run, and the run
-  says so once.
-- **Stop.** The run stops with the id of the mutant whose tests wrote the file, and up to 10 files, and exits with 2. It
-  says that it did not undo the files. When the restore of the mutant also failed, the message says that too. The cache
-  has no outcome of the mutant that the run stopped at, so the next run runs it again.
-- **Last look.** One more snapshot after the last mutant, and at each other early stop, finds a file that a mutant
-  without a snapshot changed. The message names the mutant when JFR saw its tests write the file. When it cannot name
-  the mutant, it tells the person to run again with `--fresh` and `-d`, one definition at a time. Without `--fresh`, the
-  next run reuses every cached outcome and runs no test.
+  `.shadow-cljs/`. It also leaves out the swap, lock and backup files of editors: `*.swp`, `*.swo`, `.#*`, `*~` and
+  `4913`. Other folders that git ignores, such as `target/` and `node_modules/`, count. A file that is deleted while the
+  snapshot is taken is left out, and a folder that cannot be read counts as one entry, "unreadable". When two snapshots
+  are equal, the comparison ends at once.
+- **Which mutants.** Every mutant whose tests ran gets a snapshot. A mutant that cannot be read or compiled, or that
+  fails while it loads, runs no test and gets none.
+- **Files that the baseline wrote.** A file that the baseline added or changed counts as changed only when its bytes
+  change, because its test writes it again for each mutant. When its bytes change, the message says that the baseline
+  wrote it too.
+- **Stop.** The run stops with the id of the mutant that just ran and up to 10 files, and exits with 2. It says that it
+  did not undo the files. When the tests of that mutant still run after the timeout, or its restore failed, the message
+  says that too. The cache has no outcome of that mutant, so the next run runs it again.
 - **Tests.** A new test helper, `cljs-patrol.temp-dir`, makes each temporary folder with the JDK call
   `Files/createTempDirectory`. The folder is new, empty, and in the OS temporary folder. `fs_test.clj` and the four
-  other test files above use it.
+  other test files above use it. `fs/tmp-dir` and `fs/tmp-file-path` are deleted, since nothing calls them now.
 
 ## Options
 
-### A snapshot of the working directory after each mutant whose tests could write (chosen)
+### A snapshot after every mutant whose tests ran (chosen)
 
-- Good, because it finds a new, changed or deleted file in every folder, the folders that git ignores too.
-- Good, because the cost stays small. The times are medians of 3 runs in the same JVM, with and without the guard, on
-  JDK 22, at a load average of 4.7 to 5.7. On `cljs-patrol.groups.reagent`, the run left out `element-children`, whose
-  mutant at line 302 loops when the machine is busy. Then 102 of 229 mutants get a snapshot. Their tests include
-  `heads-referred-as-macros-are-read`, which writes a project to a temporary folder. The snapshots took 1.37 s, and the
-  run went from 4.27 s to 5.77 s, 1.35 times as long. The JFR recording during the mutants added about 0.02 s: the run
-  took 5.75 s without it. On `cljs-patrol.fs`, the 27 mutants and the last look took 28 snapshots in 0.41 s, and the run
-  went from 0.87 s to 1.26 s. The record of the tests that write adds about 15 ms to the baseline, and the first start
-  of JFR takes about 150 ms.
-- Good, because another process does not change which tests write. With a shell loop that made and deleted a file in the
-  OS temporary folder every 50 ms, reagent still had 102 mutants with a snapshot in 2 runs.
-- Good, because another process that writes into the working directory, such as an editor or a linter, gives a warning,
-  not a stop.
-- Good, because it found the real case: with the old `fs_test.clj`, the run stops at `tmp-file-path/55:3/body->nil` and
-  names the 7 files. After `fs/tmp-file-path` was deleted, a test that took its root from `fs/parent-dir` in the same
-  way stops at `parent-dir/19:3/body->nil` and names the same 7 files.
+- Good, because it finds every new, changed or deleted file in every folder, the folders that git ignores too, however
+  the file was made: a write, a rename, a move, a copy, an empty create or a truncate.
+- Good, because the file that stops the run belongs to the mutant that just ran, so the message always names it.
+- Good, because the guard is small: about 150 lines.
+- Good, because the cost stays under 2 times the run without it. The times are medians of 3 runs in the same JVM, with
+  and without the guard, on JDK 22, in a worktree of this repository whose snapshot holds 390 files, at a load average
+  of 5.2 to 7.0. On `cljs-patrol.groups.reagent`, with `-d` for every definition but `element-children`, whose mutant at
+  line 302 loops when the machine is busy, the 229 mutants took 229 snapshots in 2.32 s, about 10 ms each. The run went
+  from 3.57 s to 6.06 s, 1.70 times as long. On `cljs-patrol.fs`, the 27 mutants took 27 snapshots in 0.29 s, and the
+  run went from 0.40 s to 0.69 s, 1.74 times as long.
+- Good, because it found the real case: with the old `fs_test.clj`, the run stopped at `tmp-file-path/55:3/body->nil`
+  and named the 7 files. On today's tree, a scratch test does the same with `fs/parent-dir`, as Confirmation describes.
 - Bad, because it only reports. A deleted file that git does not hold is lost.
 - Bad, because it does not see a file outside the working directory, such as one in the home folder.
-- Bad, because a test that wrote nothing in the baseline gets no snapshot after its mutants. The last look then finds
-  the file, but not the mutant.
-- Bad, because JFR does not record a new folder, a deleted file, or a file that another process writes. A test that does
-  only that in the OS temporary folder, such as one that runs `git` there, gets no snapshot after its mutants. A file
-  that a process started by a test writes into the working directory under a mutant gives only a warning.
-- Bad, because it uses JFR, which a JDK without JFR does not have.
+- Bad, because another process that changes a file during the run, such as an editor that saves a source file, also
+  stops the run, and the message names the mutant that just ran.
 
-### A snapshot after every mutant (rejected)
+### A snapshot only after mutants whose tests write, found with Java Flight Recorder (rejected)
 
-Rejected because it costs about 2.3 times as much on `cljs-patrol.groups.reagent`: 231 snapshots at 13.2 ms each, about
-3.0 s against 1.35 s, for the mutants whose tests did not write a file in the baseline. The 13.2 ms is the mean time of
-one snapshot of a worktree of this repository with 511 files, on JDK 22, at a load average of about 4.7.
+Java Flight Recorder (JFR), the event recorder of the JDK, records a `jdk.FileWrite` event for each write call of the
+JVM. In the baseline, a test that wrote a file marked its mutants for a snapshot, and a second recording during the
+mutants told a write of this run from a write of another process.
 
-### The time of change of the OS temporary folder as the record of the tests that write (rejected)
-
-Rejected because other processes change it too. A test counted as a test that writes when the time of change of the OS
-temporary folder or of the working directory changed while it ran. With the shell loop above, reagent had 102, 227 and
-196 mutants with a snapshot in 3 runs, and the run took up to 1.77 times as long. Without the loop, it had 102.
-
-### The names in the OS temporary folder as the record of the tests that write (rejected)
-
-Rejected because a test that makes a temporary folder and deletes it leaves the same names, as `fs_test.clj` did in the
-incident. Also, a name that another process makes before the test and deletes after it starts looks like a change. With
-the shell loop above, reagent had 165 and 102 mutants with a snapshot in 2 runs.
+- Good, because fewer mutants get a snapshot. On `cljs-patrol.groups.reagent`, 102 of the same 229 mutants got one, in
+  1.37 s against 2.32 s: about 1 s less for each run. The two numbers come from two sessions at a similar load.
+- Bad, because JFR records only write calls. A file that the JVM renames, moves, copies, creates empty or truncates gets
+  no event. `baseline/write-baseline` writes a temporary file and moves it into place, so its result looked like a file
+  of another process.
+- Bad, because JFR keeps a clock of its own, which drifts from `Instant/now` in a JVM that runs for a long time. The
+  guard needed a marker write for each read of the recording, to correct the clock, and time windows with a margin for
+  each test and each mutant.
+- Bad, because a write in a window could blame a mutant that the cache already held, a write between mutants could name
+  no mutant, and the recording grew for the whole run.
+- Bad, because it was about 350 lines, against about 150 lines for the chosen guard.
 
 ### Only the top level of large ignored folders (rejected)
 
@@ -161,40 +142,40 @@ mode it warns that it changes your files. mutmut copies the sources to `mutants/
 
 ## Consequences
 
-- A run stops early, with exit code 2, when a mutant makes its tests change a file in the working directory. The person
+- A run stops early, with exit code 2, when the tests of a mutant change a file in the working directory. The person
   puts the files back and fixes the test, and the next run runs that mutant again.
-- A test that writes a file into the working directory in every run makes every mutant take a snapshot. A test that
-  writes the same bytes each time does not stop the run.
-- A save in an editor or a linter cache during a run prints a warning, and the run goes on.
-- `fs/tmp-dir` and `fs/tmp-file-path` are deleted, since nothing in `src/` or in the tests calls them now.
+- A save in an editor during a run stops the run, unless the editor writes only its swap, lock or backup files. The
+  person runs again, and the cache keeps the other outcomes.
+- A test that writes the same bytes into the working directory in every run does not stop the run.
 - A later change can move the file code in `src/` from `java.io.File` to `java.nio` paths, and give the unit tests an
-  in-memory file system. Then fewer tests write to the disk, and the guard has less to check. It does not replace the
-  guard: a test that uses the real file system can still write into the working directory.
+  in-memory file system. Then fewer tests write to the disk. It does not replace the guard: a test that uses the real
+  file system can still write into the working directory.
 
 ## Confirmation
 
-- The runner's tests pass, also those for a test that writes a file only under a mutant, a test that writes or deletes a
-  file only under a mutant that got no snapshot, a baseline that writes a file each run, a write in a fixture, a file
-  that another process writes, a failed restore of a mutant that also changed a file, and a JDK without JFR.
-- A run on `cljs-patrol.fs` with the old `fs_test.clj` stops at `tmp-file-path/55:3/body->nil` and names the 7 files.
-- A run on `cljs-patrol.groups.reagent` stays under 1.5 times its time without the guard. The times are measured on a
-  machine with no other heavy load.
-- A run on `cljs-patrol.groups.reagent` gives the same number of mutants with a snapshot while another process makes and
-  deletes files in the OS temporary folder.
+- The runner's tests pass, also those for a test that writes or deletes a file only under a mutant, a baseline that
+  writes a file each run, a mutant that fails at load, a mutant whose tests still run after the timeout, and a failed
+  restore of a mutant that also changed a file.
+- The repro of the incident stops at the mutant and names the 7 files. Today `fs/tmp-file-path` is gone, so the repro
+  uses `fs/parent-dir`, which returns `nil` under its body mutant. Add a scratch test,
+  `test/cljs_patrol/scratch_nil_root_test.clj`, whose `scratch-tree` helper is the one of the old `fs_test.clj` with its
+  root from `(fs/parent-dir (temp-dir/file-path "x"))`. Run
+  `clojure -M:test:mutate cljs-patrol.fs -t cljs-patrol.scratch-nil-root-test -d parent-dir`. The run stops at
+  `parent-dir/19:3/body->nil`, names the 7 files and exits with 2. Then delete the 7 files, their folders and the
+  scratch test.
+- A run with the guard on `cljs-patrol.groups.reagent` and on `cljs-patrol.fs` takes less than 2 times as long as the
+  same run without it, on a machine with no other heavy load.
 
 ## Revisit when
 
 - A run deletes or changes a file that the guard can only report. Then make the copy of the tree and the child JVM.
-- The checks of a run on `cljs-patrol.groups.reagent` take more than half of its time without the guard.
-- A test writes into the working directory under a mutant, and the last look finds it, but the mutant got no snapshot.
-  Then the record of which tests write needs another signal.
+- A run with the guard takes 2 times as long as the run without it, or more.
+- Saves in an editor stop runs often. Then the guard needs a way to tell those files from the files of the tests.
 
 ## More Information
 
-- The code: [`dev/cljs_patrol/dev/mutate/guard.clj`](../../dev/cljs_patrol/dev/mutate/guard.clj), with the record of the
-  tests that write in the baseline function `coverage`, and the stop in the mutant loop `run-all`, of
-  [`dev/cljs_patrol/dev/mutate/run.clj`](../../dev/cljs_patrol/dev/mutate/run.clj), and the JFR recording in
-  [`dev/cljs_patrol/dev/mutate/recorder.clj`](../../dev/cljs_patrol/dev/mutate/recorder.clj).
+- The code: [`dev/cljs_patrol/dev/mutate/guard.clj`](../../dev/cljs_patrol/dev/mutate/guard.clj), and the stop in the
+  mutant loop `run-all` of [`dev/cljs_patrol/dev/mutate/run.clj`](../../dev/cljs_patrol/dev/mutate/run.clj).
 - The test helper: [`test/cljs_patrol/temp_dir.clj`](../../test/cljs_patrol/temp_dir.clj).
 - JDK. [`jdk.jfr.Recording`](https://docs.oracle.com/en/java/javase/22/docs/api/jdk.jfr/jdk/jfr/Recording.html), JDK 22.
 - JDK-8194154. [System property user.dir should not be changed](https://bugs.openjdk.org/browse/JDK-8194154).

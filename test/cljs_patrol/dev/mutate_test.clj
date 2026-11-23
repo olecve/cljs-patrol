@@ -600,7 +600,7 @@
                                                  ", and the runner did not undo them:\n  added " file-name "\n")))
               (is (= 2 (report/exit-code summary)))
               (is (= ["folder/2:26/body->nil"] (map :id mutants))
-                  "mutant before it ran, as baseline wrote into OS temporary folder")
+                  "first mutant writes into OS temporary folder, as baseline did")
               (is (= [{:def "folder"
                        :mutants 1}]
                      unreached))
@@ -614,7 +614,7 @@
        "(deftest writes (when-not (= \"temp\" (target/folder \"temp\" " (pr-str (str root)) "))"
        " (spit (java.io.File. " (pr-str (str root)) " \"note.txt\") \"x\")) (is true))\n"))
 
-(deftest run-stops-at-end-when-mutant-it-did-not-look-after-wrote-file
+(deftest run-stops-at-mutant-whose-test-wrote-nothing-in-baseline
   (fixtures/with-temp-dir
     (fn [dir]
       (let [root (doto (io/file dir "root") .mkdirs)
@@ -622,11 +622,10 @@
         (fixtures/with-target folder-source tests
           (fn []
             (let [{:keys [stopped mutants]} (run-guarded folder-source tests dir root)]
-              (is (str/starts-with? stopped "the tests of the mutant folder/2:26/body->nil changed files in ")
-                  "test wrote no file in baseline, but recording names mutant whose tests wrote it")
+              (is (str/starts-with? stopped "the tests of the mutant folder/2:26/body->nil changed files in "))
               (is (str/includes? stopped "  added note.txt\n"))
-              (is (str/ends-with? stopped "fix the test before you run with --fresh."))
-              (is (= 2 (count mutants))))))))))
+              (is (str/ends-with? stopped "The cache has no outcome of this mutant, so the next run runs it again."))
+              (is (empty? mutants)))))))))
 
 (def ^:private logging-source
   (str "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
@@ -648,7 +647,8 @@
             (let [{:keys [stopped mutants]} (run-guarded logging-source tests dir root)]
               (is (str/starts-with? stopped "the tests of the mutant up?/2:20/0->1 changed files in ")
                   "mutant that logs other text stops run")
-              (is (str/includes? stopped "  changed logs/log.txt\n"))
+              (is (str/includes? stopped
+                                 "  changed logs/log.txt (the baseline wrote it too, and its bytes are not the same now)\n"))
               (is (= [["up?/2:16/>->>=" :survived]] (map (juxt :id :outcome) mutants))
                   "mutant that writes same bytes again goes on"))))))))
 
@@ -658,7 +658,7 @@
        "(deftest deletes (when-not (= \"temp\" (target/folder \"temp\" " (pr-str (str root)) "))"
        " (.delete (java.io.File. " (pr-str (str root)) " \"kept.txt\"))) (is true))\n"))
 
-(deftest run-stops-at-end-without-mutant-name-for-file-deleted-unseen
+(deftest run-stops-at-mutant-whose-test-deleted-file
   (fixtures/with-temp-dir
     (fn [dir]
       (let [root (doto (io/file dir "root") .mkdirs)
@@ -667,18 +667,5 @@
         (fixtures/with-target folder-source tests
           (fn []
             (let [{:keys [stopped]} (run-guarded folder-source tests dir root)]
-              (is (str/starts-with? stopped "the tests of a mutant the guard cannot name changed files in "))
-              (is (str/includes? stopped "  deleted kept.txt\n"))
-              (is (str/ends-with? stopped "to find the mutant.")))))))))
-
-(deftest run-without-flight-recorder-says-every-mutant-gets-snapshot
-  (fixtures/with-temp-dir
-    (fn [dir]
-      (let [root (doto (io/file dir "root") .mkdirs)]
-        (fixtures/with-target fixtures/target-tests
-          (fn []
-            (with-redefs [guard/recorder-available? (constantly false)]
-              (let [[{:keys [stopped]} output] (run-cached fixtures/target-source (io/file dir "cache.edn")
-                                                           fixtures/target-tests {:guard-root (str root)})]
-                (is (nil? stopped))
-                (is (str/starts-with? output "This JDK has no Java Flight Recorder, so every mutant gets a snapshot"))))))))))
+              (is (str/starts-with? stopped "the tests of the mutant folder/2:26/body->nil changed files in "))
+              (is (str/includes? stopped "  deleted kept.txt\n")))))))))

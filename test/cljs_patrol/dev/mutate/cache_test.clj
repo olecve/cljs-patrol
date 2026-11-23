@@ -582,8 +582,6 @@
       "nothing recorded, nothing kept")
   (is (str/includes? (cache/stop-note :restore-error true) "this one too, so the next run runs the rest"))
   (is (= " The cache has no outcome of this mutant, so the next run runs it again." (cache/stop-note :files-changed false)))
-  (is (str/ends-with? (cache/stop-note :files-changed-at-end true) "fix the test before you run with --fresh."))
-  (is (str/ends-with? (cache/stop-note :files-changed-unnamed true) "to find the mutant."))
   (is (nil? (cache/stop-note nil true))))
 
 (defn- outcome [id place & {:as more}]

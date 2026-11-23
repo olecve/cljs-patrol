@@ -109,23 +109,17 @@
 
   Return the run with :tests {name #{test-var}}, :recorded, the names whose calls could be
   recorded, :reached-outside, the names called while no test ran, such as from a fixture, and
-  :hooked?, true when a test namespace runs its tests through `test-ns-hook`. Given a
-  `guard-root`, it also returns :recording, a running Java Flight Recorder recording of the
-  file writes of this JVM, or nil on a JDK without one, and :test-runs, a [test-var started
-  ended entries-changed?] vector for each test that ran, where entries-changed? is true when
-  the names directly in `guard-root` changed during it. The caller closes the recording. The
-  running test is kept where every thread sees it, since
-  the code under test may run on worker threads, and the tests run one at a time. A call is
-  recorded under every test that is running, so a test that calls another one, inside its own
-  `binding` or `with-redefs`, is selected too. A call made without the var, such as through a
-  value the namespace stored when it loaded, is not seen, and a call that a background thread
-  makes after its test ended goes to the test that runs then."
-  [target def-names test-nss timeout-ms guard-root]
+  :hooked?, true when a test namespace runs its tests through `test-ns-hook`. The running test
+  is kept where every thread sees it, since the code under test may run on worker threads, and
+  the tests run one at a time. A call is recorded under every test that is running, so a test
+  that calls another one, inside its own `binding` or `with-redefs`, is selected too. A call
+  made without the var, such as through a value the namespace stored when it loaded, is not
+  seen, and a call that a background thread makes after its test ended goes to the test that
+  runs then."
+  [target def-names test-nss timeout-ms]
   (let [calls (atom {})
         reached-outside (atom #{})
-        test-runs (atom [])
         running-tests (atom [])
-        recording (when guard-root (guard/start-recording))
         vars (->> def-names
                   distinct
                   (keep (fn [def-name]
@@ -144,27 +138,17 @@
       (doseq [[test-var test-fn] tests]
         (alter-meta! test-var assoc :test (fn []
                                             (swap! running-tests conj test-var)
-                                            (let [entries (some-> guard-root guard/entries)
-                                                  started (java.time.Instant/now)]
-                                              (try
-                                                (test-fn)
-                                                (finally
-                                                  (swap! running-tests pop)
-                                                  (when entries
-                                                    (swap! test-runs conj [test-var started (java.time.Instant/now)
-                                                                           (not= entries (guard/entries guard-root))]))))))))
+                                            (try (test-fn) (finally (swap! running-tests pop))))))
       (doseq [[def-name v original] vars]
         (alter-var-root v (constantly (fn [& args]
                                         (record def-name)
                                         (apply original args)))))
-      (cond-> (assoc (run-tests test-nss timeout-ms)
-                     :tests @calls
-                     :recorded (set (map first vars))
-                     :reached-outside @reached-outside
-                     :hooked? (boolean (some #(contains? (ns-interns %) 'test-ns-hook) test-nss))
-                     :test-count (count tests))
-        guard-root (assoc :recording recording
-                          :test-runs @test-runs))
+      (assoc (run-tests test-nss timeout-ms)
+             :tests @calls
+             :recorded (set (map first vars))
+             :reached-outside @reached-outside
+             :hooked? (boolean (some #(contains? (ns-interns %) 'test-ns-hook) test-nss))
+             :test-count (count tests))
       (finally
         (doseq [[_ v original] vars]
           (alter-var-root v (constantly original)))
@@ -310,21 +294,15 @@
   a value stored, or makes them run past a timeout that was given, the tests run again without
   it. The run then goes on without test selection, times its mutants by that plain run, and
   the note says so. A recorded run whose thread still runs after its timeout stops everything,
-  since the plain run would share its state. With a `guard-root`, :covered also holds :writers,
-  the tests that wrote a file while they ran, or changed the names directly in `guard-root`.
-  :writers is every test when a write fell outside every test, such as in a fixture, and nil
-  after a plain run or on a JDK without Java Flight Recorder. The time of the run leaves out the
-  reading of the recording."
-  [target def-names test-nss timeout-ms guard-root]
+  since the plain run would share its state."
+  [target def-names test-nss timeout-ms]
   (let [limit (or timeout-ms baseline-limit-ms)
         too-slow #(error/setup-error (str "The tests ran past " limit " ms before any mutation. Raise --timeout."))
         {:keys [outcome thread]
-         :as recorded-run} (timed #(coverage target def-names test-nss limit guard-root))
-        writers (guard/baseline-writers recorded-run (test-vars-of test-nss))]
+         :as recorded-run} (timed #(coverage target def-names test-nss limit))]
     (cond
       (= :passed outcome) {:ms (:ms recorded-run)
-                           :covered (cond-> (select-keys recorded-run [:tests :recorded :reached-outside :hooked? :test-count])
-                                      writers (assoc :writers writers))}
+                           :covered (select-keys recorded-run [:tests :recorded :reached-outside :hooked? :test-count])}
       (or (stuck? thread) (and (= :timeout outcome) (not timeout-ms))) (throw (too-slow))
       :else (let [plain-run (timed #(run-tests test-nss limit))]
               (case (:outcome plain-run)
@@ -336,92 +314,75 @@
                 (throw (error/setup-error (str "The tests fail before any mutation; fix them first.\n"
                                                (:output plain-run)))))))))
 
-(defn- files-text
-  "Say which mutant's tests changed which files, from what [[guard/look]] `found` in `root`, and what to do."
-  [root {:keys [changed by]}]
-  (str (if by
-         (str "the tests of the mutant " by)
-         "the tests of a mutant the guard cannot name")
-       " changed files in " (guard/folder-name root)
-       ", and the runner did not undo them:\n" (guard/describe changed)
-       "\nDelete or restore them, and make the test take its folder from the JDK, such as"
-       " Files/createTempDirectory, not from the code under test."))
+(defn- files-changed-stop
+  "Return how the run stops after the mutant `result`, whose tests changed the `changed` files in the guard's root.
 
-(defn- with-last-look
-  "Add to the `stop` of a run the files that one more snapshot of `guard` finds, so an early stop does not hide them."
-  [stop guard]
-  (if-let [found (some-> guard (guard/look nil))]
-    (update stop :stopped str "\nA last look also found that " (files-text (:root guard) found))
-    stop))
+  The stop also tells when the tests of the mutant still run after the timeout, or when its
+  restore failed."
+  [{:keys [root hashes]}
+   {:keys [id restore-error]
+    stuck :stuck?
+    :as result}
+   changed]
+  {:stop-reason :files-changed
+   :stopped (str "the tests of the mutant " id " changed files in " (guard/folder-name root)
+                 ", and the runner did not undo them:\n" (guard/describe changed hashes)
+                 "\nDelete or restore them, and make the test take its folder from the JDK, such as"
+                 " Files/createTempDirectory, not from the code under test."
+                 (when stuck
+                   "\nIts tests also still run after the timeout, and would disturb every later run.")
+                 (when restore-error
+                   (str "\nAlso, restoring " (:def result) " failed, so the namespace stays mutated: " restore-error)))})
 
 (defn run-all
-  "Run each mutant in turn, and stop at the first whose tests loop, whose restore fails, or whose tests change a file.
+  "Run each mutant in turn, and stop at the first whose tests keep looping, whose restore fails, or whose tests change a file.
 
   The context's :on-result, when given, gets each result as soon as it is known, also the one
-  the run stops at. A run that stops says why as :stop-reason: :plan-stuck, when the tests of a
-  definition keep running without a mutation, :stuck, when those of a mutant do,
-  :restore-error, :files-changed, when the context's :guard finds a file that the tests of a
-  mutant changed, or :files-changed-at-end or :files-changed-unnamed, when the guard finds one
-  only after the last mutant, and can or cannot name the mutant. A mutant that changed a file
-  gets no outcome, so the next run runs it again, and its failed restore, if any, is told too.
-  At the other early stops, the guard takes one more snapshot, and the stop tells what it
-  finds. The guard's recording ends with the run."
-  [{:keys [guard plans]
+  the run stops at, but not one whose tests changed a file. A run that stops says why as
+  :stop-reason: :plan-stuck, when the tests of a definition keep running without a mutation,
+  :stuck, when those of a mutant do, :restore-error, or :files-changed, when the snapshot of
+  the context's :guard after a mutant whose tests ran differs from the one after the baseline.
+  The mutant that changed a file gets no outcome, so the next run runs it again."
+  [{:keys [guard]
     :as context}
    selected]
-  (try
-    (loop [[mutant & more] selected
-           results []]
-      (if (nil? mutant)
-        (if-let [found (some-> guard (guard/look nil))]
+  (loop [[mutant & more] selected
+         results []]
+    (if (nil? mutant)
+      {:results results}
+      (let [{:keys [stuck? restore-error plan-stuck? at-load?]
+             :as result} (run-mutant context mutant)
+            changed (when (and guard (not plan-stuck?) (not at-load?))
+                      (guard/look guard))]
+        (cond
+          plan-stuck?
           {:results results
-           :stop-reason (if (:by found) :files-changed-at-end :files-changed-unnamed)
-           :stopped (files-text (:root guard) found)}
-          {:results results})
-        (let [started (java.time.Instant/now)
-              {:keys [stuck? restore-error plan-stuck?]
-               :as result} (run-mutant context mutant)
-              _ (when guard (guard/mark-mutant! guard (:id mutant) started (java.time.Instant/now)))
-              found (when (and guard (not plan-stuck?) (guard/check? guard (get @plans (:def mutant))))
-                      (guard/look guard (:id mutant)))]
-          (cond
-            plan-stuck?
-            (with-last-look {:results results
-                             :unreached (cons mutant more)
-                             :stop-reason :plan-stuck
-                             :stopped (str "the tests that call " (:def mutant) " keep running past the timeout without"
-                                           " any mutation, and would disturb every later run. Fix them, or raise"
-                                           " --timeout.")}
-              guard)
+           :unreached (cons mutant more)
+           :stop-reason :plan-stuck
+           :stopped (str "the tests that call " (:def mutant) " keep running past the timeout without any mutation,"
+                         " and would disturb every later run. Fix them, or raise --timeout.")}
 
-            found
-            {:results results
-             :unreached (cons mutant more)
-             :stop-reason :files-changed
-             :stopped (cond-> (files-text (:root guard) found)
-                        restore-error (str "\nAlso, restoring " (:def result) " failed, so the namespace stays mutated: "
-                                           restore-error))}
+          changed
+          (assoc (files-changed-stop guard result changed)
+                 :results results
+                 :unreached (cons mutant more))
 
-            :else
-            (let [results (conj results result)]
-              (when-let [on-result (:on-result context)]
-                (on-result result))
-              (print (case (:outcome result) :passed "S" :no-coverage "N" :failed "." :unviable "U" :timeout "T"))
-              (flush)
-              (cond
-                stuck? (with-last-look {:results results
-                                        :unreached more
-                                        :stop-reason :stuck
-                                        :stopped (str "the tests of the mutant at " (:row result) ":" (:col result) " "
-                                                      (:from result) " still run after the timeout, and would disturb"
-                                                      " every later run. Fix the loop, or raise --timeout.")}
-                         guard)
-                restore-error (with-last-look {:results results
-                                               :unreached more
-                                               :stop-reason :restore-error
-                                               :stopped (str "restoring " (:def result) " failed, so the namespace stays"
-                                                             " mutated: " restore-error)}
-                                guard)
-                :else (recur more results)))))))
-    (finally
-      (some-> guard guard/close!))))
+          :else
+          (let [results (conj results result)]
+            (when-let [on-result (:on-result context)]
+              (on-result result))
+            (print (case (:outcome result) :passed "S" :no-coverage "N" :failed "." :unviable "U" :timeout "T"))
+            (flush)
+            (cond
+              stuck? {:results results
+                      :unreached more
+                      :stop-reason :stuck
+                      :stopped (str "the tests of the mutant at " (:row result) ":" (:col result) " " (:from result)
+                                    " still run after the timeout, and would disturb every later run. Fix the loop,"
+                                    " or raise --timeout.")}
+              restore-error {:results results
+                             :unreached more
+                             :stop-reason :restore-error
+                             :stopped (str "restoring " (:def result) " failed, so the namespace stays mutated: "
+                                           restore-error)}
+              :else (recur more results))))))))
