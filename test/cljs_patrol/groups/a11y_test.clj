@@ -3,13 +3,11 @@
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
    [cljs-patrol.parser :as parser]
+   [cljs-patrol.temp-dir :as temp-dir]
    [cljs-patrol.temp-project :as temp-project]
    [clojure.java.io :as io]
    [clojure.string :as str]
-   [clojure.test :refer [deftest is testing]])
-  (:import
-   (java.io
-    File)))
+   [clojure.test :refer [deftest is testing]]))
 
 (defn- img-finding [row]
   {:type :img-alt-missing
@@ -313,7 +311,7 @@
                              " [:div {:role \"tablist\"} [:> kit/Input {:id \"other" form "\"}]]])")))))
 
 (deftest parallel-run-keeps-file-state-per-file
-  (let [dir (.toFile (java.nio.file.Files/createTempDirectory "cljs-patrol" (make-array java.nio.file.attribute.FileAttribute 0)))
+  (let [dir (io/file (temp-dir/create-dir "cljs-patrol"))
         rule-group (a11y/make-group {:component-aliases {'ui.kit/Input :input}})
         usages (fn [jobs]
                  (binding [*err* (java.io.StringWriter.)]
@@ -328,5 +326,4 @@
         (is (= sequential parallel)
             "four jobs find what one job finds"))
       (finally
-        (doseq [file (reverse (file-seq dir))]
-          (.delete ^File file))))))
+        (temp-dir/delete-dir! dir)))))

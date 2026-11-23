@@ -1,10 +1,12 @@
 (ns cljs-patrol.reporters.html-test
   (:require
-   [cljs-patrol.fs :as fs]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.reporters.html :as html]
+   [cljs-patrol.temp-dir :as temp-dir]
    [clojure.string :as str]
-   [clojure.test :refer [deftest is testing]]))
+   [clojure.test :refer [deftest is testing use-fixtures]]))
+
+(use-fixtures :each temp-dir/delete-created)
 
 (def ^:private key->title #'html/key->title)
 (def ^:private infer-columns #'html/infer-columns)
@@ -95,18 +97,15 @@
                                        :duplicate-events []
                                        :deprecated-effects []
                                        :dynamic-sites []}]}]
-        tmp-file (fs/tmp-file-path "cljs-patrol-test-" ".html")]
-    (try
-      (html/write-report [re-frame/group] run-results tmp-file)
-      (let [content (slurp tmp-file)]
-        (testing "produces HTML document"
-          (is (str/includes? content "<!DOCTYPE html>")))
-        (testing "includes group name"
-          (is (str/includes? content "Re-frame")))
-        (testing "includes keyword from result"
-          (is (str/includes? content ":my-ns/sub"))))
-      (finally
-        (fs/delete-tree! tmp-file)))))
+        tmp-file (temp-dir/file-path "report.html")]
+    (html/write-report [re-frame/group] run-results tmp-file)
+    (let [content (slurp tmp-file)]
+      (testing "produces HTML document"
+        (is (str/includes? content "<!DOCTYPE html>")))
+      (testing "includes group name"
+        (is (str/includes? content "Re-frame")))
+      (testing "includes keyword from result"
+        (is (str/includes? content ":my-ns/sub"))))))
 
 (deftest write-baseline-report-test
   (let [new-item {:kw :app/new-sub
@@ -128,20 +127,17 @@
                                        :dynamic-sites []}]}]
         new-ids #{{:rule :unused-subs
                    :key :app/new-sub}}
-        tmp-file (fs/tmp-file-path "cljs-patrol-baseline-test-" ".html")]
-    (try
-      (html/write-baseline-report [re-frame/group] run-results tmp-file new-ids 3)
-      (let [content (slurp tmp-file)]
-        (is (str/includes? content "new-issue")
-            "marks new issues with CSS class")
-        (is (str/includes? content "baseline-issue")
-            "marks baseline issues with CSS class")
-        (is (str/includes? content "baseline")
-            "includes baseline in title")
-        (is (str/includes? content "3 baseline issues no longer present")
-            "shows fixed count banner"))
-      (finally
-        (fs/delete-tree! tmp-file)))))
+        tmp-file (temp-dir/file-path "report.html")]
+    (html/write-baseline-report [re-frame/group] run-results tmp-file new-ids 3)
+    (let [content (slurp tmp-file)]
+      (is (str/includes? content "new-issue")
+          "marks new issues with CSS class")
+      (is (str/includes? content "baseline-issue")
+          "marks baseline issues with CSS class")
+      (is (str/includes? content "baseline")
+          "includes baseline in title")
+      (is (str/includes? content "3 baseline issues no longer present")
+          "shows fixed count banner"))))
 
 (deftest write-report-marks-blocking-test
   (let [run-results [{:source-dir "src"
@@ -153,15 +149,12 @@
                                        :duplicate-events []
                                        :deprecated-effects []
                                        :dynamic-sites []}]}]
-        tmp-file (fs/tmp-file-path "cljs-patrol-blocking-test-" ".html")]
-    (try
-      (html/write-report [re-frame/group] run-results tmp-file
-                         #{:unused-subs})
-      (let [content (slurp tmp-file)]
-        (is (str/includes? content "BLOCKING")
-            "blocking badge present"))
-      (finally
-        (fs/delete-tree! tmp-file)))))
+        tmp-file (temp-dir/file-path "report.html")]
+    (html/write-report [re-frame/group] run-results tmp-file
+                       #{:unused-subs})
+    (let [content (slurp tmp-file)]
+      (is (str/includes? content "BLOCKING")
+          "blocking badge present"))))
 
 (deftest write-baseline-report-with-fail-on-test
   (let [run-results [{:source-dir "src"
@@ -178,15 +171,12 @@
                                        :dynamic-sites []}]}]
         new-ids #{{:rule :unused-subs
                    :key :app/new-sub}}
-        tmp-file (fs/tmp-file-path "cljs-patrol-baseline-blocking-" ".html")]
-    (try
-      (html/write-baseline-report [re-frame/group] run-results tmp-file
-                                  new-ids 0
-                                  #{:unused-subs} 1 0)
-      (let [content (slurp tmp-file)]
-        (is (str/includes? content "BLOCKING")
-            "blocking badge applied in baseline HTML")
-        (is (str/includes? content "1 blocking, 0 warnings")
-            "tier summary panel shown"))
-      (finally
-        (fs/delete-tree! tmp-file)))))
+        tmp-file (temp-dir/file-path "report.html")]
+    (html/write-baseline-report [re-frame/group] run-results tmp-file
+                                new-ids 0
+                                #{:unused-subs} 1 0)
+    (let [content (slurp tmp-file)]
+      (is (str/includes? content "BLOCKING")
+          "blocking badge applied in baseline HTML")
+      (is (str/includes? content "1 blocking, 0 warnings")
+          "tier summary panel shown"))))

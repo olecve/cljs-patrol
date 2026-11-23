@@ -33,10 +33,15 @@
 (defn- digest-hex [^java.security.MessageDigest digest]
   (format "%064x" (BigInteger. 1 (.digest digest))))
 
+(defn bytes-hash
+  "Hash `content`, a byte array, with SHA-256, as 64 hex digits."
+  [^bytes content]
+  (digest-hex (doto (java.security.MessageDigest/getInstance "SHA-256") (.update content))))
+
 (defn text-hash
   "Hash `text` with SHA-256, as 64 hex digits."
   [^String text]
-  (digest-hex (doto (java.security.MessageDigest/getInstance "SHA-256") (.update (.getBytes text "UTF-8")))))
+  (bytes-hash (.getBytes text "UTF-8")))
 
 (defn- files-hash
   "Hash each of `files`, [name bytes] pairs, as its name, its length and its bytes, so no text can move between files."
@@ -190,40 +195,50 @@
 (defn- warn [message]
   (println (str "Warning: " message)))
 
+(defn- checked-entry
+  "Read the cache in `file`, and throw when it cannot be read or holds no cache."
+  [file]
+  (let [entry (edn/read-string (slurp file))]
+    (if (and (map? (:key entry))
+             (map? (:results entry))
+             (every? #(let [value (get entry %)] (or (nil? value) (map? value))) [:notes :plans :last-run])
+             (every? (fn [result]
+                       (and (map? result)
+                            (contains? #{:failed :passed :no-coverage :unviable :timeout} (:outcome result))
+                            (string? (:place result))))
+                     (vals (:results entry))))
+      entry
+      (throw (ex-info "it holds no cache" {})))))
+
 (defn- read-entry
   "Read the cache in `file`, or nil when there is none, or, with a warning, when it cannot be read."
   [file]
   (when (.exists (io/file file))
     (try
-      (let [entry (edn/read-string (slurp file))]
-        (if (and (map? (:key entry))
-                 (map? (:results entry))
-                 (every? #(let [value (get entry %)] (or (nil? value) (map? value))) [:notes :plans :last-run])
-                 (every? (fn [result]
-                           (and (map? result)
-                                (contains? #{:failed :passed :no-coverage :unviable :timeout} (:outcome result))
-                                (string? (:place result))))
-                         (vals (:results entry))))
-          entry
-          (throw (ex-info "it holds no cache" {}))))
+      (checked-entry file)
       (catch Exception e
         (warn (str "the cache " file " could not be read, so the run does not use it; its first outcome replaces it: "
                    (ex-message e)))))))
 
-(defn- write!
-  "Write what the store holds to its file, with `last-run` as the last run's outcomes, unless an earlier write failed.
+(defn- write-file!
+  "Write `data` to the path in the atom `file`, unless an earlier write failed and left it nil.
 
   A write that fails prints one warning, and the run goes on without the cache."
-  [{:keys [file entry]} last-run]
+  [file data]
   (when-let [path @file]
     (try
       (io/make-parents path)
       (apply/write-whole path (binding [*print-length* nil
                                         *print-level* nil]
-                                (pr-str (assoc @entry :last-run last-run))))
+                                (pr-str data)))
       (catch Exception e
         (warn (str "the cache " path " could not be written, so the run goes on without it: " (ex-message e)))
         (reset! file nil)))))
+
+(defn- write!
+  "Write what the store holds to its file, with `last-run` as the last run's outcomes, unless an earlier write failed."
+  [{:keys [file entry]} last-run]
+  (write-file! file (assoc @entry :last-run last-run)))
 
 (def ^:private gap-outcomes
   "The outcomes, as the report names them, that are test gaps."
@@ -360,6 +375,7 @@
                        " The next run stops here again")
                      " until these tests stop looping.")
     :restore-error " The cache keeps the mutants that finished, this one too, so the next run runs the rest."
+    :files-changed " The cache has no outcome of this mutant, so the next run runs it again."
     nil))
 
 (defn- result-entry [{:keys [outcome killed-by at-load? stuck? place]}]
@@ -393,6 +409,22 @@
                       (cond-> note (assoc-in [:notes (:def result)] note)))))
   (reset! recorded? true)
   (write! store previous))
+
+(defn forget!
+  "Drop each outcome of `mutant` from the store and from its file, so the next run runs that mutant again.
+
+  An outcome is the mutant's when its id or its place, which --iterate matches, is the
+  mutant's. The file keeps every other outcome and its key as they were, also in a run with
+  --fresh or one that starts over, whose store holds none of the file's outcomes. When the file
+  holds no outcome of the mutant, or is missing or no cache that [[open!]] would read, nothing
+  is written."
+  [{:keys [entry file]} {:keys [id place]}]
+  (let [held? (fn [[result-id result]] (or (= id result-id) (= place (:place result))))
+        on-disk (when-let [path @file]
+                  (try (checked-entry path) (catch Exception _ nil)))]
+    (swap! entry update :results #(into {} (remove held?) %))
+    (when (some held? (:results on-disk))
+      (write-file! file (update on-disk :results #(into {} (remove held?) %))))))
 
 (defn finish!
   "Record `last-run`, the outcomes by place that the run reported, as the last run, and the test `plans` the report used.

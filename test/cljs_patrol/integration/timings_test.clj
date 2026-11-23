@@ -1,6 +1,7 @@
 (ns cljs-patrol.integration.timings-test
   "Runs the CLI in a JVM of its own, since it exits, to compare what it prints with and without --timings."
   (:require
+   [cljs-patrol.temp-dir :as temp-dir]
    [clojure.java.io :as io]
    [clojure.java.shell :refer [sh]]
    [clojure.string :as str]
@@ -44,7 +45,7 @@
         "group rows on stderr")))
 
 (deftest timings-leave-baseline-stdout-unchanged
-  (let [dir (.toFile (java.nio.file.Files/createTempDirectory "cljs-patrol" (make-array java.nio.file.attribute.FileAttribute 0)))
+  (let [dir (io/file (temp-dir/create-dir "cljs-patrol"))
         source-dir (str dir)]
     (try
       (doseq [^File file (file-seq (io/file fixture-src))
@@ -63,8 +64,7 @@
         (is (str/includes? (:err timed) "Timings")
             "baseline comparison prints timings"))
       (finally
-        (doseq [file (reverse (file-seq dir))]
-          (io/delete-file file))))))
+        (temp-dir/delete-dir! dir)))))
 
 (deftest timings-leave-error-exit-unchanged
   (let [{:keys [plain timed]} (compare-runs ["--only" "a11y" "--baseline"] fixture-src)]

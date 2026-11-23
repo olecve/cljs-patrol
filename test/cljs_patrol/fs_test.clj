@@ -1,13 +1,14 @@
 (ns cljs-patrol.fs-test
   (:require
    [cljs-patrol.fs :as fs]
+   [cljs-patrol.temp-dir :as temp-dir]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private extensions #{".cljs" ".cljc" ".clj"})
 
 (defn- scratch-tree []
-  (let [root (fs/tmp-file-path "fs-test-" "")]
+  (let [root (temp-dir/create-dir "fs-test-")]
     (doseq [dir ["src" "target/classes/app" "node_modules/thing" ".hidden" "out"]]
       (fs/mkdirs (fs/join-path root dir)))
     (doseq [leaf ["src/kept.clj" "src/kept.cljs" "src/skipped.txt"

@@ -42,17 +42,8 @@
       (str (.relativize base-p targ-p))
       target)))
 
-(defn tmp-dir []
-  (System/getProperty "java.io.tmpdir"))
-
 (defn nano-time []
   (System/nanoTime))
-
-(defn tmp-file-path
-  "Return a unique path under the OS temp dir formatted as `prefix<time>suffix`.
-  Does not create the file; caller writes to it."
-  [prefix suffix]
-  (join-path (tmp-dir) (str prefix (nano-time) suffix)))
 
 (defn- as-path ^Path [^String path]
   (.toPath (File. path)))

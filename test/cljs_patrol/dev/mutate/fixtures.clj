@@ -2,7 +2,7 @@
   "A target namespace and its tests loaded from text, and a temporary directory, for the mutation runner's tests."
   (:require
    [cljs-patrol.dev.mutate.run :as run]
-   [clojure.java.io]))
+   [cljs-patrol.temp-dir :as temp-dir]))
 
 (defn sample-ns
   "Create a namespace that refers clojure.core, as a file's ns form would."
@@ -38,8 +38,4 @@
 (defn with-temp-dir
   "Call `f` with a new temporary directory, and delete the directory after."
   [f]
-  (let [dir (.toFile (java.nio.file.Files/createTempDirectory "mutate" (make-array java.nio.file.attribute.FileAttribute 0)))]
-    (try
-      (f dir)
-      (finally
-        (run! clojure.java.io/delete-file (reverse (file-seq dir)))))))
+  (temp-dir/with-dir "mutate" f))

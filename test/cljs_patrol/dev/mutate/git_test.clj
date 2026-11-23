@@ -1,6 +1,7 @@
 (ns cljs-patrol.dev.mutate.git-test
   (:require
    [cljs-patrol.dev.mutate.git :as git]
+   [cljs-patrol.temp-dir :as temp-dir]
    [clojure.java.io]
    [clojure.java.shell]
    [clojure.test :refer [deftest is]]))
@@ -17,19 +18,20 @@
     (assert (zero? exit) err)))
 
 (deftest lines-since-reads-the-branch-changes-from-the-merge-base
-  (let [dir (.toFile (java.nio.file.Files/createTempDirectory "mutate" (make-array java.nio.file.attribute.FileAttribute 0)))
-        file (clojure.java.io/file dir "core.clj")]
-    (sh! dir "git" "init" "-q" "-b" "main")
-    (sh! dir "git" "config" "user.email" "t@example.com")
-    (sh! dir "git" "config" "user.name" "t")
-    (spit file "a\nb\nc\n")
-    (sh! dir "git" "add" ".")
-    (sh! dir "git" "commit" "-q" "-m" "base")
-    (sh! dir "git" "switch" "-q" "-c" "topic")
-    (spit file "a\nB\nc\n")
-    (is (= #{2} (git/lines-since (str file) "main")))
-    (spit (clojure.java.io/file dir "fresh.clj") "x\n")
-    (is (= :all-lines (git/lines-since (str (clojure.java.io/file dir "fresh.clj")) "main"))
-        "file the merge base lacks counts in full")
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No git commit named nope"
-                          (git/lines-since (str file) "nope")))))
+  (temp-dir/with-dir "mutate"
+    (fn [dir]
+      (let [file (clojure.java.io/file dir "core.clj")]
+        (sh! dir "git" "init" "-q" "-b" "main")
+        (sh! dir "git" "config" "user.email" "t@example.com")
+        (sh! dir "git" "config" "user.name" "t")
+        (spit file "a\nb\nc\n")
+        (sh! dir "git" "add" ".")
+        (sh! dir "git" "commit" "-q" "-m" "base")
+        (sh! dir "git" "switch" "-q" "-c" "topic")
+        (spit file "a\nB\nc\n")
+        (is (= #{2} (git/lines-since (str file) "main")))
+        (spit (clojure.java.io/file dir "fresh.clj") "x\n")
+        (is (= :all-lines (git/lines-since (str (clojure.java.io/file dir "fresh.clj")) "main"))
+            "file the merge base lacks counts in full")
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No git commit named nope"
+                              (git/lines-since (str file) "nope")))))))

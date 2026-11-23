@@ -18,6 +18,7 @@
    [cljs-patrol.dev.mutate.error :as error]
    [cljs-patrol.dev.mutate.forms :as forms]
    [cljs-patrol.dev.mutate.git :as git]
+   [cljs-patrol.dev.mutate.guard :as guard]
    [cljs-patrol.dev.mutate.report :as report]
    [cljs-patrol.dev.mutate.run :as run]
    [clojure.java.io :as io]
@@ -40,8 +41,11 @@
   [[cache/open!]] decides, with `fresh` and `iterate`. A definition with no test plan from this
   run or the cache shows the tests the baseline saw call it. When a run with the same key
   reuses every mutant, no test runs, the baseline included. After the report, the cache
-  records what the run reported as the last run."
-  [target file source test-nss {:keys [defs since timeout report html all-tests cache fresh iterate]}]
+  records what the run reported as the last run. With `guard-root`, the run stops when a
+  mutant that loaded, while it loads or in its tests, adds, changes or deletes a file or folder
+  under that folder. Its `.git`, the cache folder, the folders of editors, IDEs and tools, and
+  the swap, lock and backup files of editors do not count."
+  [target file source test-nss {:keys [defs since timeout report html all-tests cache fresh iterate guard-root]}]
   (let [lines (when since (git/lines-since file since))
         {:keys [defs-in-scope loaded-once const-defs other-forms selected ignored unused-markers]
          top-forms :forms}
@@ -61,8 +65,13 @@
         {:keys [reused to-run message]} (cache/plan-run store selected)
         _ (some-> message println)
         def-names (distinct (map :def selected))
-        {:keys [ms covered note]} (when (and (seq selected) (or (seq to-run) (= :iterate (:mode store))))
+        baseline? (and (seq selected) (or (seq to-run) (= :iterate (:mode store))))
+        skipped (when guard-root (guard/skipped-dirs guard-root (some-> cache :file io/file .getParentFile)))
+        before-baseline (when (and baseline? guard-root) (guard/snapshot guard-root skipped))
+        {:keys [ms covered note]} (when baseline?
                                     (run/baseline target def-names test-nss timeout))
+        file-guard (when before-baseline
+                     (guard/start guard-root skipped before-baseline (guard/snapshot guard-root skipped)))
         timeout-ms (when ms (or timeout (run/default-timeout-ms ms)))
         _ (println (format "%d mutants of %s against %s%s%s%s"
                            (count selected) target (str/join ", " test-nss)
@@ -81,7 +90,9 @@
                  :select? (not all-tests)
                  :covered covered
                  :plans plans
-                 :on-result #(cache/record! store % @plans note)}
+                 :guard file-guard
+                 :on-result #(cache/record! store % @plans note)
+                 :on-forget #(cache/forget! store %)}
         {:keys [results unreached stopped stop-reason]} (run/run-all context to-run)
         fresh-results (into {} (map (juxt :id identity)) results)
         reported (keep #(or (get fresh-results (:id %))
@@ -136,7 +147,8 @@
   "Mutate `target`, found on the classpath, against `test-nss`, as [[mutate-source]] does, cached in `cache-dir`.
 
   The cache key hashes every source the target and its tests may read, from the directory the
-  command runs from and the classpath directories under it, and the runner's own."
+  command runs from and the classpath directories under it, and the runner's own. The run stops
+  when a test changes a file in the directory the command runs from."
   [target test-nss {:keys [cache-dir]
                     :as options}]
   (let [file (source-file target)
@@ -147,7 +159,9 @@
       (catch Exception e
         (throw (error/setup-error (str "Could not load the namespaces: " (ex-message e))))))
     (mutate-source target file source test-nss
-                   (assoc options :cache (cache/project-cache cache-dir "." target test-nss options)))))
+                   (assoc options
+                          :cache (cache/project-cache cache-dir "." target test-nss options)
+                          :guard-root "."))))
 
 (def ^:private cli-options
   [["-t" "--test NS" "A test namespace to run, given once per namespace"

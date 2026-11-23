@@ -3,6 +3,7 @@
   (:require
    [cljs-patrol.dev.mutate.error :as error]
    [cljs-patrol.dev.mutate.forms :as forms]
+   [cljs-patrol.dev.mutate.guard :as guard]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
    [clojure.test :as t]
@@ -313,26 +314,69 @@
                 (throw (error/setup-error (str "The tests fail before any mutation; fix them first.\n"
                                                (:output plain-run)))))))))
 
+(defn- files-changed-stop
+  "Return how the run stops after the mutant `result`, whose tests changed the `changed` files in the guard's root.
+
+  A mutant that failed while it loaded ran no test, so the stop names its loading instead. The
+  stop also tells when the tests of the mutant still run after the timeout, or when its restore
+  failed."
+  [{:keys [root hashes]}
+   {:keys [id restore-error at-load?]
+    stuck :stuck?
+    :as result}
+   changed]
+  {:stop-reason :files-changed
+   :stopped (str (if at-load? "loading the mutant " "the tests of the mutant ") id " changed files in "
+                 (guard/folder-name root)
+                 ", and the runner did not undo them:\n" (guard/describe changed hashes)
+                 (if at-load?
+                   (str "\nLoading the mutated definition " (:def result) ", or putting the original back, changed"
+                        " them. Delete or restore them, and look at the top-level code of " (:def result) ".")
+                   (str "\nDelete or restore them, and make the test take its folder from the JDK, such as"
+                        " Files/createTempDirectory, not from the code under test."))
+                 (when stuck
+                   "\nIts tests also still run after the timeout, and would disturb every later run.")
+                 (when restore-error
+                   (str "\nAlso, restoring " (:def result) " failed, so the namespace stays mutated: " restore-error)))})
+
 (defn run-all
-  "Run each mutant in turn, stopping at the first test run that keeps looping or the first restore that fails.
+  "Run each mutant in turn, and stop at the first whose tests keep looping, whose restore fails, or that changes a file.
 
   The context's :on-result, when given, gets each result as soon as it is known, also the one
-  the run stops at. A run that stops says why as :stop-reason: :plan-stuck, when the tests of a
-  definition keep running without a mutation, :stuck, when those of a mutant do, or
-  :restore-error."
-  [context selected]
+  the run stops at, but not one that changed a file. A run that stops says why as
+  :stop-reason: :plan-stuck, when the tests of a definition keep running without a mutation,
+  :stuck, when those of a mutant do, :restore-error, or :files-changed, when the snapshot of
+  the context's :guard after a mutant that loaded differs from the reference, the last
+  snapshot with no change. A mutant that changed a file gets no outcome, and the context's
+  :on-forget, when given, gets the mutant, so the cache drops what it held of it and the next
+  run runs it again. It is not listed as unreached."
+  [{:keys [guard]
+    :as context}
+   selected]
   (loop [[mutant & more] selected
          results []]
     (if (nil? mutant)
       {:results results}
-      (let [{:keys [stuck? restore-error plan-stuck?]
-             :as result} (run-mutant context mutant)]
-        (if plan-stuck?
+      (let [{:keys [stuck? restore-error plan-stuck? outcome]
+             :as result} (run-mutant context mutant)
+            changed (when (and guard (not plan-stuck?) (not= :unviable outcome))
+                      (guard/look guard))]
+        (cond
+          plan-stuck?
           {:results results
            :unreached (cons mutant more)
            :stop-reason :plan-stuck
            :stopped (str "the tests that call " (:def mutant) " keep running past the timeout without any mutation,"
                          " and would disturb every later run. Fix them, or raise --timeout.")}
+
+          changed
+          (do (when-let [on-forget (:on-forget context)]
+                (on-forget mutant))
+              (assoc (files-changed-stop guard result changed)
+                     :results results
+                     :unreached more))
+
+          :else
           (let [results (conj results result)]
             (when-let [on-result (:on-result context)]
               (on-result result))

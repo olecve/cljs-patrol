@@ -6,8 +6,11 @@
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.spade :as spade]
-   [clojure.test :refer [deftest is testing]]
+   [cljs-patrol.temp-dir :as temp-dir]
+   [clojure.test :refer [deftest is testing use-fixtures]]
    [clojure.tools.cli :as cli]))
+
+(use-fixtures :each temp-dir/delete-created)
 
 (def ^:private filter-groups #'core/filter-groups)
 (def ^:private filter-run-results #'core/filter-run-results)
@@ -62,28 +65,25 @@
   (let [enabled-groups [re-frame/group spade/group]
         run-results [(core/run fixture-dir enabled-groups)]
         identities (baseline/collect-identities run-results)
-        dir (fs/join-path (fs/tmp-dir) (str "cljs-patrol-bw-" (fs/nano-time)))
+        dir (temp-dir/file-path "missing")
         path (fs/join-path dir "baseline.edn")]
-    (try
-      (baseline/write-baseline path identities)
-      (is (fs/file-exists? path)
-          "baseline file created")
-      (let [{:keys [ok]} (baseline/read-baseline path)]
-        (is (set? ok)
-            "reads back as a set")
-        (is (pos? (count ok))
-            "contains issues from fixture project")
-        (is (every? :rule ok)
-            "every identity has a :rule"))
-      (finally
-        (fs/delete-tree! dir)))))
+    (baseline/write-baseline path identities)
+    (is (fs/file-exists? path)
+        "baseline file created")
+    (let [{:keys [ok]} (baseline/read-baseline path)]
+      (is (set? ok)
+          "reads back as a set")
+      (is (pos? (count ok))
+          "contains issues from fixture project")
+      (is (every? :rule ok)
+          "every identity has a :rule"))))
 
 (deftest baseline-write-refusal-test
   (let [kept {:rule :unused-subs
               :key :app/kept}
         added {:rule :unused-subs
                :key :app/added}
-        path (fs/tmp-file-path "baseline-" ".edn")]
+        path (temp-dir/file-path "baseline.edn")]
     (is (nil? (core/baseline-write-refusal path #{kept} false))
         "first write goes through")
     (baseline/write-baseline path #{kept})

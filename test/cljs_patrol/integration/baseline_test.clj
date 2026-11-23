@@ -8,26 +8,23 @@
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
    [cljs-patrol.reporters.edn :as edn-reporter]
+   [cljs-patrol.temp-dir :as temp-dir]
    [clojure.edn :as edn]
    [clojure.test :refer [deftest is]]))
 
 (def ^:private fixture-dir "test-projects/baseline-app/src/baseline_app")
 (def ^:private enabled-groups [re-frame/group spade/group reagent/group])
+(def ^:private dir-prefix "cljs-patrol-integration-")
 
 (defn- run-analysis []
   (let [run-results [(core/run fixture-dir enabled-groups)]]
     {:run-results run-results
      :identities (baseline/collect-identities run-results)}))
 
-(defn- tmp-dir []
-  (let [dir (fs/join-path (fs/tmp-dir) (str "cljs-patrol-integration-" (fs/nano-time)))]
-    (fs/mkdirs dir)
-    dir))
-
 (deftest baseline-write-and-read-test
   (let [completed (atom false)
         {:keys [identities]} (run-analysis)
-        dir (tmp-dir)
+        dir (temp-dir/create-dir dir-prefix)
         path (fs/join-path dir "baseline.edn")]
     (try
       (baseline/write-baseline path identities)
@@ -150,7 +147,7 @@
         absolute-dir (fs/absolute-path fixture-dir)
         run-results [(core/run absolute-dir enabled-groups)]
         identities (baseline/collect-identities run-results)
-        dir (tmp-dir)
+        dir (temp-dir/create-dir dir-prefix)
         path (fs/join-path dir "baseline.edn")]
     (try
       (baseline/write-baseline path identities)
@@ -171,7 +168,7 @@
 (deftest baseline-round-trip-survives-reanalysis-test
   (let [completed (atom false)
         {:keys [identities]} (run-analysis)
-        dir (tmp-dir)
+        dir (temp-dir/create-dir dir-prefix)
         path (fs/join-path dir "baseline.edn")]
     (try
       (baseline/write-baseline path identities)
@@ -190,7 +187,7 @@
 
 (deftest baseline-snapshot-test
   (let [completed (atom false)
-        dir (tmp-dir)
+        dir (temp-dir/create-dir dir-prefix)
         path (fs/join-path dir "baseline.edn")]
     (try
       (let [{:keys [identities]} (run-analysis)
