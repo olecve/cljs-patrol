@@ -90,3 +90,29 @@
   (temp-dir/with-dir "mutate"
     (fn [dir]
       (fixtures/outside-git dir #(is (= #{} (git/ignored-among dir ["target/"])))))))
+
+(defn- stub-git
+  "Return a git helper that answers rev-parse with `prefix`, status with `status-out`, and check-ignore with `ignore-exit`."
+  [prefix status-out ignore-exit]
+  (fn [_dir command & _]
+    (case command
+      "rev-parse" {:exit 0
+                   :out (str prefix "\n")
+                   :err ""}
+      "--no-optional-locks" {:exit 0
+                             :out status-out
+                             :err ""}
+      "check-ignore" {:exit ignore-exit
+                      :out ""
+                      :err ""})))
+
+(deftest ignored-paths-leave-out-entries-outside-dir
+  (with-redefs [git/git (stub-git "out/y/" "!! out/\u0000!! out/y/a.log\u0000" 1)]
+    (is (= #{"a.log"} (git/ignored-paths "out/y")))))
+
+(deftest ignored-paths-are-nil-when-check-ignore-fails
+  (with-redefs [git/git (stub-git "" "!! target/\u0000" 128)]
+    (is (nil? (git/ignored-paths "."))))
+  (with-redefs [git/git (stub-git "" "!! target/\u0000" 1)]
+    (is (= #{"target/"} (git/ignored-paths "."))
+        "exit 1 means dir is not ignored")))

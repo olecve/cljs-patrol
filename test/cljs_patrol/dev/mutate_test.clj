@@ -722,4 +722,5 @@
             (let [{:keys [stopped mutants]} (run-guarded folder-source tests (io/file root "runs") root)]
               (is (nil? stopped)
                   "out/ is new, and git ignores it")
-              (is (seq mutants)))))))))
+              (is (seq mutants))
+              (is (.exists (io/file out "note.txt"))))))))))

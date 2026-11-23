@@ -35,16 +35,16 @@
   listed. A folder that no rule matches is not listed, but its ignored files are. When an ignore
   rule matches `dir` itself or a folder above it, git cannot tell either, since every new path
   under `dir` is ignored; `--no-index` makes git check the rules also for a folder that holds a
-  tracked file."
+  tracked file. An entry outside `dir` is left out."
   [dir]
   (try
     (let [under (str/trim (:out (git (str dir) "rev-parse" "--show-prefix")))
           status (git (str dir) "--no-optional-locks" "status" "--porcelain=v1" "-z" "--ignored=matching"
                       "--untracked-files=normal" "--no-renames" "--" ".")]
       (when (and (zero? (:exit status))
-                 (not (zero? (:exit (git (str dir) "check-ignore" "-q" "--no-index" ".")))))
+                 (= 1 (:exit (git (str dir) "check-ignore" "-q" "--no-index" "."))))
         (->> (nul-separated (:out status))
-             (keep #(when (str/starts-with? % "!! ") (subs % (+ 3 (count under)))))
+             (keep #(when (str/starts-with? % (str "!! " under)) (subs % (+ 3 (count under)))))
              set)))
     (catch java.io.IOException _ nil)))
 
