@@ -28,7 +28,7 @@ branch. At acceptance, the Decision and Revisit when sections are aligned with t
 
 The second Revisit when condition, "the runner runs only the tests that reach a mutated definition", is now met.
 
-2026-11-21, later: new records describe how the runner grew after acceptance. ADRs 0006 to 0010 are accepted. The
+2026-11-21, later: new records describe how the runner grew after acceptance. ADRs 0006 to 0011 are accepted. The
 sections below keep the decision as it was accepted.
 
 - [ADR 0006](0006-mutation-test-which-code-the-runner-changes.md): which other code the runner changes, such as integer
@@ -39,6 +39,8 @@ sections below keep the decision as it was accepted.
 - [ADR 0009](0009-mutation-test-replace-a-body-with-nil.md): a mutant that replaces a function body with `nil`.
 - [ADR 0010](0010-mutation-test-cache-and-resume.md): a cache of results, to resume a stopped run and to run only the
   gaps again.
+- [ADR 0011](0011-mutation-test-stop-when-a-test-changes-a-file.md): a stop of the run when the tests of a mutant change
+  a file in the working directory.
 
 ## Context
 

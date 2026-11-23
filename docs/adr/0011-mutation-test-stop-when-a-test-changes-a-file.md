@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed, 2026-11-23
+Accepted, 2026-11-23 (proposed 2026-11-23)
 
 ## Context
 
@@ -242,3 +242,4 @@ mode it warns that it changes your files. mutmut copies the sources to `mutants/
   [`sandbox.ts`](https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/core/src/sandbox/sandbox.ts#L55-L60),
   at v10.1.1.
 - mutmut. [`harness.py`](https://github.com/boxed/mutmut/blob/3.8.1/src/mutmut/runners/harness.py#L107), at 3.8.1.
+- The pull request: [olecve/cljs-patrol#176](https://github.com/olecve/cljs-patrol/pull/176)
