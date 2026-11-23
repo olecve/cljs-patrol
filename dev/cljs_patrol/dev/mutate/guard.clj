@@ -78,10 +78,21 @@
   [path]
   (butlast (reductions #(str %1 "/" %2) (str/split path #"/"))))
 
-(defn- holding-folders
-  "Return the folders that hold a path of `skipped`."
+(defn- skip-rules
+  "Return the paths a snapshot leaves out: the `skipped` paths with all they hold, and the folders that hold one."
   [skipped]
-  (into #{} (mapcat parent-folders) skipped))
+  {:paths skipped
+   :holders (into #{} (mapcat parent-folders) skipped)})
+
+(defn- skipped-path?
+  "True when the `rules` of [[skip-rules]] leave out `relative`, a path with no `/` at the end, with all it holds."
+  [rules relative]
+  (contains? (:paths rules) relative))
+
+(defn- holder?
+  "True when the `rules` of [[skip-rules]] leave out the folder `relative` itself, but not what it holds."
+  [rules relative]
+  (contains? (:holders rules) relative))
 
 (defn file-attributes
   "Return the attributes of the file or folder at `path`, not following a link, or nil when it is gone."
@@ -90,17 +101,17 @@
     (Files/readAttributes path BasicFileAttributes ^"[Ljava.nio.file.LinkOption;" no-follow)
     (catch NoSuchFileException _ nil)))
 
-(defn- walk [^Path root skipped holders ^Path dir ^java.util.Map files]
+(defn- walk [^Path root rules ^Path dir ^java.util.Map files]
   (try
     (with-open [entries (Files/newDirectoryStream dir)]
       (doseq [^Path path entries]
         (let [relative (str (.relativize root path))]
-          (when-not (or (contains? skipped relative) (tool-file? (str (.getFileName path))))
+          (when-not (or (skipped-path? rules relative) (tool-file? (str (.getFileName path))))
             (when-let [attributes (file-attributes path)]
               (if (.isDirectory attributes)
-                (do (when-not (contains? holders relative)
+                (do (when-not (holder? rules relative)
                       (.put files (str relative "/") :folder))
-                    (walk root skipped holders path files))
+                    (walk root rules path files))
                 (.put files relative [(.size attributes) (.lastModifiedTime attributes)])))))))
     (catch NoSuchFileException _ nil)
     (catch AccessDeniedException _
@@ -112,6 +123,14 @@
   [root]
   (-> root root-path .normalize str))
 
+(defn- snapshot-with
+  "Take a snapshot of `root` that leaves out what the `rules` of [[skip-rules]] leave out."
+  [root rules]
+  (let [path (root-path root)
+        files (java.util.HashMap.)]
+    (walk path rules path files)
+    (into {} files)))
+
 (defn snapshot
   "Map the path of each file and folder under `root`, relative to it, to what a later snapshot compares.
 
@@ -122,12 +141,15 @@
   tools write. A folder that holds a skipped path, such as `.clj-kondo/`, maps to nothing
   itself, since a tool can make it, but its other files count. A link is a file of its own, so
   the walk does not follow it. A file that is deleted while the walk goes on is left out."
-  ([root skipped] (snapshot root skipped (holding-folders skipped)))
-  ([root skipped holders]
-   (let [path (root-path root)
-         files (java.util.HashMap.)]
-     (walk path skipped holders path files)
-     (into {} files))))
+  [root skipped]
+  (snapshot-with root (skip-rules skipped)))
+
+(defn- kept?
+  "True when the `rules` of [[skip-rules]] keep `path` of a snapshot, a folder with a `/` at the end, as a walk would."
+  [rules path]
+  (let [relative (bare path)]
+    (not (or (some #(skipped-path? rules %) (cons relative (parent-folders relative)))
+             (and (str/ends-with? path "/") (holder? rules relative))))))
 
 (defn- content-hash
   "Hash the bytes of the file at `path` under `root`, or return nil when it cannot be read, such as a folder."
@@ -165,11 +187,12 @@
 
   The guard keeps `after` as the reference, and the hash of the bytes of each file that the
   baseline added or changed, since its test writes it again for each mutant. A file whose bytes
-  cannot be read gets no hash, so any change of it counts."
-  [root skipped before after]
+  cannot be read gets no hash, so any change of it counts. With `git?`, git can tell which
+  paths it ignores, and the guard asks it about each new path."
+  [root skipped before after git?]
   {:root root
-   :skipped (atom skipped)
-   :holders (atom (holding-folders skipped))
+   :rules (atom (skip-rules skipped))
+   :git? git?
    :files (atom after)
    :hashes (into {}
                  (keep (fn [[path change]]
@@ -191,23 +214,22 @@
 
   The reference is the last snapshot with no change, which is the one after the baseline at
   first. When nothing changed, the new snapshot becomes the reference, so a file that the
-  baseline wrote and a test wrote again with the same bytes is not hashed again. A new path that
-  git ignores is no change, and neither is a new folder that holds one: the guard skips them,
-  drops the folders that now hold a skipped path from the reference, and looks again."
-  [{:keys [root skipped holders files hashes]
-    :as guard}]
-  (let [now (snapshot root @skipped @holders)
+  baseline wrote and a test wrote again with the same bytes is not hashed again. When git can
+  tell, a new path that git ignores is no change, and neither is a new folder that holds one:
+  the guard skips them from then on."
+  [{:keys [root rules git? files hashes]}]
+  (let [now (snapshot-with root @rules)
         changed (changes root @files now hashes)
-        ignored (when (some #(= :added (second %)) changed)
-                  (newly-ignored root changed))]
-    (cond
-      (seq ignored) (do (swap! skipped into ignored)
-                        (reset! holders (holding-folders @skipped))
-                        (swap! files #(apply dissoc % (map (fn [folder] (str folder "/")) (holding-folders ignored))))
-                        (look guard))
-      (seq changed) changed
-      :else (do (reset! files now)
-                nil))))
+        ignored (when (and git? (some #(= :added (second %)) changed))
+                  (newly-ignored root changed))
+        rules-now (if (seq ignored)
+                    (swap! rules #(skip-rules (into (:paths %) ignored)))
+                    @rules)
+        left (filterv #(kept? rules-now (first %)) changed)]
+    (if (seq left)
+      left
+      (do (reset! files (into {} (filter #(kept? rules-now (key %))) now))
+          nil))))
 
 (def ^:private listed-files 10)
 

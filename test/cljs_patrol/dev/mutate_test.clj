@@ -706,3 +706,20 @@
                   "new bytes in ignored target/ each mutant do not stop run")
               (is (= 8 (:mutants totals)))
               (is (not (str/includes? output guard/no-git-note))))))))))
+
+(deftest guard-skips-new-folder-git-ignores-that-mutant-made
+  (fixtures/with-temp-dir
+    (fn [root]
+      (fixtures/git-repo! root "out/")
+      (let [out (io/file root "out")
+            tests (str "(ns cljs-patrol.dev.mutate.fixtures.target-test (:require [clojure.test :refer [deftest is]]"
+                       " [cljs-patrol.dev.mutate.fixtures.target :as target]))\n"
+                       "(deftest writes (when-not (= \"temp\" (target/folder \"temp\" " (pr-str (str root)) "))"
+                       " (.mkdirs (java.io.File. " (pr-str (str out)) "))"
+                       " (spit (java.io.File. " (pr-str (str out)) " \"note.txt\") \"x\")) (is true))\n")]
+        (fixtures/with-target folder-source tests
+          (fn []
+            (let [{:keys [stopped mutants]} (run-guarded folder-source tests (io/file root "runs") root)]
+              (is (nil? stopped)
+                  "out/ is new, and git ignores it")
+              (is (seq mutants)))))))))

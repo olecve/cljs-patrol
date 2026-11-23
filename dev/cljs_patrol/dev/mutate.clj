@@ -75,7 +75,8 @@
         _ (when (and before-baseline (nil? git-ignored)) (println guard/no-git-note))
         file-guard (when before-baseline
                      (let [skipped (guard/with-ignored never-entered git-ignored)]
-                       (guard/start guard-root skipped before-baseline (guard/snapshot guard-root skipped))))
+                       (guard/start guard-root skipped before-baseline (guard/snapshot guard-root skipped)
+                                    (some? git-ignored))))
         timeout-ms (when ms (or timeout (run/default-timeout-ms ms)))
         _ (println (format "%d mutants of %s against %s%s%s%s"
                            (count selected) target (str/join ", " test-nss)

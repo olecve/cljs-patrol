@@ -52,13 +52,14 @@ paths that a snapshot finds.
 - **Why `git status`.** `git ls-files --others --ignored --exclude-standard --directory` also gives a folder whose files
   are all ignored, even when no rule ignores the folder itself. A new file in that folder would then go unseen. With
   `--ignored=matching`, `git status` gives such a folder's ignored files, not the folder.
-- **New paths.** When a snapshot finds added paths, the guard gives them to `git check-ignore -z --stdin`. Git matches
-  each path against the ignore rules, also a path in a folder that a rule ignores. A tracked file is never ignored. A
-  new path that git ignores is no change, and neither is a new folder that holds one. The guard adds them to the skipped
-  paths, removes from the reference each folder that now holds a skipped path, and takes the snapshot again. Later
-  snapshots skip them too. When no change is an added path, the guard does not start git. Thus a new `target/` in a
-  fresh clone does not stop the run. A changed or deleted path is not given to git, since the baseline snapshot held it,
-  so git did not ignore it then.
+- **New paths.** When a snapshot finds added paths, and git can tell which paths it ignores, the guard gives the added
+  paths to `git check-ignore -z --stdin`. Git matches each path against the ignore rules, also a path in a folder that a
+  rule ignores. A tracked file is never ignored. A new path that git ignores is no change, and neither is a new folder
+  that holds one. The guard adds the ignored paths to the skipped paths. It removes them, and the folders that now hold
+  a skipped path, from the new snapshot and from the changes, with the same rules as the walk. It does not walk again.
+  Later snapshots skip them too. When no change is an added path, the guard does not start git. Thus a new `target/` in
+  a fresh clone does not stop the run. A changed or deleted path is not given to git, since the baseline snapshot held
+  it, so git did not ignore it then.
 - **The snapshot before the baseline.** It skips only `.git/`, the cache folder, and the folders and names of editors
   below. The guard compares it with the snapshot after the baseline to find the files that the baseline wrote. A path
   that is only in the first one, such as a file in `node_modules/`, counts as deleted there, and the guard drops it.
@@ -69,10 +70,13 @@ paths that a snapshot finds.
   `.cpcache/` and `.shadow-cljs/` leave the hand list: they are build folders, and the project's `.gitignore` names
   them.
 - **Outside git.** When the working directory is not in a git work tree, or git fails, the guard skips the whole hand
-  list as before. This is also true when git ignores the working directory itself, or a folder above it, since then git
-  ignores every path under it. The run prints one note:
-  `Note: git cannot tell which files it ignores here, so the file guard also checks them, such as target/.` There,
-  `git check-ignore` fails too, so every new path counts.
+  list as before, and asks git nothing about new paths. The run prints one note:
+  `Note: git cannot tell which files it ignores here, so the file guard also checks them, such as target/.`
+- **An ignored working directory.** When an ignore rule matches the working directory itself, or a folder above it, git
+  ignores every new path under it. The guard treats this run as a run outside git. It finds the case with
+  `git check-ignore -q --no-index .` in the working directory: exit code 0 means ignored. Without `--no-index`, git
+  calls a folder that holds a tracked file not ignored, also when a rule matches it, and it does not match a rule such
+  as `build/` against the working directory `build` itself.
 - **Folders that hold a skipped path.** A folder that holds a skipped path is not in the snapshot itself, but its other
   files are. This rule was there for the folders of the hand list. It now applies to every skipped path.
 
@@ -139,10 +143,11 @@ reasons:
 
 - The runner's tests pass. Tests with a real git repository, made with `git init`, cover these cases: an ignored folder
   that exists at the start, a new ignored folder in a fresh clone, a new path that git ignores beside one that it does
-  not, a new folder that holds only ignored paths, an existing folder that gets a new ignored file, the list from a
-  subfolder, a working directory inside an ignored folder, a change that adds no path, and a tracked file that an ignore
-  rule matches. Other tests cover a directory outside git, and a run in git whose baseline writes into an ignored
-  `target/` with other bytes for each mutant.
+  not, a new folder that holds only ignored paths, an existing folder that gets a new ignored file, a change that adds
+  no path, the list from a subfolder, and a tracked file that an ignore rule matches. Other tests cover a working
+  directory that git ignores, also one in an ignored folder that holds a tracked file, a new file there that stops the
+  run, a directory outside git, and a run in git whose baseline writes into an ignored `target/` with other bytes for
+  each mutant.
 - The repro of an incident still stops. In that incident, the mutant that made `fs/tmp-file-path` return `nil` gave a
   test helper the root folder `nil`. `(java.io.File. nil "src")` is the relative path `src`, so the helper wrote its 7
   fixture files into the working directory. `fs/tmp-file-path` is gone, so the repro uses `fs/parent-dir`, which returns

@@ -65,11 +65,15 @@
     (fn [dir]
       (fixtures/git-repo! dir "build/")
       (fixtures/write! dir "build/x/a.clj" "x")
+      (fixtures/write! dir "build/t/kept.clj" "x")
+      (sh! dir "git" "add" "-f" "build/t/kept.clj")
       (is (nil? (git/ignored-paths (clojure.java.io/file dir "build")))
           "git ignores dir itself")
       (is (nil? (git/ignored-paths (clojure.java.io/file dir "build/x")))
           "git ignores folder above dir")
-      (is (= #{"build/"} (git/ignored-paths dir))))))
+      (is (nil? (git/ignored-paths (clojure.java.io/file dir "build/t")))
+          "tracked file in ignored folder")
+      (is (= #{"build/x/"} (git/ignored-paths dir))))))
 
 (deftest ignored-among-matches-paths-against-ignore-rules
   (temp-dir/with-dir "mutate"

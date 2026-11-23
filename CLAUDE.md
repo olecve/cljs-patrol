@@ -180,25 +180,25 @@ folders `.lsp/`, `.clj-kondo/.cache/`, `.clj-kondo/imports/`, `.clj-kondo/inline
 the names `*.swp`, `*.swo`, `4913`, `.#*`, `#*#`, `*~`, `.DS_Store` and `.nrepl-port` at any depth. The snapshot before
 the baseline skips only `.git/`, the cache folder and those folders and names. After the baseline, the run asks git once
 which paths under the directory it ignores (`git status --ignored=matching`), and every later snapshot skips them, a
-folder that git ignores as a whole with all its files. When a snapshot finds new paths, the run asks git about them
-(`git check-ignore --stdin`), only when a path was added: a new path that git ignores, and a new folder that holds one,
-are no change, and later snapshots skip them too. Outside a git work tree, when git ignores the directory itself or a
-folder above it, or when git fails, the run prints a note and skips the hand list instead: the folders above,
-`.cpcache/` and `.shadow-cljs/`. A folder that holds a skipped path, such as `.clj-kondo/`, is not in the snapshot
-itself, but its other files, such as `config.edn`, are. A file deleted during the walk is left out, and a folder it
-cannot read counts as one `:unreadable` entry. After each mutant that loaded, also one that failed while it loaded, it
-takes another snapshot and compares it with the reference: the last snapshot with no change, which is the one after the
-baseline at first. An unviable mutant gets none, so the next snapshot finds a file that a macro writes while it expands
-there, and blames the mutant it follows; with no snapshot after it, the file stays unseen. A file the baseline added or
-changed counts as changed only when its bytes change, and the message says so; a file whose bytes cannot be read counts
-as changed. A new, changed or deleted file or folder stops the run: it names the `:id` of the mutant that just ran, or
-its loading when it failed while it loaded (loading the mutated definition, or putting the original back, changed the
-files, so look at that definition's top-level code), and up to 10 paths, files first, says when that mutant's tests
-still run after the timeout or its restore failed, and does not undo them. That mutant is not listed as unreached, and
-the cache drops its outcome: from the store, and from the cache file when the file holds one with the mutant's id or
-place, which `--iterate` matches. The file is then written again without that outcome, the rest as it was, also in a
-`--fresh` or start-over run; it is not written when it holds none.
-[ADR 0011](docs/adr/0011-mutation-test-stop-when-a-test-changes-a-file.md) and
+folder that git ignores as a whole with all its files. When a snapshot finds added paths, the run asks git about them
+(`git check-ignore --stdin`): a new path that git ignores, and a new folder that holds one, are no change, and later
+snapshots skip them too. Outside a git work tree, when an ignore rule matches the directory itself or a folder above it
+(`git check-ignore -q --no-index .`), or when git fails, the run asks git nothing about new paths, prints a note and
+skips the hand list instead: the folders above, `.cpcache/` and `.shadow-cljs/`. A folder that holds a skipped path,
+such as `.clj-kondo/`, is not in the snapshot itself, but its other files, such as `config.edn`, are. A file deleted
+during the walk is left out, and a folder it cannot read counts as one `:unreadable` entry. After each mutant that
+loaded, also one that failed while it loaded, it takes another snapshot and compares it with the reference: the last
+snapshot with no change, which is the one after the baseline at first. An unviable mutant gets none, so the next
+snapshot finds a file that a macro writes while it expands there, and blames the mutant it follows; with no snapshot
+after it, the file stays unseen. A file the baseline added or changed counts as changed only when its bytes change, and
+the message says so; a file whose bytes cannot be read counts as changed. A new, changed or deleted file or folder stops
+the run: it names the `:id` of the mutant that just ran, or its loading when it failed while it loaded (loading the
+mutated definition, or putting the original back, changed the files, so look at that definition's top-level code), and
+up to 10 paths, files first, says when that mutant's tests still run after the timeout or its restore failed, and does
+not undo them. That mutant is not listed as unreached, and the cache drops its outcome: from the store, and from the
+cache file when the file holds one with the mutant's id or place, which `--iterate` matches. The file is then written
+again without that outcome, the rest as it was, also in a `--fresh` or start-over run; it is not written when it holds
+none. [ADR 0011](docs/adr/0011-mutation-test-stop-when-a-test-changes-a-file.md) and
 [ADR 0012](docs/adr/0012-mutation-test-guard-skips-what-git-ignores.md) record why. Tests take a temporary folder from
 `cljs-patrol.temp-dir`, which asks the JDK for a new one each call, never from `cljs-patrol.fs`, which a mutant can
 change: `create-dir` with `delete-dir!`, `with-dir`, or `file-path` with the fixture `delete-created`. A run exits 0
