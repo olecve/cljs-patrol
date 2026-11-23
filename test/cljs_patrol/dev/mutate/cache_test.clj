@@ -787,3 +787,11 @@
     (is (false? @(:recorded? store)))
     (cache/record! store (outcome "f/1" "p1") {} nil)
     (is (true? @(:recorded? store)))))
+
+(deftest forget-drops-outcome-of-one-mutant-and-writes-cache
+  (with-old-cache
+    (fn [file]
+      (let [store (open file {:make-key (key-of "s1")})]
+        (cache/forget! store "f/1:2/if->if-not")
+        (is (= (dissoc old-results "f/1:2/if->if-not") (:results (read-cache file))))
+        (is (= (dissoc old-results "f/1:2/if->if-not") (:results @(:entry store))))))))

@@ -11,8 +11,8 @@ checks the tests. It plants one small change, a mutant, in the code under test, 
 the mutant is killed. When all tests pass, the mutant survived, and no test checks that code.
 
 - **One JVM.** This runner runs every mutant in one JVM, in the directory where the command starts. It loads the changed
-  form into the running JVM, runs the tests, and then loads the original form again. It does not put back a file that
-  the tests changed.
+  form into the running JVM, runs the tests, and then loads the original form again. This last step is the restore. The
+  restore does not put back a file that the tests changed.
 - **The baseline.** Before the first mutant, the runner runs the tests once on the unchanged code. In this baseline run,
   it records which tests call each function: the record of test calls. Each mutant then runs only the tests that call
   its function.
@@ -46,49 +46,60 @@ below use JDK 22.
 
 ## Decision
 
-After each mutant whose tests ran, the runner takes a snapshot of the files in the working directory and compares it
-with the snapshot after the baseline. When a file is new, changed or deleted, the run stops. The tests take their
-temporary folders from the JDK, not from the code under test.
+The runner gets a guard: after each mutant that loaded, it compares the files and folders of the working directory with
+how they were after the baseline, and stops the run when they differ. The tests take their temporary folders from the
+JDK, not from the code under test.
 
-- **Snapshot.** The path, the size and the time of change of every file under the directory the command runs from. The
-  snapshot does not enter the `.git/` folder of that directory, the cache folder of the run, which is `.mutate-cache/`
-  by default, and the folders that tools write while a run goes on: `.lsp/`, `.clj-kondo/.cache/`, `.cpcache/` and
-  `.shadow-cljs/`. It also leaves out the swap, lock and backup files of editors: `*.swp`, `*.swo`, `.#*`, `*~` and
-  `4913`. Other folders that git ignores, such as `target/` and `node_modules/`, count. A file that is deleted while the
-  snapshot is taken is left out, and a folder that cannot be read counts as one entry, "unreadable". When two snapshots
-  are equal, the comparison ends at once.
-- **Which mutants.** Every mutant whose tests ran gets a snapshot. A mutant that cannot be read or compiled, or that
-  fails while it loads, runs no test and gets none.
+- **Snapshot.** A snapshot holds the path of every file and folder under the directory the command runs from, and the
+  size and the time of change of each file. A folder has no size or time in it, since its time changes when its files
+  change, so a new or deleted folder counts, an empty one too. The snapshot does not enter the `.git/` folder of that
+  directory, the cache folder of the run, which is `.mutate-cache/` by default, and the folders that tools write while a
+  run goes on: `.lsp/`, `.clj-kondo/.cache/`, `.cpcache/`, `.shadow-cljs/`, `.idea/` and `.calva/`. It also leaves out,
+  at any depth, the names `*.swp`, `*.swo`, `4913`, `.#*`, `#*#`, `*~`, `.DS_Store` and `.nrepl-port`, which editors,
+  macOS and nREPL write. One list in the guard holds these folders and names. Other folders that git ignores, such as
+  `target/` and `node_modules/`, count. A file that is deleted while the snapshot is taken is left out, and a folder
+  that cannot be read counts as one entry, "unreadable". When two snapshots are equal, the comparison ends at once.
+- **Baseline.** The guard takes one snapshot before the baseline and one after it. The files that differ between the two
+  are the files that the baseline wrote. The snapshot after the baseline is the reference.
+- **Which mutants.** Every mutant that loaded gets a snapshot, also one that failed while its form loaded, since that
+  form ran and can write a file. A mutant that cannot be read or compiled ran no code and gets none.
 - **Files that the baseline wrote.** A file that the baseline added or changed counts as changed only when its bytes
   change, because its test writes it again for each mutant. When its bytes change, the message says that the baseline
-  wrote it too.
-- **Stop.** The run stops with the id of the mutant that just ran and up to 10 files, and exits with 2. It says that it
+  wrote it too. A file whose bytes cannot be read counts as changed. When nothing changed, the new snapshot becomes the
+  reference.
+- **Stop.** The run stops with the id of the mutant that just ran and up to 10 paths, and exits with 2. It says that it
   did not undo the files. When the tests of that mutant still run after the timeout, or its restore failed, the message
-  says that too. The cache has no outcome of that mutant, so the next run runs it again.
+  says that too. The cache drops the outcome it held of that mutant, so the next run runs it again, and the report does
+  not list that mutant as one the run did not reach.
 - **Tests.** A new test helper, `cljs-patrol.temp-dir`, makes each temporary folder with the JDK call
   `Files/createTempDirectory`. The folder is new, empty, and in the OS temporary folder. `fs_test.clj` and the four
   other test files above use it. `fs/tmp-dir` and `fs/tmp-file-path` are deleted, since nothing calls them now.
 
 ## Options
 
-### A snapshot after every mutant whose tests ran (chosen)
+### A snapshot after every mutant that loaded (chosen)
 
-- Good, because it finds every new, changed or deleted file in every folder, the folders that git ignores too, however
-  the file was made: a write, a rename, a move, a copy, an empty create or a truncate.
-- Good, because the file that stops the run belongs to the mutant that just ran, so the message always names it.
-- Good, because the guard is small: about 150 lines.
+- Good, because it finds a new, changed or deleted file or folder outside the skipped folders, the folders that git
+  ignores too, however the file was made: a write, a rename, a move, a copy, an empty create or a truncate.
+- Good, because a change that the snapshot finds appeared while the mutant that just ran was loaded, so the message
+  names that mutant.
+- Good, because the guard is small: about 160 lines.
 - Good, because the cost stays under 2 times the run without it. The times are medians of 3 runs in the same JVM, with
-  and without the guard, on JDK 22, in a worktree of this repository whose snapshot holds 390 files, at a load average
-  of 5.2 to 7.0. On `cljs-patrol.groups.reagent`, with `-d` for every definition but `element-children`, whose mutant at
-  line 302 loops when the machine is busy, the 229 mutants took 229 snapshots in 2.32 s, about 10 ms each. The run went
-  from 3.57 s to 6.06 s, 1.70 times as long. On `cljs-patrol.fs`, the 27 mutants took 27 snapshots in 0.29 s, and the
-  run went from 0.40 s to 0.69 s, 1.74 times as long.
+  and without the guard, on JDK 22, in a worktree of this repository whose snapshot holds 514 files and folders, at a
+  load average of 3.7 to 4.1. On `cljs-patrol.groups.reagent`, with `-d` for every definition but `element-children`,
+  whose mutant at line 302 loops when the machine is busy, the 229 mutants took 229 snapshots in 3.02 s. The run went
+  from 3.70 s to 6.76 s, 1.83 times as long. On `cljs-patrol.fs`, the 27 mutants took 27 snapshots in 0.31 s, and the
+  run went from 0.39 s to 0.73 s, 1.87 times as long.
 - Good, because it found the real case: with the old `fs_test.clj`, the run stopped at `tmp-file-path/55:3/body->nil`
   and named the 7 files. On today's tree, a scratch test does the same with `fs/parent-dir`, as Confirmation describes.
 - Bad, because it only reports. A deleted file that git does not hold is lost.
 - Bad, because it does not see a file outside the working directory, such as one in the home folder.
 - Bad, because another process that changes a file during the run, such as an editor that saves a source file, also
   stops the run, and the message names the mutant that just ran.
+- Bad, because it does not see a change in the skipped folders and names, or a change that keeps the size and the time
+  of change of a file.
+- Bad, because a background thread of an earlier test that writes a file late makes the guard blame the mutant that runs
+  then.
 
 ### A snapshot only after mutants whose tests write, found with Java Flight Recorder (rejected)
 
@@ -97,7 +108,8 @@ JVM. In the baseline, a test that wrote a file marked its mutants for a snapshot
 mutants told a write of this run from a write of another process.
 
 - Good, because fewer mutants get a snapshot. On `cljs-patrol.groups.reagent`, 102 of the same 229 mutants got one, in
-  1.37 s against 2.32 s: about 1 s less for each run. The two numbers come from two sessions at a similar load.
+  1.37 s against 2.32 s for 229 snapshots of files only: about 1 s less for each run. The two numbers come from two
+  sessions at a similar load.
 - Bad, because JFR records only write calls. A file that the JVM renames, moves, copies, creates empty or truncates gets
   no event. `baseline/write-baseline` writes a temporary file and moves it into place, so its result looked like a file
   of another process.
@@ -106,7 +118,7 @@ mutants told a write of this run from a write of another process.
   each test and each mutant.
 - Bad, because a write in a window could blame a mutant that the cache already held, a write between mutants could name
   no mutant, and the recording grew for the whole run.
-- Bad, because it was about 350 lines, against about 150 lines for the chosen guard.
+- Bad, because it was about 350 lines, against about 160 lines for the chosen guard.
 
 ### Only the top level of large ignored folders (rejected)
 
@@ -142,10 +154,10 @@ mode it warns that it changes your files. mutmut copies the sources to `mutants/
 
 ## Consequences
 
-- A run stops early, with exit code 2, when the tests of a mutant change a file in the working directory. The person
-  puts the files back and fixes the test, and the next run runs that mutant again.
-- A save in an editor during a run stops the run, unless the editor writes only its swap, lock or backup files. The
-  person runs again, and the cache keeps the other outcomes.
+- A run stops early, with exit code 2, when a mutant changes a file in the working directory. The person puts the files
+  back and fixes the test, and the next run runs that mutant again.
+- A save in an editor during a run stops the run, unless the editor writes only the skipped names. The person runs
+  again, and the cache keeps the other outcomes.
 - A test that writes the same bytes into the working directory in every run does not stop the run.
 - A later change can move the file code in `src/` from `java.io.File` to `java.nio` paths, and give the unit tests an
   in-memory file system. Then fewer tests write to the disk. It does not replace the guard: a test that uses the real
@@ -154,15 +166,43 @@ mode it warns that it changes your files. mutmut copies the sources to `mutants/
 ## Confirmation
 
 - The runner's tests pass, also those for a test that writes or deletes a file only under a mutant, a baseline that
-  writes a file each run, a mutant that fails at load, a mutant whose tests still run after the timeout, and a failed
-  restore of a mutant that also changed a file.
+  writes a file each run, a new or deleted folder, a mutant that fails at load and one that does not compile, a mutant
+  whose tests still run after the timeout, a failed restore of a mutant that also changed a file, and a cache folder and
+  a `.git/` folder inside the working directory.
 - The repro of the incident stops at the mutant and names the 7 files. Today `fs/tmp-file-path` is gone, so the repro
-  uses `fs/parent-dir`, which returns `nil` under its body mutant. Add a scratch test,
-  `test/cljs_patrol/scratch_nil_root_test.clj`, whose `scratch-tree` helper is the one of the old `fs_test.clj` with its
-  root from `(fs/parent-dir (temp-dir/file-path "x"))`. Run
-  `clojure -M:test:mutate cljs-patrol.fs -t cljs-patrol.scratch-nil-root-test -d parent-dir`. The run stops at
-  `parent-dir/19:3/body->nil`, names the 7 files and exits with 2. Then delete the 7 files, their folders and the
-  scratch test.
+  uses `fs/parent-dir`, which returns `nil` under its body mutant. Note which of `.hidden/`, `out/`,
+  `node_modules/thing/`, `target/classes/` and `target/classes/app/` exist. Then add the scratch test
+  `test/cljs_patrol/scratch_nil_root_test.clj`:
+
+  ```clojure
+  (ns cljs-patrol.scratch-nil-root-test
+    (:require
+     [cljs-patrol.fs :as fs]
+     [cljs-patrol.temp-dir :as temp-dir]
+     [clojure.test :refer [deftest is]]))
+
+  (defn- scratch-tree []
+    (let [root (fs/parent-dir (temp-dir/file-path "x"))]
+      (doseq [dir ["src" "target/classes/app" "node_modules/thing" ".hidden" "out"]]
+        (fs/mkdirs (fs/join-path root dir)))
+      (doseq [leaf ["src/kept.clj" "src/kept.cljs" "src/skipped.txt"
+                    "target/classes/app/stale.clj" "node_modules/thing/vendored.cljs"
+                    ".hidden/secret.clj" "out/compiled.cljs"]]
+        (spit (fs/join-path root leaf) "(ns x)"))
+      root))
+
+  (deftest tree-is-listed
+    (let [root (scratch-tree)]
+      (try
+        (is (= 2 (count (fs/list-source-files root #{".clj" ".cljs"}))))
+        (finally (fs/delete-tree! root)))))
+  ```
+
+  Run `clojure -M:test:mutate cljs-patrol.fs -t cljs-patrol.scratch-nil-root-test -d parent-dir`. The run stops at
+  `parent-dir/19:3/body->nil`, names the 7 files first, then the new folders, and exits with 2. Then delete the 7 files,
+  the folders of the list above that did not exist before the run, the scratch test, and `.mutate-cache/`. Do not delete
+  `src/`, `node_modules/` or `target/`.
+
 - A run with the guard on `cljs-patrol.groups.reagent` and on `cljs-patrol.fs` takes less than 2 times as long as the
   same run without it, on a machine with no other heavy load.
 
@@ -170,7 +210,8 @@ mode it warns that it changes your files. mutmut copies the sources to `mutants/
 
 - A run deletes or changes a file that the guard can only report. Then make the copy of the tree and the child JVM.
 - A run with the guard takes 2 times as long as the run without it, or more.
-- Saves in an editor stop runs often. Then the guard needs a way to tell those files from the files of the tests.
+- A run stops at a path that no test fixture writes, and the person finds that an editor or another tool wrote it. Then
+  add its name or folder to the skipped list, or give the guard a way to tell such files from the files of the tests.
 
 ## More Information
 

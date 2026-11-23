@@ -601,9 +601,8 @@
               (is (= 2 (report/exit-code summary)))
               (is (= ["folder/2:26/body->nil"] (map :id mutants))
                   "first mutant writes into OS temporary folder, as baseline did")
-              (is (= [{:def "folder"
-                       :mutants 1}]
-                     unreached))
+              (is (empty? unreached)
+                  "mutant that stopped run is named in stop")
               (is (= ["folder/2:26/body->nil"]
                      (keys (:results (edn/read-string (slurp (io/file dir "cache.edn"))))))
                   "mutant that wrote file is not cached"))))))))
@@ -669,3 +668,20 @@
             (let [{:keys [stopped]} (run-guarded folder-source tests dir root)]
               (is (str/starts-with? stopped "the tests of the mutant folder/2:26/body->nil changed files in "))
               (is (str/includes? stopped "  deleted kept.txt\n")))))))))
+
+(deftest guard-skips-cache-folder-and-git-folder-inside-root
+  (fixtures/with-temp-dir
+    (fn [root]
+      (let [git-file (io/file root ".git" "index")
+            tests (str fixtures/target-tests
+                       "(deftest touches-git (spit (java.io.File. " (pr-str (str git-file)) ") (str (System/nanoTime)))"
+                       " (is true))\n")]
+        (io/make-parents git-file)
+        (fixtures/with-target tests
+          (fn []
+            (let [cache-file (io/file root "runs" "target.edn")
+                  [{:keys [stopped totals]}] (run-cached fixtures/target-source cache-file tests {:guard-root (str root)})]
+              (is (nil? stopped)
+                  "cache written after each mutant and git file written by tests do not stop run")
+              (is (= 8 (:mutants totals)))
+              (is (.exists cache-file)))))))))

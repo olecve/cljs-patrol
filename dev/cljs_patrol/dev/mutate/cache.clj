@@ -400,6 +400,14 @@
   (reset! recorded? true)
   (write! store previous))
 
+(defn forget!
+  "Drop the outcome that the cache holds of the mutant named `id`, and write it, so the next run runs that mutant again."
+  [{:keys [entry previous]
+    :as store}
+   id]
+  (swap! entry update :results dissoc id)
+  (write! store previous))
+
 (defn finish!
   "Record `last-run`, the outcomes by place that the run reported, as the last run, and the test `plans` the report used.
 

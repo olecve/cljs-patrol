@@ -20,12 +20,10 @@
     {:run-results run-results
      :identities (baseline/collect-identities run-results)}))
 
-(defn- tmp-dir [] (temp-dir/create-dir "cljs-patrol-integration-"))
-
 (deftest baseline-write-and-read-test
   (let [completed (atom false)
         {:keys [identities]} (run-analysis)
-        dir (tmp-dir)
+        dir (temp-dir/create-dir "cljs-patrol-integration-")
         path (fs/join-path dir "baseline.edn")]
     (try
       (baseline/write-baseline path identities)
@@ -148,7 +146,7 @@
         absolute-dir (fs/absolute-path fixture-dir)
         run-results [(core/run absolute-dir enabled-groups)]
         identities (baseline/collect-identities run-results)
-        dir (tmp-dir)
+        dir (temp-dir/create-dir "cljs-patrol-integration-")
         path (fs/join-path dir "baseline.edn")]
     (try
       (baseline/write-baseline path identities)
@@ -169,7 +167,7 @@
 (deftest baseline-round-trip-survives-reanalysis-test
   (let [completed (atom false)
         {:keys [identities]} (run-analysis)
-        dir (tmp-dir)
+        dir (temp-dir/create-dir "cljs-patrol-integration-")
         path (fs/join-path dir "baseline.edn")]
     (try
       (baseline/write-baseline path identities)
@@ -188,7 +186,7 @@
 
 (deftest baseline-snapshot-test
   (let [completed (atom false)
-        dir (tmp-dir)
+        dir (temp-dir/create-dir "cljs-patrol-integration-")
         path (fs/join-path dir "baseline.edn")]
     (try
       (let [{:keys [identities]} (run-analysis)

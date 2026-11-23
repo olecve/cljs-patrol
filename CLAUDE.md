@@ -173,18 +173,22 @@ test that caught them, and a run without `--iterate` runs them again. `--fresh` 
 at a time on a target: the last write wins. At the end of a run that prints its report, in every mode, the cache keeps
 what that run reported, by place, as the last run: each gap whose place the last run reported is tagged new or still
 open, on the console and the page, the others count as "not run then", and the report counts the gaps closed since.
-After the baseline, a run takes a snapshot of every file under the directory it runs from: its path, size and time of
-change. The snapshot skips the root `.git/`, the run's cache folder, the tool caches `.lsp/`, `.clj-kondo/.cache/`,
-`.cpcache/` and `.shadow-cljs/`, and the editor files `*.swp`, `*.swo`, `.#*`, `*~` and `4913`. A file deleted during
-the walk is left out, and a folder it cannot read counts as one `:unreadable` entry. After each mutant whose tests ran,
-it takes another snapshot and compares the two; an unviable mutant, or one that failed at load, ran no test and gets
-none. A file the baseline wrote counts as changed only when its bytes change, and the message says so. A new, changed or
-deleted file stops the run: it names the `:id` of the mutant that just ran and up to 10 files, says when that mutant's
-tests still run after the timeout or its restore failed, does not undo the files, and does not cache that mutant, so the
-next run runs it again. [ADR 0011](docs/adr/0011-mutation-test-stop-when-a-test-changes-a-file.md) records why. Tests
-take a temporary folder from `cljs-patrol.temp-dir`, which asks the JDK, never from `cljs-patrol.fs`, which a mutant can
-change. A run exits 0 when nothing survives, 1 when something survives or has no coverage, and 2 when it cannot start or
-stops early. A value a `def` computes when the namespace loads keeps the original, so a mutant only it reaches survives.
+Before and after the baseline, a run takes a snapshot of every file and folder under the directory it runs from: the
+path of each, and the size and time of change of each file, but not of a folder, whose time changes with its files. The
+snapshot skips the root `.git/`, the run's cache folder, and `tool-files` in `guard.clj`: the folders `.lsp/`,
+`.clj-kondo/.cache/`, `.cpcache/`, `.shadow-cljs/`, `.idea/` and `.calva/`, and the names `*.swp`, `*.swo`, `4913`,
+`.#*`, `#*#`, `*~`, `.DS_Store` and `.nrepl-port` at any depth. A file deleted during the walk is left out, and a folder
+it cannot read counts as one `:unreadable` entry. After each mutant that loaded, also one that failed while it loaded,
+it takes another snapshot and compares it with the one after the baseline; an unviable mutant ran no code and gets none.
+A file the baseline added or changed counts as changed only when its bytes change, and the message says so; a file whose
+bytes cannot be read counts as changed. When nothing changed, the new snapshot becomes the reference. A new, changed or
+deleted file or folder stops the run: it names the `:id` of the mutant that just ran and up to 10 paths, says when that
+mutant's tests still run after the timeout or its restore failed, and does not undo them. That mutant is not listed as
+unreached, and the cache drops what it held of it, so the next run runs it again.
+[ADR 0011](docs/adr/0011-mutation-test-stop-when-a-test-changes-a-file.md) records why. Tests take a temporary folder
+from `cljs-patrol.temp-dir`, which asks the JDK, never from `cljs-patrol.fs`, which a mutant can change. A run exits 0
+when nothing survives, 1 when something survives or has no coverage, and 2 when it cannot start or stops early. A value
+a `def` computes when the namespace loads keeps the original, so a mutant only it reaches survives.
 
 The runner's command line is `dev/cljs_patrol/dev/mutate.clj`. Each job has its namespace under
 `dev/cljs_patrol/dev/mutate/`, and its tests under `test/cljs_patrol/dev/mutate/`: `forms` reads the target into

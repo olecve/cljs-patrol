@@ -338,11 +338,13 @@
   "Run each mutant in turn, and stop at the first whose tests keep looping, whose restore fails, or whose tests change a file.
 
   The context's :on-result, when given, gets each result as soon as it is known, also the one
-  the run stops at, but not one whose tests changed a file. A run that stops says why as
+  the run stops at, but not one that changed a file. A run that stops says why as
   :stop-reason: :plan-stuck, when the tests of a definition keep running without a mutation,
   :stuck, when those of a mutant do, :restore-error, or :files-changed, when the snapshot of
-  the context's :guard after a mutant whose tests ran differs from the one after the baseline.
-  The mutant that changed a file gets no outcome, so the next run runs it again."
+  the context's :guard after a mutant that loaded differs from the one after the baseline. A
+  mutant that changed a file gets no outcome, and the context's :on-forget, when given, gets
+  its id, so the cache drops what it held of it and the next run runs it again. It is not
+  listed as unreached."
   [{:keys [guard]
     :as context}
    selected]
@@ -350,9 +352,9 @@
          results []]
     (if (nil? mutant)
       {:results results}
-      (let [{:keys [stuck? restore-error plan-stuck? at-load?]
+      (let [{:keys [stuck? restore-error plan-stuck? outcome]
              :as result} (run-mutant context mutant)
-            changed (when (and guard (not plan-stuck?) (not at-load?))
+            changed (when (and guard (not plan-stuck?) (not= :unviable outcome))
                       (guard/look guard))]
         (cond
           plan-stuck?
@@ -363,9 +365,11 @@
                          " and would disturb every later run. Fix them, or raise --timeout.")}
 
           changed
-          (assoc (files-changed-stop guard result changed)
-                 :results results
-                 :unreached (cons mutant more))
+          (do (when-let [on-forget (:on-forget context)]
+                (on-forget (:id mutant)))
+              (assoc (files-changed-stop guard result changed)
+                     :results results
+                     :unreached more))
 
           :else
           (let [results (conj results result)]

@@ -9,11 +9,16 @@
   [prefix]
   (str (java.nio.file.Files/createTempDirectory prefix (make-array java.nio.file.attribute.FileAttribute 0))))
 
-(defn file-path
-  "Return the absolute path of a file named `file-name` in a new temporary folder, without creating the file.
+(def ^:private shared-dir
+  "One temporary folder for the files of [[file-path]] in this JVM, which the JVM deletes when it exits, if it is empty."
+  (delay (doto (java.io.File. ^String (create-dir "cljs-patrol-"))
+           (.deleteOnExit))))
 
-  The JVM deletes the folder when it exits, if the test deleted what it put there."
+(def ^:private file-count (atom 0))
+
+(defn file-path
+  "Return the absolute path of a new file whose name ends with `file-name`, in a temporary folder, without creating it.
+
+  The test deletes the file, or the folder of that name, when it is done."
   [file-name]
-  (let [dir (java.io.File. ^String (create-dir "cljs-patrol-"))]
-    (.deleteOnExit dir)
-    (str (java.io.File. dir ^String file-name))))
+  (str (java.io.File. ^java.io.File @shared-dir (str (swap! file-count inc) "-" file-name))))

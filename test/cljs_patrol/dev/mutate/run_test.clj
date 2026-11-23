@@ -297,17 +297,20 @@
        " (is true))\n"))
 
 (defn- run-arming
-  "Run the mutants of `step`, the first failing at load and the second failing its restore, with a guard on `root`."
-  [root]
+  "Run the mutants of `step`, the first failing at load and the second failing its restore, with a guard on `root`.
+
+  `options` merge into the context of the run."
+  [root options]
   (binding [*out* (java.io.StringWriter.)]
-    (run/run-all {:target 'cljs-patrol.dev.mutate.fixtures.target
-                  :file "target.clj"
-                  :test-nss ['cljs-patrol.dev.mutate.fixtures.target-test]
-                  :timeout-ms 5000
-                  :select? false
-                  :covered {}
-                  :plans (atom {})
-                  :guard (guard-on root)}
+    (run/run-all (merge {:target 'cljs-patrol.dev.mutate.fixtures.target
+                         :file "target.clj"
+                         :test-nss ['cljs-patrol.dev.mutate.fixtures.target-test]
+                         :timeout-ms 5000
+                         :select? false
+                         :covered {}
+                         :plans (atom {})
+                         :guard (guard-on root)}
+                        options)
                  (cache/with-ids (filter #(= "step" (:def %)) (:selected (forms/scope arming-source {})))))))
 
 (deftest run-all-stops-at-mutant-whose-tests-changed-file-and-tells-failed-restore
@@ -316,7 +319,48 @@
       (fixtures/with-target arming-source (arming-tests root true)
         (fn []
           (let [recorded (atom [])
+                forgotten (atom [])
                 {:keys [stop-reason stopped results unreached]}
+                (run-arming root {:on-result #(swap! recorded conj (:id %))
+                                  :on-forget #(swap! forgotten conj %)})]
+            (is (= :files-changed stop-reason))
+            (is (str/starts-with? stopped (str "the tests of the mutant step/3:66/inc->dec changed files in "
+                                               (guard/folder-name root)
+                                               ", and the runner did not undo them:\n  added note.txt\n")))
+            (is (str/includes? stopped "\nAlso, restoring step failed, so the namespace stays mutated: "))
+            (is (= ["step/3:16/when->when-not"] @recorded (map :id results))
+                "mutant that changed file gets no outcome")
+            (is (= ["step/3:66/inc->dec"] @forgotten)
+                "cache drops what it held of that mutant")
+            (is (empty? unreached)
+                "stopping mutant is named in stop, not as unreached")))))))
+
+(deftest run-all-takes-snapshot-after-mutant-caught-at-load
+  (fixtures/with-temp-dir
+    (fn [root]
+      (fixtures/with-target arming-source (arming-tests root false)
+        (fn []
+          (let [guard (guard-on root)
+                _ (spit (java.io.File. root "early.txt") "x")
+                {:keys [stopped]} (run-arming root {:guard guard})]
+            (is (str/starts-with? stopped "the tests of the mutant step/3:16/when->when-not changed files")
+                "form of mutant runs while it loads, and may write")))))))
+
+(def ^:private unviable-source
+  (str "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
+       "(defn pick [x] (case x true :yes false :no))\n"))
+
+(deftest run-all-takes-no-snapshot-after-unviable-mutant
+  (fixtures/with-temp-dir
+    (fn [root]
+      (fixtures/with-target unviable-source
+        (str "(ns cljs-patrol.dev.mutate.fixtures.target-test (:require [clojure.test :refer [deftest is]]"
+             " [cljs-patrol.dev.mutate.fixtures.target :as target]))\n"
+             "(deftest picks (is (= :yes (target/pick true))))\n")
+        (fn []
+          (let [guard (guard-on root)
+                _ (spit (java.io.File. root "early.txt") "x")
+                {:keys [stopped results]}
                 (binding [*out* (java.io.StringWriter.)]
                   (run/run-all {:target 'cljs-patrol.dev.mutate.fixtures.target
                                 :file "target.clj"
@@ -325,46 +369,18 @@
                                 :select? false
                                 :covered {}
                                 :plans (atom {})
-                                :guard (guard-on root)
-                                :on-result #(swap! recorded conj (:id %))}
-                               (cache/with-ids (filter #(= "step" (:def %))
-                                                       (:selected (forms/scope arming-source {}))))))]
-            (is (= :files-changed stop-reason))
-            (is (str/starts-with? stopped (str "the tests of the mutant step/3:66/inc->dec changed files in "
-                                               (guard/folder-name root)
-                                               ", and the runner did not undo them:\n  added note.txt\n")))
-            (is (str/includes? stopped "\nAlso, restoring step failed, so the namespace stays mutated: "))
-            (is (= ["step/3:16/when->when-not"] @recorded (map :id results))
-                "mutant that changed file gets no outcome")
-            (is (= ["step/3:66/inc->dec"] (map :id unreached)))))))))
-
-(deftest run-all-takes-no-snapshot-after-mutant-caught-at-load
-  (fixtures/with-temp-dir
-    (fn [root]
-      (fixtures/with-target arming-source (arming-tests root false)
-        (fn []
-          (let [guard (guard-on root)
-                stop (binding [*out* (java.io.StringWriter.)]
-                       (spit (java.io.File. root "early.txt") "x")
-                       (run/run-all {:target 'cljs-patrol.dev.mutate.fixtures.target
-                                     :file "target.clj"
-                                     :test-nss ['cljs-patrol.dev.mutate.fixtures.target-test]
-                                     :timeout-ms 5000
-                                     :select? false
-                                     :covered {}
-                                     :plans (atom {})
-                                     :guard guard}
-                                    (cache/with-ids (filter #(= "step" (:def %))
-                                                            (:selected (forms/scope arming-source {}))))))]
-            (is (str/starts-with? (:stopped stop) "the tests of the mutant step/3:66/inc->dec changed files")
-                "first mutant failed at load, ran no test, and got no snapshot")))))))
+                                :guard guard}
+                               (remove #(= :body (:swap %)) (cache/with-ids (:selected (forms/scope unviable-source {}))))))]
+            (is (nil? stopped))
+            (is (= [:unviable :unviable] (map :outcome results))
+                "duplicate case constant does not compile, so no code ran")))))))
 
 (deftest run-all-stops-at-failed-restore-when-no-file-changed
   (fixtures/with-temp-dir
     (fn [root]
       (fixtures/with-target arming-source (arming-tests root false)
         (fn []
-          (let [{:keys [stop-reason stopped]} (run-arming root)]
+          (let [{:keys [stop-reason stopped]} (run-arming root {})]
             (is (= :restore-error stop-reason))
             (is (str/starts-with? stopped "restoring step failed"))))))))
 

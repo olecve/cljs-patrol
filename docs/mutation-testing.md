@@ -58,13 +58,14 @@ Pass every test namespace that tests the target with `-t`. The run exits 0 when 
 there is a test gap, and 2 when it cannot start or stops early. Every option, what is not mutated, and when every test
 runs instead of the selected ones are in the "Mutation testing" section of [`CLAUDE.md`](../CLAUDE.md#mutation-testing).
 
-The run also looks at the files under the directory it runs from, after each planted bug whose tests ran. It skips
-`.git/`, the cache folder, the caches of tools and the swap and lock files of editors. When a file there is new, changed
-or deleted, the run stops, names the planted bug that just ran and up to 10 files, and exits 2. A file that the
-baseline, the first run of the tests before any planted bug, wrote stops the run only when its bytes change. Any other
-change stops the run too, also a file your editor saved during the run, so run again after it. The run does not undo the
-files. Delete or restore them, then make the test take its folder from `cljs-patrol.temp-dir`, which asks the JDK with
-`Files/createTempDirectory`, not from the code under test.
+The run also looks at the files and folders under the directory it runs from, after each planted bug that loaded. It
+skips `.git/`, the cache folder, and what editors and tools write, such as `.lsp/`, `.idea/`, `*.swp` and `.DS_Store`.
+When a file or folder there is new, changed or deleted, the run stops, names the planted bug that just ran and up to 10
+paths, and exits 2. A file that the baseline, the first run of the tests before any planted bug, wrote stops the run
+only when its bytes change. Any other change stops the run too, also a file your editor saved during the run, so run
+again after it. The next run runs that planted bug again. The run does not undo the files. Delete or restore them, then
+make the test take its folder from `cljs-patrol.temp-dir`, which asks the JDK with `Files/createTempDirectory`, not from
+the code under test.
 
 ## Read the report
 
@@ -202,8 +203,8 @@ Each choice below has a record in [`docs/adr/`](adr/README.md) with the options 
   is the one a new run would give. `--iterate` trusts caught outcomes after a change, for the work of adding tests.
 - **Stop when a test changes a file** ([ADR 0011](adr/0011-mutation-test-stop-when-a-test-changes-a-file.md)). A planted
   bug can turn the temporary folder of a test into the working directory. The runner puts back only the code it changed,
-  so it stops and names the files. A snapshot after every planted bug whose tests ran finds a file however it was made,
-  and costs less than the run itself.
+  so it stops and names the files. A snapshot after every planted bug that loaded finds a file however it was made, and
+  costs less than the run itself.
 
 ## Words
 

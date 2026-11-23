@@ -90,7 +90,8 @@
                  :covered covered
                  :plans plans
                  :guard file-guard
-                 :on-result #(cache/record! store % @plans note)}
+                 :on-result #(cache/record! store % @plans note)
+                 :on-forget #(cache/forget! store %)}
         {:keys [results unreached stopped stop-reason]} (run/run-all context to-run)
         fresh-results (into {} (map (juxt :id identity)) results)
         reported (keep #(or (get fresh-results (:id %))

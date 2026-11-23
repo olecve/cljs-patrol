@@ -13,30 +13,47 @@
 
 (defn- set-time! [dir path millis] (.setLastModified (io/file dir path) millis))
 
+(defn- with-unreadable
+  "Make `file` unreadable, call `f` when the JVM then cannot read it, and make it readable again.
+
+  A JVM that runs as root can still read the file, so `f` does not run there."
+  [^java.io.File file f]
+  (.setReadable file false false)
+  (try
+    (when-not (.canRead file)
+      (f))
+    (finally (.setReadable file true false))))
+
 (deftest skipped-dirs-name-root-git-tool-caches-and-cache-folder
   (fixtures/with-temp-dir
     (fn [dir]
-      (is (= #{".git" ".lsp" ".clj-kondo/.cache" ".cpcache" ".shadow-cljs" "cache/runs"}
+      (is (= #{".git" ".lsp" ".clj-kondo/.cache" ".cpcache" ".shadow-cljs" ".idea" ".calva" "cache/runs"}
              (guard/skipped-dirs dir (io/file dir "cache/runs"))))
-      (is (= #{".git" ".lsp" ".clj-kondo/.cache" ".cpcache" ".shadow-cljs"}
+      (is (= #{".git" ".lsp" ".clj-kondo/.cache" ".cpcache" ".shadow-cljs" ".idea" ".calva"}
              (guard/skipped-dirs dir (.getParentFile dir)))
           "cache folder outside root is no part of snapshot")
       (is (= (guard/skipped-dirs dir nil) (guard/skipped-dirs dir dir))
           "root itself is never skipped"))))
 
-(deftest editor-file-names-swap-lock-and-backup-files
-  (is (every? guard/editor-file? ["core.clj.swp" "core.clj.swo" ".#core.clj" "core.clj~" "4913"]))
-  (is (not-any? guard/editor-file? ["core.clj" "swp" "4914" "a.#b" "~a"])))
+(deftest tool-file-names-what-editors-and-tools-write
+  (is (every? guard/tool-file? ["core.clj.swp" "core.clj.swo" ".#core.clj" "#core.clj#" "core.clj~" "4913" ".DS_Store"
+                                ".nrepl-port"]))
+  (is (not-any? guard/tool-file? ["core.clj" "swp" "4914" "14913" "a.#b" "#a" "a#" "~a" "x.DS_Store" ".nrepl-port.edn"
+                                  "a.swpx"])))
 
 (deftest snapshot-maps-files-and-skips-what-skipped-dirs-name
   (fixtures/with-temp-dir
     (fn [dir]
       (doseq [path ["src/a.clj" ".git/HEAD" "runs/a.edn" ".lsp/db" ".clj-kondo/.cache/x" ".clj-kondo/config.edn"
-                    "sub/.git/HEAD" "src/.a.clj.swp" "src/4913"]]
+                    "sub/.git/HEAD" "src/.a.clj.swp" "src/4913" ".idea/x.xml" ".calva/output.calva-repl"]]
         (write! dir path "(ns a)"))
+      (.mkdir (io/file dir "empty"))
       (let [snapshot (guard/snapshot dir (guard/skipped-dirs dir (io/file dir "runs")))]
-        (is (= #{"src/a.clj" ".clj-kondo/config.edn" "sub/.git/HEAD"} (set (keys snapshot)))
-            "only root .git is skipped, only cache of .clj-kondo, and editor files")
+        (is (= #{"src/" "src/a.clj" ".clj-kondo/" ".clj-kondo/config.edn" "sub/" "sub/.git/" "sub/.git/HEAD" "empty/"}
+               (set (keys snapshot)))
+            "only root .git is skipped, only cache of .clj-kondo, and files of tools")
+        (is (= :folder (get snapshot "empty/"))
+            "empty folder counts")
         (is (= 6 (first (get snapshot "src/a.clj")))
             "size comes first")))))
 
@@ -44,11 +61,8 @@
   (fixtures/with-temp-dir
     (fn [dir]
       (write! dir "locked/a.txt" "x")
-      (let [locked (io/file dir "locked")]
-        (.setReadable locked false false)
-        (try
-          (is (= {"locked/" :unreadable} (guard/snapshot dir #{})))
-          (finally (.setReadable locked true false)))))))
+      (with-unreadable (io/file dir "locked")
+        #(is (= {"locked/" :unreadable} (guard/snapshot dir #{})))))))
 
 (deftest file-attributes-of-missing-file-are-nil
   (fixtures/with-temp-dir
@@ -104,7 +118,7 @@
             file-guard (guard/start dir #{".git"} before after)]
         (is (= #{"left.txt" "edited.txt"} (-> file-guard :hashes keys set))
             "deleted file has no bytes to hash")
-        (is (= after (:files file-guard)))
+        (is (= after @(:files file-guard)))
         (is (= #{".git"} (:skipped file-guard)))))))
 
 (deftest look-gives-changes-since-baseline
@@ -142,3 +156,55 @@
   (fixtures/with-temp-dir
     (fn [dir]
       (is (= (-> dir .getAbsoluteFile .toPath str) (guard/folder-name (str dir "/.")))))))
+
+(deftest changes-name-new-and-deleted-folders-but-not-their-times
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (write! dir "kept/a.txt" "x")
+      (.mkdir (io/file dir "gone"))
+      (let [before (guard/snapshot dir #{})]
+        (write! dir "kept/b.txt" "x")
+        (.delete (io/file dir "gone"))
+        (.mkdir (io/file dir "made"))
+        (is (= [["gone/" :deleted] ["kept/b.txt" :added] ["made/" :added]]
+               (guard/changes dir before (guard/snapshot dir #{}) {}))
+            "time of kept/ changed, but folder compares by path")))))
+
+(deftest changes-count-folder-that-turned-unreadable
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (write! dir "locked/a.txt" "x")
+      (let [before (guard/snapshot dir #{})]
+        (with-unreadable (io/file dir "locked")
+          #(is (= [["locked/" :changed] ["locked/a.txt" :deleted]]
+                  (guard/changes dir before (guard/snapshot dir #{}) {"locked/" "hash"}))))))))
+
+(deftest file-baseline-wrote-that-cannot-be-read-is-changed
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (write! dir "log.txt" "up")
+      (set-time! dir "log.txt" 1000000)
+      (let [before (guard/snapshot dir #{})
+            hashes (:hashes (guard/start dir #{} {} before))]
+        (with-unreadable (io/file dir "log.txt")
+          (fn []
+            (set-time! dir "log.txt" 2000000)
+            (is (= [["log.txt" :changed]] (guard/changes dir before (guard/snapshot dir #{}) hashes)))
+            (is (empty? (:hashes (guard/start dir #{} {} (guard/snapshot dir #{}))))
+                "no bytes, no hash")))))))
+
+(deftest look-takes-snapshot-as-reference-when-nothing-changed
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (write! dir "log.txt" "up")
+      (set-time! dir "log.txt" 1000000)
+      (let [before (guard/snapshot dir #{})
+            file-guard (guard/start dir #{} {} before)]
+        (set-time! dir "log.txt" 2000000)
+        (is (nil? (guard/look file-guard)))
+        (is (= (guard/snapshot dir #{}) @(:files file-guard))
+            "same bytes again, new time is reference now")))))
+
+(deftest describe-lists-files-before-folders
+  (is (= "  added a.txt\n  added z.txt\n  added a/\n  deleted b/"
+         (guard/describe [["a/" :added] ["a.txt" :added] ["b/" :deleted] ["z.txt" :added]] {}))))
