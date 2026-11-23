@@ -110,7 +110,25 @@
 
 (deftest resolve-path-test
   (with-open [jimfs (unix-fs)]
-    (is (= "/work/src/a.cljs" (str (fs/resolve-path (fs/path jimfs "/work/src") "a.cljs"))))))
+    (let [work (fs/path jimfs "/work")]
+      (is (= "/work/src/a.cljs" (str (fs/resolve-path (fs/path jimfs "/work/src") "a.cljs"))))
+      (is (= "/work/abs" (str (fs/resolve-path work "/abs")))
+          "absolute leaf goes under base, as in java.io")
+      (is (= "/x" (str (fs/resolve-path (fs/relative-path work work) "x")))
+          "empty base stands for root, as in java.io"))))
+
+(deftest path-throws-on-empty-path
+  (with-open [jimfs (unix-fs)]
+    (is (thrown? IllegalArgumentException (fs/path jimfs "")))
+    (is (thrown? IllegalArgumentException (fs/path jimfs "" "")))))
+
+(deftest delete-recursively-throws-on-empty-path
+  (with-open [jimfs (unix-fs)]
+    (let [work (fs/path jimfs "/work")]
+      (write! (fs/path jimfs "/work/a.txt") "x")
+      (is (thrown? IllegalArgumentException (fs/delete-recursively! (fs/relative-path work work))))
+      (is (fs/exists? (fs/path jimfs "/work/a.txt"))
+          "working directory keeps its files"))))
 
 (deftest absolute-test
   (with-open [jimfs (unix-fs)]
@@ -150,8 +168,8 @@
       (is (= "x/a.cljs" (str (fs/relative-path base (fs/path jimfs "src/x/a.cljs"))))
           "relative target is compared from working directory")
       (let [outside (fs/path jimfs "/other/a.cljs")]
-        (is (identical? outside (fs/relative-path base outside))
-            "target outside base comes back unchanged")))))
+        (is (nil? (fs/relative-path base outside))
+            "target outside base gives nil")))))
 
 (deftest delete-if-exists-test
   (with-open [jimfs (unix-fs)]
@@ -225,7 +243,8 @@
   "Make `root/src/locked` with no permissions, call `f` with `root` and the locked folder, and unlock it after.
 
   When the JVM can still read the locked folder, for example as root, `f` does not run. Then the test prints a SKIP line
-  with `test-name` and makes no assertion, so it does not count as a pass."
+  with `test-name` and makes no assertion. The runner counts that test as a pass, so the SKIP line is the only signal
+  that it did not run."
   [test-name f]
   (let [root (temp-dir/create-dir "fs-locked-")
         locked (fs/path (FileSystems/getDefault) root "src" "locked")]
@@ -298,11 +317,11 @@
     (write! (fs/path jimfs "/work/src/ok.cljs") "(ns ok)")
     (write! (fs/path jimfs "/work/src/bad/hidden.cljs") "(ns hidden)")
     (let [err (StringWriter.)
-          found (with-redefs [fs/directory-entries (fn [^Path dir]
+          original (var-get #'fs/directory-entries)
+          found (with-redefs [fs/directory-entries (fn [dir]
                                                      (if (= "/work/src/bad" (str dir))
                                                        (throw exception)
-                                                       (with-open [stream (Files/newDirectoryStream dir)]
-                                                         (vec stream))))]
+                                                       (original dir)))]
                   (binding [*err* err]
                     (mapv str (fs/source-paths (fs/path jimfs "/work/src") extensions))))]
       [found (str/split-lines (str err))])))
@@ -311,6 +330,15 @@
   (let [[found lines] (warnings-for-failing-folder (FileSystemException. "/work/src/bad" nil "Too many open files"))]
     (is (= ["/work/src/ok.cljs"] found))
     (is (= ["WARN: could not read folder /work/src/bad, skipped it: FileSystemException (Too many open files)"] lines))))
+
+(deftest source-paths-warns-with-class-only-for-exception-without-reason
+  (let [[found lines] (warnings-for-failing-folder (AccessDeniedException. "/work/src/bad"))]
+    (is (= ["/work/src/ok.cljs"] found))
+    (is (= ["WARN: could not read folder /work/src/bad, skipped it: AccessDeniedException"] lines))))
+
+(deftest source-paths-warns-with-class-only-for-blank-reason
+  (let [[_ lines] (warnings-for-failing-folder (DirectoryIteratorException. (IOException. " ")))]
+    (is (= ["WARN: could not read folder /work/src/bad, skipped it: IOException"] lines))))
 
 (deftest source-paths-skips-folder-whose-listing-fails-midway
   (let [[found lines] (warnings-for-failing-folder (DirectoryIteratorException. (IOException. "device gone")))]
@@ -408,7 +436,8 @@
                   fs/delete-if-exists! record
                   fs/create-dirs! record
                   fs/move-over! record]
-      (is (= "" (fs/absolute-path "")))
+      (is (= (System/getProperty "user.dir") (fs/absolute-path ""))
+          "empty path gives working directory, as in java.io")
       (is (false? (fs/absolute-path? "")))
       (is (nil? (fs/parent-dir "")))
       (is (false? (fs/file-exists? "")))
@@ -417,6 +446,8 @@
       (is (= "/x" (fs/join-path "" "x"))
           "empty base stands for root, as in java.io")
       (is (= "src/a.cljs" (fs/relativize "" "src/a.cljs")))
+      (is (= "src/a.cljs" (fs/relativize "" (str (System/getProperty "user.dir") "/src/a.cljs")))
+          "empty base stands for working directory, as in java.io")
       (is (= "" (fs/relativize "src" "")))
       (is (false? (fs/delete-file! "")))
       (is (nil? (fs/delete-tree! "")))
@@ -427,7 +458,42 @@
         "no file operation runs on working directory")))
 
 (deftest string-adapters-read-invalid-path-as-no-file
-  (is (false? (fs/file-exists? nul-path)))
-  (is (= [nul-path] (fs/missing-dirs [nul-path])))
-  (is (= nul-path (fs/absolute-path nul-path))
-      "absolute-path gives text back unchanged"))
+  (let [calls (atom [])
+        record (fn [& args] (swap! calls conj args) nil)]
+    (with-redefs [fs/delete-recursively! record
+                  fs/delete-if-exists! record
+                  fs/create-dirs! record
+                  fs/move-over! record]
+      (is (nil? (fs/absolute-path nul-path)))
+      (is (false? (fs/absolute-path? nul-path)))
+      (is (nil? (fs/parent-dir nul-path)))
+      (is (false? (fs/file-exists? nul-path)))
+      (is (= [nul-path] (fs/missing-dirs [nul-path])))
+      (is (false? (fs/mkdirs nul-path)))
+      (is (nil? (fs/join-path nul-path "x")))
+      (is (nil? (fs/join-path "src" nul-path)))
+      (is (= "src/a.cljs" (fs/relativize nul-path "src/a.cljs")))
+      (is (= nul-path (fs/relativize "src" nul-path)))
+      (is (false? (fs/delete-file! nul-path)))
+      (is (nil? (fs/delete-tree! nul-path)))
+      (is (thrown? NoSuchFileException (fs/move-replace! nul-path "x")))
+      (is (= [] (fs/list-source-files nul-path extensions))))
+    (is (empty? @calls)
+        "no file operation runs")))
+
+(deftest mkdirs-gives-false-on-file-or-broken-link
+  (let [root (temp-dir/create-dir "fs-mkdirs-")]
+    (try
+      (let [file (str root "/file")
+            link (fs/path (FileSystems/getDefault) root "link")]
+        (spit file "x")
+        (is (false? (fs/mkdirs file))
+            "regular file gives false, as in java.io")
+        (Files/createSymbolicLink link
+                                  (fs/path (FileSystems/getDefault) root "gone")
+                                  (make-array FileAttribute 0))
+        (is (false? (fs/mkdirs (str link)))
+            "broken link gives false, as in java.io")
+        (is (thrown? FileSystemException (fs/mkdirs (str file "/sub")))
+            "folder under regular file throws with reason"))
+      (finally (temp-dir/delete-dir! root)))))

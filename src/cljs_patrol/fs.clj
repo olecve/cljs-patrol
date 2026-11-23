@@ -11,6 +11,7 @@
     AtomicMoveNotSupportedException
     CopyOption
     DirectoryIteratorException
+    FileAlreadyExistsException
     FileSystem
     FileSystemException
     FileSystems
@@ -26,13 +27,27 @@
 
 (def ^:private no-link-options (make-array LinkOption 0))
 
-(defn path
-  "Make a `Path` on `file-system` from `first-part` and the `more` parts."
-  ^Path [^FileSystem file-system ^String first-part & more]
-  (.getPath file-system first-part (into-array String more)))
+(defn- non-empty
+  "Give `p`, or throw when `p` is the empty path, which NIO reads as the working directory."
+  ^Path [^Path p]
+  (if (= "" (.toString p))
+    (throw (IllegalArgumentException. "The empty path names no file"))
+    p))
 
-(defn resolve-path ^Path [^Path base ^String leaf]
-  (.resolve base leaf))
+(defn path
+  "Make a `Path` on `file-system` from `first-part` and the `more` parts.
+
+  Throw when the parts make the empty path, because NIO reads it as the working directory."
+  ^Path [^FileSystem file-system ^String first-part & more]
+  (non-empty (.getPath file-system first-part (into-array String more))))
+
+(defn resolve-path
+  "Put `leaf` under `base`, with the rules of `java.io`.
+
+  An absolute `leaf` goes under `base`, and an empty `base` stands for the root."
+  ^Path [^Path base ^String leaf]
+  (let [file-system (.getFileSystem base)]
+    (path file-system (.concat (.toString base) (.getSeparator file-system)) leaf)))
 
 (defn absolute ^Path [^Path p]
   (.toAbsolutePath p))
@@ -56,15 +71,14 @@
   (Files/createDirectories dir (make-array FileAttribute 0)))
 
 (defn relative-path
-  "Give `target` relative to `base` when `target` is under `base`, else `target` unchanged.
+  "Give `target` relative to `base`, or nil when `target` is not under `base`.
 
   Both are made absolute first, so a relative `target` is compared from the working directory of its file system."
   ^Path [^Path base ^Path target]
   (let [base-path (absolute base)
         target-path (absolute target)]
-    (if (.startsWith target-path base-path)
-      (.relativize base-path target-path)
-      target)))
+    (when (.startsWith target-path base-path)
+      (.relativize base-path target-path))))
 
 (defn delete-if-exists!
   "Delete the file or empty folder `p`, and give true when it was there."
@@ -102,9 +116,10 @@
 (defn delete-recursively!
   "Delete `p` with all it holds, and do nothing when `p` is missing.
 
-  The walk does not follow a link, so a link to a folder goes, and that folder stays."
+  The walk does not follow a link, so a link to a folder goes, and that folder stays.
+  Throw on the empty path, so that it never deletes the working directory."
   [^Path p]
-  (when (exists? p)
+  (when (exists? (non-empty p))
     (Files/walkFileTree p (deleting-visitor))
     nil))
 
@@ -141,8 +156,9 @@
   (let [detail (if (instance? FileSystemException e)
                  (.getReason ^FileSystemException e)
                  (.getMessage e))]
-    (cond-> (.getSimpleName (.getClass e))
-      detail (str " (" detail ")"))))
+    (if (str/blank? detail)
+      (.getSimpleName (.getClass e))
+      (str (.getSimpleName (.getClass e)) " (" detail ")"))))
 
 (defn- warn-unreadable [dir ^IOException e]
   (binding [*out* *err*]
@@ -200,6 +216,9 @@
       (catch InvalidPathException _
         nil))))
 
+(defn- working-directory ^Path []
+  (-> (path (FileSystems/getDefault) ".") absolute .normalize))
+
 (defn- existing-default-path
   "Make a `Path` as [[default-path]] does, and throw `NoSuchFileException` when `p` names no file."
   ^Path [^String p]
@@ -207,13 +226,13 @@
       (throw (NoSuchFileException. p))))
 
 (defn absolute-path
-  "The absolute form of `path`.
+  "The absolute form of `path`, or nil when the file system does not accept `path`.
 
-  A `path` that names no file comes back unchanged."
+  The empty string gives the working directory, as in `java.io`."
   [^String path]
-  (if-let [p (default-path path)]
-    (-> p absolute str)
-    path))
+  (if (= "" path)
+    (str (working-directory))
+    (some-> (default-path path) absolute str)))
 
 (defn absolute-path? [^String path]
   (boolean (some-> (default-path path) absolute?)))
@@ -229,31 +248,39 @@
 (defn mkdirs
   "Create `dir` and any missing intermediate directories, and give true when `dir` was missing.
 
-  Do nothing and give false when `dir` exists or names no file. Throw with the reason when a folder cannot be made."
+  Do nothing and give false when `dir` exists, is a file or a broken link, or names no file.
+  Throw with the reason when a folder cannot be made for another reason."
   [^String dir]
   (if-let [p (default-path dir)]
     (let [missing? (not (exists? p))]
-      (create-dirs! p)
-      missing?)
+      (try
+        (create-dirs! p)
+        missing?
+        (catch FileAlreadyExistsException _
+          false)))
     false))
 
 (defn join-path
-  "Combine `base` and `leaf` into a single path with the OS separator.
-
-  As in `java.io`, an empty `base` stands for the root, and an absolute `leaf` goes under `base`."
+  "Put `leaf` under `base` as [[resolve-path]] does, or give nil when the file system does not accept them."
   [^String base ^String leaf]
-  (let [file-system (FileSystems/getDefault)]
-    (str (path file-system (if (= "" base) (.getSeparator file-system) base) leaf))))
+  (try
+    (some-> (default-path (.concat base (.getSeparator (FileSystems/getDefault))))
+            (resolve-path leaf)
+            str)
+    (catch InvalidPathException _
+      nil)))
 
 (defn relativize
   "Return `target` as a path relative to `base`.
-  Falls back to the original `target` when it doesn't sit below `base`."
+
+  Fall back to the text of `target` when it is not under `base`, or when either names no file.
+  An empty `base` stands for the working directory, as in `java.io`."
   [^String base ^String target]
-  (let [base-path (some-> (default-path base) absolute)
-        target-path (some-> (default-path target) absolute)]
-    (if (and base-path target-path (.startsWith ^Path target-path ^Path base-path))
-      (str (.relativize ^Path base-path ^Path target-path))
-      target)))
+  (let [base-path (if (= "" base) (working-directory) (default-path base))
+        target-path (default-path target)]
+    (or (when (and base-path target-path)
+          (some-> (relative-path base-path target-path) str))
+        target)))
 
 (defn nano-time []
   (System/nanoTime))

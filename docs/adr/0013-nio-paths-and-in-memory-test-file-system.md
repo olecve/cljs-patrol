@@ -201,22 +201,36 @@ Each step is one pull request, and each one ships on its own.
    `:test`. Add `Path` functions that take a `FileSystem` or a `Path`, and test them on Jimfs. Keep each string function
    as an adapter that makes a `Path` on the default file system and returns the same value as before. Write the
    internals with `Files`: `createDirectories`, `deleteIfExists`, `move`, `newDirectoryStream`, and `walkFileTree` for
-   `delete-tree!`. The adapters keep the results of `java.io`, with these exceptions:
-   - NIO reads the empty string as the working directory. In the adapters, the empty string names no file, as in
-     `java.io`. `file-exists?` gives `false`, `mkdirs` and `delete-file!` give `false`, `delete-tree!` does nothing,
-     `list-source-files` gives `[]`, and `move-replace!` throws `NoSuchFileException`. `join-path` keeps the result of
-     `java.io`: `(join-path "" "x")` gives `/x`, and `(join-path "src" "/abs")` gives `src/abs`. Without this rule,
-     `(delete-tree! "")` deletes the working directory.
+   `delete-tree!`. Each rule of `java.io` that must stay is in the `Path` function that stays after step 4, and the
+   adapters only convert strings. So steps 2 and 4 do not change these rules:
+   - NIO reads the empty path as the working directory. `path` throws `IllegalArgumentException` when its parts make the
+     empty path, and `delete-recursively!` throws on the empty path. Without this rule, `(delete-tree! "")` deletes the
+     working directory.
+   - `resolve-path` keeps the rules of `java.io`: an absolute leaf goes under the base, and an empty base stands for the
+     root. `(join-path "src" "/abs")` gives `src/abs`, and `(join-path "" "x")` gives `/x`. `resolve-path` joins the
+     text of the base and the separator, so it has no branch for the empty base.
+   - `relative-path` gives nil when the target is not under the base. `relativize` then gives back the text of the
+     target.
+   - The adapters keep the results of `java.io` for the empty string. It names no file: `file-exists?`,
+     `absolute-path?`, `mkdirs` and `delete-file!` give `false`, `parent-dir` gives nil, `delete-tree!` does nothing,
+     `list-source-files` gives `[]`, `missing-dirs` reports it, and `move-replace!` throws `NoSuchFileException`.
+     `absolute-path` gives the working directory, and `relativize` reads an empty base as the working directory.
    - NIO throws `InvalidPathException` on a string that `java.io` accepts, such as one with a NUL character. In the
-     adapters, such a string names no file: `file-exists?` gives `false`, and `missing-dirs` reports it.
-   - `absolute-path` gives back the text of a string that names no file. `java.io` gave it after the working directory.
-   - `mkdirs` throws with the reason when it cannot make a folder. `java.io` gave `false`, and the write after it then
-     threw.
+     adapters, such a string names no file. A check gives `false`, a create or a delete does nothing and gives `false`
+     or nil, a listing gives `[]`, `missing-dirs` reports it, and `move-replace!` throws `NoSuchFileException`. A
+     function that gives a path gives nil: `absolute-path`, `parent-dir` and `join-path`. `relativize` gives back the
+     text of the target. `java.io` gave a path text for these strings, but no file can have it.
+   - `mkdirs` gives `true` when it made the folder, and `false` when the folder exists, when a file or a broken link is
+     there, or when the string names no file, as in `java.io`. It throws with the reason when it cannot make a folder
+     for another reason, such as a file in the middle of the path. `java.io` gave `false` there, and the write after it
+     then threw.
    - `delete-file!` keeps its contract: it gives `false` and does not throw when it cannot delete. The `finally` of the
      baseline write calls it, and a throw there hides the first error.
    - `delete-tree!` does not follow a link to a folder. It deletes the link, and the folder behind it stays. `java.io`
      deleted the files behind the link. This change is intended, because a delete must stay in its tree.
    - `join-path` throws on a nil `base`.
+   - The warning for an unreadable directory names the class of the exception, and its reason when the reason is not
+     blank.
    - Risk: the text of the discovered paths changes. `File` and `Path` both drop a trailing `/` and a doubled `/`, and
      both keep `./` (a probe gave `./src/a` for `./src//a/` with both). A test compares the list for `src`, `src/` and
      `./src` with the list of `main`, in order.
