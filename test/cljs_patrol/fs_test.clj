@@ -110,12 +110,7 @@
 
 (deftest resolve-path-test
   (with-open [jimfs (unix-fs)]
-    (let [work (fs/path jimfs "/work")]
-      (is (= "/work/src/a.cljs" (str (fs/resolve-path (fs/path jimfs "/work/src") "a.cljs"))))
-      (is (= "/work/abs" (str (fs/resolve-path work "/abs")))
-          "absolute leaf goes under base, as in java.io")
-      (is (= "/x" (str (fs/resolve-path (fs/relative-path work work) "x")))
-          "empty base stands for root, as in java.io"))))
+    (is (= "/work/src/a.cljs" (str (fs/resolve-path (fs/path jimfs "/work/src") "a.cljs"))))))
 
 (deftest path-throws-on-empty-path
   (with-open [jimfs (unix-fs)]
@@ -168,8 +163,8 @@
       (is (= "x/a.cljs" (str (fs/relative-path base (fs/path jimfs "src/x/a.cljs"))))
           "relative target is compared from working directory")
       (let [outside (fs/path jimfs "/other/a.cljs")]
-        (is (nil? (fs/relative-path base outside))
-            "target outside base gives nil")))))
+        (is (identical? outside (fs/relative-path base outside))
+            "target outside base comes back unchanged")))))
 
 (deftest delete-if-exists-test
   (with-open [jimfs (unix-fs)]
@@ -433,8 +428,6 @@
   (let [calls (atom [])
         record (fn [& args] (swap! calls conj args) nil)]
     (with-redefs [fs/delete-recursively! record
-                  fs/delete-if-exists! record
-                  fs/create-dirs! record
                   fs/move-over! record]
       (is (= (System/getProperty "user.dir") (fs/absolute-path ""))
           "empty path gives working directory, as in java.io")
@@ -461,17 +454,17 @@
   (let [calls (atom [])
         record (fn [& args] (swap! calls conj args) nil)]
     (with-redefs [fs/delete-recursively! record
-                  fs/delete-if-exists! record
-                  fs/create-dirs! record
                   fs/move-over! record]
-      (is (nil? (fs/absolute-path nul-path)))
+      (is (= (str (System/getProperty "user.dir") "/" nul-path) (fs/absolute-path nul-path))
+          "absolute-path keeps text of java.io")
       (is (false? (fs/absolute-path? nul-path)))
-      (is (nil? (fs/parent-dir nul-path)))
+      (is (= "x" (fs/parent-dir (str "x/" nul-path)))
+          "parent-dir keeps text of java.io")
       (is (false? (fs/file-exists? nul-path)))
       (is (= [nul-path] (fs/missing-dirs [nul-path])))
       (is (false? (fs/mkdirs nul-path)))
-      (is (nil? (fs/join-path nul-path "x")))
-      (is (nil? (fs/join-path "src" nul-path)))
+      (is (= (str nul-path "/x") (fs/join-path nul-path "x")))
+      (is (= (str "src/" nul-path) (fs/join-path "src" nul-path)))
       (is (= "src/a.cljs" (fs/relativize nul-path "src/a.cljs")))
       (is (= nul-path (fs/relativize "src" nul-path)))
       (is (false? (fs/delete-file! nul-path)))
@@ -494,6 +487,6 @@
                                   (make-array FileAttribute 0))
         (is (false? (fs/mkdirs (str link)))
             "broken link gives false, as in java.io")
-        (is (thrown? FileSystemException (fs/mkdirs (str file "/sub")))
-            "folder under regular file throws with reason"))
+        (is (false? (fs/mkdirs (str file "/sub")))
+            "folder under regular file gives false, as in java.io"))
       (finally (temp-dir/delete-dir! root)))))

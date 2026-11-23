@@ -198,37 +198,30 @@ Before the status changes to `Accepted`, these checks must pass:
 Each step is one pull request, and each one ships on its own.
 
 1. **Jimfs, and `fs` takes and returns `Path`.** Add `com.google.jimfs/jimfs {:mvn/version "1.3.2"}` to `:extra-deps` of
-   `:test`. Add `Path` functions that take a `FileSystem` or a `Path`, and test them on Jimfs. Keep each string function
-   as an adapter that makes a `Path` on the default file system and returns the same value as before. Write the
-   internals with `Files`: `createDirectories`, `deleteIfExists`, `move`, `newDirectoryStream`, and `walkFileTree` for
-   `delete-tree!`. Each rule of `java.io` that must stay is in the `Path` function that stays after step 4, and the
-   adapters only convert strings. So steps 2 and 4 do not change these rules:
-   - NIO reads the empty path as the working directory. `path` throws `IllegalArgumentException` when its parts make the
-     empty path, and `delete-recursively!` throws on the empty path. Without this rule, `(delete-tree! "")` deletes the
-     working directory.
-   - `resolve-path` keeps the rules of `java.io`: an absolute leaf goes under the base, and an empty base stands for the
-     root. `(join-path "src" "/abs")` gives `src/abs`, and `(join-path "" "x")` gives `/x`. `resolve-path` joins the
-     text of the base and the separator, so it has no branch for the empty base.
-   - `relative-path` gives nil when the target is not under the base. `relativize` then gives back the text of the
-     target.
-   - The adapters keep the results of `java.io` for the empty string. It names no file: `file-exists?`,
-     `absolute-path?`, `mkdirs` and `delete-file!` give `false`, `parent-dir` gives nil, `delete-tree!` does nothing,
-     `list-source-files` gives `[]`, `missing-dirs` reports it, and `move-replace!` throws `NoSuchFileException`.
-     `absolute-path` gives the working directory, and `relativize` reads an empty base as the working directory.
+   `:test`. Add `Path` functions that take a `FileSystem` or a `Path`, and test them on Jimfs. Write them with `Files`:
+   `createDirectories`, `deleteIfExists`, `move`, `newDirectoryStream`, and `walkFileTree` for `delete-recursively!`.
+   The `Path` functions give the results of NIO, with one added rule: they refuse nil and the empty path. Keep each
+   string function as an adapter that gives the same result as `java.io` gave. An adapter that `java.io.File` matches
+   most simply uses it, because step 4 removes the adapters.
+   - The `Path` functions refuse nil and the empty path. NIO reads the empty path as the working directory. `path`
+     throws `IllegalArgumentException` when its parts make the empty path, and `delete-recursively!` throws on the empty
+     path. Each `Path` function throws `NullPointerException` on nil.
+   - `resolve-path` gives the result of `Path.resolve`: an absolute leaf replaces the base. `relative-path` gives the
+     target unchanged when the target is not under the base.
+   - The adapters keep the results of `java.io` for the empty string. `file-exists?`, `absolute-path?`, `mkdirs` and
+     `delete-file!` give `false`, `parent-dir` gives nil, `delete-tree!` does nothing, `list-source-files` gives `[]`,
+     `missing-dirs` reports it, and `move-replace!` throws `NoSuchFileException`. `absolute-path` gives the working
+     directory, `relativize` reads an empty base as the working directory, and `(join-path "" "x")` gives `/x`.
+   - `(join-path "src" "/abs")` gives `src/abs`, as in `java.io`. `join-path` throws on a nil `base`.
    - NIO throws `InvalidPathException` on a string that `java.io` accepts, such as one with a NUL character. In the
      adapters, such a string names no file. A check gives `false`, a create or a delete does nothing and gives `false`
-     or nil, a listing gives `[]`, `missing-dirs` reports it, and `move-replace!` throws `NoSuchFileException`. A
-     function that gives a path gives nil: `absolute-path`, `parent-dir` and `join-path`. `relativize` gives back the
-     text of the target. `java.io` gave a path text for these strings, but no file can have it.
-   - `mkdirs` gives `true` when it made the folder, and `false` when the folder exists, when a file or a broken link is
-     there, or when the string names no file, as in `java.io`. It throws with the reason when it cannot make a folder
-     for another reason, such as a file in the middle of the path. `java.io` gave `false` there, and the write after it
-     then threw.
-   - `delete-file!` keeps its contract: it gives `false` and does not throw when it cannot delete. The `finally` of the
-     baseline write calls it, and a throw there hides the first error.
+     or nil, a listing gives `[]`, `missing-dirs` reports it, and `move-replace!` throws `NoSuchFileException`. The
+     adapters that give a path text give the text of `java.io`: `absolute-path`, `parent-dir` and `join-path`.
+     `relativize` gives back the text of the target.
+   - `mkdirs` gives `true` when it made the folder, and `false` when it did not, as in `java.io`. `delete-file!` gives
+     `false` and does not throw when it cannot delete, as in `java.io`.
    - `delete-tree!` does not follow a link to a folder. It deletes the link, and the folder behind it stays. `java.io`
      deleted the files behind the link. This change is intended, because a delete must stay in its tree.
-   - `join-path` throws on a nil `base`.
    - The warning for an unreadable directory names the class of the exception, and its reason when the reason is not
      blank.
    - Risk: the text of the discovered paths changes. `File` and `Path` both drop a trailing `/` and a doubled `/`, and
@@ -244,13 +237,25 @@ Each step is one pull request, and each one ships on its own.
    - Risk: Guava conflicts with a test dependency. `clojure -M:test` proves it does not.
 2. **The callers use `Path`.** `core/-main` makes the `Path` values. `baseline` writes with `Files/newBufferedWriter`
    and reads with `Files/readAllBytes`. `reporters.html` writes with `Files`. `parser` reads bytes as the Decision says.
-   `read-config` takes the config `Path`.
+   `read-config` takes the config `Path`. Each caller moves to the `Path` functions on purpose, because their results
+   are the results of NIO and not of `java.io`. For each of these rules, a caller keeps the rule of `java.io` in its own
+   code, or drops it on purpose:
+   - An empty base: `java.io` joins a leaf under the root, and NIO reads the empty path as the working directory. `path`
+     throws on it.
+   - An absolute leaf: `java.io` puts it under the base, and `resolve-path` gives the leaf.
+   - `mkdirs` on an existing file: `java.io` gives `false`, and `create-dirs!` throws.
+   - A failed delete in the `finally` of `write-baseline`: `delete-file!` gives `false`, and `delete-if-exists!` throws.
+     A throw there hides the first error.
+
+   The baseline byte compare on `test-projects/a11y-app`, and the compare of the console, EDN and Markdown output on all
+   17 `test-projects/*-app` against `main`, prove the result.
    - Risk: the baseline keys change. The integration baseline tests and the byte compare on `test-projects/a11y-app`
      prove they do not.
    - Risk: the printed paths change. The reporter tests and the output compare on `test-projects/` prove they do not.
    - Risk: a file that is not UTF-8 parses differently. A test with the bytes `C3 28` proves the parser gives the same
      result as `main`.
    - Risk: the native image. The `native-verify` job proves the binary writes and compares a baseline.
+
 3. **The tests move to Jimfs.** Move the tests of `fs_test` that need no real disk, the baseline write, read and config
    tests of `baseline_test`, the write tests of `reporters/html_test`, the baseline write tests of `core_test` and the
    discovery tests of `parser_test` to Jimfs. These tests then do not use `cljs-patrol.temp-dir`. The tests on the real
