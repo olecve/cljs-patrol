@@ -1,5 +1,6 @@
 (ns cljs-patrol.dev.mutate.git-test
   (:require
+   [cljs-patrol.dev.mutate.fixtures :as fixtures]
    [cljs-patrol.dev.mutate.git :as git]
    [cljs-patrol.temp-dir :as temp-dir]
    [clojure.java.io]
@@ -35,3 +36,47 @@
             "file the merge base lacks counts in full")
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No git commit named nope"
                               (git/lines-since (str file) "nope")))))))
+
+(defn- touch! [dir path]
+  (let [file (clojure.java.io/file dir path)]
+    (clojure.java.io/make-parents file)
+    (spit file "x")))
+
+(deftest ignored-paths-name-ignored-folders-once-and-files-relative-to-dir
+  (temp-dir/with-dir "mutate"
+    (fn [dir]
+      (fixtures/git-repo! dir "target/" "*.log")
+      (doseq [path ["target/classes/a.clj" "sub/target/b.clj" "sub/c.log" "d.log" "src/e.clj" "logs/f.log"]]
+        (touch! dir path))
+      (is (= #{"target/" "sub/target/" "sub/c.log" "d.log" "logs/f.log"} (git/ignored-paths dir))
+          "logs/ holds only ignored files, but no rule ignores logs/ itself")
+      (is (= #{"target/" "c.log"} (git/ignored-paths (clojure.java.io/file dir "sub")))
+          "paths under subfolder, relative to it"))))
+
+(deftest ignored-paths-in-git-with-nothing-ignored-are-empty
+  (temp-dir/with-dir "mutate"
+    (fn [dir]
+      (fixtures/git-repo! dir)
+      (touch! dir "src/a.clj")
+      (is (= #{} (git/ignored-paths dir))))))
+
+(deftest ignored-paths-outside-git-are-nil
+  (temp-dir/with-dir "mutate"
+    (fn [dir]
+      (is (nil? (git/ignored-paths dir))))))
+
+(deftest ignored-among-matches-paths-against-ignore-rules
+  (temp-dir/with-dir "mutate"
+    (fn [dir]
+      (fixtures/git-repo! dir "target/" "*.log")
+      (touch! dir "kept.log")
+      (sh! dir "git" "add" "-f" "kept.log")
+      (is (= #{"target/" "target/classes/app/stale.clj" "sub/new.log"}
+             (git/ignored-among dir ["target/" "target/classes/app/stale.clj" "sub/new.log" "src/kept.clj" "kept.log"]))
+          "paths need not exist, and tracked file is not ignored")
+      (is (= #{} (git/ignored-among dir ["src/kept.clj"]))))))
+
+(deftest ignored-among-outside-git-ignores-nothing
+  (temp-dir/with-dir "mutate"
+    (fn [dir]
+      (is (= #{} (git/ignored-among dir ["target/"]))))))

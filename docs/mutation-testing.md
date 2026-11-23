@@ -59,14 +59,15 @@ there is a test gap, and 2 when it cannot start or stops early. Every option, wh
 runs instead of the selected ones are in the "Mutation testing" section of [`CLAUDE.md`](../CLAUDE.md#mutation-testing).
 
 The run also looks at the files and folders under the directory it runs from, after each planted bug that loaded. It
-skips `.git/`, the cache folder, and what editors and tools write, such as `.lsp/`, `.idea/`, `*.swp` and `.DS_Store`.
-When a file or folder there is new, changed or deleted, the run stops, names the planted bug that just ran and up to 10
-paths, and exits 2. When the planted bug failed while it loaded, the stop names its loading: loading the changed
-definition, or putting the original back, changed the files, so look at the top-level code of that definition. A file
-that the baseline, the first run of the tests before any planted bug, wrote stops the run only when its bytes change.
-Any other change stops the run too, also a file your editor saved during the run, so run again after it. The next run
-runs that planted bug again. The run does not undo the files. Delete or restore them, then make the test take its folder
-from `cljs-patrol.temp-dir`, not from the code under test: `temp-dir/create-dir` with `temp-dir/delete-dir!`,
+skips `.git/`, the cache folder, what git ignores, such as `target/` and `node_modules/`, and what editors write, such
+as `.lsp/`, `.idea/`, `*.swp` and `.DS_Store`. Outside git, it prints a note and checks the folders that git would
+ignore too. When a file or folder there is new, changed or deleted, the run stops, names the planted bug that just ran
+and up to 10 paths, and exits 2. When the planted bug failed while it loaded, the stop names its loading: loading the
+changed definition, or putting the original back, changed the files, so look at the top-level code of that definition. A
+file that the baseline, the first run of the tests before any planted bug, wrote stops the run only when its bytes
+change. Any other change stops the run too, also a file your editor saved during the run, so run again after it. The
+next run runs that planted bug again. The run does not undo the files. Delete or restore them, then make the test take
+its folder from `cljs-patrol.temp-dir`, not from the code under test: `temp-dir/create-dir` with `temp-dir/delete-dir!`,
 `temp-dir/with-dir`, or `temp-dir/file-path` with the fixture `temp-dir/delete-created`. All of them ask the JDK with
 `Files/createTempDirectory`.
 

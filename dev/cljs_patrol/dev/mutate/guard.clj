@@ -4,9 +4,10 @@
   The tests of a mutant can change files, and so can its form while it loads. After each mutant
   that loaded, the guard compares a snapshot of every file and folder, with the size and time of
   change of each file, with the reference: the last snapshot with no change, which is the one
-  after the baseline at first."
+  after the baseline at first. The snapshot skips what git ignores."
   (:require
    [cljs-patrol.dev.mutate.cache :as cache]
+   [cljs-patrol.dev.mutate.git :as git]
    [clojure.java.io :as io]
    [clojure.string :as str])
   (:import
@@ -14,21 +15,29 @@
    [java.nio.file AccessDeniedException DirectoryIteratorException Files LinkOption NoSuchFileException Path]
    [java.nio.file.attribute BasicFileAttributes]))
 
-(def tool-files
-  "What editors, IDEs, linters and the Clojure CLI write while a run goes on, which a snapshot leaves out.
+(def editor-files
+  "What editors, IDEs, their language servers, macOS and nREPL write while a run goes on, which a snapshot leaves out.
 
-  :folders are relative to the working directory. :names match the name of a file or folder at
-  any depth: the swap files of Vim (`*.swp`, `*.swo`, and `4913`, which Vim writes to test that
-  it may write a folder), the locks (`.#*`) and auto-saves (`#*#`) of Emacs, the backups of
-  several editors (`*~`), the folder files of macOS (`.DS_Store`), and the port file of nREPL."
-  {:folders #{".lsp" ".clj-kondo/.cache" ".clj-kondo/imports" ".clj-kondo/inline-configs" ".cpcache" ".shadow-cljs"
-              ".idea" ".calva"}
+  The person's own setup writes them, so the project's `.gitignore` may not name them, and git
+  may not ignore them. :folders are relative to the working directory: those of clojure-lsp,
+  clj-kondo, IntelliJ and Calva. :names match the name of a file or folder at any depth: the
+  swap files of Vim (`*.swp`, `*.swo`, and `4913`, which Vim writes to test that it may write a
+  folder), the locks (`.#*`) and auto-saves (`#*#`) of Emacs, the backups of several editors
+  (`*~`), the folder files of macOS (`.DS_Store`), and the port file of nREPL."
+  {:folders #{".lsp" ".clj-kondo/.cache" ".clj-kondo/imports" ".clj-kondo/inline-configs" ".idea" ".calva"}
    :names [#"\.sw[po]$" #"^4913$" #"^\.#" #"^#.*#$" #"~$" #"^\.DS_Store$" #"^\.nrepl-port$"]})
+
+(def build-folders
+  "The folders of the Clojure CLI and shadow-cljs, which a snapshot leaves out when git cannot tell what it ignores."
+  #{".cpcache" ".shadow-cljs"})
+
+(def no-git-note
+  "Note: git cannot tell which files it ignores here, so the file guard also checks them, such as target/.")
 
 (defn tool-file?
   "True when `file-name` is the name of a file or folder that editors and tools write, at any depth."
   [file-name]
-  (boolean (some #(re-find % file-name) (:names tool-files))))
+  (boolean (some #(re-find % file-name) (:names editor-files))))
 
 (def ^:private no-follow (into-array LinkOption [LinkOption/NOFOLLOW_LINKS]))
 
@@ -36,16 +45,42 @@
   (.toPath (.getAbsoluteFile (io/file root))))
 
 (defn skipped-dirs
-  "Return the folders that a snapshot of `root` does not enter, relative to `root`.
+  "Return the folders that a snapshot of `root` never enters, relative to `root`.
 
-  They are the `.git` folder of `root`, the folders of tools, and `cache-dir`, the folder of
-  the run's cache, when it is under `root`."
+  They are the `.git` folder of `root`, and `cache-dir`, the folder of the run's cache, when it
+  is under `root`."
   [root cache-dir]
   (let [base (.normalize (root-path root))
         cache-path (some-> cache-dir root-path .normalize)]
-    (cond-> (conj (:folders tool-files) ".git")
+    (cond-> #{".git"}
       (and cache-path (.startsWith cache-path base) (not= cache-path base))
       (conj (str (.relativize base cache-path))))))
+
+(defn- bare
+  "Return `path` without the `/` at the end that marks a folder."
+  [path]
+  (str/replace path #"/$" ""))
+
+(defn with-ignored
+  "Add to `skipped` the paths that git `ignored`, given as [[git/ignored-paths]] returns them, and the folders of editors.
+
+  When `ignored` is nil, since git cannot tell, add the folders of build tools instead."
+  [skipped ignored]
+  (into skipped
+        (concat (:folders editor-files)
+                (if ignored
+                  (map bare ignored)
+                  build-folders))))
+
+(defn- parent-folders
+  "Return the folders above relative `path`, from the top, such as `a` and `a/b` for `a/b/c`."
+  [path]
+  (butlast (reductions #(str %1 "/" %2) (str/split path #"/"))))
+
+(defn- holders
+  "Return the folders that hold a path of `skipped`."
+  [skipped]
+  (into #{} (mapcat parent-folders) skipped))
 
 (defn file-attributes
   "Return the attributes of the file or folder at `path`, not following a link, or nil when it is gone."
@@ -54,7 +89,7 @@
     (Files/readAttributes path BasicFileAttributes ^"[Ljava.nio.file.LinkOption;" no-follow)
     (catch NoSuchFileException _ nil)))
 
-(defn- walk [^Path root skipped ^Path dir ^java.util.Map files]
+(defn- walk [^Path root skipped holders ^Path dir ^java.util.Map files]
   (try
     (with-open [entries (Files/newDirectoryStream dir)]
       (doseq [^Path path entries]
@@ -62,9 +97,9 @@
           (when-not (or (contains? skipped relative) (tool-file? (str (.getFileName path))))
             (when-let [attributes (file-attributes path)]
               (if (.isDirectory attributes)
-                (do (when-not (some #(str/starts-with? % (str relative "/")) skipped)
+                (do (when-not (contains? holders relative)
                       (.put files (str relative "/") :folder))
-                    (walk root skipped path files))
+                    (walk root skipped holders path files))
                 (.put files relative [(.size attributes) (.lastModifiedTime attributes)])))))))
     (catch NoSuchFileException _ nil)
     (catch AccessDeniedException _
@@ -81,17 +116,23 @@
 
   A file maps to its size and time of change. A folder maps its path, with a `/` at the end, to
   :folder, so a new or deleted folder counts, an empty one too, but a folder whose files change
-  does not; a folder that cannot be read maps to :unreadable. The walk does not enter the
-  `skipped` folders, given relative to `root`, and leaves out the files that tools write. A
-  folder that holds a skipped folder, such as `.clj-kondo/`, maps to nothing itself, since a tool
-  can make it, but its other files count. A link
-  is a file of its own, so the walk does not follow it. A file that is deleted while the walk goes
-  on is left out."
+  does not; a folder that cannot be read maps to :unreadable. The walk leaves out the `skipped`
+  paths, given relative to `root`, with all that a skipped folder holds, and the files that
+  tools write. A folder that holds a skipped path, such as `.clj-kondo/`, maps to nothing
+  itself, since a tool can make it, but its other files count. A link is a file of its own, so
+  the walk does not follow it. A file that is deleted while the walk goes on is left out."
   [root skipped]
   (let [path (root-path root)
         files (java.util.HashMap.)]
-    (walk path skipped path files)
+    (walk path skipped (holders skipped) path files)
     (into {} files)))
+
+(defn- left-out?
+  "True when a snapshot with `skipped`, whose folders that hold a skipped path are `holders`, leaves out `path`."
+  [skipped holders path]
+  (let [folder (bare path)]
+    (boolean (or (some skipped (cons folder (parent-folders folder)))
+                 (and (str/ends-with? path "/") (contains? holders folder))))))
 
 (defn- content-hash
   "Hash the bytes of the file at `path` under `root`, or return nil when it cannot be read, such as a folder."
@@ -125,14 +166,14 @@
          vec)))
 
 (defn start
-  "Return the guard of a run in `root`, from the snapshots `before` and `after` the baseline, without the `skipped` folders.
+  "Return the guard of a run in `root`, from the snapshots `before` and `after` the baseline, without the `skipped` paths.
 
   The guard keeps `after` as the reference, and the hash of the bytes of each file that the
   baseline added or changed, since its test writes it again for each mutant. A file whose bytes
   cannot be read gets no hash, so any change of it counts."
   [root skipped before after]
   {:root root
-   :skipped skipped
+   :skipped (atom skipped)
    :files (atom after)
    :hashes (into {}
                  (keep (fn [[path change]]
@@ -140,19 +181,41 @@
                            (some->> (content-hash root path) (vector path)))))
                  (changes root before after {}))})
 
+(defn- newly-ignored
+  "Return the added paths of `changed` that git ignores, without the paths in a folder among them."
+  [root changed]
+  (let [ignored (->> changed
+                     (keep (fn [[path change]] (when (= :added change) path)))
+                     (git/ignored-among root)
+                     (into #{} (map bare)))]
+    (into #{} (remove #(some ignored (parent-folders %))) ignored)))
+
 (defn look
   "Take a snapshot, and return the files added, changed or deleted since the reference as [path change] pairs, or nil.
 
   The reference is the last snapshot with no change, which is the one after the baseline at
   first. When nothing changed, the new snapshot becomes the reference, so a file that the
-  baseline wrote and a test wrote again with the same bytes is not hashed again."
+  baseline wrote and a test wrote again with the same bytes is not hashed again. A new path that
+  git ignores is no change, and neither is a new folder that holds one: later snapshots skip
+  them too."
   [{:keys [root skipped files hashes]}]
-  (let [now (snapshot root skipped)
-        changed (changes root @files now hashes)]
-    (if (seq changed)
-      changed
-      (do (reset! files now)
-          nil))))
+  (let [now (snapshot root @skipped)
+        changed (changes root @files now hashes)
+        ignored (when (seq changed)
+                  (newly-ignored root changed))]
+    (if (seq ignored)
+      (let [skipped-now (into @skipped ignored)
+            holders-now (holders skipped-now)
+            left (filterv #(not (left-out? skipped-now holders-now (first %))) changed)]
+        (if (seq left)
+          left
+          (do (reset! skipped skipped-now)
+              (reset! files (into {} (remove #(left-out? skipped-now holders-now (key %))) now))
+              nil)))
+      (if (seq changed)
+        changed
+        (do (reset! files now)
+            nil)))))
 
 (def ^:private listed-files 10)
 

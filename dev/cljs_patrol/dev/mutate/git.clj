@@ -1,5 +1,5 @@
 (ns cljs-patrol.dev.mutate.git
-  "Read from git which lines of a file the branch changed, for -s."
+  "Read from git which lines of a file the branch changed, for -s, and which paths git ignores, for the file guard."
   (:require
    [cljs-patrol.dev.mutate.error :as error]
    [clojure.java.io :as io]
@@ -25,6 +25,37 @@
   "Run git with `args` in `dir`, and return its exit code, output and errors as {:exit … :out … :err …}."
   [dir & args]
   (apply shell/sh "git" "-C" dir args))
+
+(defn- nul-separated [out] (remove str/blank? (str/split out #"\u0000")))
+
+(defn ignored-paths
+  "Return the paths under `dir` that git ignores, relative to `dir`, or nil when git cannot tell, such as outside git.
+
+  A folder that an ignore rule matches is one path, with a `/` at the end, and its files are not
+  listed. A folder that no rule matches is not listed, but its ignored files are."
+  [dir]
+  (try
+    (let [under (str/trim (:out (git (str dir) "rev-parse" "--show-prefix")))
+          status (git (str dir) "--no-optional-locks" "status" "--porcelain=v1" "-z" "--ignored=matching"
+                      "--untracked-files=normal" "--no-renames" "--" ".")]
+      (when (zero? (:exit status))
+        (->> (nul-separated (:out status))
+             (keep #(when (str/starts-with? % (str "!! " under))
+                      (subs % (+ 3 (count under)))))
+             set)))
+    (catch java.io.IOException _ nil)))
+
+(defn ignored-among
+  "Return the `paths`, relative to `dir`, that git ignores, also those in a folder that git ignores.
+
+  A tracked file is not ignored. When git fails, no path is ignored, so every path counts."
+  [dir paths]
+  (try
+    (let [{:keys [exit out]} (git (str dir) "check-ignore" "-z" "--stdin" :in (str/join (map #(str % "\u0000") paths)))]
+      (if (zero? exit)
+        (set (nul-separated out))
+        #{}))
+    (catch java.io.IOException _ #{})))
 
 (defn lines-since
   "Return the lines of `file` that differ from where the current branch left git `ref`.
