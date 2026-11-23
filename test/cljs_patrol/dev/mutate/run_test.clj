@@ -347,7 +347,8 @@
                 {:keys [stopped]} (run-guarded root {:guard guard})]
             (is (str/starts-with? stopped "loading the mutant step/3:16/when->when-not changed files")
                 "form of mutant runs while it loads, and may write")
-            (is (str/includes? stopped "\nThe top-level code of the target namespace wrote them while the mutant loaded."))
+            (is (str/includes? stopped (str "\nLoading the mutated definition step, or putting the original back, changed"
+                                            " them. Delete or restore them, and look at the top-level code of step.")))
             (is (not (str/includes? stopped "Files/createTempDirectory"))
                 "no test ran, so no test folder to fix")))))))
 

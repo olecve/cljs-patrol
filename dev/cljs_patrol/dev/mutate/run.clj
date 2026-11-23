@@ -330,8 +330,8 @@
                  (guard/folder-name root)
                  ", and the runner did not undo them:\n" (guard/describe changed hashes)
                  (if at-load?
-                   (str "\nThe top-level code of the target namespace wrote them while the mutant loaded. Delete or"
-                        " restore them.")
+                   (str "\nLoading the mutated definition " (:def result) ", or putting the original back, changed"
+                        " them. Delete or restore them, and look at the top-level code of " (:def result) ".")
                    (str "\nDelete or restore them, and make the test take its folder from the JDK, such as"
                         " Files/createTempDirectory, not from the code under test."))
                  (when stuck

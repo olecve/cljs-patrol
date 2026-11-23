@@ -832,3 +832,27 @@
         (is (= before (slurp file)))
         (is (= 1000000 (.lastModified file))
             "nothing written")))))
+
+(deftest forget-matches-on-id-when-place-differs
+  (with-old-cache
+    (fn [file]
+      (let [store (open file {:make-key (key-of "s1")})]
+        (cache/forget! store (mutant "f/1:2/if->if-not" "p-other"))
+        (is (= (dissoc old-results "f/1:2/if->if-not") (:results (read-cache file))))))))
+
+(deftest forget-leaves-file-alone-when-it-holds-no-cache
+  (doseq [[content why] [["{:key" "file cannot be read"]
+                         [(pr-str {:key {}
+                                   :results [["f/1:1/when->when-not" {:outcome :failed
+                                                                      :place "p1"}]]})
+                          "results are no map"]]]
+    (with-old-cache
+      (fn [file]
+        (let [store (open file {:make-key (key-of "s1")})]
+          (spit file content)
+          (.setLastModified file 1000000)
+          (cache/forget! store (mutant "f/1:1/when->when-not" "p1"))
+          (is (= content (slurp file))
+              why)
+          (is (= 1000000 (.lastModified file))
+              why))))))

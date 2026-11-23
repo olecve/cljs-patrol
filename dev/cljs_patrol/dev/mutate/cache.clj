@@ -195,22 +195,27 @@
 (defn- warn [message]
   (println (str "Warning: " message)))
 
+(defn- checked-entry
+  "Read the cache in `file`, and throw when it cannot be read or holds no cache."
+  [file]
+  (let [entry (edn/read-string (slurp file))]
+    (if (and (map? (:key entry))
+             (map? (:results entry))
+             (every? #(let [value (get entry %)] (or (nil? value) (map? value))) [:notes :plans :last-run])
+             (every? (fn [result]
+                       (and (map? result)
+                            (contains? #{:failed :passed :no-coverage :unviable :timeout} (:outcome result))
+                            (string? (:place result))))
+                     (vals (:results entry))))
+      entry
+      (throw (ex-info "it holds no cache" {})))))
+
 (defn- read-entry
   "Read the cache in `file`, or nil when there is none, or, with a warning, when it cannot be read."
   [file]
   (when (.exists (io/file file))
     (try
-      (let [entry (edn/read-string (slurp file))]
-        (if (and (map? (:key entry))
-                 (map? (:results entry))
-                 (every? #(let [value (get entry %)] (or (nil? value) (map? value))) [:notes :plans :last-run])
-                 (every? (fn [result]
-                           (and (map? result)
-                                (contains? #{:failed :passed :no-coverage :unviable :timeout} (:outcome result))
-                                (string? (:place result))))
-                         (vals (:results entry))))
-          entry
-          (throw (ex-info "it holds no cache" {}))))
+      (checked-entry file)
       (catch Exception e
         (warn (str "the cache " file " could not be read, so the run does not use it; its first outcome replaces it: "
                    (ex-message e)))))))
@@ -411,13 +416,14 @@
   An outcome is the mutant's when its id or its place, which --iterate matches, is the
   mutant's. The file keeps every other outcome and its key as they were, also in a run with
   --fresh or one that starts over, whose store holds none of the file's outcomes. When the file
-  holds no outcome of the mutant, or cannot be read, nothing is written."
+  holds no outcome of the mutant, or is missing or no cache that [[open!]] would read, nothing
+  is written."
   [{:keys [entry file]} {:keys [id place]}]
   (let [held? (fn [[result-id result]] (or (= id result-id) (= place (:place result))))
         on-disk (when-let [path @file]
-                  (try (edn/read-string (slurp path)) (catch Exception _ nil)))]
+                  (try (checked-entry path) (catch Exception _ nil)))]
     (swap! entry update :results #(into {} (remove held?) %))
-    (when (and (map? (:results on-disk)) (some held? (:results on-disk)))
+    (when (some held? (:results on-disk))
       (write-file! file (update on-disk :results #(into {} (remove held?) %))))))
 
 (defn finish!

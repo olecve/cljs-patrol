@@ -21,12 +21,9 @@
   any depth: the swap files of Vim (`*.swp`, `*.swo`, and `4913`, which Vim writes to test that
   it may write a folder), the locks (`.#*`) and auto-saves (`#*#`) of Emacs, the backups of
   several editors (`*~`), the folder files of macOS (`.DS_Store`), and the port file of nREPL."
-  {:folders #{".lsp" ".clj-kondo/.cache" ".cpcache" ".shadow-cljs" ".idea" ".calva"}
+  {:folders #{".lsp" ".clj-kondo/.cache" ".clj-kondo/imports" ".clj-kondo/inline-configs" ".cpcache" ".shadow-cljs"
+              ".idea" ".calva"}
    :names [#"\.sw[po]$" #"^4913$" #"^\.#" #"^#.*#$" #"~$" #"^\.DS_Store$" #"^\.nrepl-port$"]})
-
-(def ^:private new-kondo-folder
-  "The folder that clj-kondo makes when it first lints the project, which counts as no change while the reference has none."
-  ".clj-kondo/")
 
 (defn tool-file?
   "True when `file-name` is the name of a file or folder that editors and tools write, at any depth."
@@ -65,7 +62,8 @@
           (when-not (or (contains? skipped relative) (tool-file? (str (.getFileName path))))
             (when-let [attributes (file-attributes path)]
               (if (.isDirectory attributes)
-                (do (.put files (str relative "/") :folder)
+                (do (when-not (some #(str/starts-with? % (str relative "/")) skipped)
+                      (.put files (str relative "/") :folder))
                     (walk root skipped path files))
                 (.put files relative [(.size attributes) (.lastModifiedTime attributes)])))))))
     (catch NoSuchFileException _ nil)
@@ -84,7 +82,9 @@
   A file maps to its size and time of change. A folder maps its path, with a `/` at the end, to
   :folder, so a new or deleted folder counts, an empty one too, but a folder whose files change
   does not; a folder that cannot be read maps to :unreadable. The walk does not enter the
-  `skipped` folders, given relative to `root`, and leaves out the files that tools write. A link
+  `skipped` folders, given relative to `root`, and leaves out the files that tools write. A
+  folder that holds a skipped folder, such as `.clj-kondo/`, maps to nothing itself, since a tool
+  can make it, but its other files count. A link
   is a file of its own, so the walk does not follow it. A file that is deleted while the walk goes
   on is left out."
   [root skipped]
@@ -145,14 +145,10 @@
 
   The reference is the last snapshot with no change, which is the one after the baseline at
   first. When nothing changed, the new snapshot becomes the reference, so a file that the
-  baseline wrote and a test wrote again with the same bytes is not hashed again. A `.clj-kondo/`
-  folder that the reference does not have counts as no change, since clj-kondo makes it when it
-  first lints the project; once the reference has it, its files count."
+  baseline wrote and a test wrote again with the same bytes is not hashed again."
   [{:keys [root skipped files hashes]}]
   (let [now (snapshot root skipped)
-        changed (cond->> (changes root @files now hashes)
-                  (not (contains? @files new-kondo-folder))
-                  (remove #(str/starts-with? (first %) new-kondo-folder)))]
+        changed (changes root @files now hashes)]
     (if (seq changed)
       changed
       (do (reset! files now)

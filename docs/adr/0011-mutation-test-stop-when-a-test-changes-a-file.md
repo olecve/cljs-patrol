@@ -54,13 +54,14 @@ folders from the JDK, not from the code under test.
   size and the time of change of each file. A folder has no size or time in it, since its time changes when its files
   change, so a new or deleted folder counts, an empty one too. The snapshot does not enter the `.git/` folder of that
   directory, the cache folder of the run, which is `.mutate-cache/` by default, and the folders that tools write while a
-  run goes on: `.lsp/`, `.clj-kondo/.cache/`, `.cpcache/`, `.shadow-cljs/`, `.idea/` and `.calva/`. A `.clj-kondo/`
-  folder that the reference does not have counts as no change, since clj-kondo makes it when it first lints the project.
-  Once the reference has it, its files, such as `config.edn`, count. It also leaves out, at any depth, the names
-  `*.swp`, `*.swo`, `4913`, `.#*`, `#*#`, `*~`, `.DS_Store` and `.nrepl-port`, which editors, macOS and nREPL write. One
-  list in the guard holds these folders and names. Other folders that git ignores, such as `target/` and
-  `node_modules/`, count. A file that is deleted while the snapshot is taken is left out, and a folder that cannot be
-  read counts as one entry, "unreadable". When two snapshots are equal, the comparison ends at once.
+  run goes on: `.lsp/`, `.clj-kondo/.cache/`, `.clj-kondo/imports/`, `.clj-kondo/inline-configs/`, `.cpcache/`,
+  `.shadow-cljs/`, `.idea/` and `.calva/`. A folder that holds one of these, such as `.clj-kondo/`, is not in the
+  snapshot itself, since a tool can make it, but its other files, such as `.clj-kondo/config.edn`, are. It also leaves
+  out, at any depth, the names `*.swp`, `*.swo`, `4913`, `.#*`, `#*#`, `*~`, `.DS_Store` and `.nrepl-port`, which
+  editors, macOS and nREPL write. One list in the guard holds these folders and names. Other folders that git ignores,
+  such as `target/` and `node_modules/`, count. A file that is deleted while the snapshot is taken is left out, and a
+  folder that cannot be read counts as one entry, "unreadable". When two snapshots are equal, the comparison ends at
+  once.
 - **Baseline.** The guard takes one snapshot before the baseline and one after it. The files that differ between the two
   are the files that the baseline wrote. The guard compares each later snapshot with the reference: the last snapshot
   with no change, which is the snapshot after the baseline at first.
@@ -70,7 +71,8 @@ folders from the JDK, not from the code under test.
   change, because its test writes it again for each mutant. When its bytes change, the message says that the baseline
   wrote it too. A file whose bytes cannot be read counts as changed.
 - **Stop.** The run stops with the id of the mutant that just ran and up to 10 paths, and exits with 2. For a mutant
-  that failed while it loaded, the message says that its loading changed the files, since no test ran. It says that it
+  that failed while it loaded, no test ran, so the message says that loading the mutated definition, or putting the
+  original back, changed the files, and that the person looks at the top-level code of that definition. It says that it
   did not undo the files. When the tests of that mutant still run after the timeout, or its restore failed, the message
   says that too. The cache drops the outcome it held of that mutant, so the next run runs it again, and the report does
   not list that mutant as one the run did not reach. The guard reads the cache file too. When the file holds an outcome
