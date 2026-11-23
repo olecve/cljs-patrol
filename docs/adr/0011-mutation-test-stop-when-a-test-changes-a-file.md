@@ -46,22 +46,36 @@ The runner compares a snapshot of the files in the working directory after the m
 and stops the run when a file is new, changed or deleted. The tests take their temporary folders from the JDK, not from
 the code under test.
 
-- **Snapshot.** The path, the size and the time of change of every file under the directory the command runs from,
-  except `.git/` and the cache folder `.mutate-cache/`. Folders that git ignores, such as `target/` and `node_modules/`,
-  count. The reference is the snapshot after the baseline.
+- **Snapshot.** The path, the size and the time of change of every file under the directory the command runs from. The
+  snapshot does not enter the `.git/` folder of that directory, the cache folder of the run, which is `.mutate-cache/`
+  by default, and the folders that tools write while a run goes on: `.lsp/`, `.clj-kondo/.cache/`, `.cpcache/` and
+  `.shadow-cljs/`. Other folders that git ignores, such as `target/` and `node_modules/`, count. The reference is the
+  snapshot after the baseline. A file that is deleted while the snapshot is taken is left out, and a folder that cannot
+  be read counts as one entry, "unreadable".
 - **Which mutants.** In the baseline, the runner records each test that may write. A test may write when Java Flight
   Recorder (JFR), the event recorder of the JDK, records a `jdk.FileWrite` event of this JVM while the test runs, or
   when the names directly in the working directory before and after the test are not the same. The second check finds a
   folder that the test makes, or a file that a process it starts writes, which JFR does not record. A mutant gets a
-  snapshot when a test that may write runs for it. Every mutant gets one when the baseline left a file changed, or when
+  snapshot when a test that may write runs for it. A write that falls in no test, such as one in a fixture, makes every
+  test one that may write. JFR uses a clock of its own, so before it reads the writes, the runner writes one marker file
+  and moves the JFR times by the difference. Every mutant gets a snapshot when the baseline left a file changed, or when
   the baseline had to run without recording. That happens when the recording makes the tests fail or run past the
   timeout. A file that the baseline wrote counts as changed only when its bytes change, because its test writes it again
   for each mutant.
-- **Stop.** The run stops with the id of the mutant and up to 10 files, and exits with 2. It says that it did not undo
-  the files. The cache keeps the outcomes of the mutants that finished before, and not of this one, so the next run runs
-  it again.
-- **Last look.** One more snapshot after the last mutant finds a file that a mutant without a snapshot changed. That run
-  stops too, and its message cannot name the mutant.
+- **Writes during the mutants.** A second JFR recording runs during the mutants, and the runner notes when the tests of
+  each mutant ran. A new or changed file stops the run only when this JVM wrote that file. Another file, such as a
+  source file that an editor saved, prints one warning, "FILE changed during the run, but not by this run's tests.", and
+  the snapshot takes its new state, so it does not warn again. JFR records no delete, so a deleted file always stops the
+  run.
+- **No JFR.** On a JDK without JFR, every mutant gets a snapshot, every new or changed file stops the run, and the run
+  says so once.
+- **Stop.** The run stops with the id of the mutant whose tests wrote the file, and up to 10 files, and exits with 2. It
+  says that it did not undo the files. When the restore of the mutant also failed, the message says that too. The cache
+  has no outcome of the mutant that the run stopped at, so the next run runs it again.
+- **Last look.** One more snapshot after the last mutant, and at each other early stop, finds a file that a mutant
+  without a snapshot changed. The message names the mutant when JFR saw its tests write the file. When it cannot name
+  the mutant, it tells the person to run again with `--fresh` and `-d`, one definition at a time. Without `--fresh`, the
+  next run reuses every cached outcome and runs no test.
 - **Tests.** A new test helper, `cljs-patrol.temp-dir`, makes each temporary folder with the JDK call
   `Files/createTempDirectory`. The folder is new, empty, and in the OS temporary folder. `fs_test.clj` and the four
   other test files above use it.
@@ -71,28 +85,35 @@ the code under test.
 ### A snapshot of the working directory after each mutant whose tests could write (chosen)
 
 - Good, because it finds a new, changed or deleted file in every folder, the folders that git ignores too.
-- Good, because the cost stays small. The times are medians of 3 runs in the same JVM, with and without the guard, at a
-  load average of 4.6 to 4.7. On `cljs-patrol.groups.reagent`, 102 of 231 mutants get a snapshot. Their tests include
-  `heads-referred-as-macros-are-read`, which writes a project to a temporary folder. The checks took 1.35 s, and the run
-  went from 3.98 s to 5.31 s, 1.33 times as long. On `cljs-patrol.fs`, the 29 mutants and the last look took 30
-  snapshots in 0.44 s, and the run went from 0.93 s to 1.33 s. The record of the tests that write adds about 15 ms to
-  the baseline, and the first start of JFR takes about 150 ms.
+- Good, because the cost stays small. The times are medians of 3 runs in the same JVM, with and without the guard, on
+  JDK 22, at a load average of 4.7 to 5.7. On `cljs-patrol.groups.reagent`, the run left out `element-children`, whose
+  mutant at line 302 loops when the machine is busy. Then 102 of 229 mutants get a snapshot. Their tests include
+  `heads-referred-as-macros-are-read`, which writes a project to a temporary folder. The snapshots took 1.37 s, and the
+  run went from 4.27 s to 5.77 s, 1.35 times as long. The JFR recording during the mutants added about 0.02 s: the run
+  took 5.75 s without it. On `cljs-patrol.fs`, the 27 mutants and the last look took 28 snapshots in 0.41 s, and the run
+  went from 0.87 s to 1.26 s. The record of the tests that write adds about 15 ms to the baseline, and the first start
+  of JFR takes about 150 ms.
 - Good, because another process does not change which tests write. With a shell loop that made and deleted a file in the
   OS temporary folder every 50 ms, reagent still had 102 mutants with a snapshot in 2 runs.
+- Good, because another process that writes into the working directory, such as an editor or a linter, gives a warning,
+  not a stop.
 - Good, because it found the real case: with the old `fs_test.clj`, the run stops at `tmp-file-path/55:3/body->nil` and
-  names the 7 files.
+  names the 7 files. After `fs/tmp-file-path` was deleted, a test that took its root from `fs/parent-dir` in the same
+  way stops at `parent-dir/19:3/body->nil` and names the same 7 files.
 - Bad, because it only reports. A deleted file that git does not hold is lost.
 - Bad, because it does not see a file outside the working directory, such as one in the home folder.
 - Bad, because a test that wrote nothing in the baseline gets no snapshot after its mutants. The last look then finds
   the file, but not the mutant.
 - Bad, because JFR does not record a new folder, a deleted file, or a file that another process writes. A test that does
-  only that in the OS temporary folder, such as one that runs `git` there, gets no snapshot after its mutants.
+  only that in the OS temporary folder, such as one that runs `git` there, gets no snapshot after its mutants. A file
+  that a process started by a test writes into the working directory under a mutant gives only a warning.
 - Bad, because it uses JFR, which a JDK without JFR does not have.
 
 ### A snapshot after every mutant (rejected)
 
 Rejected because it costs about 2.3 times as much on `cljs-patrol.groups.reagent`: 231 snapshots at 13.2 ms each, about
-3.0 s against 1.35 s, for the mutants whose tests did not write a file in the baseline.
+3.0 s against 1.35 s, for the mutants whose tests did not write a file in the baseline. The 13.2 ms is the mean time of
+one snapshot of a worktree of this repository with 511 files, on JDK 22, at a load average of about 4.7.
 
 ### The time of change of the OS temporary folder as the record of the tests that write (rejected)
 
@@ -132,10 +153,11 @@ mode it warns that it changes your files. mutmut copies the sources to `mutants/
 - Bad, because a file one mutant leaves in the copy changes what the later mutants see.
 - Bad, because an absolute path, such as one in the home folder, still reaches the real files.
 
-### Fix the tests only (rejected as the only fix, chosen as a part)
+### Take the temporary folders of the tests from the JDK, together with the snapshot (chosen)
 
 - Good, because it costs nothing at run time, and it removes the cause of the incident.
-- Bad, because nothing stops a new test that takes its folder from the code under test.
+- Bad, because alone it does not stop a new test that takes its folder from the code under test. The snapshot is for
+  that test.
 
 ## Consequences
 
@@ -143,17 +165,17 @@ mode it warns that it changes your files. mutmut copies the sources to `mutants/
   puts the files back and fixes the test, and the next run runs that mutant again.
 - A test that writes a file into the working directory in every run makes every mutant take a snapshot. A test that
   writes the same bytes each time does not stop the run.
-- `fs/tmp-dir` and `fs/tmp-file-path` have no test that calls them now, and nothing in `src/` calls them. The mutation
-  report lists them as no coverage: no test calls them.
+- A save in an editor or a linter cache during a run prints a warning, and the run goes on.
+- `fs/tmp-dir` and `fs/tmp-file-path` are deleted, since nothing in `src/` or in the tests calls them now.
 - A later change can move the file code in `src/` from `java.io.File` to `java.nio` paths, and give the unit tests an
-  in-memory file system. The draft `docs/adr/0012-nio-paths-and-in-memory-test-file-system.md` proposes this. Then fewer
-  tests write to the disk, and the guard has less to check. It does not replace the guard: a test that uses the real
-  file system can still write into the working directory.
+  in-memory file system. Then fewer tests write to the disk, and the guard has less to check. It does not replace the
+  guard: a test that uses the real file system can still write into the working directory.
 
 ## Confirmation
 
-- The runner's tests pass, also those for a test that writes a file only under a mutant, a test that writes into a
-  subfolder that the baseline does not see, and a baseline that writes a file each run.
+- The runner's tests pass, also those for a test that writes a file only under a mutant, a test that writes or deletes a
+  file only under a mutant that got no snapshot, a baseline that writes a file each run, a write in a fixture, a file
+  that another process writes, a failed restore of a mutant that also changed a file, and a JDK without JFR.
 - A run on `cljs-patrol.fs` with the old `fs_test.clj` stops at `tmp-file-path/55:3/body->nil` and names the 7 files.
 - A run on `cljs-patrol.groups.reagent` stays under 1.5 times its time without the guard. The times are measured on a
   machine with no other heavy load.
@@ -171,9 +193,10 @@ mode it warns that it changes your files. mutmut copies the sources to `mutants/
 
 - The code: [`dev/cljs_patrol/dev/mutate/guard.clj`](../../dev/cljs_patrol/dev/mutate/guard.clj), with the record of the
   tests that write in the baseline function `coverage`, and the stop in the mutant loop `run-all`, of
-  [`dev/cljs_patrol/dev/mutate/run.clj`](../../dev/cljs_patrol/dev/mutate/run.clj).
+  [`dev/cljs_patrol/dev/mutate/run.clj`](../../dev/cljs_patrol/dev/mutate/run.clj), and the JFR recording in
+  [`dev/cljs_patrol/dev/mutate/recorder.clj`](../../dev/cljs_patrol/dev/mutate/recorder.clj).
 - The test helper: [`test/cljs_patrol/temp_dir.clj`](../../test/cljs_patrol/temp_dir.clj).
-- JDK. [`jdk.jfr.Recording`](https://docs.oracle.com/en/java/javase/21/docs/api/jdk.jfr/jdk/jfr/Recording.html), JDK 21.
+- JDK. [`jdk.jfr.Recording`](https://docs.oracle.com/en/java/javase/22/docs/api/jdk.jfr/jdk/jfr/Recording.html), JDK 22.
 - JDK-8194154. [System property user.dir should not be changed](https://bugs.openjdk.org/browse/JDK-8194154).
 - cargo-mutants. [Copying the tree](https://github.com/sourcefrog/cargo-mutants/blob/v27.1.0/book/src/build-dirs.md), at
   v27.1.0.

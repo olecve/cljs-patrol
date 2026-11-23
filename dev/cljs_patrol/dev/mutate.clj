@@ -42,7 +42,9 @@
   run or the cache shows the tests the baseline saw call it. When a run with the same key
   reuses every mutant, no test runs, the baseline included. After the report, the cache
   records what the run reported as the last run. With `guard-root`, the run stops when the
-  tests of a mutant add, change or delete a file under that folder, as [[guard/start]] decides."
+  tests of a mutant add, change or delete a file under that folder, other than in `.git`, the
+  cache folder and the tool caches. A new or changed file that this JVM did not write only
+  prints a warning."
   [target file source test-nss {:keys [defs since timeout report html all-tests cache fresh iterate guard-root]}]
   (let [lines (when since (git/lines-since file since))
         {:keys [defs-in-scope loaded-once const-defs other-forms selected ignored unused-markers]
@@ -64,11 +66,13 @@
         _ (some-> message println)
         def-names (distinct (map :def selected))
         baseline? (and (seq selected) (or (seq to-run) (= :iterate (:mode store))))
-        before-baseline (when (and baseline? guard-root) (guard/snapshot guard-root))
+        skipped (when guard-root (guard/skipped-dirs guard-root (some-> cache :file io/file .getParentFile)))
+        before-baseline (when (and baseline? guard-root) (guard/snapshot guard-root skipped))
         {:keys [ms covered note]} (when baseline?
                                     (run/baseline target def-names test-nss timeout guard-root))
         file-guard (when before-baseline
-                     (guard/start guard-root before-baseline (guard/snapshot guard-root) (:writers covered)))
+                     (guard/start guard-root skipped before-baseline (guard/snapshot guard-root skipped) (:writers covered)))
+        _ (some-> file-guard :note println)
         timeout-ms (when ms (or timeout (run/default-timeout-ms ms)))
         _ (println (format "%d mutants of %s against %s%s%s%s"
                            (count selected) target (str/join ", " test-nss)

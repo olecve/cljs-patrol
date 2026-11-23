@@ -33,10 +33,15 @@
 (defn- digest-hex [^java.security.MessageDigest digest]
   (format "%064x" (BigInteger. 1 (.digest digest))))
 
+(defn bytes-hash
+  "Hash `content`, a byte array, with SHA-256, as 64 hex digits."
+  [^bytes content]
+  (digest-hex (doto (java.security.MessageDigest/getInstance "SHA-256") (.update content))))
+
 (defn text-hash
   "Hash `text` with SHA-256, as 64 hex digits."
   [^String text]
-  (digest-hex (doto (java.security.MessageDigest/getInstance "SHA-256") (.update (.getBytes text "UTF-8")))))
+  (bytes-hash (.getBytes text "UTF-8")))
 
 (defn- files-hash
   "Hash each of `files`, [name bytes] pairs, as its name, its length and its bytes, so no text can move between files."
@@ -360,11 +365,12 @@
                        " The next run stops here again")
                      " until these tests stop looping.")
     :restore-error " The cache keeps the mutants that finished, this one too, so the next run runs the rest."
-    :files-changed (str (if recorded?
-                          " The cache keeps the mutants that finished before this one"
-                          " The cache keeps no mutant")
-                        ", so the next run runs this one again.")
-    :files-changed-at-end " The cache keeps every mutant of this run."
+    :files-changed " The cache has no outcome of this mutant, so the next run runs it again."
+    :files-changed-at-end (str " The cache keeps every mutant of this run, so a run without --fresh runs no test."
+                               " Put the files back, and fix the test before you run with --fresh.")
+    :files-changed-unnamed (str " The cache keeps every mutant of this run, so a run without --fresh runs no test."
+                                " Put the files back, and run with --fresh, and -d for one definition at a time,"
+                                " to find the mutant.")
     nil))
 
 (defn- result-entry [{:keys [outcome killed-by at-load? stuck? place]}]

@@ -581,11 +581,9 @@
   (is (= " The next run stops here again until these tests stop looping." (cache/stop-note :plan-stuck false))
       "nothing recorded, nothing kept")
   (is (str/includes? (cache/stop-note :restore-error true) "this one too, so the next run runs the rest"))
-  (is (= " The cache keeps the mutants that finished before this one, so the next run runs this one again."
-         (cache/stop-note :files-changed true)))
-  (is (= " The cache keeps no mutant, so the next run runs this one again." (cache/stop-note :files-changed false))
-      "nothing recorded, nothing kept")
-  (is (= " The cache keeps every mutant of this run." (cache/stop-note :files-changed-at-end true)))
+  (is (= " The cache has no outcome of this mutant, so the next run runs it again." (cache/stop-note :files-changed false)))
+  (is (str/ends-with? (cache/stop-note :files-changed-at-end true) "fix the test before you run with --fresh."))
+  (is (str/ends-with? (cache/stop-note :files-changed-unnamed true) "to find the mutant."))
   (is (nil? (cache/stop-note nil true))))
 
 (defn- outcome [id place & {:as more}]

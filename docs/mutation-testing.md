@@ -58,10 +58,13 @@ Pass every test namespace that tests the target with `-t`. The run exits 0 when 
 there is a test gap, and 2 when it cannot start or stops early. Every option, what is not mutated, and when every test
 runs instead of the selected ones are in the "Mutation testing" section of [`CLAUDE.md`](../CLAUDE.md#mutation-testing).
 
-The run also looks at the files under the directory it runs from. When a planted bug makes a test add, change or delete
-a file there, the run stops, names the planted bug and up to 10 files, and exits 2. The run does not undo the files.
-Delete or restore them, then make the test take its folder from `Files/createTempDirectory`, not from the code under
-test.
+The run also looks at the files under the directory it runs from, after the planted bugs whose tests wrote a file in the
+baseline, the first run of the tests before any planted bug. It also looks after the last planted bug and at every other
+early stop. The run stops and exits 2 when this run's tests added or changed a file there, or when any file was deleted.
+It names up to 10 files, and the planted bug whose tests wrote them when it can tell. When it cannot, run again with
+`--fresh` and `-d`, one function at a time. A file that another program changed, such as one your editor saved, gives
+one warning, and the run goes on. The run does not undo the files. Delete or restore them, then make the test take its
+folder from `cljs-patrol.temp-dir`, which asks the JDK with `Files/createTempDirectory`, not from the code under test.
 
 ## Read the report
 
@@ -200,7 +203,7 @@ Each choice below has a record in [`docs/adr/`](adr/README.md) with the options 
 - **Stop when a test changes a file** ([ADR 0011](adr/0011-mutation-test-stop-when-a-test-changes-a-file.md)). A planted
   bug can turn the temporary folder of a test into the working directory. The runner puts back only the code it changed,
   so it stops and names the files. It compares a snapshot of the files only after a planted bug whose tests wrote a file
-  in the first run, which keeps the cost low.
+  in the baseline, which keeps the cost low. Java Flight Recorder tells which writes are this run's.
 
 ## Words
 

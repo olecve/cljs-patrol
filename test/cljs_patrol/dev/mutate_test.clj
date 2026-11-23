@@ -622,10 +622,10 @@
         (fixtures/with-target folder-source tests
           (fn []
             (let [{:keys [stopped mutants]} (run-guarded folder-source tests dir root)]
-              (is (str/starts-with? stopped "the tests of a mutant the guard took no snapshot after changed files in ")
-                  "test wrote no file in baseline")
+              (is (str/starts-with? stopped "the tests of the mutant folder/2:26/body->nil changed files in ")
+                  "test wrote no file in baseline, but recording names mutant whose tests wrote it")
               (is (str/includes? stopped "  added note.txt\n"))
-              (is (str/ends-with? stopped " The cache keeps every mutant of this run."))
+              (is (str/ends-with? stopped "fix the test before you run with --fresh."))
               (is (= 2 (count mutants))))))))))
 
 (def ^:private logging-source
@@ -651,3 +651,34 @@
               (is (str/includes? stopped "  changed logs/log.txt\n"))
               (is (= [["up?/2:16/>->>=" :survived]] (map (juxt :id :outcome) mutants))
                   "mutant that writes same bytes again goes on"))))))))
+
+(defn- deletes-only-when-mutated-tests [root]
+  (str "(ns cljs-patrol.dev.mutate.fixtures.target-test (:require [clojure.test :refer [deftest is]]"
+       " [cljs-patrol.dev.mutate.fixtures.target :as target]))\n"
+       "(deftest deletes (when-not (= \"temp\" (target/folder \"temp\" " (pr-str (str root)) "))"
+       " (.delete (java.io.File. " (pr-str (str root)) " \"kept.txt\"))) (is true))\n"))
+
+(deftest run-stops-at-end-without-mutant-name-for-file-deleted-unseen
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (let [root (doto (io/file dir "root") .mkdirs)
+            tests (deletes-only-when-mutated-tests root)]
+        (spit (io/file root "kept.txt") "x")
+        (fixtures/with-target folder-source tests
+          (fn []
+            (let [{:keys [stopped]} (run-guarded folder-source tests dir root)]
+              (is (str/starts-with? stopped "the tests of a mutant the guard cannot name changed files in "))
+              (is (str/includes? stopped "  deleted kept.txt\n"))
+              (is (str/ends-with? stopped "to find the mutant.")))))))))
+
+(deftest run-without-flight-recorder-says-every-mutant-gets-snapshot
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (let [root (doto (io/file dir "root") .mkdirs)]
+        (fixtures/with-target fixtures/target-tests
+          (fn []
+            (with-redefs [guard/recorder-available? (constantly false)]
+              (let [[{:keys [stopped]} output] (run-cached fixtures/target-source (io/file dir "cache.edn")
+                                                           fixtures/target-tests {:guard-root (str root)})]
+                (is (nil? stopped))
+                (is (str/starts-with? output "This JDK has no Java Flight Recorder, so every mutant gets a snapshot"))))))))))

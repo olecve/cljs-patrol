@@ -1,7 +1,9 @@
 (ns cljs-patrol.dev.mutate.run-test
   (:require
+   [cljs-patrol.dev.mutate.cache :as cache]
    [cljs-patrol.dev.mutate.fixtures :as fixtures]
    [cljs-patrol.dev.mutate.forms :as forms]
+   [cljs-patrol.dev.mutate.guard :as guard]
    [cljs-patrol.dev.mutate.run :as run]
    [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
@@ -193,6 +195,16 @@
                  str))
           "failure inside nested test names that test"))))
 
+(defn- with-changed-guard
+  "Call `f` with a guard on a new folder, after a file was added to the folder that no mutant wrote."
+  [f]
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (let [snapshot (guard/snapshot dir #{})
+            file-guard (guard/start dir #{} snapshot snapshot #{})]
+        (spit (java.io.File. dir "left.txt") "x")
+        (f file-guard)))))
+
 (deftest run-all-stops-at-mutant-whose-tests-keep-running
   (fixtures/with-target (str "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
                              "(defn done? [] true)\n")
@@ -206,15 +218,20 @@
                         "(defn done? [] true)\n")]
         (try
           (let [{:keys [stopped unreached stop-reason]}
-                (binding [*out* (java.io.StringWriter.)]
-                  (run/run-all {:target 'cljs-patrol.dev.mutate.fixtures.target
-                                :file "target.clj"
-                                :test-nss ['cljs-patrol.dev.mutate.fixtures.target-test]
-                                :timeout-ms 200
-                                :select? false
-                                :covered {}
-                                :plans (atom {})}
-                               (:selected (forms/scope source {}))))]
+                (with-changed-guard
+                  (fn [file-guard]
+                    (binding [*out* (java.io.StringWriter.)]
+                      (run/run-all {:target 'cljs-patrol.dev.mutate.fixtures.target
+                                    :file "target.clj"
+                                    :test-nss ['cljs-patrol.dev.mutate.fixtures.target-test]
+                                    :timeout-ms 200
+                                    :select? false
+                                    :covered {}
+                                    :plans (atom {})
+                                    :guard file-guard}
+                                   (:selected (forms/scope source {}))))))]
+            (is (str/includes? stopped "\nA last look also found that the tests of a mutant the guard cannot name")
+                "file written before stop is told")
             (is (str/starts-with? stopped "the tests of the mutant at 2:16 body still run after the timeout")
                 "message names position and operator")
             (is (= :stuck stop-reason))
@@ -230,18 +247,22 @@
       (let [release @(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'release)
             spins (ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'spins)]
         (try
-          (let [{:keys [stop-reason results unreached]}
-                (binding [*out* (java.io.StringWriter.)]
-                  (run/run-all {:target 'cljs-patrol.dev.mutate.fixtures.target
-                                :file "target.clj"
-                                :test-nss ['cljs-patrol.dev.mutate.fixtures.target-test]
-                                :timeout-ms 200
-                                :select? true
-                                :covered {:tests {"label" #{spins}}
-                                          :recorded #{"label"}
-                                          :test-count 2}
-                                :plans (atom {})}
-                               (filter #(= "label" (:def %)) (:selected (forms/scope fixtures/target-source {})))))]
+          (let [{:keys [stop-reason results unreached stopped]}
+                (with-changed-guard
+                  (fn [file-guard]
+                    (binding [*out* (java.io.StringWriter.)]
+                      (run/run-all {:target 'cljs-patrol.dev.mutate.fixtures.target
+                                    :file "target.clj"
+                                    :test-nss ['cljs-patrol.dev.mutate.fixtures.target-test]
+                                    :timeout-ms 200
+                                    :select? true
+                                    :covered {:tests {"label" #{spins}}
+                                              :recorded #{"label"}
+                                              :test-count 2}
+                                    :plans (atom {})
+                                    :guard file-guard}
+                                   (filter #(= "label" (:def %)) (:selected (forms/scope fixtures/target-source {})))))))]
+            (is (str/includes? stopped "\nA last look also found that "))
             (is (= :plan-stuck stop-reason))
             (is (empty? results))
             (is (= 2 (count unreached))))
@@ -276,20 +297,100 @@
   (is (= {} (run/recorded-plans nil ["a"] true))
       "no baseline, no test lists"))
 
-(deftest coverage-with-guard-root-records-tests-that-write-files
+(defn- baseline-writers [guard-root]
+  (-> (run/baseline 'cljs-patrol.dev.mutate.fixtures.target ["label"] ['cljs-patrol.dev.mutate.fixtures.target-test]
+                    10000 guard-root)
+      :covered
+      :writers))
+
+(deftest baseline-with-guard-root-records-tests-that-write-files
   (fixtures/with-temp-dir
     (fn [dir]
       (fixtures/with-target (str fixtures/target-tests
-                                 "(deftest writes (spit (java.io.File. " (pr-str (str dir)) " \"note.txt\") \"x\")"
+                                 "(deftest writes (Thread/sleep 20)"
+                                 " (spit (java.io.File. " (pr-str (str dir)) " \"note.txt\") \"x\")"
                                  " (is (= :up (target/label 1))))\n"
                                  "(deftest makes-folder (.mkdir (java.io.File. " (pr-str (str dir)) " \"made\"))"
                                  " (is (= :up (target/label 1))))\n")
         (fn []
-          (let [run-coverage #(run/coverage 'cljs-patrol.dev.mutate.fixtures.target ["label"]
-                                            ['cljs-patrol.dev.mutate.fixtures.target-test] 10000 %)]
-            (is (= #{(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'writes)
-                     (ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'makes-folder)}
-                   (:writers (run-coverage (str dir))))
-                "new folder writes no file, but adds name")
-            (is (not (contains? (run-coverage nil) :writers))
-                "no guard, nothing recorded")))))))
+          (is (= #{(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'writes)
+                   (ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'makes-folder)}
+                 (baseline-writers (str dir)))
+              "new folder writes no file, but adds name")
+          (is (nil? (baseline-writers nil))
+              "no guard, nothing recorded")
+          (is (not (contains? (run/coverage 'cljs-patrol.dev.mutate.fixtures.target ["label"]
+                                            ['cljs-patrol.dev.mutate.fixtures.target-test] 10000 nil)
+                              :recording))))))))
+
+(deftest baseline-counts-fixture-write-for-every-test
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/with-target (str fixtures/target-tests
+                                 "(defn setup [f] (spit (java.io.File. " (pr-str (str dir)) " \"note.txt\") \"x\")"
+                                 " (Thread/sleep 10) (f))\n"
+                                 "(clojure.test/use-fixtures :once setup)\n"
+                                 "(deftest other (is (= :down (target/label 0))))\n")
+        (fn []
+          (is (= #{(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'labels)
+                   (ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'other)}
+                 (baseline-writers (str dir)))))))))
+
+(deftest baseline-without-flight-recorder-records-no-writers
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/with-target fixtures/target-tests
+        (fn []
+          (with-redefs [guard/recorder-available? (constantly false)]
+            (is (nil? (baseline-writers (str dir))))))))))
+
+(def ^:private arming-source
+  (str "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
+       "(def armed (atom false))\n"
+       "(def step (do (when @armed (throw (ex-info \"restore fails\" {}))) inc))\n"))
+
+(defn- arming-tests [root]
+  (str "(ns cljs-patrol.dev.mutate.fixtures.target-test (:require [clojure.test :refer [deftest is]]"
+       " [cljs-patrol.dev.mutate.fixtures.target :as target]))\n"
+       "(deftest arms (reset! target/armed true) (spit (java.io.File. " (pr-str (str root)) " \"note.txt\") \"x\")"
+       " (is true))\n"))
+
+(defn- run-arming
+  "Run the mutants of `step` with a guard on `root` whose baseline saw `writers` write, and return the stop."
+  [root writers]
+  (let [snapshot (guard/snapshot root #{})
+        file-guard (guard/start root #{} snapshot snapshot writers)]
+    (binding [*out* (java.io.StringWriter.)]
+      (run/run-all {:target 'cljs-patrol.dev.mutate.fixtures.target
+                    :file "target.clj"
+                    :test-nss ['cljs-patrol.dev.mutate.fixtures.target-test]
+                    :timeout-ms 5000
+                    :select? false
+                    :covered {}
+                    :plans (atom {})
+                    :guard file-guard}
+                   (cache/with-ids (filter #(= "step" (:def %)) (:selected (forms/scope arming-source {}))))))))
+
+(deftest run-all-tells-changed-files-and-failed-restore-of-one-mutant
+  (fixtures/with-temp-dir
+    (fn [root]
+      (fixtures/with-target arming-source (arming-tests root)
+        (fn []
+          (let [{:keys [stop-reason stopped]} (run-arming root #{(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test
+                                                                             'arms)})]
+            (is (= :files-changed stop-reason))
+            (is (str/starts-with? stopped "the tests of the mutant step/3:"))
+            (is (str/includes? stopped "  added note.txt\n"))
+            (is (str/includes? stopped "\nAlso, restoring step failed, so the namespace stays mutated: "))))))))
+
+(deftest run-all-takes-last-look-when-restore-fails
+  (fixtures/with-temp-dir
+    (fn [root]
+      (fixtures/with-target arming-source (arming-tests root)
+        (fn []
+          (let [{:keys [stop-reason stopped]} (run-arming root #{})]
+            (is (= :restore-error stop-reason)
+                "no test wrote in baseline, so mutant got no snapshot")
+            (is (str/starts-with? stopped "restoring step failed"))
+            (is (str/includes? stopped "\nA last look also found that the tests of the mutant step/3:"))
+            (is (str/includes? stopped "  added note.txt\n"))))))))
