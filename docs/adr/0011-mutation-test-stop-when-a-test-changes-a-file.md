@@ -47,18 +47,20 @@ below use JDK 22.
 ## Decision
 
 The runner gets a guard: after each mutant that loaded, it compares the files and folders of the working directory with
-how they were after the baseline, and stops the run when they differ. The tests take their temporary folders from the
-JDK, not from the code under test.
+the reference, the last snapshot with no change, and stops the run when they differ. The tests take their temporary
+folders from the JDK, not from the code under test.
 
 - **Snapshot.** A snapshot holds the path of every file and folder under the directory the command runs from, and the
   size and the time of change of each file. A folder has no size or time in it, since its time changes when its files
   change, so a new or deleted folder counts, an empty one too. The snapshot does not enter the `.git/` folder of that
   directory, the cache folder of the run, which is `.mutate-cache/` by default, and the folders that tools write while a
-  run goes on: `.lsp/`, `.clj-kondo/`, `.cpcache/`, `.shadow-cljs/`, `.idea/` and `.calva/`. It also leaves out, at any
-  depth, the names `*.swp`, `*.swo`, `4913`, `.#*`, `#*#`, `*~`, `.DS_Store` and `.nrepl-port`, which editors, macOS and
-  nREPL write. One list in the guard holds these folders and names. Other folders that git ignores, such as `target/`
-  and `node_modules/`, count. A file that is deleted while the snapshot is taken is left out, and a folder that cannot
-  be read counts as one entry, "unreadable". When two snapshots are equal, the comparison ends at once.
+  run goes on: `.lsp/`, `.clj-kondo/.cache/`, `.cpcache/`, `.shadow-cljs/`, `.idea/` and `.calva/`. A `.clj-kondo/`
+  folder that the reference does not have counts as no change, since clj-kondo makes it when it first lints the project.
+  Once the reference has it, its files, such as `config.edn`, count. It also leaves out, at any depth, the names
+  `*.swp`, `*.swo`, `4913`, `.#*`, `#*#`, `*~`, `.DS_Store` and `.nrepl-port`, which editors, macOS and nREPL write. One
+  list in the guard holds these folders and names. Other folders that git ignores, such as `target/` and
+  `node_modules/`, count. A file that is deleted while the snapshot is taken is left out, and a folder that cannot be
+  read counts as one entry, "unreadable". When two snapshots are equal, the comparison ends at once.
 - **Baseline.** The guard takes one snapshot before the baseline and one after it. The files that differ between the two
   are the files that the baseline wrote. The guard compares each later snapshot with the reference: the last snapshot
   with no change, which is the snapshot after the baseline at first.
@@ -71,12 +73,15 @@ JDK, not from the code under test.
   that failed while it loaded, the message says that its loading changed the files, since no test ran. It says that it
   did not undo the files. When the tests of that mutant still run after the timeout, or its restore failed, the message
   says that too. The cache drops the outcome it held of that mutant, so the next run runs it again, and the report does
-  not list that mutant as one the run did not reach.
+  not list that mutant as one the run did not reach. The guard reads the cache file too. When the file holds an outcome
+  with the id of that mutant, or with its place, which `--iterate` matches, the guard writes the file again without that
+  one outcome and keeps the rest as it was. This is also true in a run with `--fresh`, or one that starts over, which
+  holds none of the file's outcomes. When the file holds no outcome of the mutant, the guard writes nothing.
 - **Tests.** A new test helper, `cljs-patrol.temp-dir`, makes each temporary folder with the JDK call
   `Files/createTempDirectory`, a new one for each call. The folder is new, empty, and in the OS temporary folder. The
-  tests delete the folders that they make, with their own cleanup or with the fixture `temp-dir/delete-created`.
-  `fs_test.clj` and the four other test files above use it. `fs/tmp-dir` and `fs/tmp-file-path` are deleted, since
-  nothing calls them now.
+  tests delete the folders that they make with `temp-dir/delete-dir!`, `temp-dir/with-dir` or the fixture
+  `temp-dir/delete-created`. The deletion does not follow a link. `fs_test.clj` and the four other test files above use
+  it. `fs/tmp-dir` and `fs/tmp-file-path` are deleted, since nothing calls them now.
 
 ## Options
 
@@ -103,8 +108,8 @@ JDK, not from the code under test.
   of change of a file.
 - Bad, because a background thread of an earlier test that writes a file late makes the guard blame the mutant that runs
   then.
-- Bad, because a macro runs while the runner expands it, also in an unviable mutant. A file that such a macro writes is
-  blamed on the next mutant that gets a snapshot.
+- Bad, because a macro runs while the runner expands it, also in an unviable mutant. The next snapshot finds a file that
+  such a macro writes, and blames the mutant that it follows. When no snapshot follows, the file stays unseen.
 
 ### A snapshot only after mutants whose tests write, found with Java Flight Recorder (rejected)
 
@@ -176,9 +181,9 @@ mode it warns that it changes your files. mutmut copies the sources to `mutants/
   a `.git/` folder inside the working directory.
 - The repro of the incident stops at the mutant and names the 7 files. Today `fs/tmp-file-path` is gone, so the repro
   uses `fs/parent-dir`, which returns `nil` under its body mutant. Note which of these folders exist before the run:
-  `.hidden/`, `out/`, `node_modules/`, `node_modules/thing/`, `target/`, `target/classes/` and `target/classes/app/`.
-  Then add the scratch test `test/cljs_patrol/scratch_nil_root_test.clj`. Its fixture deletes the temporary folder that
-  the test makes:
+  `.hidden/`, `out/`, `node_modules/`, `node_modules/thing/`, `target/`, `target/classes/`, `target/classes/app/` and
+  `.mutate-cache/`. Then add the scratch test `test/cljs_patrol/scratch_nil_root_test.clj`. Its fixture deletes the
+  temporary folder that the test makes:
 
   ```clojure
   (ns cljs-patrol.scratch-nil-root-test
@@ -208,8 +213,9 @@ mode it warns that it changes your files. mutmut copies the sources to `mutants/
 
   Run `clojure -M:test:mutate cljs-patrol.fs -t cljs-patrol.scratch-nil-root-test -d parent-dir`. The run stops at
   `parent-dir/19:3/body->nil`, names the 7 files first, then the new folders, and exits with 2. Then delete the 7 files,
-  each folder of the list above that did not exist before the run, deepest first, the scratch test, and the cache file
-  `.mutate-cache/cljs-patrol.fs.edn`. Do not delete `src/`, or a folder of the list that existed before the run.
+  each folder of the list above that did not exist before the run, deepest first, and the scratch test. Delete the cache
+  file `.mutate-cache/cljs-patrol.fs.edn` if it exists, and `.mutate-cache/` if it did not exist before the run. Do not
+  delete `src/`, or a folder that existed before the run.
 
 - A run with the guard on `cljs-patrol.groups.reagent` and on `cljs-patrol.fs` takes less than 2 times as long as the
   same run without it, on a machine with no other heavy load.

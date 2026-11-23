@@ -296,8 +296,8 @@
        (when write? (str " (spit (java.io.File. " (pr-str (str root)) " \"note.txt\") \"x\")"))
        " (is true))\n"))
 
-(defn- run-arming
-  "Run `mutants` with a guard on `root`, by default those of `step`, the first failing at load and the second its restore.
+(defn- run-guarded
+  "Run `mutants` with a guard on `root`, by default the two of `step`: one fails at load, and one fails its restore.
 
   The other `options` merge into the context of the run."
   [root {:keys [mutants]
@@ -323,8 +323,8 @@
           (let [recorded (atom [])
                 forgotten (atom [])
                 {:keys [stop-reason stopped results unreached]}
-                (run-arming root {:on-result #(swap! recorded conj (:id %))
-                                  :on-forget #(swap! forgotten conj %)})]
+                (run-guarded root {:on-result #(swap! recorded conj (:id %))
+                                   :on-forget #(swap! forgotten conj (:id %))})]
             (is (= :files-changed stop-reason))
             (is (str/starts-with? stopped (str "the tests of the mutant step/3:66/inc->dec changed files in "
                                                (guard/folder-name root)
@@ -344,9 +344,12 @@
         (fn []
           (let [guard (guard-on root)
                 _ (spit (java.io.File. root "early.txt") "x")
-                {:keys [stopped]} (run-arming root {:guard guard})]
+                {:keys [stopped]} (run-guarded root {:guard guard})]
             (is (str/starts-with? stopped "loading the mutant step/3:16/when->when-not changed files")
-                "form of mutant runs while it loads, and may write")))))))
+                "form of mutant runs while it loads, and may write")
+            (is (str/includes? stopped "\nThe top-level code of the target namespace wrote them while the mutant loaded."))
+            (is (not (str/includes? stopped "Files/createTempDirectory"))
+                "no test ran, so no test folder to fix")))))))
 
 (def ^:private unviable-source
   (str "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
@@ -363,9 +366,9 @@
           (let [guard (guard-on root)
                 _ (spit (java.io.File. root "early.txt") "x")
                 {:keys [stopped results]}
-                (run-arming root {:guard guard
-                                  :mutants (remove #(= :body (:swap %))
-                                                   (cache/with-ids (:selected (forms/scope unviable-source {}))))})]
+                (run-guarded root {:guard guard
+                                   :mutants (remove #(= :body (:swap %))
+                                                    (cache/with-ids (:selected (forms/scope unviable-source {}))))})]
             (is (nil? stopped))
             (is (= [:unviable :unviable] (map :outcome results))
                 "duplicate case constant does not compile, so no code ran")))))))
@@ -375,7 +378,7 @@
     (fn [root]
       (fixtures/with-target arming-source (arming-tests root false)
         (fn []
-          (let [{:keys [stop-reason stopped]} (run-arming root {})]
+          (let [{:keys [stop-reason stopped]} (run-guarded root {})]
             (is (= :restore-error stop-reason))
             (is (str/starts-with? stopped "restoring step failed"))))))))
 
@@ -396,8 +399,8 @@
           (let [release @(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'release)]
             (try
               (let [{:keys [stop-reason stopped]}
-                    (run-arming root {:timeout-ms 200
-                                      :mutants (cache/with-ids (:selected (forms/scope done-source {})))})]
+                    (run-guarded root {:timeout-ms 200
+                                       :mutants (cache/with-ids (:selected (forms/scope done-source {})))})]
                 (is (= :files-changed stop-reason))
                 (is (str/includes? stopped "  added note.txt\n"))
                 (is (str/includes? stopped "\nIts tests also still run after the timeout, and would disturb every later run.")))

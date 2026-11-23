@@ -61,11 +61,13 @@ runs instead of the selected ones are in the "Mutation testing" section of [`CLA
 The run also looks at the files and folders under the directory it runs from, after each planted bug that loaded. It
 skips `.git/`, the cache folder, and what editors and tools write, such as `.lsp/`, `.idea/`, `*.swp` and `.DS_Store`.
 When a file or folder there is new, changed or deleted, the run stops, names the planted bug that just ran and up to 10
-paths, and exits 2. A file that the baseline, the first run of the tests before any planted bug, wrote stops the run
-only when its bytes change. Any other change stops the run too, also a file your editor saved during the run, so run
-again after it. The next run runs that planted bug again. The run does not undo the files. Delete or restore them, then
-make the test take its folder from `cljs-patrol.temp-dir`, which asks the JDK with `Files/createTempDirectory`, not from
-the code under test.
+paths, and exits 2. When the planted bug failed while it loaded, the stop names its loading: the top-level code of the
+target namespace wrote the files. A file that the baseline, the first run of the tests before any planted bug, wrote
+stops the run only when its bytes change. Any other change stops the run too, also a file your editor saved during the
+run, so run again after it. The next run runs that planted bug again. The run does not undo the files. Delete or restore
+them, then make the test take its folder from `cljs-patrol.temp-dir`, not from the code under test:
+`temp-dir/create-dir`, or `temp-dir/file-path` with the fixture `temp-dir/delete-created`. Both ask the JDK with
+`Files/createTempDirectory`.
 
 ## Read the report
 

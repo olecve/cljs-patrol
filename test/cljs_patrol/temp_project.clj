@@ -2,6 +2,7 @@
   "A project written to a temporary directory, for tests that run the whole analysis."
   (:require
    [cljs-patrol.core :as core]
+   [cljs-patrol.temp-dir :as temp-dir]
    [clojure.java.io :as io]))
 
 (defn run-group
@@ -9,7 +10,7 @@
 
   Return {:results the group's results, :errors what the run wrote to stderr}."
   [rule-group files]
-  (let [dir (.toFile (java.nio.file.Files/createTempDirectory "cljs-patrol" (make-array java.nio.file.attribute.FileAttribute 0)))
+  (let [dir (io/file (temp-dir/create-dir "cljs-patrol"))
         errors (java.io.StringWriter.)]
     (try
       (doseq [[path source] files]
@@ -20,5 +21,4 @@
                   (-> (core/run (str dir) [rule-group]) :group-results first))
        :errors (str errors)}
       (finally
-        (doseq [file (reverse (file-seq dir))]
-          (.delete file))))))
+        (temp-dir/delete-dir! dir)))))

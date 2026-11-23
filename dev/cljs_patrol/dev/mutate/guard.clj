@@ -17,27 +17,21 @@
 (def tool-files
   "What editors, IDEs, linters and the Clojure CLI write while a run goes on, which a snapshot leaves out.
 
-  :folders are relative to the working directory. The other keys match the name of a file or
-  folder at any depth: the swap files of Vim (`*.swp`, `*.swo`, and `4913`, which Vim writes to
-  test that it may write a folder), the locks (`.#*`) and auto-saves (`#*#`) of Emacs, the
-  backups of several editors (`*~`), the folder files of macOS (`.DS_Store`), and the port file
-  of nREPL."
-  {:folders #{".lsp" ".clj-kondo" ".cpcache" ".shadow-cljs" ".idea" ".calva"}
-   :names #{"4913" ".DS_Store" ".nrepl-port"}
-   :prefix ".#"
-   :suffixes [".swp" ".swo" "~"]
-   :enclosed-by "#"})
+  :folders are relative to the working directory. :names match the name of a file or folder at
+  any depth: the swap files of Vim (`*.swp`, `*.swo`, and `4913`, which Vim writes to test that
+  it may write a folder), the locks (`.#*`) and auto-saves (`#*#`) of Emacs, the backups of
+  several editors (`*~`), the folder files of macOS (`.DS_Store`), and the port file of nREPL."
+  {:folders #{".lsp" ".clj-kondo/.cache" ".cpcache" ".shadow-cljs" ".idea" ".calva"}
+   :names [#"\.sw[po]$" #"^4913$" #"^\.#" #"^#.*#$" #"~$" #"^\.DS_Store$" #"^\.nrepl-port$"]})
+
+(def ^:private new-kondo-folder
+  "The folder that clj-kondo makes when it first lints the project, which counts as no change while the reference has none."
+  ".clj-kondo/")
 
 (defn tool-file?
   "True when `file-name` is the name of a file or folder that editors and tools write, at any depth."
   [file-name]
-  (let [{:keys [names prefix suffixes enclosed-by]} tool-files]
-    (boolean (or (contains? names file-name)
-                 (str/starts-with? file-name prefix)
-                 (some #(str/ends-with? file-name %) suffixes)
-                 (and (< (count enclosed-by) (count file-name))
-                      (str/starts-with? file-name enclosed-by)
-                      (str/ends-with? file-name enclosed-by))))))
+  (boolean (some #(re-find % file-name) (:names tool-files))))
 
 (def ^:private no-follow (into-array LinkOption [LinkOption/NOFOLLOW_LINKS]))
 
@@ -151,10 +145,14 @@
 
   The reference is the last snapshot with no change, which is the one after the baseline at
   first. When nothing changed, the new snapshot becomes the reference, so a file that the
-  baseline wrote and a test wrote again with the same bytes is not hashed again."
+  baseline wrote and a test wrote again with the same bytes is not hashed again. A `.clj-kondo/`
+  folder that the reference does not have counts as no change, since clj-kondo makes it when it
+  first lints the project; once the reference has it, its files count."
   [{:keys [root skipped files hashes]}]
   (let [now (snapshot root skipped)
-        changed (changes root @files now hashes)]
+        changed (cond->> (changes root @files now hashes)
+                  (not (contains? @files new-kondo-folder))
+                  (remove #(str/starts-with? (first %) new-kondo-folder)))]
     (if (seq changed)
       changed
       (do (reset! files now)

@@ -329,24 +329,27 @@
    :stopped (str (if at-load? "loading the mutant " "the tests of the mutant ") id " changed files in "
                  (guard/folder-name root)
                  ", and the runner did not undo them:\n" (guard/describe changed hashes)
-                 "\nDelete or restore them, and make the test take its folder from the JDK, such as"
-                 " Files/createTempDirectory, not from the code under test."
+                 (if at-load?
+                   (str "\nThe top-level code of the target namespace wrote them while the mutant loaded. Delete or"
+                        " restore them.")
+                   (str "\nDelete or restore them, and make the test take its folder from the JDK, such as"
+                        " Files/createTempDirectory, not from the code under test."))
                  (when stuck
                    "\nIts tests also still run after the timeout, and would disturb every later run.")
                  (when restore-error
                    (str "\nAlso, restoring " (:def result) " failed, so the namespace stays mutated: " restore-error)))})
 
 (defn run-all
-  "Run each mutant in turn, and stop at the first whose tests keep looping, whose restore fails, or whose tests change a file.
+  "Run each mutant in turn, and stop at the first whose tests keep looping, whose restore fails, or that changes a file.
 
   The context's :on-result, when given, gets each result as soon as it is known, also the one
   the run stops at, but not one that changed a file. A run that stops says why as
   :stop-reason: :plan-stuck, when the tests of a definition keep running without a mutation,
   :stuck, when those of a mutant do, :restore-error, or :files-changed, when the snapshot of
-  the context's :guard after a mutant that loaded differs from the one after the baseline. A
-  mutant that changed a file gets no outcome, and the context's :on-forget, when given, gets
-  its id, so the cache drops what it held of it and the next run runs it again. It is not
-  listed as unreached."
+  the context's :guard after a mutant that loaded differs from the reference, the last
+  snapshot with no change. A mutant that changed a file gets no outcome, and the context's
+  :on-forget, when given, gets the mutant, so the cache drops what it held of it and the next
+  run runs it again. It is not listed as unreached."
   [{:keys [guard]
     :as context}
    selected]
@@ -368,7 +371,7 @@
 
           changed
           (do (when-let [on-forget (:on-forget context)]
-                (on-forget (:id mutant)))
+                (on-forget mutant))
               (assoc (files-changed-stop guard result changed)
                      :results results
                      :unreached more))

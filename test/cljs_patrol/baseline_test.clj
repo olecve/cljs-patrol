@@ -477,11 +477,8 @@
   (testing "creates parent directories"
     (let [dir (temp-dir/file-path "missing")
           path (fs/join-path (fs/join-path dir "sub") "baseline.edn")]
-      (try
-        (baseline/write-baseline path test-issues)
-        (is (fs/file-exists? path))
-        (finally
-          (fs/delete-tree! dir)))))
+      (baseline/write-baseline path test-issues)
+      (is (fs/file-exists? path))))
 
   (testing "summary counts totals and rule->total (sorted, deterministic)"
     (let [path (tmp-baseline-path)]
@@ -691,25 +688,19 @@
 (deftest read-config-test
   (testing "malformed config surfaces a stderr warning and returns {}"
     (let [path (temp-dir/file-path "config.edn")]
-      (try
-        (spit path "{:unclosed")
-        (with-redefs [baseline/default-config-path path]
-          (let [err (java.io.StringWriter.)]
-            (binding [*err* err]
-              (is (= {} (baseline/read-config))))
-            (is (re-find #"could not parse" (str err))
-                "warning surfaces on stderr")))
-        (finally
-          (fs/delete-tree! path)))))
+      (spit path "{:unclosed")
+      (with-redefs [baseline/default-config-path path]
+        (let [err (java.io.StringWriter.)]
+          (binding [*err* err]
+            (is (= {} (baseline/read-config))))
+          (is (re-find #"could not parse" (str err))
+              "warning surfaces on stderr")))))
 
   (testing "valid config parses through"
     (let [path (temp-dir/file-path "config.edn")]
-      (try
-        (spit path "{:foo 1}")
-        (with-redefs [baseline/default-config-path path]
-          (is (= {:foo 1} (baseline/read-config))))
-        (finally
-          (fs/delete-tree! path))))))
+      (spit path "{:foo 1}")
+      (with-redefs [baseline/default-config-path path]
+        (is (= {:foo 1} (baseline/read-config)))))))
 
 (def ^:private defaults
   {:baseline-path nil

@@ -5,14 +5,12 @@
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
+   [cljs-patrol.temp-dir :as temp-dir]
    [cljs-patrol.temp-project :as temp-project]
    [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
-   [rewrite-clj.zip :as z])
-  (:import
-   (java.io
-    File)))
+   [rewrite-clj.zip :as z]))
 
 (deftest resolve-kw-test
   (testing "plain keyword"
@@ -148,7 +146,7 @@
                         nil)})))
 
 (deftest analyze-file-gives-each-file-own-memo
-  (let [dir (.toFile (java.nio.file.Files/createTempDirectory "cljs-patrol" (make-array java.nio.file.attribute.FileAttribute 0)))
+  (let [dir (io/file (temp-dir/create-dir "cljs-patrol"))
         styles (io/file dir "styles.cljs")
         views (io/file dir "views.cljs")
         seen (atom [])
@@ -170,8 +168,7 @@
         (is (nil? parser/*file-memo*)
             "memo unbound after file"))
       (finally
-        (doseq [file (reverse (file-seq dir))]
-          (.delete ^File file))))))
+        (temp-dir/delete-dir! dir)))))
 
 (defn- file-probe
   "Build a group whose file handler calls `on-file` with the file's path and declares the file."
@@ -198,14 +195,13 @@
 (defn- with-project
   "Write `sources`, a map of file name to source, to a temporary directory and call `f` with it and its files in walk order."
   [sources f]
-  (let [dir (.toFile (java.nio.file.Files/createTempDirectory "cljs-patrol" (make-array java.nio.file.attribute.FileAttribute 0)))]
+  (let [dir (io/file (temp-dir/create-dir "cljs-patrol"))]
     (try
       (doseq [[file-name source] sources]
         (spit (io/file dir file-name) source))
       (f (str dir) (fs/list-source-files (str dir) #{".cljs"}))
       (finally
-        (doseq [file (reverse (file-seq dir))]
-          (.delete ^File file))))))
+        (temp-dir/delete-dir! dir)))))
 
 (def ^:private four-files
   {"a.cljs" "(ns a)"

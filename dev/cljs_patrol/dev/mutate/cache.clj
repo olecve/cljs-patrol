@@ -215,20 +215,25 @@
         (warn (str "the cache " file " could not be read, so the run does not use it; its first outcome replaces it: "
                    (ex-message e)))))))
 
-(defn- write!
-  "Write what the store holds to its file, with `last-run` as the last run's outcomes, unless an earlier write failed.
+(defn- write-file!
+  "Write `data` to the path in the atom `file`, unless an earlier write failed and left it nil.
 
   A write that fails prints one warning, and the run goes on without the cache."
-  [{:keys [file entry]} last-run]
+  [file data]
   (when-let [path @file]
     (try
       (io/make-parents path)
       (apply/write-whole path (binding [*print-length* nil
                                         *print-level* nil]
-                                (pr-str (assoc @entry :last-run last-run))))
+                                (pr-str data)))
       (catch Exception e
         (warn (str "the cache " path " could not be written, so the run goes on without it: " (ex-message e)))
         (reset! file nil)))))
+
+(defn- write!
+  "Write what the store holds to its file, with `last-run` as the last run's outcomes, unless an earlier write failed."
+  [{:keys [file entry]} last-run]
+  (write-file! file (assoc @entry :last-run last-run)))
 
 (def ^:private gap-outcomes
   "The outcomes, as the report names them, that are test gaps."
@@ -401,16 +406,19 @@
   (write! store previous))
 
 (defn forget!
-  "Drop the outcome that the cache holds of the mutant named `id`, and write it, so the next run runs that mutant again.
+  "Drop each outcome of `mutant` from the store and from its file, so the next run runs that mutant again.
 
-  With no outcome of it, the file stays as it is, so a run that starts over keeps the last
-  cache when it stops at its first mutant."
-  [{:keys [entry previous]
-    :as store}
-   id]
-  (when (contains? (:results @entry) id)
-    (swap! entry update :results dissoc id)
-    (write! store previous)))
+  An outcome is the mutant's when its id or its place, which --iterate matches, is the
+  mutant's. The file keeps every other outcome and its key as they were, also in a run with
+  --fresh or one that starts over, whose store holds none of the file's outcomes. When the file
+  holds no outcome of the mutant, or cannot be read, nothing is written."
+  [{:keys [entry file]} {:keys [id place]}]
+  (let [held? (fn [[result-id result]] (or (= id result-id) (= place (:place result))))
+        on-disk (when-let [path @file]
+                  (try (edn/read-string (slurp path)) (catch Exception _ nil)))]
+    (swap! entry update :results #(into {} (remove held?) %))
+    (when (and (map? (:results on-disk)) (some held? (:results on-disk)))
+      (write-file! file (update on-disk :results #(into {} (remove held?) %))))))
 
 (defn finish!
   "Record `last-run`, the outcomes by place that the run reported, as the last run, and the test `plans` the report used.

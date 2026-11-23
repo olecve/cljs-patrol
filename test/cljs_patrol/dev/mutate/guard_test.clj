@@ -27,9 +27,9 @@
 (deftest skipped-dirs-name-root-git-tool-caches-and-cache-folder
   (fixtures/with-temp-dir
     (fn [dir]
-      (is (= #{".git" ".lsp" ".clj-kondo" ".cpcache" ".shadow-cljs" ".idea" ".calva" "cache/runs"}
+      (is (= #{".git" ".lsp" ".clj-kondo/.cache" ".cpcache" ".shadow-cljs" ".idea" ".calva" "cache/runs"}
              (guard/skipped-dirs dir (io/file dir "cache/runs"))))
-      (is (= #{".git" ".lsp" ".clj-kondo" ".cpcache" ".shadow-cljs" ".idea" ".calva"}
+      (is (= #{".git" ".lsp" ".clj-kondo/.cache" ".cpcache" ".shadow-cljs" ".idea" ".calva"}
              (guard/skipped-dirs dir (.getParentFile dir)))
           "cache folder outside root is no part of snapshot")
       (is (= (guard/skipped-dirs dir nil) (guard/skipped-dirs dir dir))
@@ -49,9 +49,9 @@
         (write! dir path "(ns a)"))
       (.mkdir (io/file dir "empty"))
       (let [snapshot (guard/snapshot dir (guard/skipped-dirs dir (io/file dir "runs")))]
-        (is (= #{"src/" "src/a.clj" "sub/" "sub/.git/" "sub/.git/HEAD" "empty/"}
+        (is (= #{"src/" "src/a.clj" ".clj-kondo/" ".clj-kondo/config.edn" "sub/" "sub/.git/" "sub/.git/HEAD" "empty/"}
                (set (keys snapshot)))
-            "only root .git is skipped, all of .clj-kondo, so a new one stops no run, and files of tools")
+            "only root .git is skipped, only cache of .clj-kondo, and files of tools")
         (is (= :folder (get snapshot "empty/"))
             "empty folder counts")
         (is (= 6 (first (get snapshot "src/a.clj")))
@@ -208,3 +208,17 @@
 (deftest describe-lists-files-before-folders
   (is (= "  added a.txt\n  added z.txt\n  added a/\n  deleted b/"
          (guard/describe [["a/" :added] ["a.txt" :added] ["b/" :deleted] ["z.txt" :added]] {}))))
+
+(deftest look-counts-no-new-clj-kondo-folder-but-guards-existing-one
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (let [skipped (guard/skipped-dirs dir nil)
+            snapshot (guard/snapshot dir skipped)
+            file-guard (guard/start dir skipped snapshot snapshot)]
+        (write! dir ".clj-kondo/.cache/v1/x.transit.json" "x")
+        (write! dir ".clj-kondo/imports/lib/config.edn" "{}")
+        (is (nil? (guard/look file-guard))
+            "clj-kondo made its folder while run went on")
+        (write! dir ".clj-kondo/config.edn" "{}")
+        (is (= [[".clj-kondo/config.edn" :added]] (guard/look file-guard))
+            "folder is in reference now, so its files count")))))

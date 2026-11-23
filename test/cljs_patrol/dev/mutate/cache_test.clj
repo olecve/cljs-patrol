@@ -788,19 +788,47 @@
     (cache/record! store (outcome "f/1" "p1") {} nil)
     (is (true? @(:recorded? store)))))
 
-(deftest forget-drops-outcome-of-one-mutant-and-writes-cache
+(deftest forget-drops-outcome-of-one-mutant-from-store-and-file
   (with-old-cache
     (fn [file]
       (let [store (open file {:make-key (key-of "s1")})]
-        (cache/forget! store "f/1:2/if->if-not")
+        (cache/forget! store (mutant "f/1:2/if->if-not" "p2"))
         (is (= (dissoc old-results "f/1:2/if->if-not") (:results (read-cache file))))
         (is (= (dissoc old-results "f/1:2/if->if-not") (:results @(:entry store))))))))
 
-(deftest forget-of-mutant-cache-does-not-hold-leaves-file-alone
+(deftest forget-in-fresh-run-drops-outcome-from-file-and-keeps-rest
+  (with-old-cache
+    (fn [file]
+      (let [before (read-cache file)
+            store (open file {:make-key (key-of "s1")
+                              :fresh true})]
+        (cache/forget! store (mutant "f/1:1/when->when-not" "p1"))
+        (is (= (update before :results dissoc "f/1:1/when->when-not") (read-cache file))
+            "stale outcome on disk goes, the rest stays as it was")
+        (is (= :resume (:mode (open file {:make-key (key-of "s1")}))))
+        (is (not (contains? (:results @(:entry (open file {:make-key (key-of "s1")}))) "f/1:1/when->when-not"))
+            "next run runs mutant again")))))
+
+(deftest forget-after-start-over-drops-outcome-by-place-for-iterate
+  (with-old-cache
+    (fn [file]
+      (let [store (open file {:make-key (key-of "s2")})]
+        (cache/forget! store (mutant "f/9:1/when->when-not" "p1"))
+        (is (not-any? #(= "p1" (:place %)) (-> file read-cache :results vals))
+            "old id differs, but place is the same")
+        (is (not (contains? (:results @(:entry (open file {:make-key (key-of "s2")
+                                                           :current-places (constantly {"p1" "f/9:1/when->when-not"})
+                                                           :iterate true})))
+                            "f/9:1/when->when-not"))
+            "--iterate has no outcome left to reuse")))))
+
+(deftest forget-of-mutant-file-does-not-hold-leaves-file-alone
   (with-old-cache
     (fn [file]
       (let [before (slurp file)
             store (open file {:make-key (key-of "s2")})]
-        (cache/forget! store "f/1:1/when->when-not")
-        (is (= before (slurp file))
-            "run that starts over and stops at its first mutant keeps last cache")))))
+        (.setLastModified file 1000000)
+        (cache/forget! store (mutant "g/1:1/when->when-not" "q1"))
+        (is (= before (slurp file)))
+        (is (= 1000000 (.lastModified file))
+            "nothing written")))))

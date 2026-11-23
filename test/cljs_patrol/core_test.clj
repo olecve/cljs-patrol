@@ -67,19 +67,16 @@
         identities (baseline/collect-identities run-results)
         dir (temp-dir/file-path "missing")
         path (fs/join-path dir "baseline.edn")]
-    (try
-      (baseline/write-baseline path identities)
-      (is (fs/file-exists? path)
-          "baseline file created")
-      (let [{:keys [ok]} (baseline/read-baseline path)]
-        (is (set? ok)
-            "reads back as a set")
-        (is (pos? (count ok))
-            "contains issues from fixture project")
-        (is (every? :rule ok)
-            "every identity has a :rule"))
-      (finally
-        (fs/delete-tree! dir)))))
+    (baseline/write-baseline path identities)
+    (is (fs/file-exists? path)
+        "baseline file created")
+    (let [{:keys [ok]} (baseline/read-baseline path)]
+      (is (set? ok)
+          "reads back as a set")
+      (is (pos? (count ok))
+          "contains issues from fixture project")
+      (is (every? :rule ok)
+          "every identity has a :rule"))))
 
 (deftest baseline-write-refusal-test
   (let [kept {:rule :unused-subs
