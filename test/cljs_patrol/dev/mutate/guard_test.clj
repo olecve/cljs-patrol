@@ -4,6 +4,7 @@
    [cljs-patrol.dev.mutate.git :as git]
    [cljs-patrol.dev.mutate.guard :as guard]
    [clojure.java.io :as io]
+   [clojure.java.shell :as shell]
    [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
 
@@ -343,12 +344,17 @@
   (fixtures/with-temp-dir
     (fn [repo]
       (fixtures/git-repo! repo "build/")
-      (let [dir (io/file repo "build" "x")
+      (fixtures/write! repo "build/tracked.clj" "x")
+      (shell/sh "git" "-C" (str repo) "add" "-f" "build/tracked.clj")
+      (let [dir (io/file repo "build")
             ignored (git/ignored-paths dir)
             skipped (guard/with-ignored (guard/skipped-dirs dir nil) ignored)
             snapshot (guard/snapshot dir skipped)
             file-guard (guard/start dir skipped snapshot snapshot (some? ignored))]
-        (is (nil? ignored))
+        (is (nil? ignored)
+            "git ignores dir")
+        (is (= #{} (git/ignored-paths repo))
+            "git works in repo, and build/ holds tracked file")
         (fixtures/write! dir "kept.clj" "x")
         (is (= [["kept.clj" :added]] (guard/look file-guard))
             "git calls every new path here ignored")))))
