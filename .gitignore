@@ -8,3 +8,5 @@ out
 
 node_modules/
 .mutate-applied.edn
+.mutate-cache/
+.DS_Store

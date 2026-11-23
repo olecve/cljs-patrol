@@ -102,6 +102,43 @@ that text back exactly. A second `--apply`, or a run, waits for `--restore`. `--
 changed after the apply, and only clears the kept text when you already put the file back by hand. Each gap the tests
 ran has its command on the page; code no test calls has none, since no test can fail on it yet.
 
+## Run again
+
+Each run writes the outcomes to `.mutate-cache/<target-ns>.edn` after each planted bug. The next run of the same code
+reuses them:
+
+- **Resume.** A run that stopped early, or was killed, goes on where it ended. A planted bug whose tests kept running
+  runs again last, after every other one: if it loops again, the run stops there with nothing else lost. A function
+  whose tests keep running without any planted bug stops every run at the same place, until you fix those tests. `-d`
+  and `-s` runs share the cache with a full run.
+- **No change, no tests.** When every planted bug in scope is cached, the run reads the cache and runs no test. A plain
+  timeout is reused too; run with `--fresh` to give it another try.
+- **`--iterate`.** After you add tests or change code, run with `--iterate`: it keeps the caught planted bugs, and those
+  that did not compile, of each function whose text did not change, and runs the others, such as the gaps, the timeouts
+  and every planted bug of a function you edited. It says how many it kept. It trusts that those are still caught, so
+  run once without it before a merge: that run checks them again.
+- **`--fresh`.** Runs every planted bug again and replaces the cache. It keeps the last run for the progress marks.
+
+Run one runner at a time on a target: each run writes the whole cache, so the last write wins.
+
+A plain run reuses an outcome only when nothing changed in `src/`, `test/`, `dev/`, `resources/`, `test-projects/`,
+`docs/`, `deps.edn`, `README.md` or the classpath directories of the project, in the `-t` namespaces, in the runner, or
+in `-a` and `--timeout`. A file that git ignores, such as `.DS_Store`, does not count, but a run outside git, or where
+git lists no file, hashes every file, ignored ones included. A target that is part of the runner, such as the parser,
+makes `--iterate` start over after each edit. A run that reports no outcome, such as one whose tests fail before any
+mutation, leaves the cache as it was. A cache that cannot be read is not used, and the run's first outcome replaces it.
+Each run tags each gap that the last run that printed its report also had as new or still open, on the console and the
+page, also after you edit other functions, and counts the gaps closed since:
+
+```text
+Since the last run: 1 gap closed, 0 new, 3 still open.
+  Closed: holds-focus?/490:43/remove->filter
+```
+
+The name of each planted bug, its `:id` in the cache and in the `-r` report, is its function, its line and column, and
+its swap, such as `holds-focus?/490:43/remove->filter`. The cache also keeps a separate `:place`: the hash of the whole
+top-level definition's text, the line and column inside it, and the swap, which `--iterate` and the progress marks use.
+
 ## Skip a harmless planted bug
 
 When a planted bug behaves the same as the original in every case, no test can catch it. Mark it once with the operator
@@ -152,6 +189,9 @@ Each choice below has a record in [`docs/adr/`](adr/README.md) with the options 
   console.
 - **A body replaced by `nil`** ([ADR 0009](adr/0009-mutation-test-replace-a-body-with-nil.md)). A function with no
   operator and no number gives no swap, so one more mutant per arity shows a function that no test checks at all.
+- **A cache that only trusts unchanged sources** ([ADR 0010](adr/0010-mutation-test-cache-and-resume.md)). A run reuses
+  an outcome only when the source files, the runner and the options are the same as in the last run, so a reused outcome
+  is the one a new run would give. `--iterate` trusts caught outcomes after a change, for the work of adding tests.
 
 ## Words
 

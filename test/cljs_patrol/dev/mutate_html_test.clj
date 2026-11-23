@@ -408,3 +408,50 @@
                                   {:source "(ns app.core)\n(defn flat [x]\n(inc x))\n"})
                             "<div class=\"code\">" "</pre>")
                      "<span class=\"from\">(inc x)</span>)\n")))
+
+(deftest page-tags-gaps-against-last-run
+  (let [html (page (summary [(mutant "label" 5 6 "if" "if-not" :survived :since-last-run :new)
+                             (mutant "label" 5 10 "pos?" "neg?" :survived :since-last-run :still-open)
+                             (mutant "unused" 8 19 "when" "when-not" :no-coverage :since-last-run :new)]
+                            :progress {:closed ["label/7:8/first->last"]
+                                       :new 2
+                                       :still-open 1
+                                       :not-run-before 0}))
+        text (text-of html)]
+    (is (str/includes? text "if to if-not New since the last run , pos? to neg? Still open line 5")
+        "each swap tagged")
+    (is (str/includes? text "unused never run New since the last run"))
+    (is (str/includes? text "label : 2 gaps, line 5 (new)"))
+    (is (str/includes? text "Since the last run: 1 gap closed, 2 new, 1 still open: label/7:8/first-&gt;last ."))))
+
+(deftest page-tags-nothing-without-last-run
+  (let [text (-> mutants summary page text-of)]
+    (is (not (str/includes? text "(new)")))
+    (is (not (str/includes? text "New since")))
+    (is (not (str/includes? text "Since the last run")))))
+
+(deftest page-lists-no-closed-gaps-when-none-closed
+  (let [text (text-of (page (summary [(mutant "label" 5 6 "if" "if-not" :survived :since-last-run :still-open)
+                                      (mutant "unused" 8 19 "when" "when-not" :no-coverage :since-last-run :still-open)]
+                                     :progress {:closed []
+                                                :new 0
+                                                :still-open 2
+                                                :not-run-before 0})))]
+    (is (str/includes? text "Since the last run: 0 gaps closed, 0 new, 2 still open."))
+    (is (str/includes? (text-of (page (summary [(first mutants)]
+                                               :progress {:closed []
+                                                          :new 0
+                                                          :still-open 0
+                                                          :not-run-before 3})))
+                       "Since the last run: 0 gaps closed, 0 new, 0 still open, 3 not run then."))
+    (is (str/includes? text "label : 1 gap, line 5 unused"))
+    (is (not (str/includes? text "(new)")))
+    (is (not (str/includes? text "never run New")))))
+
+(deftest never-run-card-shows-still-open-tag
+  (let [html (page (summary [(mutant "unused" 8 19 "when" "when-not" :no-coverage :since-last-run :still-open)]
+                            :progress {:closed []
+                                       :new 0
+                                       :still-open 1
+                                       :not-run-before 0}))]
+    (is (str/includes? (text-of html) "unused never run Still open"))))

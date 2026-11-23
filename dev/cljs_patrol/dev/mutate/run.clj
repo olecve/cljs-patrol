@@ -207,6 +207,37 @@
     (or (get @plans def-name)
         (get (swap! plans assoc def-name (decide)) def-name))))
 
+(defn recorded-plans
+  "Return, for the report, the tests that the coverage pass `covered` saw call each of `def-names`.
+
+  It does not run the tests again, so it does not check that the tests that call a definition
+  pass on their own. A definition the pass could not record, or that something called outside
+  a test, gets every test. So does each one when selection is off (`select?` false), when a test
+  namespace has a `test-ns-hook`, or when every test called it. One that no test called gets
+  none, and so does each one when no baseline ran."
+  [{:keys [tests recorded reached-outside hooked? test-count]
+    :as covered}
+   def-names
+   select?]
+  (into {}
+        (keep (fn [def-name]
+                (let [def-tests (get tests def-name)]
+                  (when covered
+                    (cond
+                      (or (not (contains? recorded def-name)) (contains? reached-outside def-name))
+                      [def-name {:kind :every}]
+
+                      (empty? def-tests)
+                      nil
+
+                      (or hooked? (not select?) (= test-count (count def-tests)))
+                      [def-name {:kind :every}]
+
+                      :else
+                      [def-name {:kind :subset
+                                 :tests def-tests}])))))
+        def-names))
+
 (defn- run-mutant
   "Apply a mutant, run the tests, restore the namespace, and return the mutant with its :outcome.
 
@@ -283,7 +314,12 @@
                                                (:output plain-run)))))))))
 
 (defn run-all
-  "Run each mutant in turn, stopping at the first test run that keeps looping or the first restore that fails."
+  "Run each mutant in turn, stopping at the first test run that keeps looping or the first restore that fails.
+
+  The context's :on-result, when given, gets each result as soon as it is known, also the one
+  the run stops at. A run that stops says why as :stop-reason: :plan-stuck, when the tests of a
+  definition keep running without a mutation, :stuck, when those of a mutant do, or
+  :restore-error."
   [context selected]
   (loop [[mutant & more] selected
          results []]
@@ -294,19 +330,24 @@
         (if plan-stuck?
           {:results results
            :unreached (cons mutant more)
+           :stop-reason :plan-stuck
            :stopped (str "the tests that call " (:def mutant) " keep running past the timeout without any mutation,"
                          " and would disturb every later run. Fix them, or raise --timeout.")}
           (let [results (conj results result)]
+            (when-let [on-result (:on-result context)]
+              (on-result result))
             (print (case (:outcome result) :passed "S" :no-coverage "N" :failed "." :unviable "U" :timeout "T"))
             (flush)
             (cond
               stuck? {:results results
                       :unreached more
+                      :stop-reason :stuck
                       :stopped (str "the tests of the mutant at " (:row result) ":" (:col result) " " (:from result)
                                     " still run after the timeout, and would disturb every later run. Fix the loop,"
                                     " or raise --timeout.")}
               restore-error {:results results
                              :unreached more
+                             :stop-reason :restore-error
                              :stopped (str "restoring " (:def result) " failed, so the namespace stays mutated: "
                                            restore-error)}
               :else (recur more results))))))))

@@ -93,6 +93,13 @@
 
 (defn- swap-pair [{:keys [from to]}] #{from to})
 
+(def ^:private progress-tags
+  "How the page tags a gap against the last run."
+  {:new "New since the last run"
+   :still-open "Still open"})
+
+(defn- any-new? [gaps] (some #(= :new (:since-last-run %)) gaps))
+
 (defn- hint
   "Return the likely reason a test misses `mutant`, by the operators it swaps, or nil when there is none."
   [{:keys [swap]
@@ -196,7 +203,9 @@
 (defn- gap-section [lines target row mutants]
   [:div {:class "gap"}
    [:div {:class "gap-head"}
-    [:strong (interpose ", " (for [{:keys [from to]} mutants] (list [:code from] " to " [:code to])))]
+    [:strong (interpose ", " (for [{:keys [from to since-last-run]} mutants]
+                               (list [:code from] " to " [:code to]
+                                     (when since-last-run [:span {:class "tag"} (progress-tags since-last-run)]))))]
     [:a {:href (str "#L" row)} (str "line " row)]
     (when (some (comp maybe-harmless swap-pair) mutants) [:span {:class "tag"} "May be harmless"])]
    (code-block lines row mutants)
@@ -221,7 +230,9 @@
   (if (never-run? gaps)
     [:article {:class "fn unrun"
                :id anchor}
-     [:div {:class "fn-head"} [:h3 [:code function]] [:span {:class "count"} "never run"]]
+     [:div {:class "fn-head"} [:h3 [:code function]] [:span {:class "count"} "never run"]
+      (when-let [tag (some (set (keep :since-last-run gaps)) [:new :still-open])]
+        [:span {:class "tag"} (progress-tags tag)])]
      [:p {:class "why"}
       (str "No test calls this function, so none of its " (plural (count gaps) "planted bug" "planted bugs") " on ")
       [:a {:href (str "#L" (apply min (map :row gaps)))} (line-range (map :row gaps))]
@@ -426,7 +437,18 @@
          [:tr [:td [:a {:href (str "#L" row)} (str "line " row)]] [:td [:code from] " to " [:code to]]
           [:td [:code function]] [:td reason]])]]]))
 
-(defn- header [{:keys [target file test-nss since]} {:keys [totals score stopped unreached note ignored]} cards]
+(defn- progress-line
+  "Say how the gaps changed since the last run, naming the closed ones, or nil when there was no last run."
+  [{:keys [closed]
+    :as progress}]
+  (when progress
+    [:p {:class "lead"}
+     (report/progress-sentence progress)
+     (if (seq closed)
+       (list ": " (interpose ", " (map (fn [id] [:code id]) closed)) ".")
+       ".")]))
+
+(defn- header [{:keys [target file test-nss since]} {:keys [totals score stopped unreached note ignored progress]} cards]
   (let [{:keys [killed survived no-coverage timeout unviable]} totals
         scored (+ killed survived no-coverage)
         gaps (+ survived no-coverage)]
@@ -454,12 +476,14 @@
                  (if (never-run? gaps)
                    ": no test calls it, "
                    (str ": " (plural (count gaps) "gap" "gaps") ", "))
-                 [:span {:class "where"} (line-range (map :row gaps))]])])
+                 [:span {:class "where"} (line-range (map :row gaps))]
+                 (when (any-new? gaps) " (new)")])])
        [:p {:class "lead"} (if (pos? (:mutants totals))
                              "No test gaps: every planted bug the tests ran made a test fail."
                              (if (seq ignored)
                                "No planted bugs ran: a skip marker left out every one in scope."
                                "No planted bugs: nothing in scope could be changed."))])
+     (progress-line progress)
      (let [counts (remove (comp zero? first) [[no-coverage "Never run (no test calls this code)"]
                                               [timeout "Timed out (left out of the score)"]
                                               [unviable "Did not compile (left out of the score)"]

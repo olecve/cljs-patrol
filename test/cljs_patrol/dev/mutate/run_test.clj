@@ -203,7 +203,7 @@
             source (str "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
                         "(defn done? [] true)\n")]
         (try
-          (let [{:keys [stopped unreached]}
+          (let [{:keys [stopped unreached stop-reason]}
                 (binding [*out* (java.io.StringWriter.)]
                   (run/run-all {:target 'cljs-patrol.dev.mutate.fixtures.target
                                 :file "target.clj"
@@ -215,6 +215,61 @@
                                (:selected (forms/scope source {}))))]
             (is (str/starts-with? stopped "the tests of the mutant at 2:16 body still run after the timeout")
                 "message names position and operator")
+            (is (= :stuck stop-reason))
             (is (= ["true"] (map :from unreached))
                 "later mutant at same position left unreached"))
           (finally (reset! release true)))))))
+
+(deftest run-all-stops-at-definition-whose-tests-loop-without-mutation
+  (fixtures/with-target (str fixtures/target-tests
+                             "(def release (atom false))\n"
+                             "(deftest spins (while (not @release)) (is true))\n")
+    (fn []
+      (let [release @(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'release)
+            spins (ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'spins)]
+        (try
+          (let [{:keys [stop-reason results unreached]}
+                (binding [*out* (java.io.StringWriter.)]
+                  (run/run-all {:target 'cljs-patrol.dev.mutate.fixtures.target
+                                :file "target.clj"
+                                :test-nss ['cljs-patrol.dev.mutate.fixtures.target-test]
+                                :timeout-ms 200
+                                :select? true
+                                :covered {:tests {"label" #{spins}}
+                                          :recorded #{"label"}
+                                          :test-count 2}
+                                :plans (atom {})}
+                               (filter #(= "label" (:def %)) (:selected (forms/scope fixtures/target-source {})))))]
+            (is (= :plan-stuck stop-reason))
+            (is (empty? results))
+            (is (= 2 (count unreached))))
+          (finally (reset! release true)))))))
+
+(deftest recorded-plans-name-tests-coverage-saw-call-each-definition
+  (let [covered {:tests {"a" #{#'clojure.core/inc}
+                         "b" #{}
+                         "c" #{#'clojure.core/inc}
+                         "e" #{#'clojure.core/inc}}
+                 :recorded #{"a" "b" "e" "f"}
+                 :reached-outside #{"e" "f"}
+                 :test-count 2}]
+    (is (= {"a" {:kind :subset
+                 :tests #{#'clojure.core/inc}}}
+           (run/recorded-plans covered ["a" "b"] true))
+        "no call gives no test list")
+    (is (= {"c" {:kind :every}
+            "d" {:kind :every}}
+           (run/recorded-plans covered ["c" "d"] true))
+        "definition pass could not record runs every test")
+    (is (= {"e" {:kind :every}
+            "f" {:kind :every}}
+           (run/recorded-plans covered ["e" "f"] true))
+        "call outside test runs every test, also with no test calling it")
+    (is (= {:kind :every} (get (run/recorded-plans covered ["a"] false) "a"))
+        "selection off")
+    (is (= {:kind :every} (get (run/recorded-plans (assoc covered :hooked? true) ["a"] true) "a"))
+        "test-ns-hook")
+    (is (= {:kind :every} (get (run/recorded-plans (assoc covered :test-count 1) ["a"] true) "a"))
+        "every test calls it"))
+  (is (= {} (run/recorded-plans nil ["a"] true))
+      "no baseline, no test lists"))
