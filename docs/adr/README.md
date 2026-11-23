@@ -15,7 +15,7 @@ Each record states one decision, the options that were considered, and the condi
 | [0009](0009-mutation-test-replace-a-body-with-nil.md)         | Replace A Function Body With Nil As A Mutant                 | Accepted                               | 2026-11-21 |
 | [0010](0010-mutation-test-cache-and-resume.md)                | Keep The Results Of A Mutation Run To Resume And Iterate     | Accepted                               | 2026-11-21 |
 | [0011](0011-mutation-test-stop-when-a-test-changes-a-file.md) | Stop A Mutation Run When A Test Changes A File               | Accepted, partially superseded by 0012 | 2026-11-23 |
-| [0012](0012-mutation-test-guard-skips-what-git-ignores.md)    | Skip What Git Ignores In The Mutation Test File Guard        | Proposed                               | 2026-11-23 |
+| [0012](0012-mutation-test-guard-skips-what-git-ignores.md)    | Skip What Git Ignores In The Mutation Test File Guard        | Accepted                               | 2026-11-23 |
 
 ## Format
 
@@ -39,4 +39,5 @@ Each record has these sections, in this order. The sections in parentheses are o
     pinned to a tag or a commit. A link to a file in the repository is a relative link.
 
 A record names no author. It is written in Simplified Technical English. A new record that replaces an old one says so
-in its Context, and the old record gets the status `Superseded by ADR NNNN`.
+in its Context, and the old record gets the status `Superseded by ADR NNNN`. When it replaces only a part, the old
+record keeps its status and adds `; partially superseded by ADR NNNN`.

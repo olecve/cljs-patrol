@@ -680,8 +680,9 @@
         (fixtures/with-target tests
           (fn []
             (let [cache-file (io/file root "runs" "target.edn")
-                  [{:keys [stopped totals]} output] (run-cached fixtures/target-source cache-file tests
-                                                                {:guard-root (str root)})]
+                  [{:keys [stopped totals]} output] (fixtures/outside-git root
+                                                                          #(run-cached fixtures/target-source cache-file tests
+                                                                                       {:guard-root (str root)}))]
               (is (nil? stopped)
                   "cache written after each mutant and git file written by tests do not stop run")
               (is (= 8 (:mutants totals)))

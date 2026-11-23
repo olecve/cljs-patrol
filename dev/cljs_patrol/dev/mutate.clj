@@ -67,7 +67,8 @@
         def-names (distinct (map :def selected))
         baseline? (and (seq selected) (or (seq to-run) (= :iterate (:mode store))))
         never-entered (when guard-root (guard/skipped-dirs guard-root (some-> cache :file io/file .getParentFile)))
-        before-baseline (when (and baseline? guard-root) (guard/snapshot guard-root never-entered))
+        before-baseline (when (and baseline? guard-root)
+                          (guard/snapshot guard-root (into never-entered (:folders guard/editor-files))))
         {:keys [ms covered note]} (when baseline?
                                     (run/baseline target def-names test-nss timeout))
         git-ignored (when before-baseline (git/ignored-paths guard-root))

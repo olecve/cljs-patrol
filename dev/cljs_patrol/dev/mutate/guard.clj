@@ -62,9 +62,10 @@
   (str/replace path #"/$" ""))
 
 (defn with-ignored
-  "Add to `skipped` the paths that git `ignored`, given as [[git/ignored-paths]] returns them, and the folders of editors.
+  "Add to `skipped` the paths that git ignores, `ignored`, and the folders of editors.
 
-  When `ignored` is nil, since git cannot tell, add the folders of build tools instead."
+  `ignored` holds paths relative to the root of the snapshot, and a folder ends with `/`. When
+  `ignored` is nil, since git cannot tell, add the folders of build tools instead."
   [skipped ignored]
   (into skipped
         (concat (:folders editor-files)
@@ -77,7 +78,7 @@
   [path]
   (butlast (reductions #(str %1 "/" %2) (str/split path #"/"))))
 
-(defn- holders
+(defn- holding-folders
   "Return the folders that hold a path of `skipped`."
   [skipped]
   (into #{} (mapcat parent-folders) skipped))
@@ -121,18 +122,12 @@
   tools write. A folder that holds a skipped path, such as `.clj-kondo/`, maps to nothing
   itself, since a tool can make it, but its other files count. A link is a file of its own, so
   the walk does not follow it. A file that is deleted while the walk goes on is left out."
-  [root skipped]
-  (let [path (root-path root)
-        files (java.util.HashMap.)]
-    (walk path skipped (holders skipped) path files)
-    (into {} files)))
-
-(defn- left-out?
-  "True when a snapshot with `skipped`, whose folders that hold a skipped path are `holders`, leaves out `path`."
-  [skipped holders path]
-  (let [folder (bare path)]
-    (boolean (or (some skipped (cons folder (parent-folders folder)))
-                 (and (str/ends-with? path "/") (contains? holders folder))))))
+  ([root skipped] (snapshot root skipped (holding-folders skipped)))
+  ([root skipped holders]
+   (let [path (root-path root)
+         files (java.util.HashMap.)]
+     (walk path skipped holders path files)
+     (into {} files))))
 
 (defn- content-hash
   "Hash the bytes of the file at `path` under `root`, or return nil when it cannot be read, such as a folder."
@@ -174,6 +169,7 @@
   [root skipped before after]
   {:root root
    :skipped (atom skipped)
+   :holders (atom (holding-folders skipped))
    :files (atom after)
    :hashes (into {}
                  (keep (fn [[path change]]
@@ -196,26 +192,22 @@
   The reference is the last snapshot with no change, which is the one after the baseline at
   first. When nothing changed, the new snapshot becomes the reference, so a file that the
   baseline wrote and a test wrote again with the same bytes is not hashed again. A new path that
-  git ignores is no change, and neither is a new folder that holds one: later snapshots skip
-  them too."
-  [{:keys [root skipped files hashes]}]
-  (let [now (snapshot root @skipped)
+  git ignores is no change, and neither is a new folder that holds one: the guard skips them,
+  drops the folders that now hold a skipped path from the reference, and looks again."
+  [{:keys [root skipped holders files hashes]
+    :as guard}]
+  (let [now (snapshot root @skipped @holders)
         changed (changes root @files now hashes)
-        ignored (when (seq changed)
+        ignored (when (some #(= :added (second %)) changed)
                   (newly-ignored root changed))]
-    (if (seq ignored)
-      (let [skipped-now (into @skipped ignored)
-            holders-now (holders skipped-now)
-            left (filterv #(not (left-out? skipped-now holders-now (first %))) changed)]
-        (if (seq left)
-          left
-          (do (reset! skipped skipped-now)
-              (reset! files (into {} (remove #(left-out? skipped-now holders-now (key %))) now))
-              nil)))
-      (if (seq changed)
-        changed
-        (do (reset! files now)
-            nil)))))
+    (cond
+      (seq ignored) (do (swap! skipped into ignored)
+                        (reset! holders (holding-folders @skipped))
+                        (swap! files #(apply dissoc % (map (fn [folder] (str folder "/")) (holding-folders ignored))))
+                        (look guard))
+      (seq changed) changed
+      :else (do (reset! files now)
+                nil))))
 
 (def ^:private listed-files 10)
 

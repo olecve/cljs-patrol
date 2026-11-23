@@ -32,16 +32,19 @@
   "Return the paths under `dir` that git ignores, relative to `dir`, or nil when git cannot tell, such as outside git.
 
   A folder that an ignore rule matches is one path, with a `/` at the end, and its files are not
-  listed. A folder that no rule matches is not listed, but its ignored files are."
+  listed. A folder that no rule matches is not listed, but its ignored files are. When git
+  ignores `dir` itself, or a folder above it, git cannot tell either, since every path under
+  `dir` is ignored."
   [dir]
   (try
     (let [under (str/trim (:out (git (str dir) "rev-parse" "--show-prefix")))
           status (git (str dir) "--no-optional-locks" "status" "--porcelain=v1" "-z" "--ignored=matching"
-                      "--untracked-files=normal" "--no-renames" "--" ".")]
-      (when (zero? (:exit status))
-        (->> (nul-separated (:out status))
-             (keep #(when (str/starts-with? % (str "!! " under))
-                      (subs % (+ 3 (count under)))))
+                      "--untracked-files=normal" "--no-renames" "--" ".")
+          ignored (->> (nul-separated (:out status))
+                       (keep #(when (str/starts-with? % "!! ") (subs % 3))))]
+      (when (and (zero? (:exit status)) (not-any? #(str/starts-with? under %) ignored))
+        (->> ignored
+             (keep #(when (str/starts-with? % under) (subs % (count under))))
              set)))
     (catch java.io.IOException _ nil)))
 

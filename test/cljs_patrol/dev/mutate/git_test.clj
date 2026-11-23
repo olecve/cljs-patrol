@@ -37,17 +37,12 @@
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No git commit named nope"
                               (git/lines-since (str file) "nope")))))))
 
-(defn- touch! [dir path]
-  (let [file (clojure.java.io/file dir path)]
-    (clojure.java.io/make-parents file)
-    (spit file "x")))
-
 (deftest ignored-paths-name-ignored-folders-once-and-files-relative-to-dir
   (temp-dir/with-dir "mutate"
     (fn [dir]
       (fixtures/git-repo! dir "target/" "*.log")
       (doseq [path ["target/classes/a.clj" "sub/target/b.clj" "sub/c.log" "d.log" "src/e.clj" "logs/f.log"]]
-        (touch! dir path))
+        (fixtures/write! dir path "x"))
       (is (= #{"target/" "sub/target/" "sub/c.log" "d.log" "logs/f.log"} (git/ignored-paths dir))
           "logs/ holds only ignored files, but no rule ignores logs/ itself")
       (is (= #{"target/" "c.log"} (git/ignored-paths (clojure.java.io/file dir "sub")))
@@ -57,19 +52,30 @@
   (temp-dir/with-dir "mutate"
     (fn [dir]
       (fixtures/git-repo! dir)
-      (touch! dir "src/a.clj")
+      (fixtures/write! dir "src/a.clj" "x")
       (is (= #{} (git/ignored-paths dir))))))
 
 (deftest ignored-paths-outside-git-are-nil
   (temp-dir/with-dir "mutate"
     (fn [dir]
-      (is (nil? (git/ignored-paths dir))))))
+      (fixtures/outside-git dir #(is (nil? (git/ignored-paths dir)))))))
+
+(deftest ignored-paths-in-ignored-folder-are-nil
+  (temp-dir/with-dir "mutate"
+    (fn [dir]
+      (fixtures/git-repo! dir "build/")
+      (fixtures/write! dir "build/x/a.clj" "x")
+      (is (nil? (git/ignored-paths (clojure.java.io/file dir "build")))
+          "git ignores dir itself")
+      (is (nil? (git/ignored-paths (clojure.java.io/file dir "build/x")))
+          "git ignores folder above dir")
+      (is (= #{"build/"} (git/ignored-paths dir))))))
 
 (deftest ignored-among-matches-paths-against-ignore-rules
   (temp-dir/with-dir "mutate"
     (fn [dir]
       (fixtures/git-repo! dir "target/" "*.log")
-      (touch! dir "kept.log")
+      (fixtures/write! dir "kept.log" "x")
       (sh! dir "git" "add" "-f" "kept.log")
       (is (= #{"target/" "target/classes/app/stale.clj" "sub/new.log"}
              (git/ignored-among dir ["target/" "target/classes/app/stale.clj" "sub/new.log" "src/kept.clj" "kept.log"]))
@@ -79,4 +85,4 @@
 (deftest ignored-among-outside-git-ignores-nothing
   (temp-dir/with-dir "mutate"
     (fn [dir]
-      (is (= #{} (git/ignored-among dir ["target/"]))))))
+      (fixtures/outside-git dir #(is (= #{} (git/ignored-among dir ["target/"])))))))
