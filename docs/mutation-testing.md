@@ -123,10 +123,12 @@ Run one runner at a time on a target: each run writes the whole cache, so the la
 
 A plain run reuses an outcome only when nothing changed in `src/`, `test/`, `dev/`, `resources/`, `test-projects/`,
 `docs/`, `deps.edn`, `README.md` or the classpath directories of the project, in the `-t` namespaces, in the runner, or
-in `-a` and `--timeout`. A file that git ignores, such as `.DS_Store`, does not count. A run that reports no outcome,
-such as one whose tests fail before any mutation, leaves the cache as it was. A cache that cannot be read is not used,
-and the run's first outcome replaces it. Each run tags each gap that the last run that printed its report also had as
-new or still open, on the console and the page, also after you edit other functions, and counts the gaps closed since:
+in `-a` and `--timeout`. A file that git ignores, such as `.DS_Store`, does not count, but a run outside git, or where
+git lists no file, hashes every file, ignored ones included. A target that is part of the runner, such as the parser,
+makes `--iterate` start over after each edit. A run that reports no outcome, such as one whose tests fail before any
+mutation, leaves the cache as it was. A cache that cannot be read is not used, and the run's first outcome replaces it.
+Each run tags each gap that the last run that printed its report also had as new or still open, on the console and the
+page, also after you edit other functions, and counts the gaps closed since:
 
 ```text
 Since the last run: 1 gap closed, 0 new, 3 still open.
@@ -134,8 +136,8 @@ Since the last run: 1 gap closed, 0 new, 3 still open.
 ```
 
 The name of each planted bug, its `:id` in the cache and in the `-r` report, is its function, its line and column, and
-its swap, such as `holds-focus?/490:43/remove->filter`. The cache also keeps a separate `:place`: a hash of the
-function's text with the line and column inside it, which `--iterate` and the progress marks use.
+its swap, such as `holds-focus?/490:43/remove->filter`. The cache also keeps a separate `:place`: the hash of the whole
+top-level definition's text, the line and column inside it, and the swap, which `--iterate` and the progress marks use.
 
 ## Skip a harmless planted bug
 

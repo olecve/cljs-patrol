@@ -250,14 +250,21 @@
                          "b" #{}
                          "c" #{#'clojure.core/inc}
                          "e" #{#'clojure.core/inc}}
-                 :recorded #{"a" "b" "e"}
-                 :reached-outside #{"e"}
+                 :recorded #{"a" "b" "e" "f"}
+                 :reached-outside #{"e" "f"}
                  :test-count 2}]
     (is (= {"a" {:kind :subset
-                 :tests #{#'clojure.core/inc}}
-            "e" {:kind :every}}
-           (run/recorded-plans covered ["a" "b" "c" "d" "e"] true))
-        "no call or no recording gives no test list, call outside test runs every test")
+                 :tests #{#'clojure.core/inc}}}
+           (run/recorded-plans covered ["a" "b"] true))
+        "no call gives no test list")
+    (is (= {"c" {:kind :every}
+            "d" {:kind :every}}
+           (run/recorded-plans covered ["c" "d"] true))
+        "definition pass could not record runs every test")
+    (is (= {"e" {:kind :every}
+            "f" {:kind :every}}
+           (run/recorded-plans covered ["e" "f"] true))
+        "call outside test runs every test, also with no test calling it")
     (is (= {:kind :every} (get (run/recorded-plans covered ["a"] false) "a"))
         "selection off")
     (is (= {:kind :every} (get (run/recorded-plans (assoc covered :hooked? true) ["a"] true) "a"))

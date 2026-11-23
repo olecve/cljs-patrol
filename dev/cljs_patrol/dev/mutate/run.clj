@@ -210,22 +210,32 @@
 (defn recorded-plans
   "Return, for the report, the tests that the coverage pass `covered` saw call each of `def-names`.
 
-  A definition whose calls the pass did not record, or that no test called, gets none. One runs
-  every test, as [[test-plan]] decides, when selection is off (`select?` false), when a test
-  namespace has a `test-ns-hook`, when something called it outside a test, or when every test
-  called it."
-  [{:keys [tests recorded reached-outside hooked? test-count]} def-names select?]
+  It does not run the tests again, so it does not check that the tests that call a definition
+  pass on their own. A definition the pass could not record, or that something called outside
+  a test, gets every test. So does each one when selection is off (`select?` false), when a test
+  namespace has a `test-ns-hook`, or when every test called it. One that no test called gets
+  none, and so does each one when no baseline ran."
+  [{:keys [tests recorded reached-outside hooked? test-count]
+    :as covered}
+   def-names
+   select?]
   (into {}
         (keep (fn [def-name]
                 (let [def-tests (get tests def-name)]
-                  (when (and (contains? recorded def-name) (seq def-tests))
-                    [def-name (if (or hooked?
-                                      (not select?)
-                                      (contains? reached-outside def-name)
-                                      (= test-count (count def-tests)))
-                                {:kind :every}
-                                {:kind :subset
-                                 :tests def-tests})]))))
+                  (when covered
+                    (cond
+                      (or (not (contains? recorded def-name)) (contains? reached-outside def-name))
+                      [def-name {:kind :every}]
+
+                      (empty? def-tests)
+                      nil
+
+                      (or hooked? (not select?) (= test-count (count def-tests)))
+                      [def-name {:kind :every}]
+
+                      :else
+                      [def-name {:kind :subset
+                                 :tests def-tests}])))))
         def-names))
 
 (defn- run-mutant

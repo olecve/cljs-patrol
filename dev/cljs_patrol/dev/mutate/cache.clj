@@ -198,6 +198,7 @@
       (let [entry (edn/read-string (slurp file))]
         (if (and (map? (:key entry))
                  (map? (:results entry))
+                 (every? #(let [value (get entry %)] (or (nil? value) (map? value))) [:notes :plans :last-run])
                  (every? (fn [result]
                            (and (map? result)
                                 (contains? #{:failed :passed :no-coverage :unviable :timeout} (:outcome result))

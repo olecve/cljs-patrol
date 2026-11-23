@@ -22,7 +22,7 @@
         (re-seq #"(?m)^@@ -\S+ \+(\d+)(?:,(\d+))? @@" diff-text)))
 
 (defn git
-  "Run git with `args` in `dir`, and return what `clojure.java.shell/sh` returns."
+  "Run git with `args` in `dir`, and return its exit code, output and errors as {:exit … :out … :err …}."
   [dir & args]
   (apply shell/sh "git" "-C" dir args))
 

@@ -242,13 +242,34 @@
 (deftest runner-files-are-runner-namespaces-without-page
   (let [names (map #(.getName ^java.io.File %) (cache/runner-files))]
     (is (= "mutate.clj" (first names)))
-    (is (= ["apply.clj" "cache.clj" "error.clj" "forms.clj" "git.clj" "report.clj" "run.clj" "fs.clj" "group.clj"
-            "parser.clj" "timings.clj"]
-           (rest names))
-        "runner namespaces in name order, then src files")
+    (is (= (->> names rest (take 7) sort) (take 7 (rest names)))
+        "runner namespaces in name order")
+    (is (every? (set names) ["cache.clj" "run.clj" "parser.clj"]))
     (is (not-any? #{"mutate_html.clj" "mutate_report.css"} names)
         "page changes no outcome")
     (is (re-matches #"[0-9a-f]{64}" (cache/runner-version)))))
+
+(defn- project-requires
+  "List the cljs-patrol namespaces outside dev that the ns form of the source `file` requires."
+  [file]
+  (let [ns-form (with-open [reader (java.io.PushbackReader. (io/reader file))] (read reader))]
+    (->> ns-form
+         (filter seq?)
+         (filter #(= :require (first %)))
+         (mapcat rest)
+         (map #(if (sequential? %) (first %) %))
+         (filter #(str/starts-with? (str %) "cljs-patrol."))
+         (remove #(str/starts-with? (str %) "cljs-patrol.dev")))))
+
+(defn- source-name [ns-sym] (str (-> ns-sym str (str/split #"\.") last (str/replace "-" "_")) ".clj"))
+
+(deftest runner-files-cover-every-src-namespace-runner-reads-forms-through
+  (let [files (cache/runner-files)
+        names (set (map #(.getName ^java.io.File %) files))
+        required (->> files (mapcat project-requires) (map source-name))]
+    (is (seq required))
+    (is (every? names required)
+        "each cljs-patrol namespace a runner file requires is hashed too")))
 
 (deftest runner-version-names-runner-files-it-could-not-read
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"^reading the runner files failed: "
@@ -426,7 +447,10 @@
                               ["{:key {} :results {\"f\" {:outcome :won :place \"p\"}}}" "it holds no cache"]
                               ["{:key {} :results {\"f\" {:outcome :failed}}}" "it holds no cache"]
                               ["{:key {} :results {\"a\" {:outcome :failed :place \"p\"} \"f\" {:outcome :failed}}}"
-                               "it holds no cache"]]]
+                               "it holds no cache"]
+                              ["{:key {} :results {} :notes []}" "it holds no cache"]
+                              ["{:key {} :results {} :plans []}" "it holds no cache"]
+                              ["{:key {} :results {} :last-run []}" "it holds no cache"]]]
           (spit file text)
           (let [store (atom nil)
                 output (with-out-str (reset! store (open file {:make-key (key-of "s1")})))]

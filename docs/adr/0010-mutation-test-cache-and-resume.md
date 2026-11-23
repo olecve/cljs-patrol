@@ -140,6 +140,8 @@ Rejected because `clojure -T:build uber` deletes `target/`, as
   slower or faster machine with the same sources can disagree on it.
 - The JVM is not in the key. A run on another JVM version with the same sources reuses the outcomes.
 - The cache is one more directory, `.mutate-cache/`, with one file for each target.
+- The runner's hash covers the parser and the src namespaces it requires. A target that is one of those files, or a
+  runner namespace, is part of that hash, so `--iterate` on it starts over after each edit.
 - Two runs on one target at the same time each write the whole file, and the last write wins, so the outcomes of the
   other run are lost. Run one runner at a time on a target.
 
