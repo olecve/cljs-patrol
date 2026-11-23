@@ -1,15 +1,11 @@
 (ns cljs-patrol.dev.mutate.guard-test
   (:require
    [cljs-patrol.dev.mutate.fixtures :as fixtures]
+   [cljs-patrol.dev.mutate.git :as git]
    [cljs-patrol.dev.mutate.guard :as guard]
    [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
-
-(defn- write! [dir path text]
-  (let [file (io/file dir path)]
-    (io/make-parents file)
-    (spit file text)))
 
 (defn- set-time! [dir path millis] (.setLastModified (io/file dir path) millis))
 
@@ -24,20 +20,26 @@
       (f))
     (finally (.setReadable file true false))))
 
-(def ^:private tool-folders
-  #{".git" ".lsp" ".clj-kondo/.cache" ".clj-kondo/imports" ".clj-kondo/inline-configs" ".cpcache" ".shadow-cljs" ".idea"
-    ".calva"})
+(def ^:private editor-folders
+  #{".lsp" ".clj-kondo/.cache" ".clj-kondo/imports" ".clj-kondo/inline-configs" ".idea" ".calva"})
 
-(deftest skipped-dirs-name-root-git-tool-caches-and-cache-folder
+(deftest skipped-dirs-name-root-git-and-cache-folder
   (fixtures/with-temp-dir
     (fn [dir]
-      (is (= (conj tool-folders "cache/runs")
+      (is (= #{".git" "cache/runs"}
              (guard/skipped-dirs dir (io/file dir "cache/runs"))))
-      (is (= tool-folders
+      (is (= #{".git"}
              (guard/skipped-dirs dir (.getParentFile dir)))
           "cache folder outside root is no part of snapshot")
       (is (= (guard/skipped-dirs dir nil) (guard/skipped-dirs dir dir))
           "root itself is never skipped"))))
+
+(deftest with-ignored-adds-what-git-ignores-or-build-folders
+  (is (= (into #{".git" "target" "a.log"} editor-folders)
+         (guard/with-ignored #{".git"} #{"target/" "a.log"})))
+  (is (= (into #{".git" ".cpcache" ".shadow-cljs"} editor-folders)
+         (guard/with-ignored #{".git"} nil))
+      "git cannot tell, so build folders are skipped by hand"))
 
 (deftest tool-file-names-what-editors-and-tools-write
   (is (every? guard/tool-file? ["core.clj.swp" "core.clj.swo" ".#core.clj" "#core.clj#" "core.clj~" "4913" ".DS_Store"
@@ -50,9 +52,9 @@
     (fn [dir]
       (doseq [path ["src/a.clj" ".git/HEAD" "runs/a.edn" ".lsp/db" ".clj-kondo/.cache/x" ".clj-kondo/config.edn"
                     "sub/.git/HEAD" "src/.a.clj.swp" "src/4913" ".idea/x.xml" ".calva/output.calva-repl"]]
-        (write! dir path "(ns a)"))
+        (fixtures/write! dir path "(ns a)"))
       (.mkdir (io/file dir "empty"))
-      (let [snapshot (guard/snapshot dir (guard/skipped-dirs dir (io/file dir "runs")))]
+      (let [snapshot (guard/snapshot dir (guard/with-ignored (guard/skipped-dirs dir (io/file dir "runs")) #{}))]
         (is (= #{"src/" "src/a.clj" ".clj-kondo/config.edn" "sub/" "sub/.git/" "sub/.git/HEAD" "empty/"}
                (set (keys snapshot)))
             "only root .git, what tools write in .clj-kondo, and files of tools are skipped")
@@ -64,7 +66,7 @@
 (deftest snapshot-marks-folder-it-cannot-read
   (fixtures/with-temp-dir
     (fn [dir]
-      (write! dir "locked/a.txt" "x")
+      (fixtures/write! dir "locked/a.txt" "x")
       (with-unreadable (io/file dir "locked")
         #(is (= {"locked/" :unreadable} (guard/snapshot dir #{})))))))
 
@@ -77,32 +79,32 @@
 (deftest changes-name-added-changed-and-deleted-files
   (fixtures/with-temp-dir
     (fn [dir]
-      (write! dir "kept.txt" "same")
-      (write! dir "edited.txt" "old")
-      (write! dir "gone.txt" "x")
+      (fixtures/write! dir "kept.txt" "same")
+      (fixtures/write! dir "edited.txt" "old")
+      (fixtures/write! dir "gone.txt" "x")
       (set-time! dir "edited.txt" 1000000)
       (let [before (guard/snapshot dir #{})]
         (is (= [] (guard/changes dir before before {})))
-        (write! dir "edited.txt" "new")
+        (fixtures/write! dir "edited.txt" "new")
         (set-time! dir "edited.txt" 2000000)
         (io/delete-file (io/file dir "gone.txt"))
-        (write! dir "new.txt" "x")
+        (fixtures/write! dir "new.txt" "x")
         (is (= [["edited.txt" :changed] ["gone.txt" :deleted] ["new.txt" :added]]
                (guard/changes dir before (guard/snapshot dir #{}) {})))))))
 
 (deftest changes-compare-bytes-of-file-baseline-wrote
   (fixtures/with-temp-dir
     (fn [dir]
-      (write! dir "log.txt" "up")
+      (fixtures/write! dir "log.txt" "up")
       (set-time! dir "log.txt" 1000000)
       (let [before (guard/snapshot dir #{})
-            hashes (:hashes (guard/start dir #{} {} before))]
+            hashes (:hashes (guard/start dir #{} {} before false))]
         (set-time! dir "log.txt" 2000000)
         (is (empty? (guard/changes dir before (guard/snapshot dir #{}) hashes))
             "same bytes written again")
         (is (= [["log.txt" :changed]] (guard/changes dir before (guard/snapshot dir #{}) {}))
             "no hash, so new time alone is change")
-        (write! dir "log.txt" "dn")
+        (fixtures/write! dir "log.txt" "dn")
         (set-time! dir "log.txt" 3000000)
         (is (= [["log.txt" :changed]] (guard/changes dir before (guard/snapshot dir #{}) hashes))
             "same size, other bytes")))))
@@ -110,33 +112,33 @@
 (deftest start-hashes-files-baseline-added-or-changed
   (fixtures/with-temp-dir
     (fn [dir]
-      (write! dir "kept.txt" "x")
-      (write! dir "edited.txt" "x")
-      (write! dir "gone.txt" "x")
+      (fixtures/write! dir "kept.txt" "x")
+      (fixtures/write! dir "edited.txt" "x")
+      (fixtures/write! dir "gone.txt" "x")
       (set-time! dir "edited.txt" 1000000)
       (let [before (guard/snapshot dir #{})
-            _ (write! dir "left.txt" "x")
-            _ (write! dir "edited.txt" "y")
+            _ (fixtures/write! dir "left.txt" "x")
+            _ (fixtures/write! dir "edited.txt" "y")
             _ (io/delete-file (io/file dir "gone.txt"))
             after (guard/snapshot dir #{})
-            file-guard (guard/start dir #{".git"} before after)]
+            file-guard (guard/start dir #{".git"} before after false)]
         (is (= #{"left.txt" "edited.txt"} (-> file-guard :hashes keys set))
             "deleted file has no bytes to hash")
         (is (= after @(:files file-guard)))
-        (is (= #{".git"} (:skipped file-guard)))))))
+        (is (= #{".git"} (:paths @(:rules file-guard))))))))
 
 (deftest look-gives-changes-since-baseline
   (fixtures/with-temp-dir
     (fn [dir]
-      (write! dir "kept.txt" "x")
+      (fixtures/write! dir "kept.txt" "x")
       (let [snapshot (guard/snapshot dir #{})
-            file-guard (guard/start dir #{"skipped"} snapshot snapshot)]
+            file-guard (guard/start dir #{"skipped"} snapshot snapshot false)]
         (is (nil? (guard/look file-guard)))
-        (write! dir "skipped/a.txt" "x")
+        (fixtures/write! dir "skipped/a.txt" "x")
         (is (nil? (guard/look file-guard))
             "skipped folder stays out")
         (io/delete-file (io/file dir "kept.txt"))
-        (write! dir "new.txt" "x")
+        (fixtures/write! dir "new.txt" "x")
         (is (= [["kept.txt" :deleted] ["new.txt" :added]] (guard/look file-guard)))))))
 
 (deftest describe-lists-ten-files-and-counts-rest
@@ -164,10 +166,10 @@
 (deftest changes-name-new-and-deleted-folders-but-not-their-times
   (fixtures/with-temp-dir
     (fn [dir]
-      (write! dir "kept/a.txt" "x")
+      (fixtures/write! dir "kept/a.txt" "x")
       (.mkdir (io/file dir "gone"))
       (let [before (guard/snapshot dir #{})]
-        (write! dir "kept/b.txt" "x")
+        (fixtures/write! dir "kept/b.txt" "x")
         (.delete (io/file dir "gone"))
         (.mkdir (io/file dir "made"))
         (is (= [["gone/" :deleted] ["kept/b.txt" :added] ["made/" :added]]
@@ -177,7 +179,7 @@
 (deftest changes-count-folder-that-turned-unreadable
   (fixtures/with-temp-dir
     (fn [dir]
-      (write! dir "locked/a.txt" "x")
+      (fixtures/write! dir "locked/a.txt" "x")
       (let [before (guard/snapshot dir #{})]
         (with-unreadable (io/file dir "locked")
           #(is (= [["locked/" :changed] ["locked/a.txt" :deleted]]
@@ -186,24 +188,24 @@
 (deftest file-baseline-wrote-that-cannot-be-read-is-changed
   (fixtures/with-temp-dir
     (fn [dir]
-      (write! dir "log.txt" "up")
+      (fixtures/write! dir "log.txt" "up")
       (set-time! dir "log.txt" 1000000)
       (let [before (guard/snapshot dir #{})
-            hashes (:hashes (guard/start dir #{} {} before))]
+            hashes (:hashes (guard/start dir #{} {} before false))]
         (with-unreadable (io/file dir "log.txt")
           (fn []
             (set-time! dir "log.txt" 2000000)
             (is (= [["log.txt" :changed]] (guard/changes dir before (guard/snapshot dir #{}) hashes)))
-            (is (empty? (:hashes (guard/start dir #{} {} (guard/snapshot dir #{}))))
+            (is (empty? (:hashes (guard/start dir #{} {} (guard/snapshot dir #{}) false)))
                 "no bytes, no hash")))))))
 
 (deftest look-takes-snapshot-as-reference-when-nothing-changed
   (fixtures/with-temp-dir
     (fn [dir]
-      (write! dir "log.txt" "up")
+      (fixtures/write! dir "log.txt" "up")
       (set-time! dir "log.txt" 1000000)
       (let [before (guard/snapshot dir #{})
-            file-guard (guard/start dir #{} {} before)]
+            file-guard (guard/start dir #{} {} before false)]
         (set-time! dir "log.txt" 2000000)
         (is (nil? (guard/look file-guard)))
         (is (= (guard/snapshot dir #{}) @(:files file-guard))
@@ -216,14 +218,137 @@
 (deftest look-skips-what-clj-kondo-writes-but-guards-its-config
   (fixtures/with-temp-dir
     (fn [dir]
-      (let [skipped (guard/skipped-dirs dir nil)
+      (let [skipped (guard/with-ignored (guard/skipped-dirs dir nil) #{})
             snapshot (guard/snapshot dir skipped)
-            file-guard (guard/start dir skipped snapshot snapshot)]
-        (write! dir ".clj-kondo/.cache/v1/x.transit.json" "x")
-        (write! dir ".clj-kondo/imports/lib/config.edn" "{}")
-        (write! dir ".clj-kondo/inline-configs/core.clj/config.edn" "{}")
+            file-guard (guard/start dir skipped snapshot snapshot false)]
+        (fixtures/write! dir ".clj-kondo/.cache/v1/x.transit.json" "x")
+        (fixtures/write! dir ".clj-kondo/imports/lib/config.edn" "{}")
+        (fixtures/write! dir ".clj-kondo/inline-configs/core.clj/config.edn" "{}")
         (is (nil? (guard/look file-guard))
             "clj-kondo and clojure-lsp made these while run went on, folder too")
-        (write! dir ".clj-kondo/config.edn" "{}")
+        (fixtures/write! dir ".clj-kondo/config.edn" "{}")
         (is (= [[".clj-kondo/config.edn" :added]] (guard/look file-guard))
             "hand-written config counts")))))
+
+(deftest snapshot-leaves-out-skipped-file-and-folder-that-holds-it
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/write! dir "src/a.clj" "x")
+      (fixtures/write! dir "src/b.log" "x")
+      (is (= #{"src/a.clj"} (set (keys (guard/snapshot dir #{"src/b.log"}))))))))
+
+(defn- git-guard
+  "Start a guard on `dir` that skips what git ignores, as a run does after its baseline."
+  [dir]
+  (let [skipped (guard/with-ignored (guard/skipped-dirs dir nil) (git/ignored-paths dir))
+        snapshot (guard/snapshot dir skipped)]
+    (guard/start dir skipped snapshot snapshot true)))
+
+(deftest look-skips-ignored-folder-that-exists-at-start
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/git-repo! dir "target/")
+      (fixtures/write! dir "target/classes/old.clj" "x")
+      (let [file-guard (git-guard dir)]
+        (is (not-any? #(str/starts-with? % "target") (keys @(:files file-guard))))
+        (fixtures/write! dir "target/classes/app/stale.clj" "x")
+        (is (nil? (guard/look file-guard)))))))
+
+(deftest look-skips-new-folder-git-ignores-from-then-on
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/git-repo! dir "target/" "out")
+      (fixtures/write! dir "src/a.clj" "x")
+      (let [file-guard (git-guard dir)
+            skipped (:paths @(:rules file-guard))]
+        (fixtures/write! dir "target/classes/app/stale.clj" "x")
+        (fixtures/write! dir "out/compiled.cljs" "x")
+        (is (nil? (guard/look file-guard))
+            "fresh clone builds target/ and out/")
+        (is (= (conj skipped "target" "out") (:paths @(:rules file-guard)))
+            "only top ignored folders join skipped paths")
+        (fixtures/write! dir "target/classes/app/other.clj" "x")
+        (is (nil? (guard/look file-guard))
+            "reference keeps src/")
+        (fixtures/write! dir "src/kept.clj" "x")
+        (is (= [["src/kept.clj" :added]] (guard/look file-guard)))))))
+
+(deftest look-names-only-new-paths-git-does-not-ignore
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/git-repo! dir "*.log")
+      (let [file-guard (git-guard dir)
+            reference @(:files file-guard)]
+        (fixtures/write! dir "run.log" "x")
+        (fixtures/write! dir "note.txt" "x")
+        (is (= [["note.txt" :added]] (guard/look file-guard)))
+        (is (= reference @(:files file-guard))
+            "change keeps reference")))))
+
+(deftest look-skips-new-folder-that-holds-only-ignored-paths
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/git-repo! dir "*.log")
+      (let [file-guard (git-guard dir)]
+        (fixtures/write! dir "logs/run.log" "x")
+        (is (nil? (guard/look file-guard)))
+        (fixtures/write! dir "logs/note.txt" "x")
+        (is (= [["logs/note.txt" :added]] (guard/look file-guard))
+            "folder that holds skipped path is no part of snapshot")))))
+
+(deftest look-keeps-folder-out-once-it-holds-new-ignored-file
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/git-repo! dir "*.log")
+      (fixtures/write! dir "src/a.clj" "x")
+      (let [file-guard (git-guard dir)]
+        (fixtures/write! dir "src/run.log" "x")
+        (is (nil? (guard/look file-guard)))
+        (is (nil? (guard/look file-guard))
+            "reference drops src/ as later snapshots do")))))
+
+(deftest look-outside-git-counts-what-git-would-ignore
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (spit (io/file dir ".gitignore") "target/\n")
+      (fixtures/outside-git dir
+                            (fn []
+                              (let [skipped (guard/with-ignored (guard/skipped-dirs dir nil) (git/ignored-paths dir))
+                                    snapshot (guard/snapshot dir skipped)
+                                    file-guard (guard/start dir skipped snapshot snapshot false)]
+                                (fixtures/write! dir ".cpcache/x.cp" "x")
+                                (is (nil? (guard/look file-guard))
+                                    "build folder on hand list")
+                                (fixtures/write! dir "target/a.clj" "x")
+                                (is (= [["target/" :added] ["target/a.clj" :added]] (guard/look file-guard)))))))))
+
+(deftest look-asks-git-only-about-added-paths
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/git-repo! dir "*.log")
+      (fixtures/write! dir "kept.txt" "x")
+      (let [file-guard (git-guard dir)
+            asked (atom [])
+            ignored-among git/ignored-among]
+        (with-redefs [git/ignored-among (fn [root paths] (swap! asked conj paths) (ignored-among root paths))]
+          (fixtures/write! dir "kept.txt" "xy")
+          (is (= [["kept.txt" :changed]] (guard/look file-guard)))
+          (is (empty? @asked)
+              "changed file was not ignored at start")
+          (fixtures/write! dir "run.log" "x")
+          (is (= [["kept.txt" :changed]] (guard/look file-guard)))
+          (is (= [["run.log"]] @asked)))))))
+
+(deftest look-from-ignored-folder-asks-git-nothing
+  (fixtures/with-temp-dir
+    (fn [repo]
+      (fixtures/git-repo! repo "build/")
+      (let [dir (io/file repo "build" "x")
+            ignored (git/ignored-paths dir)
+            skipped (guard/with-ignored (guard/skipped-dirs dir nil) ignored)
+            snapshot (guard/snapshot dir skipped)
+            file-guard (guard/start dir skipped snapshot snapshot (some? ignored))]
+        (is (nil? ignored))
+        (fixtures/write! dir "kept.clj" "x")
+        (is (= [["kept.clj" :added]] (guard/look file-guard))
+            "git calls every new path here ignored")))))

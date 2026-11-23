@@ -680,8 +680,46 @@
         (fixtures/with-target tests
           (fn []
             (let [cache-file (io/file root "runs" "target.edn")
-                  [{:keys [stopped totals]}] (run-cached fixtures/target-source cache-file tests {:guard-root (str root)})]
+                  [{:keys [stopped totals]} output] (fixtures/outside-git root
+                                                                          #(run-cached fixtures/target-source cache-file tests
+                                                                                       {:guard-root (str root)}))]
               (is (nil? stopped)
                   "cache written after each mutant and git file written by tests do not stop run")
               (is (= 8 (:mutants totals)))
-              (is (.exists cache-file)))))))))
+              (is (.exists cache-file))
+              (is (str/includes? output (str guard/no-git-note "\n"))
+                  "root is no git work tree"))))))))
+
+(deftest guard-skips-folder-git-ignores-that-baseline-made
+  (fixtures/with-temp-dir
+    (fn [root]
+      (fixtures/git-repo! root "target/")
+      (let [build-file (io/file root "target" "classes" "out.txt")
+            tests (str fixtures/target-tests
+                       "(deftest builds (.mkdirs (.getParentFile (java.io.File. " (pr-str (str build-file)) ")))"
+                       " (spit (java.io.File. " (pr-str (str build-file)) ") (str (System/nanoTime))) (is true))\n")]
+        (fixtures/with-target tests
+          (fn []
+            (let [[{:keys [stopped totals]} output] (run-cached fixtures/target-source (io/file root "runs" "target.edn")
+                                                                tests {:guard-root (str root)})]
+              (is (nil? stopped)
+                  "new bytes in ignored target/ each mutant do not stop run")
+              (is (= 8 (:mutants totals)))
+              (is (not (str/includes? output guard/no-git-note))))))))))
+
+(deftest guard-skips-new-folder-git-ignores-that-mutant-made
+  (fixtures/with-temp-dir
+    (fn [root]
+      (fixtures/git-repo! root "out/")
+      (let [out (io/file root "out")
+            tests (str "(ns cljs-patrol.dev.mutate.fixtures.target-test (:require [clojure.test :refer [deftest is]]"
+                       " [cljs-patrol.dev.mutate.fixtures.target :as target]))\n"
+                       "(deftest writes (when-not (= \"temp\" (target/folder \"temp\" " (pr-str (str root)) "))"
+                       " (.mkdirs (java.io.File. " (pr-str (str out)) "))"
+                       " (spit (java.io.File. " (pr-str (str out)) " \"note.txt\") \"x\")) (is true))\n")]
+        (fixtures/with-target folder-source tests
+          (fn []
+            (let [{:keys [stopped mutants]} (run-guarded folder-source tests (io/file root "runs") root)]
+              (is (nil? stopped)
+                  "out/ is new, and git ignores it")
+              (is (seq mutants)))))))))

@@ -1,5 +1,6 @@
 (ns cljs-patrol.dev.mutate.git-test
   (:require
+   [cljs-patrol.dev.mutate.fixtures :as fixtures]
    [cljs-patrol.dev.mutate.git :as git]
    [cljs-patrol.temp-dir :as temp-dir]
    [clojure.java.io]
@@ -35,3 +36,57 @@
             "file the merge base lacks counts in full")
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No git commit named nope"
                               (git/lines-since (str file) "nope")))))))
+
+(deftest ignored-paths-name-ignored-folders-once-and-files-relative-to-dir
+  (temp-dir/with-dir "mutate"
+    (fn [dir]
+      (fixtures/git-repo! dir "target/" "*.log")
+      (doseq [path ["target/classes/a.clj" "sub/target/b.clj" "sub/c.log" "d.log" "src/e.clj" "logs/f.log"]]
+        (fixtures/write! dir path "x"))
+      (is (= #{"target/" "sub/target/" "sub/c.log" "d.log" "logs/f.log"} (git/ignored-paths dir))
+          "logs/ holds only ignored files, but no rule ignores logs/ itself")
+      (is (= #{"target/" "c.log"} (git/ignored-paths (clojure.java.io/file dir "sub")))
+          "paths under subfolder, relative to it"))))
+
+(deftest ignored-paths-in-git-with-nothing-ignored-are-empty
+  (temp-dir/with-dir "mutate"
+    (fn [dir]
+      (fixtures/git-repo! dir)
+      (fixtures/write! dir "src/a.clj" "x")
+      (is (= #{} (git/ignored-paths dir))))))
+
+(deftest ignored-paths-outside-git-are-nil
+  (temp-dir/with-dir "mutate"
+    (fn [dir]
+      (fixtures/outside-git dir #(is (nil? (git/ignored-paths dir)))))))
+
+(deftest ignored-paths-in-ignored-folder-are-nil
+  (temp-dir/with-dir "mutate"
+    (fn [dir]
+      (fixtures/git-repo! dir "build/")
+      (fixtures/write! dir "build/x/a.clj" "x")
+      (fixtures/write! dir "build/t/kept.clj" "x")
+      (sh! dir "git" "add" "-f" "build/t/kept.clj")
+      (is (nil? (git/ignored-paths (clojure.java.io/file dir "build")))
+          "git ignores dir itself")
+      (is (nil? (git/ignored-paths (clojure.java.io/file dir "build/x")))
+          "git ignores folder above dir")
+      (is (nil? (git/ignored-paths (clojure.java.io/file dir "build/t")))
+          "tracked file in ignored folder")
+      (is (= #{"build/x/"} (git/ignored-paths dir))))))
+
+(deftest ignored-among-matches-paths-against-ignore-rules
+  (temp-dir/with-dir "mutate"
+    (fn [dir]
+      (fixtures/git-repo! dir "target/" "*.log")
+      (fixtures/write! dir "kept.log" "x")
+      (sh! dir "git" "add" "-f" "kept.log")
+      (is (= #{"target/" "target/classes/app/stale.clj" "sub/new.log"}
+             (git/ignored-among dir ["target/" "target/classes/app/stale.clj" "sub/new.log" "src/kept.clj" "kept.log"]))
+          "paths need not exist, and tracked file is not ignored")
+      (is (= #{} (git/ignored-among dir ["src/kept.clj"]))))))
+
+(deftest ignored-among-outside-git-ignores-nothing
+  (temp-dir/with-dir "mutate"
+    (fn [dir]
+      (fixtures/outside-git dir #(is (= #{} (git/ignored-among dir ["target/"])))))))

@@ -4,9 +4,10 @@
   The tests of a mutant can change files, and so can its form while it loads. After each mutant
   that loaded, the guard compares a snapshot of every file and folder, with the size and time of
   change of each file, with the reference: the last snapshot with no change, which is the one
-  after the baseline at first."
+  after the baseline at first. The snapshot skips what git ignores."
   (:require
    [cljs-patrol.dev.mutate.cache :as cache]
+   [cljs-patrol.dev.mutate.git :as git]
    [clojure.java.io :as io]
    [clojure.string :as str])
   (:import
@@ -14,21 +15,29 @@
    [java.nio.file AccessDeniedException DirectoryIteratorException Files LinkOption NoSuchFileException Path]
    [java.nio.file.attribute BasicFileAttributes]))
 
-(def tool-files
-  "What editors, IDEs, linters and the Clojure CLI write while a run goes on, which a snapshot leaves out.
+(def editor-files
+  "What editors, IDEs, their language servers, macOS and nREPL write while a run goes on, which a snapshot leaves out.
 
-  :folders are relative to the working directory. :names match the name of a file or folder at
-  any depth: the swap files of Vim (`*.swp`, `*.swo`, and `4913`, which Vim writes to test that
-  it may write a folder), the locks (`.#*`) and auto-saves (`#*#`) of Emacs, the backups of
-  several editors (`*~`), the folder files of macOS (`.DS_Store`), and the port file of nREPL."
-  {:folders #{".lsp" ".clj-kondo/.cache" ".clj-kondo/imports" ".clj-kondo/inline-configs" ".cpcache" ".shadow-cljs"
-              ".idea" ".calva"}
+  The person's own setup writes them, so the project's `.gitignore` may not name them, and git
+  may not ignore them. :folders are relative to the working directory: those of clojure-lsp,
+  clj-kondo, IntelliJ and Calva. :names match the name of a file or folder at any depth: the
+  swap files of Vim (`*.swp`, `*.swo`, and `4913`, which Vim writes to test that it may write a
+  folder), the locks (`.#*`) and auto-saves (`#*#`) of Emacs, the backups of several editors
+  (`*~`), the folder files of macOS (`.DS_Store`), and the port file of nREPL."
+  {:folders #{".lsp" ".clj-kondo/.cache" ".clj-kondo/imports" ".clj-kondo/inline-configs" ".idea" ".calva"}
    :names [#"\.sw[po]$" #"^4913$" #"^\.#" #"^#.*#$" #"~$" #"^\.DS_Store$" #"^\.nrepl-port$"]})
+
+(def build-folders
+  "The folders of the Clojure CLI and shadow-cljs, which a snapshot leaves out when git cannot tell what it ignores."
+  #{".cpcache" ".shadow-cljs"})
+
+(def no-git-note
+  "Note: git cannot tell which files it ignores here, so the file guard also checks them, such as target/.")
 
 (defn tool-file?
   "True when `file-name` is the name of a file or folder that editors and tools write, at any depth."
   [file-name]
-  (boolean (some #(re-find % file-name) (:names tool-files))))
+  (boolean (some #(re-find % file-name) (:names editor-files))))
 
 (def ^:private no-follow (into-array LinkOption [LinkOption/NOFOLLOW_LINKS]))
 
@@ -36,16 +45,54 @@
   (.toPath (.getAbsoluteFile (io/file root))))
 
 (defn skipped-dirs
-  "Return the folders that a snapshot of `root` does not enter, relative to `root`.
+  "Return the folders that a snapshot of `root` never enters, relative to `root`.
 
-  They are the `.git` folder of `root`, the folders of tools, and `cache-dir`, the folder of
-  the run's cache, when it is under `root`."
+  They are the `.git` folder of `root`, and `cache-dir`, the folder of the run's cache, when it
+  is under `root`."
   [root cache-dir]
   (let [base (.normalize (root-path root))
         cache-path (some-> cache-dir root-path .normalize)]
-    (cond-> (conj (:folders tool-files) ".git")
+    (cond-> #{".git"}
       (and cache-path (.startsWith cache-path base) (not= cache-path base))
       (conj (str (.relativize base cache-path))))))
+
+(defn- bare
+  "Return `path` without the `/` at the end that marks a folder."
+  [path]
+  (str/replace path #"/$" ""))
+
+(defn with-ignored
+  "Add to `skipped` the paths that git ignores, `ignored`, and the folders of editors.
+
+  `ignored` holds paths relative to the root of the snapshot, and a folder ends with `/`. When
+  `ignored` is nil, since git cannot tell, add the folders of build tools instead."
+  [skipped ignored]
+  (into skipped
+        (concat (:folders editor-files)
+                (if ignored
+                  (map bare ignored)
+                  build-folders))))
+
+(defn- parent-folders
+  "Return the folders above relative `path`, from the top, such as `a` and `a/b` for `a/b/c`."
+  [path]
+  (butlast (reductions #(str %1 "/" %2) (str/split path #"/"))))
+
+(defn- skip-rules
+  "Return the paths a snapshot leaves out: the `skipped` paths with all they hold, and the folders that hold one."
+  [skipped]
+  {:paths skipped
+   :holders (into #{} (mapcat parent-folders) skipped)})
+
+(defn- skipped-path?
+  "True when the `rules` of [[skip-rules]] leave out `relative`, a path with no `/` at the end, with all it holds."
+  [rules relative]
+  (contains? (:paths rules) relative))
+
+(defn- holder?
+  "True when the `rules` of [[skip-rules]] leave out the folder `relative` itself, but not what it holds."
+  [rules relative]
+  (contains? (:holders rules) relative))
 
 (defn file-attributes
   "Return the attributes of the file or folder at `path`, not following a link, or nil when it is gone."
@@ -54,17 +101,17 @@
     (Files/readAttributes path BasicFileAttributes ^"[Ljava.nio.file.LinkOption;" no-follow)
     (catch NoSuchFileException _ nil)))
 
-(defn- walk [^Path root skipped ^Path dir ^java.util.Map files]
+(defn- walk [^Path root rules ^Path dir ^java.util.Map files]
   (try
     (with-open [entries (Files/newDirectoryStream dir)]
       (doseq [^Path path entries]
         (let [relative (str (.relativize root path))]
-          (when-not (or (contains? skipped relative) (tool-file? (str (.getFileName path))))
+          (when-not (or (skipped-path? rules relative) (tool-file? (str (.getFileName path))))
             (when-let [attributes (file-attributes path)]
               (if (.isDirectory attributes)
-                (do (when-not (some #(str/starts-with? % (str relative "/")) skipped)
+                (do (when-not (holder? rules relative)
                       (.put files (str relative "/") :folder))
-                    (walk root skipped path files))
+                    (walk root rules path files))
                 (.put files relative [(.size attributes) (.lastModifiedTime attributes)])))))))
     (catch NoSuchFileException _ nil)
     (catch AccessDeniedException _
@@ -76,22 +123,33 @@
   [root]
   (-> root root-path .normalize str))
 
+(defn- snapshot-with
+  "Take a snapshot of `root` that leaves out what the `rules` of [[skip-rules]] leave out."
+  [root rules]
+  (let [path (root-path root)
+        files (java.util.HashMap.)]
+    (walk path rules path files)
+    (into {} files)))
+
 (defn snapshot
   "Map the path of each file and folder under `root`, relative to it, to what a later snapshot compares.
 
   A file maps to its size and time of change. A folder maps its path, with a `/` at the end, to
   :folder, so a new or deleted folder counts, an empty one too, but a folder whose files change
-  does not; a folder that cannot be read maps to :unreadable. The walk does not enter the
-  `skipped` folders, given relative to `root`, and leaves out the files that tools write. A
-  folder that holds a skipped folder, such as `.clj-kondo/`, maps to nothing itself, since a tool
-  can make it, but its other files count. A link
-  is a file of its own, so the walk does not follow it. A file that is deleted while the walk goes
-  on is left out."
+  does not; a folder that cannot be read maps to :unreadable. The walk leaves out the `skipped`
+  paths, given relative to `root`, with all that a skipped folder holds, and the files that
+  tools write. A folder that holds a skipped path, such as `.clj-kondo/`, maps to nothing
+  itself, since a tool can make it, but its other files count. A link is a file of its own, so
+  the walk does not follow it. A file that is deleted while the walk goes on is left out."
   [root skipped]
-  (let [path (root-path root)
-        files (java.util.HashMap.)]
-    (walk path skipped path files)
-    (into {} files)))
+  (snapshot-with root (skip-rules skipped)))
+
+(defn- kept?
+  "True when the `rules` of [[skip-rules]] keep `path` of a snapshot, a folder with a `/` at the end, as a walk would."
+  [rules path]
+  (let [relative (bare path)]
+    (not (or (some #(skipped-path? rules %) (cons relative (parent-folders relative)))
+             (and (str/ends-with? path "/") (holder? rules relative))))))
 
 (defn- content-hash
   "Hash the bytes of the file at `path` under `root`, or return nil when it cannot be read, such as a folder."
@@ -125,14 +183,16 @@
          vec)))
 
 (defn start
-  "Return the guard of a run in `root`, from the snapshots `before` and `after` the baseline, without the `skipped` folders.
+  "Return the guard of a run in `root`, from the snapshots `before` and `after` the baseline, without the `skipped` paths.
 
   The guard keeps `after` as the reference, and the hash of the bytes of each file that the
   baseline added or changed, since its test writes it again for each mutant. A file whose bytes
-  cannot be read gets no hash, so any change of it counts."
-  [root skipped before after]
+  cannot be read gets no hash, so any change of it counts. With `git?`, git can tell which
+  paths it ignores, and the guard asks it about each new path."
+  [root skipped before after git?]
   {:root root
-   :skipped skipped
+   :rules (atom (skip-rules skipped))
+   :git? git?
    :files (atom after)
    :hashes (into {}
                  (keep (fn [[path change]]
@@ -140,18 +200,35 @@
                            (some->> (content-hash root path) (vector path)))))
                  (changes root before after {}))})
 
+(defn- newly-ignored
+  "Return the added paths of `changed` that git ignores, without the paths in a folder among them."
+  [root changed]
+  (let [ignored (->> changed
+                     (keep (fn [[path change]] (when (= :added change) path)))
+                     (git/ignored-among root)
+                     (into #{} (map bare)))]
+    (into #{} (remove #(some ignored (parent-folders %))) ignored)))
+
 (defn look
   "Take a snapshot, and return the files added, changed or deleted since the reference as [path change] pairs, or nil.
 
   The reference is the last snapshot with no change, which is the one after the baseline at
   first. When nothing changed, the new snapshot becomes the reference, so a file that the
-  baseline wrote and a test wrote again with the same bytes is not hashed again."
-  [{:keys [root skipped files hashes]}]
-  (let [now (snapshot root skipped)
-        changed (changes root @files now hashes)]
-    (if (seq changed)
-      changed
-      (do (reset! files now)
+  baseline wrote and a test wrote again with the same bytes is not hashed again. When git can
+  tell, a new path that git ignores is no change, and neither is a new folder that holds one:
+  the guard skips them from then on."
+  [{:keys [root rules git? files hashes]}]
+  (let [now (snapshot-with root @rules)
+        changed (changes root @files now hashes)
+        ignored (when (and git? (some #(= :added (second %)) changed))
+                  (newly-ignored root changed))
+        rules-now (if (seq ignored)
+                    (swap! rules #(skip-rules (into (:paths %) ignored)))
+                    @rules)
+        left (filterv #(kept? rules-now (first %)) changed)]
+    (if (seq left)
+      left
+      (do (reset! files (into {} (filter #(kept? rules-now (key %))) now))
           nil))))
 
 (def ^:private listed-files 10)

@@ -43,8 +43,8 @@
   reuses every mutant, no test runs, the baseline included. After the report, the cache
   records what the run reported as the last run. With `guard-root`, the run stops when a
   mutant that loaded, while it loads or in its tests, adds, changes or deletes a file or folder
-  under that folder. Its `.git`, the cache folder, the folders of editors, IDEs and tools, and
-  the swap, lock and backup files of editors do not count."
+  under that folder. Its `.git`, the cache folder, what git ignores, the folders of editors and
+  IDEs, and the swap, lock and backup files of editors do not count."
   [target file source test-nss {:keys [defs since timeout report html all-tests cache fresh iterate guard-root]}]
   (let [lines (when since (git/lines-since file since))
         {:keys [defs-in-scope loaded-once const-defs other-forms selected ignored unused-markers]
@@ -66,12 +66,17 @@
         _ (some-> message println)
         def-names (distinct (map :def selected))
         baseline? (and (seq selected) (or (seq to-run) (= :iterate (:mode store))))
-        skipped (when guard-root (guard/skipped-dirs guard-root (some-> cache :file io/file .getParentFile)))
-        before-baseline (when (and baseline? guard-root) (guard/snapshot guard-root skipped))
+        never-entered (when guard-root (guard/skipped-dirs guard-root (some-> cache :file io/file .getParentFile)))
+        before-baseline (when (and baseline? guard-root)
+                          (guard/snapshot guard-root (into never-entered (:folders guard/editor-files))))
         {:keys [ms covered note]} (when baseline?
                                     (run/baseline target def-names test-nss timeout))
+        git-ignored (when before-baseline (git/ignored-paths guard-root))
+        _ (when (and before-baseline (nil? git-ignored)) (println guard/no-git-note))
         file-guard (when before-baseline
-                     (guard/start guard-root skipped before-baseline (guard/snapshot guard-root skipped)))
+                     (let [skipped (guard/with-ignored never-entered git-ignored)]
+                       (guard/start guard-root skipped before-baseline (guard/snapshot guard-root skipped)
+                                    (some? git-ignored))))
         timeout-ms (when ms (or timeout (run/default-timeout-ms ms)))
         _ (println (format "%d mutants of %s against %s%s%s%s"
                            (count selected) target (str/join ", " test-nss)

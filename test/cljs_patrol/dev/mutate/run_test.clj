@@ -280,7 +280,7 @@
   "Return a guard on `root` whose reference is the snapshot of now."
   [root]
   (let [snapshot (guard/snapshot root #{})]
-    (guard/start root #{} snapshot snapshot)))
+    (guard/start root #{} snapshot snapshot false)))
 
 (def ^:private arming-source
   (str "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
