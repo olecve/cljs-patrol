@@ -3,6 +3,7 @@
    [cljs-patrol.fs :as fs]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.reporters.html :as html]
+   [cljs-patrol.temp-dir :as temp-dir]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
 
@@ -95,7 +96,7 @@
                                        :duplicate-events []
                                        :deprecated-effects []
                                        :dynamic-sites []}]}]
-        tmp-file (fs/tmp-file-path "cljs-patrol-test-" ".html")]
+        tmp-file (temp-dir/file-path "report.html")]
     (try
       (html/write-report [re-frame/group] run-results tmp-file)
       (let [content (slurp tmp-file)]
@@ -128,7 +129,7 @@
                                        :dynamic-sites []}]}]
         new-ids #{{:rule :unused-subs
                    :key :app/new-sub}}
-        tmp-file (fs/tmp-file-path "cljs-patrol-baseline-test-" ".html")]
+        tmp-file (temp-dir/file-path "report.html")]
     (try
       (html/write-baseline-report [re-frame/group] run-results tmp-file new-ids 3)
       (let [content (slurp tmp-file)]
@@ -153,7 +154,7 @@
                                        :duplicate-events []
                                        :deprecated-effects []
                                        :dynamic-sites []}]}]
-        tmp-file (fs/tmp-file-path "cljs-patrol-blocking-test-" ".html")]
+        tmp-file (temp-dir/file-path "report.html")]
     (try
       (html/write-report [re-frame/group] run-results tmp-file
                          #{:unused-subs})
@@ -178,7 +179,7 @@
                                        :dynamic-sites []}]}]
         new-ids #{{:rule :unused-subs
                    :key :app/new-sub}}
-        tmp-file (fs/tmp-file-path "cljs-patrol-baseline-blocking-" ".html")]
+        tmp-file (temp-dir/file-path "report.html")]
     (try
       (html/write-baseline-report [re-frame/group] run-results tmp-file
                                   new-ids 0

@@ -3,6 +3,7 @@
    [cljs-patrol.dev.mutate :as mutate]
    [cljs-patrol.dev.mutate.cache :as cache]
    [cljs-patrol.dev.mutate.fixtures :as fixtures]
+   [cljs-patrol.dev.mutate.guard :as guard]
    [cljs-patrol.dev.mutate.report :as report]
    [cljs-patrol.dev.mutate.run :as run]
    [clojure.edn :as edn]
@@ -564,3 +565,89 @@
                                                             :make-key #(do (swap! key-calls inc) {:new true})}}))]
                 (is (zero? @key-calls))
                 (is (not (str/includes? output "Running every mutant")))))))))))
+
+(def ^:private folder-source
+  (str "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
+       "(defn folder [temp root] (if (string? temp) temp root))\n"))
+
+(defn- folder-tests
+  "Return tests that write `file-name` into the folder the target picks, and delete it from `temp` only."
+  [temp root file-name]
+  (str "(ns cljs-patrol.dev.mutate.fixtures.target-test (:require [clojure.test :refer [deftest is]]"
+       " [cljs-patrol.dev.mutate.fixtures.target :as target]))\n"
+       "(deftest writes (let [folder (or (target/folder " (pr-str temp) " " (pr-str root) ") " (pr-str temp) ")]"
+       " (spit (java.io.File. folder " (pr-str file-name) ") \"x\")"
+       " (.delete (java.io.File. " (pr-str temp) " " (pr-str file-name) "))"
+       " (is true)))\n"))
+
+(defn- run-guarded
+  "Run `source` against `tests` with the guard on `root` and a cache in `dir`, and return the summary."
+  [source tests dir root]
+  (first (run-cached source (io/file dir "cache.edn") tests {:guard-root (str root)})))
+
+(deftest run-stops-at-mutant-whose-test-writes-into-working-directory
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (let [root (doto (io/file dir "root") .mkdirs)
+            file-name (str "cljs-patrol-guard-" (System/nanoTime) ".txt")
+            tests (folder-tests (System/getProperty "java.io.tmpdir") (str root) file-name)]
+        (fixtures/with-target folder-source tests
+          (fn []
+            (let [{:keys [stopped mutants unreached]
+                   :as summary} (run-guarded folder-source tests dir root)]
+              (is (str/starts-with? stopped (str "the tests of the mutant folder/2:27/if->if-not changed files in "
+                                                 (guard/folder-name root)
+                                                 ", and the runner did not undo them:\n  added " file-name "\n")))
+              (is (= 2 (report/exit-code summary)))
+              (is (= ["folder/2:26/body->nil"] (map :id mutants))
+                  "mutant before it ran, as baseline wrote into OS temporary folder")
+              (is (= [{:def "folder"
+                       :mutants 1}]
+                     unreached))
+              (is (= ["folder/2:26/body->nil"]
+                     (keys (:results (edn/read-string (slurp (io/file dir "cache.edn"))))))
+                  "mutant that wrote file is not cached"))))))))
+
+(defn- writes-only-when-mutated-tests [root]
+  (str "(ns cljs-patrol.dev.mutate.fixtures.target-test (:require [clojure.test :refer [deftest is]]"
+       " [cljs-patrol.dev.mutate.fixtures.target :as target]))\n"
+       "(deftest writes (when-not (= \"temp\" (target/folder \"temp\" " (pr-str (str root)) "))"
+       " (spit (java.io.File. " (pr-str (str root)) " \"note.txt\") \"x\")) (is true))\n"))
+
+(deftest run-stops-at-end-when-mutant-it-did-not-look-after-wrote-file
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (let [root (doto (io/file dir "root") .mkdirs)
+            tests (writes-only-when-mutated-tests root)]
+        (fixtures/with-target folder-source tests
+          (fn []
+            (let [{:keys [stopped mutants]} (run-guarded folder-source tests dir root)]
+              (is (str/starts-with? stopped "the tests of a mutant the guard took no snapshot after changed files in ")
+                  "test wrote no file in baseline")
+              (is (str/includes? stopped "  added note.txt\n"))
+              (is (str/ends-with? stopped " The cache keeps every mutant of this run."))
+              (is (= 2 (count mutants))))))))))
+
+(def ^:private logging-source
+  (str "(ns cljs-patrol.dev.mutate.fixtures.target)\n"
+       "(defn up? [x] (> x 0)) ; mutate: skip body: a mutant that logs the same text comes first\n"))
+
+(defn- logging-tests [logs]
+  (str "(ns cljs-patrol.dev.mutate.fixtures.target-test (:require [clojure.test :refer [deftest is]]"
+       " [cljs-patrol.dev.mutate.fixtures.target :as target]))\n"
+       "(deftest logs (spit (java.io.File. " (pr-str (str logs)) " \"log.txt\") (str (target/up? 1))) (is true))\n"))
+
+(deftest run-whose-baseline-writes-file-looks-after-every-mutant
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (let [root (doto (io/file dir "root") .mkdirs)
+            logs (doto (io/file root "logs") .mkdirs)
+            tests (logging-tests logs)]
+        (fixtures/with-target logging-source tests
+          (fn []
+            (let [{:keys [stopped mutants]} (run-guarded logging-source tests dir root)]
+              (is (str/starts-with? stopped "the tests of the mutant up?/2:20/0->1 changed files in ")
+                  "mutant that logs other text stops run")
+              (is (str/includes? stopped "  changed logs/log.txt\n"))
+              (is (= [["up?/2:16/>->>=" :survived]] (map (juxt :id :outcome) mutants))
+                  "mutant that writes same bytes again goes on"))))))))

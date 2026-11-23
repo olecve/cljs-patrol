@@ -360,6 +360,11 @@
                        " The next run stops here again")
                      " until these tests stop looping.")
     :restore-error " The cache keeps the mutants that finished, this one too, so the next run runs the rest."
+    :files-changed (str (if recorded?
+                          " The cache keeps the mutants that finished before this one"
+                          " The cache keeps no mutant")
+                        ", so the next run runs this one again.")
+    :files-changed-at-end " The cache keeps every mutant of this run."
     nil))
 
 (defn- result-entry [{:keys [outcome killed-by at-load? stuck? place]}]

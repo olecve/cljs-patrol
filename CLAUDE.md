@@ -172,19 +172,28 @@ outcomes it trusts and runs no baseline when nothing is left. It marks those out
 test that caught them, and a run without `--iterate` runs them again. `--fresh` runs every mutant again. Run one runner
 at a time on a target: the last write wins. At the end of a run that prints its report, in every mode, the cache keeps
 what that run reported, by place, as the last run: each gap whose place the last run reported is tagged new or still
-open, on the console and the page, the others count as "not run then", and the report counts the gaps closed since. A
-run exits 0 when nothing survives, 1 when something survives or has no coverage, and 2 when it cannot start or stops
-early. A value a `def` computes when the namespace loads keeps the original, so a mutant only it reaches survives.
+open, on the console and the page, the others count as "not run then", and the report counts the gaps closed since.
+After the baseline, a run takes a snapshot of every file under the directory it runs from, but `.git/` and
+`.mutate-cache/`: its path, size and time of change. After a mutant whose tests could write a file, it takes another and
+compares the two. A test could write when, in the baseline, Java Flight Recorder saw this JVM write a file while it ran,
+or the names directly in the working directory changed. When the baseline left a file changed, every mutant gets a
+snapshot, and a file the baseline wrote counts as changed only when its bytes change. A new, changed or deleted file
+stops the run: it names the mutant's `:id` and up to 10 files, does not undo them, and does not cache that mutant, so
+the next run runs it again. One more snapshot after the last mutant finds what a mutant without a snapshot left, and
+stops the run too. [ADR 0011](docs/adr/0011-mutation-test-stop-when-a-test-changes-a-file.md) records why. Tests take a
+temporary folder from `cljs-patrol.temp-dir`, which asks the JDK, never from `cljs-patrol.fs`, which a mutant can
+change. A run exits 0 when nothing survives, 1 when something survives or has no coverage, and 2 when it cannot start or
+stops early. A value a `def` computes when the namespace loads keeps the original, so a mutant only it reaches survives.
 
 The runner's command line is `dev/cljs_patrol/dev/mutate.clj`. Each job has its namespace under
 `dev/cljs_patrol/dev/mutate/`, and its tests under `test/cljs_patrol/dev/mutate/`: `forms` reads the target into
 mutants, skip markers and scope, `run` loads each mutant and runs the tests, `report` summarizes and prints, `apply`
-does `--apply` and `--restore`, `git` reads the lines `-s` changed and runs git for the cache key's file list, `cache`
-keeps each outcome for the next run and compares the gaps with the last one, and `error` holds the error that stops a
-run. The end-to-end tests in `test/cljs_patrol/dev/mutate_test.clj` and `mutate_html_test.clj` also exercise every job,
-so to mutate a runner namespace, pass all of its test namespaces with `-t`: `cljs-patrol.dev.mutate-test`,
-`cljs-patrol.dev.mutate-html-test` and the `cljs-patrol.dev.mutate.*-test` ones. `fixtures.clj` holds the helpers they
-share.
+does `--apply` and `--restore`, `guard` finds the files a mutant's tests changed, `git` reads the lines `-s` changed and
+runs git for the cache key's file list, `cache` keeps each outcome for the next run and compares the gaps with the last
+one, and `error` holds the error that stops a run. The end-to-end tests in `test/cljs_patrol/dev/mutate_test.clj` and
+`mutate_html_test.clj` also exercise every job, so to mutate a runner namespace, pass all of its test namespaces with
+`-t`: `cljs-patrol.dev.mutate-test`, `cljs-patrol.dev.mutate-html-test` and the `cljs-patrol.dev.mutate.*-test` ones.
+`fixtures.clj` holds the helpers they share.
 
 ## Linting
 

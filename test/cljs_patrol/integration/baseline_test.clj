@@ -8,6 +8,7 @@
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
    [cljs-patrol.reporters.edn :as edn-reporter]
+   [cljs-patrol.temp-dir :as temp-dir]
    [clojure.edn :as edn]
    [clojure.test :refer [deftest is]]))
 
@@ -19,10 +20,7 @@
     {:run-results run-results
      :identities (baseline/collect-identities run-results)}))
 
-(defn- tmp-dir []
-  (let [dir (fs/join-path (fs/tmp-dir) (str "cljs-patrol-integration-" (fs/nano-time)))]
-    (fs/mkdirs dir)
-    dir))
+(defn- tmp-dir [] (temp-dir/create-dir "cljs-patrol-integration-"))
 
 (deftest baseline-write-and-read-test
   (let [completed (atom false)

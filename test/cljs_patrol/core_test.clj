@@ -6,6 +6,7 @@
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.spade :as spade]
+   [cljs-patrol.temp-dir :as temp-dir]
    [clojure.test :refer [deftest is testing]]
    [clojure.tools.cli :as cli]))
 
@@ -62,7 +63,7 @@
   (let [enabled-groups [re-frame/group spade/group]
         run-results [(core/run fixture-dir enabled-groups)]
         identities (baseline/collect-identities run-results)
-        dir (fs/join-path (fs/tmp-dir) (str "cljs-patrol-bw-" (fs/nano-time)))
+        dir (temp-dir/file-path "missing")
         path (fs/join-path dir "baseline.edn")]
     (try
       (baseline/write-baseline path identities)
@@ -83,7 +84,7 @@
               :key :app/kept}
         added {:rule :unused-subs
                :key :app/added}
-        path (fs/tmp-file-path "baseline-" ".edn")]
+        path (temp-dir/file-path "baseline.edn")]
     (is (nil? (core/baseline-write-refusal path #{kept} false))
         "first write goes through")
     (baseline/write-baseline path #{kept})

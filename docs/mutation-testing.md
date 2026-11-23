@@ -58,6 +58,11 @@ Pass every test namespace that tests the target with `-t`. The run exits 0 when 
 there is a test gap, and 2 when it cannot start or stops early. Every option, what is not mutated, and when every test
 runs instead of the selected ones are in the "Mutation testing" section of [`CLAUDE.md`](../CLAUDE.md#mutation-testing).
 
+The run also looks at the files under the directory it runs from. When a planted bug makes a test add, change or delete
+a file there, the run stops, names the planted bug and up to 10 files, and exits 2. The run does not undo the files.
+Delete or restore them, then make the test take its folder from `Files/createTempDirectory`, not from the code under
+test.
+
 ## Read the report
 
 The page leads with the result and a to-do list of the functions with test gaps. Each gap shows:
@@ -192,6 +197,10 @@ Each choice below has a record in [`docs/adr/`](adr/README.md) with the options 
 - **A cache that only trusts unchanged sources** ([ADR 0010](adr/0010-mutation-test-cache-and-resume.md)). A run reuses
   an outcome only when the source files, the runner and the options are the same as in the last run, so a reused outcome
   is the one a new run would give. `--iterate` trusts caught outcomes after a change, for the work of adding tests.
+- **Stop when a test changes a file** ([ADR 0011](adr/0011-mutation-test-stop-when-a-test-changes-a-file.md)). A planted
+  bug can turn the temporary folder of a test into the working directory. The runner puts back only the code it changed,
+  so it stops and names the files. It compares a snapshot of the files only after a planted bug whose tests wrote a file
+  in the first run, which keeps the cost low.
 
 ## Words
 

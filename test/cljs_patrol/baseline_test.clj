@@ -11,6 +11,7 @@
    [cljs-patrol.groups.spade :as spade]
    [cljs-patrol.groups.typography :as typography]
    [cljs-patrol.parser :as parser]
+   [cljs-patrol.temp-dir :as temp-dir]
    [clojure.edn :as edn]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]])
@@ -438,7 +439,7 @@
      :var "a-style"}})
 
 (defn- tmp-baseline-path []
-  (fs/tmp-file-path "baseline-" ".edn"))
+  (temp-dir/file-path "baseline.edn"))
 
 (deftest write-baseline-test
   (testing "round-trip preserves issue set"
@@ -472,7 +473,7 @@
             "test classpath has no cljs_patrol/VERSION resource"))))
 
   (testing "creates parent directories"
-    (let [dir (fs/join-path (fs/tmp-dir) (str "cljs-patrol-test-" (fs/nano-time)))
+    (let [dir (temp-dir/file-path "missing")
           path (fs/join-path (fs/join-path dir "sub") "baseline.edn")]
       (try
         (baseline/write-baseline path test-issues)
@@ -687,7 +688,7 @@
 
 (deftest read-config-test
   (testing "malformed config surfaces a stderr warning and returns {}"
-    (let [path (fs/tmp-file-path "cljs-patrol-config-" ".edn")]
+    (let [path (temp-dir/file-path "config.edn")]
       (try
         (spit path "{:unclosed")
         (with-redefs [baseline/default-config-path path]
@@ -700,7 +701,7 @@
           (fs/delete-tree! path)))))
 
   (testing "valid config parses through"
-    (let [path (fs/tmp-file-path "cljs-patrol-config-" ".edn")]
+    (let [path (temp-dir/file-path "config.edn")]
       (try
         (spit path "{:foo 1}")
         (with-redefs [baseline/default-config-path path]

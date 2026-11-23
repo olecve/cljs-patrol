@@ -51,7 +51,8 @@
       (let [{:keys [tests recorded]} (run/coverage 'cljs-patrol.dev.mutate.fixtures.target
                                                    ["positive?" "label" "unused"]
                                                    ['cljs-patrol.dev.mutate.fixtures.target-test]
-                                                   10000)
+                                                   10000
+                                                   nil)
             test-var #(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test %)]
         (is (= #{"positive?" "label" "unused"} recorded))
         (is (= #{(test-var 'labels) (test-var 'on-thread)} (get tests "label"))
@@ -91,7 +92,7 @@
 
 (defn- coverage-of []
   (run/coverage 'cljs-patrol.dev.mutate.fixtures.target ["positive?" "label" "unused"]
-                ['cljs-patrol.dev.mutate.fixtures.target-test] 10000))
+                ['cljs-patrol.dev.mutate.fixtures.target-test] 10000 nil))
 
 (deftest coverage-tells-fixture-calls-and-nested-tests
   (fixtures/with-target coverage-tests
@@ -155,7 +156,8 @@
         (is (true? (:hooked? (run/coverage 'cljs-patrol.dev.mutate.fixtures.target ["label"]
                                            ['cljs-patrol.dev.mutate.fixtures.plain-test
                                             'cljs-patrol.dev.mutate.fixtures.target-test]
-                                           10000)))
+                                           10000
+                                           nil)))
             "one hooked namespace among several is enough")
         (finally (remove-ns 'cljs-patrol.dev.mutate.fixtures.plain-test))))))
 
@@ -273,3 +275,21 @@
         "every test calls it"))
   (is (= {} (run/recorded-plans nil ["a"] true))
       "no baseline, no test lists"))
+
+(deftest coverage-with-guard-root-records-tests-that-write-files
+  (fixtures/with-temp-dir
+    (fn [dir]
+      (fixtures/with-target (str fixtures/target-tests
+                                 "(deftest writes (spit (java.io.File. " (pr-str (str dir)) " \"note.txt\") \"x\")"
+                                 " (is (= :up (target/label 1))))\n"
+                                 "(deftest makes-folder (.mkdir (java.io.File. " (pr-str (str dir)) " \"made\"))"
+                                 " (is (= :up (target/label 1))))\n")
+        (fn []
+          (let [run-coverage #(run/coverage 'cljs-patrol.dev.mutate.fixtures.target ["label"]
+                                            ['cljs-patrol.dev.mutate.fixtures.target-test] 10000 %)]
+            (is (= #{(ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'writes)
+                     (ns-resolve 'cljs-patrol.dev.mutate.fixtures.target-test 'makes-folder)}
+                   (:writers (run-coverage (str dir))))
+                "new folder writes no file, but adds name")
+            (is (not (contains? (run-coverage nil) :writers))
+                "no guard, nothing recorded")))))))
