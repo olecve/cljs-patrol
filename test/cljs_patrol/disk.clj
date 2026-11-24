@@ -5,13 +5,19 @@
   (:require
    [clojure.test :as test])
   (:import
-   [java.nio.file Files Path]
-   [java.nio.file.attribute PosixFilePermissions]))
+   [java.nio.file Files OpenOption Path]
+   [java.nio.file.attribute FileAttribute PosixFilePermissions]))
 
 (defn path
   "Make a `Path` on the default file system from the text of `first-part` and of each of `more`."
   ^Path [first-part & more]
   (Path/of (str first-part) (into-array String (map str more))))
+
+(defn write!
+  "Write `text` as UTF-8 to the file `p` on the real disk, and create the folders above it."
+  ^Path [^Path p ^String text]
+  (Files/createDirectories (.getParent p) (make-array FileAttribute 0))
+  (Files/writeString p text (make-array OpenOption 0)))
 
 (defn typed-path
   "Make a {:path :text} map, as `core/run-all` takes for a source folder, with the text of the `Path` as its typed text."

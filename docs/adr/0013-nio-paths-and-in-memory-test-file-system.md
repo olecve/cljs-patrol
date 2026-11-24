@@ -168,7 +168,7 @@ the tests do not run the production code.
   directory and the reason. The run goes on, and its exit code does not change. A person who does not read stderr can
   still miss the files of that directory.
 - The unit tests of `fs`, of the baseline write and read, of the config read and of the HTML write need no temporary
-  directory and no clean-up.
+  directory and no clean-up. The tests of a file that cannot be read stay on the real disk.
 - A test can check Windows paths on Jimfs.
 - All paths of one run must come from one `FileSystem`. A mix gives `ProviderMismatchException`. The cache of ADR 0002
   must take the `FileSystem` when it is built, and make its temporary file in the directory of its target `Path`.
@@ -289,9 +289,14 @@ Each step is one pull request, and each one ships on its own.
    tests of `baseline_test`, the write tests of `reporters/html_test`, the baseline write tests of `core_test` and the
    discovery tests of `parser_test` to Jimfs. These tests then do not use `cljs-patrol.temp-dir`. The tests on the real
    disk keep it. In `fs_test`, these are the tests of an unreadable directory, the compare of the discovered paths with
-   `java.io`, and the tests of the string adapters. Add the Windows test of the baseline key. The string functions of
-   `fs` are deprecated, and `.clj-kondo/config.edn` exempts the test namespaces that still call them. A test namespace
-   loses its exemption when it moves. Step 4 removes the exemptions with the functions.
+   `java.io`, and the tests of the string adapters. In `baseline_test` and `parser_test`, these are the tests of a file
+   that cannot be read, because Jimfs does not check permissions, and in `parser_test` the compare with `z/of-file`,
+   which reads only the default file system. `integration/baseline_test` and the `baseline-write-integration-test` of
+   `core_test` read `test-projects/` on the real disk and write the baseline file on Jimfs. This split is intended. It
+   does not break the rule that all paths of one run come from one `FileSystem`: the baseline write and read use only
+   the baseline `Path`, and the identities they hold are strings. Add the Windows test of the baseline key. The string
+   functions of `fs` are deprecated, and `.clj-kondo/config.edn` exempts the test namespaces that still call them. A
+   test namespace loses its exemption when it moves. Step 4 removes the exemptions with the functions.
 4. **Remove the string adapters.** Remove each string function of `fs` that has no caller. Keep `nano-time` while the
    baseline write names its temporary file with it.
    - Risk: a caller still passes a string. A string where a `Path` is hinted gives a `ClassCastException`, and
