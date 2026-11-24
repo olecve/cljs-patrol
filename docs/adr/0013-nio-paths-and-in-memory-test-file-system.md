@@ -4,6 +4,20 @@
 
 Accepted, 2026-11-24 (proposed 2026-11-23)
 
+## Outcome
+
+2026-11-25: the migration is done. Each check in Confirmation passes, the native image included. `src/` reads and writes
+files only through `java.nio.file.Path`, and a CI step fails on a new use of `java.io.File`. The four steps shipped in
+these pull requests:
+
+- Step 1: [olecve/cljs-patrol#179](https://github.com/olecve/cljs-patrol/pull/179)
+- Step 2: [olecve/cljs-patrol#180](https://github.com/olecve/cljs-patrol/pull/180)
+- The deprecation of the string functions: [olecve/cljs-patrol#181](https://github.com/olecve/cljs-patrol/pull/181)
+- Step 3: [olecve/cljs-patrol#182](https://github.com/olecve/cljs-patrol/pull/182)
+- Step 4 and the CI checks: [olecve/cljs-patrol#183](https://github.com/olecve/cljs-patrol/pull/183)
+
+The sections below keep the decision as it was accepted.
+
 ## Context
 
 `src/cljs_patrol/fs.clj` wraps `java.io.File`. Each public function takes path strings and makes a `(File. path)`.
@@ -363,4 +377,3 @@ Each step is one pull request, and each one ships on its own.
   throws `UnsupportedOperationException` for a `Path` that is not on the default provider.
   [`Files.readString`](<https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/nio/file/Files.html#readString(java.nio.file.Path)>)
   throws `MalformedInputException` on bytes that are not valid.
-- Step 1, the pull request: [olecve/cljs-patrol#179](https://github.com/olecve/cljs-patrol/pull/179)
