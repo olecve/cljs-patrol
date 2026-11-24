@@ -42,8 +42,18 @@ jobs:
       - run: npm run format:check
 
       - run: clojure -M:cljfmt check src/ test/ dev/
-      - run: clojure -M:clj-kondo --lint src test dev build.clj
-      - run: clojure -M:test
+      - run: clojure -M:clj-kondo-deps:clj-kondo --lint src test dev build.clj
+
+      - name: No java.io file access in src
+        # ADR 0013: src/ reads and writes files through java.nio.file.Path. clj-kondo's
+        # :discouraged-var finds the vars of clojure.java.io, slurp and spit, but not
+        # Java interop. This check reads clj-kondo's analysis and exits 1 on each use of
+        # java.io.File, a java.io class whose name starts with File, or
+        # java.io.RandomAccessFile, in any import shape, and on each .toFile call. It
+        # exits 2 on a syntax error, a missing path or when it lints no file.
+        run: clojure -M:clj-kondo-deps:java-io-check src
+
+      - run: clojure -M:clj-kondo-deps:test
 
       - name: Patrol our own sources
         # The experimental .clj mode reads this repo, so the rules the tool
@@ -55,8 +65,8 @@ jobs:
         # docs/rules.md itself calls established on the JVM. A new rule in any of
         # these groups has to be added here, or it will not gate.
         run: >-
-          clojure -M:run --experimental-clj --only docstrings,tests,layout,idioms,comments
-          --fail-on docstring-summary,docstring-indentation,docstring-leading-trailing-whitespace,docstring-repeats-name,deftest-leading-article,assertion-message-inline,conditional-assertion,form-after-split-map,split-map-after-sibling,nested-call-chain,cond-else-nil,negated-test,into-empty,plus-minus-one,negated-equality,unconditional-cond-threading,vec-of-map-filter,commented-out-code,restating-comment
+          clojure -M:run --experimental-clj --only docstrings,tests,layout,idioms,comments --fail-on
+          docstring-summary,docstring-indentation,docstring-leading-trailing-whitespace,docstring-repeats-name,deftest-leading-article,assertion-message-inline,conditional-assertion,form-after-split-map,split-map-after-sibling,nested-call-chain,cond-else-nil,negated-test,into-empty,plus-minus-one,negated-equality,unconditional-cond-threading,vec-of-map-filter,commented-out-code,restating-comment
           src test dev build.clj
 
   native-verify:
@@ -67,8 +77,8 @@ jobs:
 
       - uses: graalvm/setup-graalvm@v1
         with:
-          java-version: '21'
-          distribution: 'graalvm'
+          java-version: "21"
+          distribution: "graalvm"
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: DeLaGuardo/setup-clojure@13.0

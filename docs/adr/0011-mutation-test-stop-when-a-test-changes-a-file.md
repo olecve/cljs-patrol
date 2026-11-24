@@ -101,7 +101,7 @@ folders from the JDK, not from the code under test.
   from 3.70 s to 6.76 s, 1.83 times as long. On `cljs-patrol.fs`, the 27 mutants took 27 snapshots in 0.31 s, and the
   run went from 0.39 s to 0.73 s, 1.87 times as long.
 - Good, because it found the real case: with the old `fs_test.clj`, the run stopped at `tmp-file-path/55:3/body->nil`
-  and named the 7 files. On today's tree, a scratch test does the same with `fs/parent-dir`, as Confirmation describes.
+  and named the 7 files. On today's tree, a scratch test does the same with `fs/parent`, as Confirmation describes.
 - Bad, because it only reports. A deleted file that git does not hold is lost.
 - Bad, because it does not see a file outside the working directory, such as one in the home folder.
 - Bad, because another process that changes a file during the run, such as an editor that saves a source file, also
@@ -182,9 +182,10 @@ mode it warns that it changes your files. mutmut copies the sources to `mutants/
   whose tests still run after the timeout, a failed restore of a mutant that also changed a file, and a cache folder and
   a `.git/` folder inside the working directory.
 - The repro of the incident stops at the mutant and names the 7 files. Today `fs/tmp-file-path` is gone, so the repro
-  uses `fs/parent-dir`, which returns `nil` under its body mutant. Note which of these folders exist before the run:
-  `.hidden/`, `out/`, `node_modules/`, `node_modules/thing/`, `target/`, `target/classes/`, `target/classes/app/` and
-  `.mutate-cache/`. Then add the scratch test `test/cljs_patrol/scratch_nil_root_test.clj`. Its fixture deletes the
+  uses `fs/parent`, which returns `nil` under its body mutant. `disk-path` makes the text of `root`, so a `nil` root
+  gives a path relative to the working directory, as `java.io.File` did. Note which of these folders exist before the
+  run: `.hidden/`, `out/`, `node_modules/`, `node_modules/thing/`, `target/`, `target/classes/`, `target/classes/app/`
+  and `.mutate-cache/`. Then add the scratch test `test/cljs_patrol/scratch_nil_root_test.clj`. Its fixture deletes the
   temporary folder that the test makes:
 
   ```clojure
@@ -192,29 +193,35 @@ mode it warns that it changes your files. mutmut copies the sources to `mutants/
     (:require
      [cljs-patrol.fs :as fs]
      [cljs-patrol.temp-dir :as temp-dir]
-     [clojure.test :refer [deftest is use-fixtures]]))
+     [clojure.test :refer [deftest is use-fixtures]])
+    (:import
+     [java.nio.file FileSystems]))
 
   (use-fixtures :each temp-dir/delete-created)
 
+  (defn- disk-path [root leaf]
+    (fs/path (FileSystems/getDefault) (str root) leaf))
+
   (defn- scratch-tree []
-    (let [root (fs/parent-dir (temp-dir/file-path "x"))]
+    (let [root (fs/parent (fs/path (FileSystems/getDefault) (temp-dir/file-path "x")))]
       (doseq [dir ["src" "target/classes/app" "node_modules/thing" ".hidden" "out"]]
-        (fs/mkdirs (fs/join-path root dir)))
+        (fs/create-dirs! (disk-path root dir)))
       (doseq [leaf ["src/kept.clj" "src/kept.cljs" "src/skipped.txt"
                     "target/classes/app/stale.clj" "node_modules/thing/vendored.cljs"
                     ".hidden/secret.clj" "out/compiled.cljs"]]
-        (spit (fs/join-path root leaf) "(ns x)"))
+        (with-open [w (fs/text-writer (disk-path root leaf))]
+          (.write w "(ns x)")))
       root))
 
   (deftest tree-is-listed
     (let [root (scratch-tree)]
       (try
-        (is (= 2 (count (fs/list-source-files root #{".clj" ".cljs"}))))
-        (finally (fs/delete-tree! root)))))
+        (is (= 2 (count (fs/source-paths root #{".clj" ".cljs"}))))
+        (finally (fs/delete-recursively! root)))))
   ```
 
-  Run `clojure -M:test:mutate cljs-patrol.fs -t cljs-patrol.scratch-nil-root-test -d parent-dir`. The run stops at
-  `parent-dir/19:3/body->nil`, names the 7 files first, then the new folders, and exits with 2. Then delete the 7 files,
+  Run `clojure -M:test:mutate cljs-patrol.fs -t cljs-patrol.scratch-nil-root-test -d parent`. The run stops at
+  `parent/85:3/body->nil`, names the 7 files first, then the new folders, and exits with 2. Then delete the 7 files,
   each folder of the list above that did not exist before the run, deepest first, and the scratch test. Delete the cache
   file `.mutate-cache/cljs-patrol.fs.edn` if it exists, and `.mutate-cache/` if it did not exist before the run. Do not
   delete `src/`, or a folder that existed before the run.

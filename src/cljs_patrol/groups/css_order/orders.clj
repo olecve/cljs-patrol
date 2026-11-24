@@ -28,7 +28,7 @@
 (defn- load-ranks [resource]
   (into {}
         (map-indexed (fn [index property] [property index]))
-        (edn/read-string (slurp (io/resource resource)))))
+        (edn/read-string #_{:clj-kondo/ignore [:discouraged-var]} (slurp (io/resource resource)))))
 
 (def ^:private order->ranks
   (delay (into {} (map (fn [[order {:keys [resource]}]] [order (load-ranks resource)])) sources)))

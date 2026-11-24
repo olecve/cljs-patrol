@@ -23,7 +23,7 @@ jobs:
           key: deps-${{ hashFiles('deps.edn') }}
           restore-keys: deps-
 
-      - run: clojure -M:test
+      - run: clojure -M:clj-kondo-deps:test
 
   build-uberjar:
     needs: test
@@ -67,8 +67,8 @@ jobs:
 
       - uses: graalvm/setup-graalvm@v1
         with:
-          java-version: '21'
-          distribution: 'graalvm'
+          java-version: "21"
+          distribution: "graalvm"
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: DeLaGuardo/setup-clojure@13.0
