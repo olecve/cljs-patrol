@@ -156,6 +156,30 @@
     (is (str/includes? (slurp report-file) "class=\"new-issue\"")
         "finding relative to first source dir matches new identity")))
 
+(deftest write-baseline-report-without-source-dir-keeps-file
+  (let [item {:effect ":dispatch-n"
+              :form ":dispatch-n"
+              :file "src/events.cljs"
+              :row 1}
+        new-ids #{{:rule :deprecated-effects
+                   :effect ":dispatch-n"
+                   :file "src/events.cljs"
+                   :line 1}}
+        report-file (temp-dir/file-path "report.html")
+        empty-file (temp-dir/file-path "empty.html")]
+    (html/write-baseline-report [re-frame/group]
+                                [{:source-dir nil
+                                  :source-text "src"
+                                  :group-results [{:deprecated-effects [item]}]}]
+                                (disk/path report-file)
+                                new-ids
+                                0)
+    (is (str/includes? (slurp report-file) "class=\"new-issue\"")
+        "nil source dir keeps file as it is")
+    (html/write-baseline-report [re-frame/group] [] (disk/path empty-file) #{} 0)
+    (is (str/includes? (slurp empty-file) "cljs-patrol report (baseline)")
+        "empty run results give report")))
+
 (deftest write-report-writes-lone-surrogate-as-question-mark
   (let [run-results [{:source-dir (disk/path "src")
                       :source-text "src"

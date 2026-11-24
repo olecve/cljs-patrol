@@ -203,7 +203,7 @@
   ([enabled-groups run-results output-path]
    (write-report enabled-groups run-results output-path nil))
   ([enabled-groups run-results ^Path output-path fail-on-rules]
-   (write-html output-path (render-html (.getFileSystem output-path) enabled-groups run-results fail-on-rules))))
+   (write-html output-path (render-html (fs/file-system-of output-path) enabled-groups run-results fail-on-rules))))
 
 (defn- render-baseline-details [file-system {:keys [title description columns items rule-key]} new-identities source-dir
                                 fail-on-rules]
@@ -231,7 +231,7 @@
    blocking-count warning-count]
   (let [dirs (str/join ", " (map :source-text run-results))
         timestamp (str (java.time.LocalDateTime/now))
-        source-dir (-> run-results first :source-dir fs/absolute)]
+        source-dir (some-> run-results first :source-dir fs/absolute)]
     (html5 {:lang "en"}
            [:head
             [:meta {:charset "UTF-8"}]
@@ -265,5 +265,5 @@
   ([enabled-groups run-results ^Path output-path new-identities fixed-count
     fail-on-rules blocking-count warning-count]
    (write-html output-path
-               (render-baseline-html (.getFileSystem output-path) enabled-groups run-results new-identities fixed-count
+               (render-baseline-html (fs/file-system-of output-path) enabled-groups run-results new-identities fixed-count
                                      fail-on-rules blocking-count warning-count))))

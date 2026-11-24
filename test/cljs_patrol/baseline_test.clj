@@ -646,6 +646,37 @@
                           "Baseline file not found: \n")
         "path that names no file is not found")))
 
+(deftest read-baseline-names-unreadable-file-as-typed-with-reason
+  (let [path (tmp-baseline-path)]
+    (spit path "{:version 4 :issues []}")
+    (disk/with-locked-file
+      "read-baseline-names-unreadable-file-as-typed-with-reason"
+      (disk/path path)
+      (fn []
+        (is (= {:error (str "Failed to parse baseline file: ./ci//baseline.edn\nAccessDeniedException"
+                            "\nRe-run --baseline-write --allow-new to regenerate.")}
+               (baseline/read-baseline {:path (disk/path path)
+                                        :text "./ci//baseline.edn"}))
+            "typed text and exception class, not path in message")))))
+
+(deftest find-added-identities-adds-nothing-for-path-that-names-no-file
+  (is (= {:added #{}}
+         (baseline/find-added-identities {:path nil
+                                          :text ""}
+                                         #{{:rule :unused-subs
+                                            :key :app/a}}))))
+
+(deftest collect-identities-keeps-file-without-source-dir
+  (is (= #{{:rule :deprecated-effects
+            :effect ":dispatch-n"
+            :file "src/events.cljs"
+            :line 1}}
+         (baseline/collect-identities [{:source-dir nil
+                                        :group-results [{:deprecated-effects [{:effect ":dispatch-n"
+                                                                               :file "src/events.cljs"
+                                                                               :row 1}]}]}]))
+      "nil source dir keeps file as it is and does not throw"))
+
 (deftest write-baseline-writes-lone-surrogate-as-question-mark
   (let [path (tmp-baseline-path)]
     (baseline/write-baseline (disk/path path) #{{:rule :commented-out-code

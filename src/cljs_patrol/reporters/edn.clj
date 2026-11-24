@@ -4,16 +4,7 @@
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [cljs-patrol.severity :as severity]
-   [clojure.set :as set])
-  (:import
-   (java.nio.file
-    FileSystem
-    Path)))
-
-(defn- file-system-of
-  "Give the file system of the run, the one of the `Path` of the first of `sources`."
-  ^FileSystem [sources]
-  (.getFileSystem ^Path (:path (first sources))))
+   [clojure.set :as set]))
 
 (defn- absolute-dirs [sources]
   (mapv #(-> % :path fs/absolute str) sources))
@@ -51,7 +42,7 @@
   ([enabled-groups sources run-results]
    (print-report enabled-groups sources run-results nil))
   ([enabled-groups sources run-results fail-on-rules]
-   (let [file-system (file-system-of sources)
+   (let [file-system (-> sources first :path fs/file-system-of)
          merged (->> enabled-groups
                      (map-indexed (fn [g-idx g]
                                     [(group/group-id g) (->> run-results

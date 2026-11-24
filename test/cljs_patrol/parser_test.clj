@@ -15,9 +15,7 @@
   (:import
    (java.nio.file
     Files
-    OpenOption)
-   (java.nio.file.attribute
-    PosixFilePermissions)))
+    OpenOption)))
 
 (deftest resolve-kw-test
   (testing "plain keyword"
@@ -253,12 +251,15 @@
         errors (java.io.StringWriter.)]
     (try
       (spit (str file) "(ns a)")
-      (Files/setPosixFilePermissions file (PosixFilePermissions/fromString "---------"))
-      (binding [*err* errors]
-        (is (nil? (parser/analyze-file file [(file-probe (constantly nil))]))
-            "file that cannot be read gives no result"))
-      (is (= (str "WARN: could not parse " file " : AccessDeniedException\n") (str errors))
-          "warning names exception class")
+      (disk/with-locked-file
+        "analyze-file-warns-with-reason-for-file-it-cannot-read"
+        file
+        (fn []
+          (binding [*err* errors]
+            (is (nil? (parser/analyze-file file [(file-probe (constantly nil))]))
+                "file that cannot be read gives no result"))
+          (is (= (str "WARN: could not parse " file " : AccessDeniedException\n") (str errors))
+              "warning names exception class")))
       (finally
         (temp-dir/delete-dir! dir)))))
 

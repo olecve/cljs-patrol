@@ -111,9 +111,8 @@
   "Give `path` relative to the `Path` `source-dir`, so a key does not hold the folder the run started in.
 
   Give `path` unchanged when `source-dir` is nil or is not above it, and the empty string when `path` is `source-dir`,
-  which is so when the run reads one file. `fs/relative-path` gives `../` or throws in those two cases, and a baseline
-  written before keeps its keys only with these results. Give an absolute `source-dir` when there are many findings,
-  because then `fs/absolute` gives it back as it is."
+  which is so when the run reads one file. A baseline written before keeps its keys only with these results.
+  A relative `source-dir` or `path` is read from the working directory of the file system of `source-dir`."
   [^Path source-dir ^String path]
   (if source-dir
     (let [base (fs/absolute source-dir)
@@ -355,6 +354,9 @@
 
           :else
           {:ok (set (:issues data))}))
+      (catch IOException e
+        {:error (str "Failed to parse baseline file: " text "\n" (fs/failure-reason e)
+                     "\nRe-run --baseline-write --allow-new to regenerate.")})
       (catch Exception e
         {:error (str "Failed to parse baseline file: " text "\n" (.getMessage e)
                      "\nRe-run --baseline-write --allow-new to regenerate.")}))))
@@ -374,7 +376,7 @@
   Returns {:added identities} for those not in it, empty when no baseline exists yet,
   or {:error message} when the existing file cannot be read and so cannot be compared."
   [baseline found]
-  (if-not (fs/exists? (:path baseline))
+  (if-not (some-> (:path baseline) fs/exists?)
     {:added #{}}
     (let [{:keys [ok error]} (read-baseline baseline)]
       (if error
@@ -388,7 +390,7 @@
   [run-results]
   (into #{}
         (mapcat (fn [{:keys [source-dir group-results]}]
-                  (let [base (fs/absolute source-dir)]
+                  (let [base (some-> source-dir fs/absolute)]
                     (mapcat #(result->identities % base) group-results))))
         run-results))
 

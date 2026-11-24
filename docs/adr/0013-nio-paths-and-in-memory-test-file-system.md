@@ -258,7 +258,18 @@ Each step is one pull request, and each one ships on its own.
      A throw there hides the first error.
    - A configured baseline path that names no file, such as the empty string or a string with a NUL character: `java.io`
      reads it as a missing file, so `--baseline` prints "Baseline file not found". `path` throws on the empty string,
-     and NIO throws `InvalidPathException` on a NUL character.
+     and NIO throws `InvalidPathException` on a NUL character. `core` keeps the result of `--baseline`: it prints
+     "Baseline file not found" and exits 1. `core` changes the result of `--baseline-write`: `main` threw an exception,
+     and step 2 prints "Error: baseline path names no file" and exits 1. Both checks run before any file is analyzed.
+
+   Step 2 also changes these results on purpose:
+   - A source file that cannot be read gives a warning with the class of the exception, such as `AccessDeniedException`.
+     `java.io` gave a reason, such as "Permission denied", and NIO gives no reason for this exception.
+
+   A probe on macOS with JDK 22 found no change of Unicode form. `Files/newDirectoryStream` gives a file name in the
+   form that the disk keeps, such as NFD, and `File.listFiles` gives NFC. Discovery uses NIO from step 1, so `main` and
+   step 2 discover the same text. With NFD folder names, `main` and step 2 gave the same `:source-dirs` and absolute
+   `:file` text.
 
    The baseline byte compare on `test-projects/a11y-app`, and the compare of the console, EDN and Markdown output on all
    17 `test-projects/*-app` against `main`, prove the result.

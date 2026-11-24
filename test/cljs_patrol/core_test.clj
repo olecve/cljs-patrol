@@ -114,6 +114,29 @@
          (run-main "" "test-projects/a11y-app/src" "a\u0000b" "test-projects/no-such-app" "test-projects/a11y-app/src/"))
       "empty, unaccepted and missing dirs are reported as typed, in order"))
 
+(defn- main-stderr
+  "Run `-main` with `args`, and give what it prints on stderr until it exits."
+  [& args]
+  (let [err (java.io.StringWriter.)]
+    (binding [*err* err]
+      (with-out-str
+        (with-redefs [core/exit! (fn [_ _] (throw (ex-info "exit" {})))]
+          (try
+            (apply core/-main args)
+            (catch clojure.lang.ExceptionInfo _
+              nil)))))
+    (str err)))
+
+(deftest main-tells-on-stderr-which-groups-read-clj
+  (is (str/includes? (main-stderr "--experimental-clj" "--only" "docstrings" "test-projects/clj-app")
+                     "Experimental: reading .clj files with docstrings.\n")
+      "group that reads .clj is named")
+  (is (str/includes? (main-stderr "--experimental-clj" "--only" "a11y" "test-projects/clj-app")
+                     "WARN: --experimental-clj does nothing here.")
+      "no group that reads .clj gives warning")
+  (is (not (str/includes? (main-stderr "--only" "docstrings" "test-projects/clj-app") "Experimental"))
+      "no notice without experimental mode"))
+
 (deftest main-exits-through-exit-on-bad-arguments
   (is (= {:exit 1
           :out "Error: --allow-new only applies to --baseline-write.\n"}
@@ -134,17 +157,16 @@
   [run-results sources configured allow-new]
   (capture-exit #(#'core/run-baseline-write! [a11y/group]
                                              run-results
-                                             {:allow-new allow-new
-                                              :baseline-path configured}
-                                             sources
+                                             {:allow-new allow-new}
+                                             (baseline/resolve-baseline-path configured (map :path sources))
                                              {})))
 
 (defn- compare-baseline-at [run-results sources configured]
   (capture-exit #(#'core/run-baseline-compare! [a11y/group]
                                                run-results
-                                               {:baseline-path configured
-                                                :fail-on-rules #{}}
+                                               {:fail-on-rules #{}}
                                                sources
+                                               (baseline/resolve-baseline-path configured (map :path sources))
                                                {})))
 
 (deftest configured-baseline-path-prints-as-typed
@@ -174,17 +196,59 @@
       (finally
         (temp-dir/delete-dir! dir)))))
 
-(deftest configured-baseline-path-that-names-no-file-gives-error
-  (let [sources [(disk/typed-path "test-projects/a11y-app/src")]]
-    (doseq [configured ["" "a\u0000b"]]
-      (is (= {:exit 1
-              :out (str "Error: Baseline file not found: " configured "\nRun --baseline-write first to create one.\n")}
-             (compare-baseline-at [] sources configured))
-          (str "compare gives not-found error for " (pr-str configured)))
-      (is (= {:exit 1
-              :out (str "Error: Cannot write baseline file " (pr-str configured) ": the path names no file.\n")}
-             (write-baseline-at [] sources configured true))
-          (str "write gives error for " (pr-str configured))))))
+(defn- start-baseline-file
+  "Run the start-up baseline check of `-main` with `opts`, and give {:exit :out} with :file, the baseline file it gives."
+  [opts]
+  (let [file (atom nil)]
+    (assoc (capture-exit #(reset! file (#'core/start-baseline-file opts [(disk/typed-path "test-projects/a11y-app/src")])))
+           :file @file)))
+
+(deftest configured-baseline-path-that-names-no-file-stops-run-at-start
+  (doseq [configured ["" "a\u0000b"]]
+    (is (= {:exit 1
+            :out (str "Error: Baseline file not found: " configured "\nRun --baseline-write first to create one.\n")
+            :file nil}
+           (start-baseline-file {:baseline true
+                                 :baseline-path configured}))
+        (str "compare gives not-found error for " (pr-str configured)))
+    (is (= {:exit 1
+            :out (str "Error: baseline path names no file: " configured "\n")
+            :file nil}
+           (start-baseline-file {:baseline-write true
+                                 :baseline-path configured}))
+        (str "write gives error for " (pr-str configured))))
+  (is (= {:exit nil
+          :out ""
+          :file (disk/typed-path "test-projects/a11y-app/src/.cljs-patrol/baseline.edn")}
+         (start-baseline-file {:baseline true}))
+      "default baseline file of compare")
+  (is (= {:exit nil
+          :out ""
+          :file {:path (disk/path "ci/b.edn")
+                 :text "ci//b.edn"}}
+         (start-baseline-file {:baseline-write true
+                               :baseline-path "ci//b.edn"}))
+      "configured baseline file of write")
+  (is (= {:exit nil
+          :out ""
+          :file nil}
+         (start-baseline-file {:baseline-path ""}))
+      "run without baseline has no baseline file"))
+
+(deftest console-findings-keep-file-without-source-dir
+  (is (= ["error"]
+         (map :severity
+              (core/console-findings [re-frame/group]
+                                     [{:source-dir nil
+                                       :group-results [{:deprecated-effects [{:effect ":dispatch-n"
+                                                                              :file "src/events.cljs"
+                                                                              :row 1}]}]}]
+                                     (core/baseline-severity #{{:rule :deprecated-effects
+                                                                :effect ":dispatch-n"
+                                                                :file "src/events.cljs"
+                                                                :line 1}}
+                                                             #{}))))
+      "nil source dir keeps file as it is and does not throw"))
 
 (deftest main-writes-baseline-under-first-source-dir-and-compares-with-it
   (let [dir (temp-dir/create-dir "cljs-patrol")

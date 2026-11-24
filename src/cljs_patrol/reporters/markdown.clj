@@ -3,10 +3,7 @@
   (:require
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
-   [clojure.string :as str])
-  (:import
-   (java.nio.file
-    Path)))
+   [clojure.string :as str]))
 
 (defn- hint-suffix
   "Return an indented follow-up line naming the fix, or \"\" when the rule attached none."
@@ -35,7 +32,7 @@
 (defn print-report
   "Print run-results as Markdown, each file path absolute on the file system of the first of `sources`."
   [enabled-groups sources run-results]
-  (let [file-system (.getFileSystem ^Path (:path (first sources)))
+  (let [file-system (-> sources first :path fs/file-system-of)
         sections (for [group-idx (range (count enabled-groups))
                        :let [group (nth enabled-groups group-idx)
                              merged (merge-results (map #(nth (:group-results %) group-idx) run-results))

@@ -67,6 +67,11 @@
   ^Path [^Path base ^String leaf]
   (.resolve (checked base) leaf))
 
+(defn file-system-of
+  "Give the file system of `p`, which is the file system of the run when `p` comes from it."
+  ^FileSystem [^Path p]
+  (.getFileSystem (checked p)))
+
 (defn absolute ^Path [^Path p]
   (.toAbsolutePath (checked p)))
 
