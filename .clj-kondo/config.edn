@@ -73,21 +73,4 @@
    clojure.core/spit {:message "Use fs/text-writer with a Path."}
    clojure.java.io/file {:message "Use fs/path. java.io.File reads a nil parent as the working directory."}
    clojure.java.io/reader {:message "Use fs/read-text with a Path."}
-   clojure.java.io/writer {:message "Use fs/text-writer with a Path."}}
-
-  ;; The string adapters of cljs-patrol.fs are deprecated. Only fs-test still calls them, to test them until step 4 of
-  ;; ADR 0013 removes them.
-  :deprecated-var
-  {:exclude
-   {cljs-patrol.fs/absolute-path {:namespaces [cljs-patrol.fs-test]}
-    cljs-patrol.fs/absolute-path? {:namespaces [cljs-patrol.fs-test]}
-    cljs-patrol.fs/delete-file! {:namespaces [cljs-patrol.fs-test]}
-    cljs-patrol.fs/delete-tree! {:namespaces [cljs-patrol.fs-test]}
-    cljs-patrol.fs/file-exists? {:namespaces [cljs-patrol.fs-test]}
-    cljs-patrol.fs/join-path {:namespaces [cljs-patrol.fs-test]}
-    cljs-patrol.fs/list-source-files {:namespaces [cljs-patrol.fs-test]}
-    cljs-patrol.fs/missing-dirs {:namespaces [cljs-patrol.fs-test]}
-    cljs-patrol.fs/mkdirs {:namespaces [cljs-patrol.fs-test]}
-    cljs-patrol.fs/move-replace! {:namespaces [cljs-patrol.fs-test]}
-    cljs-patrol.fs/parent-dir {:namespaces [cljs-patrol.fs-test]}
-    cljs-patrol.fs/relativize {:namespaces [cljs-patrol.fs-test]}}}}}
+   clojure.java.io/writer {:message "Use fs/text-writer with a Path."}}}}

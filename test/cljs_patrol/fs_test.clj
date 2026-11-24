@@ -18,7 +18,6 @@
     FileSystems
     FileVisitor
     Files
-    NoSuchFileException
     OpenOption
     Path]
    [java.nio.file.attribute FileAttribute PosixFilePermissions]))
@@ -57,12 +56,12 @@
          (map (fn [^File f] (.getPath f)))
          (filterv (fn [^String p] (some #(str/ends-with? p %) extensions))))))
 
-(deftest list-source-files-keeps-java-io-text-and-order
+(deftest source-paths-keep-java-io-text-and-order
   (doseq [root ["src" "src/" "./src" "test-projects/a11y-app/src"]]
     (let [expected (java-io-source-files root extensions)]
       (is (seq expected)
           (str root " holds source files, otherwise the compare proves nothing"))
-      (is (= expected (fs/list-source-files root extensions))
+      (is (= expected (mapv str (fs/source-paths (fs/parse-path (FileSystems/getDefault) root) extensions)))
           (str root " gives the same paths in the same order")))))
 
 (deftest path-test
@@ -309,6 +308,12 @@
       (is (thrown? NullPointerException (fs/path nil "src")))
       (is (thrown? NullPointerException (fs/path jimfs nil)))
       (is (thrown? NullPointerException (fs/resolve-path p nil)))
+      (is (thrown? NullPointerException (fs/parse-path nil "src")))
+      (is (thrown? NullPointerException (fs/parse-path jimfs nil)))
+      (is (thrown? NullPointerException (fs/absolute-text nil "src")))
+      (is (thrown? NullPointerException (fs/absolute-text jimfs nil)))
+      (is (thrown? IllegalArgumentException (fs/absolute-text jimfs ""))
+          "absolute-text on empty text")
       (doseq [[label f] [["resolve-path" #(fs/resolve-path % "a")]
                          ["absolute" fs/absolute]
                          ["absolute?" fs/absolute?]
@@ -387,149 +392,3 @@
                             (.postVisitDirectory visitor folder (IOException. "listing failed"))))
       (is (fs/exists? folder)
           "folder stays when its listing failed"))))
-
-(def ^:private nul-path
-  "A path with a NUL character, which no file system accepts."
-  "a\u0000b")
-
-(deftest string-adapters-test
-  (let [root (temp-dir/create-dir "fs-adapters-")]
-    (try
-      (testing "absolute-path"
-        (is (= (str (System/getProperty "user.dir") "/./src") (fs/absolute-path "./src/"))
-            "text as java.io.File gave it"))
-
-      (testing "absolute-path?"
-        (is (fs/absolute-path? root))
-        (is (not (fs/absolute-path? "src"))))
-
-      (testing "parent-dir"
-        (is (= "a/b" (fs/parent-dir "a/b/c.edn")))
-        (is (nil? (fs/parent-dir "c.edn"))))
-
-      (testing "join-path"
-        (is (= "src/.cljs-patrol/baseline.edn" (fs/join-path "src/" ".cljs-patrol/baseline.edn")))
-        (is (= "src/abs" (fs/join-path "src" "/abs"))
-            "absolute leaf goes under base, as in java.io")
-        (is (thrown? NullPointerException (fs/join-path nil "src"))
-            "nil base throws, not path without root"))
-
-      (testing "file-exists? and mkdirs"
-        (let [dir (str root "/a/b")]
-          (is (not (fs/file-exists? dir)))
-          (is (true? (fs/mkdirs dir))
-              "mkdirs gives true when it made folder")
-          (is (fs/file-exists? dir))
-          (is (false? (fs/mkdirs dir))
-              "second mkdirs on existing folder gives false")
-          (is (fs/file-exists? dir))))
-
-      (testing "missing-dirs"
-        (is (= ["nope" "also-nope"] (fs/missing-dirs ["nope" root "also-nope"]))
-            "folder that exists is not reported, and each missing one is"))
-
-      (testing "relativize"
-        (is (= "x/a.cljs" (fs/relativize "src" "src/x/a.cljs")))
-        (is (= "other//a.cljs" (fs/relativize "src" "other//a.cljs"))
-            "target outside base keeps its text"))
-
-      (testing "move-replace! and delete-file!"
-        (let [source (str root "/new")
-              target (str root "/old")]
-          (spit source "new")
-          (spit target "old")
-          (fs/move-replace! source target)
-          (is (= "new" (slurp target)))
-          (is (true? (fs/delete-file! target)))
-          (is (false? (fs/delete-file! target))
-              "missing file gives false")))
-
-      (testing "delete-file! that cannot delete"
-        (let [folder (str root "/full")]
-          (fs/mkdirs folder)
-          (spit (str folder "/a.txt") "x")
-          (is (false? (fs/delete-file! folder))
-              "folder that is not empty gives false and does not throw")
-          (is (fs/file-exists? folder))))
-
-      (testing "delete-tree!"
-        (let [tree (str root "/tree")]
-          (fs/mkdirs (str tree "/x"))
-          (spit (str tree "/x/a.txt") "x")
-          (is (nil? (fs/delete-tree! tree)))
-          (is (not (fs/file-exists? tree)))))
-
-      (testing "list-source-files gives a vector of strings"
-        (is (vector? (fs/list-source-files "test-projects/a11y-app/src" extensions)))
-        (is (every? string? (fs/list-source-files "test-projects/a11y-app/src" extensions))))
-      (finally (temp-dir/delete-dir! root)))))
-
-(deftest string-adapters-read-empty-path-as-no-file
-  (let [calls (atom [])
-        record (fn [& args] (swap! calls conj args) nil)]
-    (with-redefs [fs/delete-recursively! record
-                  fs/io-file record
-                  fs/move-over! record]
-      (is (= (System/getProperty "user.dir") (fs/absolute-path ""))
-          "empty path gives working directory, as in java.io")
-      (is (false? (fs/absolute-path? "")))
-      (is (nil? (fs/parent-dir "")))
-      (is (false? (fs/file-exists? "")))
-      (is (= [""] (fs/missing-dirs [""])))
-      (is (false? (fs/mkdirs "")))
-      (is (= "/x" (fs/join-path "" "x"))
-          "empty base stands for root, as in java.io")
-      (is (= "src/a.cljs" (fs/relativize "" "src/a.cljs")))
-      (is (= "src/a.cljs" (fs/relativize "" (str (System/getProperty "user.dir") "/src/a.cljs")))
-          "empty base stands for working directory, as in java.io")
-      (is (= "" (fs/relativize "src" "")))
-      (is (false? (fs/delete-file! "")))
-      (is (nil? (fs/delete-tree! "")))
-      (is (thrown? NoSuchFileException (fs/move-replace! "" "x")))
-      (is (thrown? NoSuchFileException (fs/move-replace! "x" "")))
-      (is (= [] (fs/list-source-files "" extensions))))
-    (is (empty? @calls)
-        "no file operation runs on working directory")))
-
-(deftest string-adapters-keep-results-for-nul-path
-  (let [calls (atom [])
-        record (fn [& args] (swap! calls conj args) nil)]
-    (with-redefs [fs/delete-recursively! record
-                  fs/move-over! record]
-      (is (= (str (System/getProperty "user.dir") "/" nul-path) (fs/absolute-path nul-path))
-          "absolute-path keeps text of java.io")
-      (is (false? (fs/absolute-path? nul-path)))
-      (is (true? (fs/absolute-path? (str "/" nul-path)))
-          "absolute NUL path gives true, as in java.io")
-      (is (= "x" (fs/parent-dir (str "x/" nul-path)))
-          "parent-dir keeps text of java.io")
-      (is (false? (fs/file-exists? nul-path)))
-      (is (= [nul-path] (fs/missing-dirs [nul-path])))
-      (is (false? (fs/mkdirs nul-path)))
-      (is (= (str nul-path "/x") (fs/join-path nul-path "x")))
-      (is (= (str "src/" nul-path) (fs/join-path "src" nul-path)))
-      (is (= "src/a.cljs" (fs/relativize nul-path "src/a.cljs")))
-      (is (= nul-path (fs/relativize "src" nul-path)))
-      (is (false? (fs/delete-file! nul-path)))
-      (is (nil? (fs/delete-tree! nul-path)))
-      (is (thrown? NoSuchFileException (fs/move-replace! nul-path "x")))
-      (is (= [] (fs/list-source-files nul-path extensions))))
-    (is (empty? @calls)
-        "no file operation runs")))
-
-(deftest mkdirs-gives-false-on-file-or-broken-link
-  (let [root (temp-dir/create-dir "fs-mkdirs-")]
-    (try
-      (let [file (str root "/file")
-            link (fs/path (FileSystems/getDefault) root "link")]
-        (spit file "x")
-        (is (false? (fs/mkdirs file))
-            "regular file gives false, as in java.io")
-        (Files/createSymbolicLink link
-                                  (fs/path (FileSystems/getDefault) root "gone")
-                                  (make-array FileAttribute 0))
-        (is (false? (fs/mkdirs (str link)))
-            "broken link gives false, as in java.io")
-        (is (false? (fs/mkdirs (str file "/sub")))
-            "folder under regular file gives false, as in java.io"))
-      (finally (temp-dir/delete-dir! root)))))

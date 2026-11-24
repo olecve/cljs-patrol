@@ -185,8 +185,21 @@ output as `main`. Steps 2 to 4 make the others pass.
 
 - `clojure -M:test` passes, and each test of `fs_test` that needs no real disk runs on Jimfs.
 - A test shows that each public function of `fs` throws on a nil path.
-- `grep -rnE 'java\.io\.File|io/file|\(File\. |io/writer|io/reader|\bspit\b' src/` finds nothing, and each `slurp` in
-  `src/` reads an `io/resource`.
+- The step "No java.io file access in src" of `.github/workflows/test.yml` passes. It runs these two checks, and each
+  one finds nothing:
+
+  ```sh
+  grep -rnE 'java\.io\.File|(^|[^.[:alnum:]])File\.([[:space:]]|\)|$)|\bFile/|\^File\b|[[(]java\.io\b[^])]*\bFile\b|^[[:space:]]*File[])]*[[:space:]]*$|(^|[^.[:alnum:]])io/(file|reader|writer)\b|\(spit\b' src/
+  grep -rnE '\(slurp\b' src/ | grep -v 'io/resource'
+  ```
+
+  The first check finds the class `java.io.File`: its full name, a constructor such as `(File. path)` or `File.` in a
+  thread, a static call, a `^File` hint, and a `File` import on one line or on a line of its own. It also finds a call
+  of `io/file`, `io/reader`, `io/writer` and `spit`. It finds code shapes, so a docstring that names `File.listFiles` or
+  `clojure.java.io/writer` does not match. The second check finds a `slurp` that does not read an `io/resource`. The
+  `:discouraged-var` linter of `.clj-kondo/config.edn` also finds these vars, also as a value, but it cannot find
+  `java.io.File` interop.
+
 - `clojure -T:build uber` passes, and `unzip -l target/cljs-patrol-dev.jar | grep -ci jimfs` prints `0`.
 - The `native-verify` job passes.
 - On `test-projects/a11y-app`, `--baseline-write src` on `main` and on the branch give files that differ only in
