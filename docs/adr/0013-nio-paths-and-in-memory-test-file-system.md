@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed, 2026-11-23
+Accepted, 2026-11-24 (proposed 2026-11-23)
 
 ## Context
 
@@ -180,7 +180,8 @@ the tests do not run the production code.
 
 ## Confirmation
 
-Before the status changes to `Accepted`, these checks must pass:
+The migration is done when these checks pass. Step 1 passes the checks of the uberjar, the native image and the same
+output as `main`. Steps 2 to 4 make the others pass.
 
 - `clojure -M:test` passes, and each test of `fs_test` that needs no real disk runs on Jimfs.
 - A test shows that each public function of `fs` throws on a nil path.
@@ -314,3 +315,4 @@ Each step is one pull request, and each one ships on its own.
   throws `UnsupportedOperationException` for a `Path` that is not on the default provider.
   [`Files.readString`](<https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/nio/file/Files.html#readString(java.nio.file.Path)>)
   throws `MalformedInputException` on bytes that are not valid.
+- Step 1, the pull request: [olecve/cljs-patrol#179](https://github.com/olecve/cljs-patrol/pull/179)
