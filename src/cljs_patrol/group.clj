@@ -33,7 +33,7 @@
 
 (def tool-version
   "The released version this build carries, or \"dev\" for a build from source."
-  (or (some-> (io/resource "cljs_patrol/VERSION") slurp str/trim not-empty)
+  (or (some-> (io/resource "cljs_patrol/VERSION") #_{:clj-kondo/ignore [:discouraged-var]} slurp str/trim not-empty)
       "dev"))
 
 (defn docs-ref

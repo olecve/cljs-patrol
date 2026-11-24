@@ -185,21 +185,20 @@ output as `main`. Steps 2 to 4 make the others pass.
 
 - `clojure -M:test` passes, and each test of `fs_test` that needs no real disk runs on Jimfs.
 - A test shows that each public function of `fs` throws on a nil path.
-- The step "No java.io file access in src" of `.github/workflows/test.yml` passes. It runs these two checks, and each
-  one finds nothing:
-
-  ```sh
-  grep -rnE 'java\.io\.File|(^|[^.[:alnum:]])File\.([[:space:]]|\)|$)|\bFile/|\^File\b|[[(]java\.io\b[^])]*\bFile\b|^[[:space:]]*File[])]*[[:space:]]*$|(^|[^.[:alnum:]])io/(file|reader|writer)\b|\(spit\b' src/
-  grep -rnE '\(slurp\b' src/ | grep -v 'io/resource'
-  ```
-
-  The first check finds the class `java.io.File`: its full name, a constructor such as `(File. path)` or `File.` in a
-  thread, a static call, a `^File` hint, and a `File` import on one line or on a line of its own. It also finds a call
-  of `io/file`, `io/reader`, `io/writer` and `spit`. It finds code shapes, so a docstring that names `File.listFiles` or
-  `clojure.java.io/writer` does not match. The second check finds a `slurp` that does not read an `io/resource`. The
-  `:discouraged-var` linter of `.clj-kondo/config.edn` also finds these vars, also as a value, but it cannot find
-  `java.io.File` interop.
-
+- `clojure -M:clj-kondo --lint src test dev build.clj` gives no warning. The `:discouraged-var` linter of
+  `.clj-kondo/config.edn` finds each use of `slurp`, `spit` and the `clojure.java.io` vars `file`, `as-file`, `reader`,
+  `writer`, `input-stream`, `output-stream`, `make-parents`, `delete-file` and `copy`. clj-kondo resolves the var, so it
+  finds each spelling: the full name such as `clojure.java.io/file`, any alias, and a `:refer`, in a call or as a value.
+  It does not apply to the namespaces that must keep `java.io`: `cljs-patrol.dev.*`, each `*-test` namespace, the test
+  helpers `cljs-patrol.disk`, `cljs-patrol.memory-fs`, `cljs-patrol.temp-dir` and `cljs-patrol.temp-project`, and, for
+  `io/file`, `io/make-parents` and `spit` only, `build`. In `src/`, only the `slurp` of a classpath resource in `group`,
+  `groups.css-order.orders` and `reporters.html` has an ignore, on that one form.
+- The step "No java.io file access in src" of `.github/workflows/test.yml` passes. It runs
+  `clojure -M:clj-kondo:java-io-check src`, which lints `src/` with the clj-kondo API and reads its analysis
+  (`:java-class-usages` and `:instance-invocations`). It fails on each use of `java.io.File`, or of a `java.io` class
+  whose name starts with `File`, such as `FileReader` or `FileInputStream`: in an import of any shape, a full class
+  name, a constructor, a static call or a type hint. It also fails on each `.toFile` call. It prints each hit as
+  `file:line:column`. The `:discouraged-var` linter cannot find this Java interop.
 - `clojure -T:build uber` passes, and `unzip -l target/cljs-patrol-dev.jar | grep -ci jimfs` prints `0`.
 - The `native-verify` job passes.
 - On `test-projects/a11y-app`, `--baseline-write src` on `main` and on the branch give files that differ only in
@@ -313,7 +312,7 @@ Each step is one pull request, and each one ships on its own.
 4. **Remove the string adapters.** Remove each string function of `fs` that has no caller. Keep `nano-time` while the
    baseline write names its temporary file with it.
    - Risk: a caller still passes a string. A string where a `Path` is hinted gives a `ClassCastException`, and
-     `clojure -M:test` finds it. The `grep` in Confirmation proves no `java.io` file access is left in `src/`.
+     `clojure -M:test` finds it. The clj-kondo checks in Confirmation prove no `java.io` file access is left in `src/`.
 
 ## Revisit when
 

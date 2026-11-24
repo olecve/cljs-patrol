@@ -46,19 +46,11 @@ jobs:
 
       - name: No java.io file access in src
         # ADR 0013: src/ reads and writes files through java.nio.file.Path. clj-kondo's
-        # :discouraged-var finds io/file, slurp, spit, io/reader and io/writer, but not
-        # java.io.File interop, so this grep finds the class: its full name, a
-        # constructor, a static call, a type hint and an import on one or more lines. A
-        # slurp in src/ may only read a classpath resource.
-        run: |
-          if grep -rnE 'java\.io\.File|(^|[^.[:alnum:]])File\.([[:space:]]|\)|$)|\bFile/|\^File\b|[[(]java\.io\b[^])]*\bFile\b|^[[:space:]]*File[])]*[[:space:]]*$|(^|[^.[:alnum:]])io/(file|reader|writer)\b|\(spit\b' src/; then
-            echo "src/ uses java.io file access. Use the Path functions of cljs-patrol.fs."
-            exit 1
-          fi
-          if grep -rnE '\(slurp\b' src/ | grep -v 'io/resource'; then
-            echo "src/ calls slurp on something that is not a classpath resource. Use fs/read-text."
-            exit 1
-          fi
+        # :discouraged-var finds the vars of clojure.java.io, slurp and spit, but not
+        # Java interop. This check reads clj-kondo's analysis and fails on each use of
+        # java.io.File or a java.io class whose name starts with File, in any import
+        # shape, and on each .toFile call.
+        run: clojure -M:clj-kondo:java-io-check src
 
       - run: clojure -M:test
 

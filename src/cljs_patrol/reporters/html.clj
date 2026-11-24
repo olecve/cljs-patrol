@@ -12,7 +12,7 @@
    (java.nio.file
     Path)))
 
-(def ^:private css (slurp (io/resource "cljs_patrol/report.css")))
+(def ^:private css #_{:clj-kondo/ignore [:discouraged-var]} (slurp (io/resource "cljs_patrol/report.css")))
 
 (def ^:private js
   (str

@@ -150,31 +150,38 @@ reasons:
   each mutant.
 - The repro of an incident still stops. In that incident, the mutant that made `fs/tmp-file-path` return `nil` gave a
   test helper the root folder `nil`. `(java.io.File. nil "src")` is the relative path `src`, so the helper wrote its 7
-  fixture files into the working directory. `fs/tmp-file-path` is gone, so the repro uses `fs/parent-dir`, which returns
-  `nil` under its body mutant. Run it in a worktree with `node_modules/` and `target/`. First note which of these
-  folders exist: `.hidden/`, `out/`, `node_modules/thing/`, `target/classes/app/` and `.mutate-cache/`. Then add the
-  scratch test `test/cljs_patrol/scratch_nil_root_test.clj`. Its namespace `cljs-patrol.scratch-nil-root-test` requires
-  `cljs-patrol.fs` as `fs`, `cljs-patrol.temp-dir` as `temp-dir` and `deftest` and `is` from `clojure.test`. Its fixture
-  `temp-dir/delete-created` deletes the temporary folder that the test makes:
+  fixture files into the working directory. `fs/tmp-file-path` is gone, so the repro uses `fs/parent`, which returns
+  `nil` under its body mutant. `disk-path` makes the text of `root`, so a `nil` root gives a path relative to the
+  working directory, as `java.io.File` did. Run it in a worktree with `node_modules/` and `target/`. First note which of
+  these folders exist: `.hidden/`, `out/`, `node_modules/thing/`, `target/classes/app/` and `.mutate-cache/`. Then add
+  the scratch test `test/cljs_patrol/scratch_nil_root_test.clj`. Its namespace `cljs-patrol.scratch-nil-root-test`
+  requires `cljs-patrol.fs` as `fs`, `cljs-patrol.temp-dir` as `temp-dir` and `deftest` and `is` from `clojure.test`,
+  and imports `java.nio.file.FileSystems`. Its fixture `temp-dir/delete-created` deletes the temporary folder that the
+  test makes:
 
   ```clojure
+  (defn- disk-path [root leaf]
+    (fs/path (FileSystems/getDefault) (str root) leaf))
+
   (defn- scratch-tree []
-    (let [root (fs/parent-dir (temp-dir/file-path "x"))]
+    (let [root (fs/parent (fs/path (FileSystems/getDefault) (temp-dir/file-path "x")))]
       (doseq [leaf ["src/kept.clj" "src/kept.cljs" "src/skipped.txt" ".hidden/secret.clj"
                     "node_modules/thing/vendored.cljs" "target/classes/app/stale.clj" "out/compiled.cljs"]]
-        (.mkdirs (.getParentFile (java.io.File. (fs/join-path root leaf))))
-        (spit (fs/join-path root leaf) "(ns x)"))
+        (let [p (disk-path root leaf)]
+          (fs/create-dirs! (.getParent p))
+          (with-open [w (fs/text-writer p)]
+            (.write w "(ns x)"))))
       root))
 
   (deftest tree-is-listed
     (let [root (scratch-tree)]
       (try
-        (is (= 2 (count (fs/list-source-files root #{".clj" ".cljs"}))))
-        (finally (fs/delete-tree! root)))))
+        (is (= 2 (count (fs/source-paths root #{".clj" ".cljs"}))))
+        (finally (fs/delete-recursively! root)))))
   ```
 
-  Run `clojure -M:test:mutate cljs-patrol.fs -t cljs-patrol.scratch-nil-root-test -d parent-dir`. The run stops at
-  `parent-dir/19:3/body->nil` and exits with 2. It names the 4 files that git does not ignore: `src/kept.clj`,
+  Run `clojure -M:test:mutate cljs-patrol.fs -t cljs-patrol.scratch-nil-root-test -d parent`. The run stops at
+  `parent/85:3/body->nil` and exits with 2. It names the 4 files that git does not ignore: `src/kept.clj`,
   `src/kept.cljs`, `src/skipped.txt` and `.hidden/secret.clj`, and the new folder `.hidden/`. It does not name the other
   3 files, since the `.gitignore` of this repository ignores `node_modules/`, `target/` and `out`. Then delete the 7
   files, each folder of the list above that did not exist before the run, deepest first, and the scratch test. Delete

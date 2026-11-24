@@ -21,6 +21,11 @@
   {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2026.08.04"}}
    :main-opts ["-m" "clj-kondo.main"]}
 
+  ;; Use with :clj-kondo, which gives the clj-kondo version: clojure -M:clj-kondo:java-io-check src
+  :java-io-check
+  {:extra-paths ["dev"]
+   :main-opts ["-m" "cljs-patrol.dev.java-io-check"]}
+
   :mutate
   {:main-opts ["-m" "cljs-patrol.dev.mutate"]}
 
