@@ -19,7 +19,7 @@
           (io/make-parents file)
           (spit file source)))
       {:results (binding [*err* errors]
-                  (-> (core/run (disk/source dir) [rule-group]) :group-results first))
+                  (-> (core/run (disk/typed-path dir) [rule-group]) :group-results first))
        :errors (str errors)}
       (finally
         (temp-dir/delete-dir! dir)))))

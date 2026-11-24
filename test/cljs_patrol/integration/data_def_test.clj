@@ -39,7 +39,7 @@
          set)))
 
 (defn- result [rule-group]
-  (-> (core/run (disk/source fixture-dir) [rule-group]) :group-results first))
+  (-> (core/run (disk/typed-path fixture-dir) [rule-group]) :group-results first))
 
 (deftest data-def-a11y-fixture-test
   (let [{:keys [img-alt-missing label-not-associated]} (result a11y/group)]
@@ -107,7 +107,7 @@
 
 (deftest data-def-test-id-mention-counts-with-its-vector
   (is (= ["bad-save-button-by-test-id"]
-         (->> (core/run (disk/source mention-fixture-dir) [react-testing-library-cljs/group])
+         (->> (core/run (disk/typed-path mention-fixture-dir) [react-testing-library-cljs/group])
               :group-results
               first
               :test-id-query-on-role
@@ -115,7 +115,8 @@
       "test id mention in data def is left out like its vector, so element and mention counts agree"))
 
 (defn- test-id-query-on-role-tests [dir]
-  (->> (core/run (disk/source dir) [react-testing-library-cljs/group]) :group-results first :test-id-query-on-role (map :test)))
+  (->> (core/run (disk/typed-path dir) [react-testing-library-cljs/group])
+       :group-results first :test-id-query-on-role (map :test)))
 
 (deftest data-def-other-test-id-strings-count-as-mentions
   (is (empty? (test-id-query-on-role-tests "test-projects/data-def-app/src/datadefstrings"))
@@ -135,7 +136,7 @@
 (def ^:private mixed-file (str mixed-fixture-dir "/views.cljs"))
 
 (defn- mixed-result [rule-group]
-  (-> (core/run (disk/source mixed-fixture-dir) [rule-group]) :group-results first))
+  (-> (core/run (disk/typed-path mixed-fixture-dir) [rule-group]) :group-results first))
 
 (defn- noted-defs
   "Name the fixture definitions whose findings carry the mixed schema note."

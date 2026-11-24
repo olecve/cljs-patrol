@@ -9,7 +9,7 @@
 
 (defn- result
   ([] (result layout/group))
-  ([rule-group] (-> (core/run (disk/source fixture-dir) [rule-group]) :group-results first)))
+  ([rule-group] (-> (core/run (disk/typed-path fixture-dir) [rule-group]) :group-results first)))
 
 (defn- rows [findings]
   (sort (map :row findings)))

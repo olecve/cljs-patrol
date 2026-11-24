@@ -15,7 +15,9 @@
   (:import
    (java.nio.file
     Files
-    OpenOption)))
+    OpenOption)
+   (java.nio.file.attribute
+    PosixFilePermissions)))
 
 (deftest resolve-kw-test
   (testing "plain keyword"
@@ -245,6 +247,21 @@
       (finally
         (temp-dir/delete-dir! dir)))))
 
+(deftest analyze-file-warns-with-reason-for-file-it-cannot-read
+  (let [dir (temp-dir/create-dir "cljs-patrol")
+        file (disk/path dir "a.cljs")
+        errors (java.io.StringWriter.)]
+    (try
+      (spit (str file) "(ns a)")
+      (Files/setPosixFilePermissions file (PosixFilePermissions/fromString "---------"))
+      (binding [*err* errors]
+        (is (nil? (parser/analyze-file file [(file-probe (constantly nil))]))
+            "file that cannot be read gives no result"))
+      (is (= (str "WARN: could not parse " file " : AccessDeniedException\n") (str errors))
+          "warning names exception class")
+      (finally
+        (temp-dir/delete-dir! dir)))))
+
 (defn- with-project
   "Write `sources`, a map of file name to source, to a temporary directory and call `f` with it and its files in walk order."
   [sources f]
@@ -264,7 +281,7 @@
 
 (defn- analyze-quietly [dir groups jobs]
   (binding [*err* (java.io.StringWriter.)]
-    (doall (:declarations (parser/analyze-project (disk/source dir) groups nil jobs)))))
+    (doall (:declarations (parser/analyze-project (disk/typed-path dir) groups nil jobs)))))
 
 (deftest parallel-results-keep-file-order
   (with-project four-files
@@ -307,7 +324,7 @@
       (spit (first files) (str (apply str (repeat 20000 "(defn f [x] [:div {:a 1} x])\n")) "(ns a"))
       (let [errors (java.io.StringWriter.)]
         (binding [*err* errors]
-          (doall (:declarations (parser/analyze-project (disk/source dir) [(file-probe (constantly nil))] nil 3))))
+          (doall (:declarations (parser/analyze-project (disk/typed-path dir) [(file-probe (constantly nil))] nil 3))))
         (is (= files
                (->> (str/split-lines (str errors))
                     (keep #(second (re-matches #"WARN: could not parse (\S+) :.*" %)))))

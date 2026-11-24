@@ -9,11 +9,7 @@
    [hiccup.page :refer [html5]]
    [hiccup.util :refer [raw-string]])
   (:import
-   (java.nio.charset
-    StandardCharsets)
    (java.nio.file
-    Files
-    OpenOption
     Path)))
 
 (def ^:private css (slurp (io/resource "cljs_patrol/report.css")))
@@ -43,13 +39,13 @@
    "var open=b.getAttribute('data-action')==='expand-all';"
    "document.querySelectorAll('details').forEach(function(d){d.open=open;});});});"))
 
-(defn- vscode-link [file row]
-  (format "vscode://file/%s:%d" (fs/absolute-path file) row))
+(defn- vscode-link [file-system file row]
+  (format "vscode://file/%s:%d" (fs/absolute-text file-system file) row))
 
-(defn- cell-value [col item]
+(defn- cell-value [file-system col item]
   (case col
     :keyword (str (:kw item))
-    :file [:a {:href (vscode-link (:file item) (:row item))} (:file item)]
+    :file [:a {:href (vscode-link file-system (:file item) (:row item))} (:file item)]
     :line (str (:row item))
     :form (-> item :form str str/trim)
     :hint (str (:hint item))))
@@ -94,23 +90,21 @@
    (when (seq description)
      [:span.desc (linkify description)])])
 
-(defn- render-details
-  ([section] (render-details section nil))
-  ([{:keys [title description columns items rule-key]} fail-on-rules]
-   (let [cnt (count items)
-         blocking? (blocking-rule? fail-on-rules rule-key)]
-     [:details (if (pos? cnt) {:open true} {})
-      (render-summary {:title title
-                       :cnt cnt
-                       :blocking? blocking?
-                       :description description})
-      [:table.issues
-       [:thead
-        [:tr (map #(vector :th {:data-sort ""} (col-header %)) columns)]]
-       [:tbody
-        (map (fn [item]
-               [:tr (map #(vector :td (cell-value % item)) columns)])
-             items)]]])))
+(defn- render-details [file-system {:keys [title description columns items rule-key]} fail-on-rules]
+  (let [cnt (count items)
+        blocking? (blocking-rule? fail-on-rules rule-key)]
+    [:details (if (pos? cnt) {:open true} {})
+     (render-summary {:title title
+                      :cnt cnt
+                      :blocking? blocking?
+                      :description description})
+     [:table.issues
+      [:thead
+       [:tr (map #(vector :th {:data-sort ""} (col-header %)) columns)]]
+      [:tbody
+       (map (fn [item]
+              [:tr (map #(vector :td (cell-value file-system % item)) columns)])
+            items)]]]))
 
 (defn- key->title [k]
   (-> (name k)
@@ -177,13 +171,13 @@
    [:button {:type "button"
              :data-action "collapse-all"} "Collapse all"]])
 
-(defn- render-group-section [g g-idx run-results fail-on-rules]
+(defn- render-group-section [file-system g g-idx run-results fail-on-rules]
   [:section
    [:h2 (group/group-name g)]
-   (map #(render-details % fail-on-rules)
+   (map #(render-details file-system % fail-on-rules)
         (aggregate-sections g g-idx run-results))])
 
-(defn- render-html [enabled-groups run-results fail-on-rules]
+(defn- render-html [file-system enabled-groups run-results fail-on-rules]
   (let [dirs (str/join ", " (map :source-text run-results))
         timestamp (str (java.time.LocalDateTime/now))]
     (html5 {:lang "en"}
@@ -197,20 +191,22 @@
             [:h2 "Summary"]
             (render-summary-table enabled-groups run-results)
             details-toolbar
-            (map-indexed (fn [i g] (render-group-section g i run-results fail-on-rules))
+            (map-indexed (fn [i g] (render-group-section file-system g i run-results fail-on-rules))
                          enabled-groups)
             [:script (raw-string js)]])))
 
 (defn- write-html [^Path output-path html]
-  (Files/writeString output-path (str html) StandardCharsets/UTF_8 (make-array OpenOption 0)))
+  (with-open [w (fs/text-writer output-path)]
+    (.write w (str html))))
 
 (defn write-report
   ([enabled-groups run-results output-path]
    (write-report enabled-groups run-results output-path nil))
-  ([enabled-groups run-results output-path fail-on-rules]
-   (write-html output-path (render-html enabled-groups run-results fail-on-rules))))
+  ([enabled-groups run-results ^Path output-path fail-on-rules]
+   (write-html output-path (render-html (.getFileSystem output-path) enabled-groups run-results fail-on-rules))))
 
-(defn- render-baseline-details [{:keys [title description columns items rule-key]} new-identities source-dir fail-on-rules]
+(defn- render-baseline-details [file-system {:keys [title description columns items rule-key]} new-identities source-dir
+                                fail-on-rules]
   (let [cnt (count items)
         blocking? (blocking-rule? fail-on-rules rule-key)]
     [:details (if (pos? cnt) {:open true} {})
@@ -227,15 +223,15 @@
                     row-class (if (contains? new-identities id)
                                 "new-issue" "baseline-issue")]
                 [:tr {:class row-class}
-                 (map #(vector :td (cell-value % item)) columns)]))
+                 (map #(vector :td (cell-value file-system % item)) columns)]))
             items)]]]))
 
 (defn- render-baseline-html
-  [enabled-groups run-results new-identities fixed-count fail-on-rules
+  [file-system enabled-groups run-results new-identities fixed-count fail-on-rules
    blocking-count warning-count]
   (let [dirs (str/join ", " (map :source-text run-results))
         timestamp (str (java.time.LocalDateTime/now))
-        source-dir (:source-dir (first run-results))]
+        source-dir (-> run-results first :source-dir fs/absolute)]
     (html5 {:lang "en"}
            [:head
             [:meta {:charset "UTF-8"}]
@@ -257,7 +253,7 @@
              (fn [i g]
                [:section
                 [:h2 (group/group-name g)]
-                (map #(render-baseline-details % new-identities source-dir fail-on-rules)
+                (map #(render-baseline-details file-system % new-identities source-dir fail-on-rules)
                      (aggregate-sections g i run-results))])
              enabled-groups)
             [:script (raw-string js)]])))
@@ -266,8 +262,8 @@
   ([enabled-groups run-results output-path new-identities fixed-count]
    (write-baseline-report enabled-groups run-results output-path
                           new-identities fixed-count nil 0 0))
-  ([enabled-groups run-results output-path new-identities fixed-count
+  ([enabled-groups run-results ^Path output-path new-identities fixed-count
     fail-on-rules blocking-count warning-count]
    (write-html output-path
-               (render-baseline-html enabled-groups run-results new-identities fixed-count
+               (render-baseline-html (.getFileSystem output-path) enabled-groups run-results new-identities fixed-count
                                      fail-on-rules blocking-count warning-count))))

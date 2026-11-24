@@ -9,7 +9,7 @@
    [clojure.test :refer [deftest is]]))
 
 (defn- source-dirs []
-  (mapv #(disk/source "test-projects/literal-constant-app" %) ["src" "test"]))
+  (mapv #(disk/typed-path "test-projects/literal-constant-app" %) ["src" "test"]))
 
 (def ^:private results
   (delay (->> (core/run-all (source-dirs) [tests/group])

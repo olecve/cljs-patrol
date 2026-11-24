@@ -474,7 +474,7 @@
   (testing "round-trip preserves issue set"
     (let [path (tmp-baseline-path)]
       (baseline/write-baseline (disk/path path) test-issues)
-      (let [{:keys [ok]} (baseline/read-baseline (disk/path path))]
+      (let [{:keys [ok]} (baseline/read-baseline (disk/typed-path path))]
         (is (= test-issues ok)))))
 
   (testing "deterministic sort order"
@@ -576,7 +576,7 @@
             "the write failure still propagates")
         (is (= original (slurp path))
             "existing baseline is byte-for-byte unchanged")
-        (is (= test-issues (:ok (baseline/read-baseline (disk/path path))))
+        (is (= test-issues (:ok (baseline/read-baseline (disk/typed-path path))))
             "surviving baseline is still readable"))))
 
   (testing "no temp file is left behind"
@@ -619,7 +619,7 @@
         "write into folder throws")
     (is (not (instance? DirectoryNotEmptyException thrown))
         "failed delete of temp file does not replace write failure")
-    (is (str/includes? (str err) (str "WARN: could not delete " temp-path ": "))
+    (is (str/includes? (str err) (str "WARN: could not delete " temp-path ": DirectoryNotEmptyException\n"))
         "failed delete is warned about on stderr")))
 
 (deftest write-baseline-throws-when-parent-is-file-test
@@ -628,9 +628,36 @@
     (is (thrown? FileSystemException (baseline/write-baseline (disk/path path "baseline.edn") test-issues))
         "parent that is a file cannot hold baseline")))
 
+(deftest read-baseline-names-file-as-typed
+  (let [path (tmp-baseline-path)
+        baseline {:path (disk/path path)
+                  :text "./ci//baseline.edn"}
+        error-of (fn [content]
+                   (spit path content)
+                   (:error (baseline/read-baseline baseline)))]
+    (is (str/starts-with? (error-of "[1 2 3]") "Malformed baseline file: ./ci//baseline.edn ")
+        "malformed file named as typed")
+    (is (str/starts-with? (error-of "{:version 999}") "Baseline version mismatch in ./ci//baseline.edn: ")
+        "version mismatch named as typed")
+    (is (str/starts-with? (error-of "{:version") "Failed to parse baseline file: ./ci//baseline.edn\n")
+        "parse error named as typed")
+    (is (str/starts-with? (:error (baseline/read-baseline {:path nil
+                                                           :text ""}))
+                          "Baseline file not found: \n")
+        "path that names no file is not found")))
+
+(deftest write-baseline-writes-lone-surrogate-as-question-mark
+  (let [path (tmp-baseline-path)]
+    (baseline/write-baseline (disk/path path) #{{:rule :commented-out-code
+                                                 :kind 'x
+                                                 :file "a.cljs"
+                                                 :form "x\uD83D"}})
+    (is (str/includes? (slurp path) ":form \"x?\"}]}\n")
+        "lone surrogate written as ?, as clojure.java.io/writer writes it")))
+
 (deftest read-baseline-test
   (testing "missing file"
-    (let [{:keys [error]} (baseline/read-baseline (disk/path "/nonexistent/baseline.edn"))]
+    (let [{:keys [error]} (baseline/read-baseline (disk/typed-path "/nonexistent/baseline.edn"))]
       (is (some? error))
       (is (re-find #"--baseline-write" error)
           "hints to run --baseline-write")))
@@ -639,20 +666,20 @@
     (let [path (tmp-baseline-path)]
       (spit path (pr-str {:version 999
                           :issues []}))
-      (let [{:keys [error]} (baseline/read-baseline (disk/path path))]
+      (let [{:keys [error]} (baseline/read-baseline (disk/typed-path path))]
         (is (some? error))
         (is (re-find #"version" error)))))
 
   (testing "malformed data"
     (let [path (tmp-baseline-path)]
       (spit path "[1 2 3]")
-      (let [{:keys [error]} (baseline/read-baseline (disk/path path))]
+      (let [{:keys [error]} (baseline/read-baseline (disk/typed-path path))]
         (is (some? error)))))
 
   (testing "unparseable EDN"
     (let [path (tmp-baseline-path)]
       (spit path "{:version 1 :issues [unclosed")
-      (let [{:keys [error]} (baseline/read-baseline (disk/path path))]
+      (let [{:keys [error]} (baseline/read-baseline (disk/typed-path path))]
         (is (some? error)
             "returns error instead of throwing")))))
 
@@ -693,22 +720,22 @@
 (deftest find-added-identities-test
   (let [path (tmp-baseline-path)]
     (is (= {:added #{}}
-           (baseline/find-added-identities (disk/path path) #{id-a}))
+           (baseline/find-added-identities (disk/typed-path path) #{id-a}))
         "nothing to compare before first write")
     (baseline/write-baseline (disk/path path) #{id-a id-b})
     (is (= {:added #{}}
-           (baseline/find-added-identities (disk/path path) #{id-a id-b}))
+           (baseline/find-added-identities (disk/typed-path path) #{id-a id-b}))
         "same findings add nothing")
     (is (= {:added #{}}
-           (baseline/find-added-identities (disk/path path) #{id-a}))
+           (baseline/find-added-identities (disk/typed-path path) #{id-a}))
         "fixed findings add nothing")
     (is (= {:added #{id-c}}
-           (baseline/find-added-identities (disk/path path) #{id-a id-c}))
+           (baseline/find-added-identities (disk/typed-path path) #{id-a id-c}))
         "finding missing from baseline is added")
     (spit path (pr-str {:version 999
                         :issues []}))
     (is (re-find #"version"
-                 (:error (baseline/find-added-identities (disk/path path) #{id-a})))
+                 (:error (baseline/find-added-identities (disk/typed-path path) #{id-a})))
         "unreadable baseline reports its error")))
 
 (deftest collect-identities-test
@@ -782,13 +809,20 @@
       "cli path overrides config path"))
 
 (deftest resolve-baseline-path-test
-  (is (= (disk/path "/projects/myapp/.cljs-patrol/baseline.edn")
+  (is (= (disk/typed-path "/projects/myapp/.cljs-patrol/baseline.edn")
          (baseline/resolve-baseline-path nil [(disk/path "/projects/myapp")]))
       "defaults to source-dir/.cljs-patrol/baseline.edn")
-  (is (= (disk/path "custom/baseline.edn")
-         (baseline/resolve-baseline-path "custom/baseline.edn" [(disk/path "/projects/myapp")]))
-      "explicit path overrides default")
-  (is (= (disk/path "src/myapp/.cljs-patrol/baseline.edn")
+  (is (= {:path (disk/path "./custom/baseline.edn")
+          :text "./custom//baseline.edn"}
+         (baseline/resolve-baseline-path "./custom//baseline.edn" [(disk/path "/projects/myapp")]))
+      "explicit path overrides default and keeps typed text")
+  (is (= [{:path nil
+           :text ""}
+          {:path nil
+           :text "a\u0000b"}]
+         (map #(baseline/resolve-baseline-path % [(disk/path "/projects/myapp")]) ["" "a\u0000b"]))
+      "explicit path that names no file has no path")
+  (is (= (disk/typed-path "src/myapp/.cljs-patrol/baseline.edn")
          (baseline/resolve-baseline-path nil [(disk/path "src/myapp") (disk/path "other")]))
       "works with relative source dirs, beside first one")
   (is (thrown? IllegalArgumentException (baseline/resolve-baseline-path nil [(disk/path "")]))

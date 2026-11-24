@@ -11,7 +11,7 @@
   (set (map :kw items)))
 
 (deftest reg-event-db-returning-effects-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [re-frame/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [re-frame/group])
         result (first group-results)
         flagged (kws (:reg-event-db-returning-effects result))]
 

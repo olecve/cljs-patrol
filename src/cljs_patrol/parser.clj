@@ -9,12 +9,10 @@
    [rewrite-clj.zip :as z])
   (:import
    (java.io
+    IOException
     StringWriter
     Writer)
-   (java.nio.charset
-    StandardCharsets)
    (java.nio.file
-    Files
     Path)
    (java.util
     HashMap
@@ -492,21 +490,21 @@
           :else
           (recur (z/up current) current (conj passed node)))))))
 
-(defn- read-source
-  "Read `file` as UTF-8, with U+FFFD in place of each byte that is not UTF-8, as `z/of-file` reads a file.
-
-  `Files/readString` throws on such a byte instead."
-  ^String [^Path file]
-  (String. (Files/readAllBytes file) StandardCharsets/UTF_8))
+(defn- warn-unparsed
+  "Print the warning for a file that could not be read or parsed, and give nil."
+  [file-path reason]
+  (binding [*out* *err*]
+    (println "WARN: could not parse" file-path ":" reason))
+  nil)
 
 (defn- parse-file
   "Read file and its ns form, or warn and return nil for a file the reader cannot parse."
   [file file-path]
-  (when-let [zloc (try (z/of-string (read-source file))
+  (when-let [zloc (try (z/of-string (fs/read-text file))
+                       (catch IOException e
+                         (warn-unparsed file-path (fs/failure-reason e)))
                        (catch Exception e
-                         (binding [*out* *err*]
-                           (println "WARN: could not parse" file-path ":" (.getMessage e)))
-                         nil))]
+                         (warn-unparsed file-path (.getMessage e))))]
     {:ns-info (or (find-ns-info zloc) empty-ns-info)
      :zloc zloc}))
 

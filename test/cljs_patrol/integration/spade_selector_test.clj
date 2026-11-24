@@ -8,7 +8,7 @@
 (def ^:private fixture-dir "test-projects/spade-selector-app/src/webapp")
 
 (defn- findings [rule-key]
-  (-> (core/run (disk/source fixture-dir) [spade/group]) :group-results first (get rule-key)))
+  (-> (core/run (disk/typed-path fixture-dir) [spade/group]) :group-results first (get rule-key)))
 
 (deftest ampersand-not-at-start-test
   (let [found (findings :spade-ampersand-not-at-start)

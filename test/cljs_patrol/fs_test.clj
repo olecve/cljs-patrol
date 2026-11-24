@@ -2,6 +2,7 @@
   (:require
    [cljs-patrol.fs :as fs]
    [cljs-patrol.temp-dir :as temp-dir]
+   [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]])
   (:import
@@ -113,6 +114,42 @@
     (is (= "/work/src/a.cljs" (str (fs/resolve-path (fs/path jimfs "/work/src") "a.cljs"))))
     (is (= "/abs" (str (fs/resolve-path (fs/path jimfs "/work/src") "/abs")))
         "absolute leaf replaces base, as in NIO")))
+
+(deftest parse-path-test
+  (with-open [jimfs (unix-fs)]
+    (is (= (fs/path jimfs "src/a.cljs") (fs/parse-path jimfs "src//a.cljs/"))
+        "text makes path on given file system")
+    (is (nil? (fs/parse-path jimfs ""))
+        "empty string names no file")
+    (is (nil? (fs/parse-path jimfs "a\u0000b"))
+        "text that file system does not accept names no file")))
+
+(deftest absolute-text-test
+  (with-open [jimfs (unix-fs)]
+    (is (= "/work/src/a.cljs" (fs/absolute-text jimfs "src//a.cljs")))
+    (is (= "/abs/a.cljs" (fs/absolute-text jimfs "/abs/a.cljs")))))
+
+(deftest read-text-reads-bytes-that-are-not-utf-8-as-replacement-character
+  (with-open [jimfs (unix-fs)]
+    (let [p (fs/path jimfs "/work/a.cljs")]
+      (fs/create-dirs! (fs/parent p))
+      (Files/write p (byte-array [0x61 0xC3 0x28 0x62]) (make-array OpenOption 0))
+      (is (= "a\uFFFD(b" (fs/read-text p))))))
+
+(deftest text-writer-writes-lone-surrogate-as-question-mark
+  (with-open [jimfs (unix-fs)]
+    (let [p (fs/path jimfs "/work/a.txt")
+          text "a\u00e9\uD83D"]
+      (fs/create-dirs! (fs/parent p))
+      (write! p "old text that is longer")
+      (with-open [w (fs/text-writer p)]
+        (.write w text))
+      (is (= (seq (let [out (java.io.ByteArrayOutputStream.)]
+                    (with-open [w (io/writer out)]
+                      (.write w text))
+                    (.toByteArray out)))
+             (seq (Files/readAllBytes p)))
+          "same bytes as clojure.java.io/writer, and old content replaced"))))
 
 (deftest path-throws-on-empty-path
   (with-open [jimfs (unix-fs)]
@@ -298,6 +335,8 @@
                          ["move-over! source" #(fs/move-over! % q)]
                          ["move-over! target" #(fs/move-over! p %)]
                          ["delete-recursively!" fs/delete-recursively!]
+                         ["read-text" fs/read-text]
+                         ["text-writer" fs/text-writer]
                          ["source-paths" #(fs/source-paths % extensions)]
                          ["missing-paths" #(fs/missing-paths [%])]]]
         (is (thrown? NullPointerException (f nil))

@@ -203,10 +203,10 @@
   (let [recorder (timings/recorder (ticking-clock))
         groups [(fake-group :tokens {:handle-token (constantly nil)})
                 (fake-group :lists {})]
-        timed (core/run-all (mapv disk/source ["test-projects/a11y-app/src"]) groups recorder)
+        timed (core/run-all (mapv disk/typed-path ["test-projects/a11y-app/src"]) groups recorder)
         {:keys [phases files]
          recorded-groups :groups} (timings/summary recorder)]
-    (is (= (core/run-all (mapv disk/source ["test-projects/a11y-app/src"]) groups) timed)
+    (is (= (core/run-all (mapv disk/typed-path ["test-projects/a11y-app/src"]) groups) timed)
         "recording leaves results as they were")
     (is (= 1 (:discovery phases))
         "discovery spans one tick")

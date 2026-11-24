@@ -9,7 +9,7 @@
 
 (defn- found
   ([] (found :nested-call-chain))
-  ([rule] (-> (core/run (disk/source fixture-dir) [idioms/group]) :group-results first rule)))
+  ([rule] (-> (core/run (disk/typed-path fixture-dir) [idioms/group]) :group-results first rule)))
 
 (deftest nested-call-chain-fixture-test
   (testing "a function defined in another file counts, referred or through an alias"

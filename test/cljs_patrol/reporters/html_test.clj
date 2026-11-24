@@ -124,6 +124,51 @@
     (is (str/includes? (slurp baseline-file) " | Analyzed: src/, test//")
         "baseline report header keeps typed text")))
 
+(deftest write-report-opens-only-sections-with-findings
+  (let [run-results [{:source-dir (disk/path "src")
+                      :source-text "src"
+                      :group-results [{:unused-subs [kw-item]
+                                       :unused-events []}]}]
+        report-file (temp-dir/file-path "report.html")]
+    (html/write-report [re-frame/group] run-results (disk/path report-file))
+    (is (= ["<details open>" "<details>"] (re-seq #"<details[^>]*>" (slurp report-file)))
+        "section with findings open, empty one closed")))
+
+(deftest write-baseline-report-reads-identities-against-first-source-dir
+  (let [item {:type :deprecated
+              :effect ":dispatch-n"
+              :form ":dispatch-n"
+              :file "src/events.cljs"
+              :row 1}
+        run-results [{:source-dir (disk/path "src")
+                      :source-text "src"
+                      :group-results [{:deprecated-effects [item]}]}
+                     {:source-dir (disk/path "test")
+                      :source-text "test"
+                      :group-results [{:deprecated-effects []}]}]
+        report-file (temp-dir/file-path "report.html")]
+    (html/write-baseline-report [re-frame/group] run-results (disk/path report-file)
+                                #{{:rule :deprecated-effects
+                                   :effect ":dispatch-n"
+                                   :file "events.cljs"
+                                   :line 1}}
+                                0)
+    (is (str/includes? (slurp report-file) "class=\"new-issue\"")
+        "finding relative to first source dir matches new identity")))
+
+(deftest write-report-writes-lone-surrogate-as-question-mark
+  (let [run-results [{:source-dir (disk/path "src")
+                      :source-text "src"
+                      :group-results [{:dynamic-sites [{:form "(rf/dispatch [x\uD83D])"
+                                                        :file "src/a.cljs"
+                                                        :row 1}]}]}]
+        report-file (temp-dir/file-path "report.html")]
+    (html/write-report [re-frame/group] run-results (disk/path report-file))
+    (is (str/includes? (slurp report-file) "(rf/dispatch [x?])")
+        "lone surrogate written as ?, as clojure.java.io/writer writes it")
+    (is (str/includes? (slurp report-file) (str "vscode://file/" (.toAbsolutePath (disk/path "src/a.cljs")) ":1"))
+        "link holds absolute path on file system of report")))
+
 (deftest write-baseline-report-test
   (let [new-item {:kw :app/new-sub
                   :type :sub

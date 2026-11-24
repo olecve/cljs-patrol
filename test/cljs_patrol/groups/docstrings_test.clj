@@ -14,7 +14,7 @@
   (set (map :kw items)))
 
 (deftest analyze-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [docstrings/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [docstrings/group])
         result (first group-results)
         summary-kws (kws (:docstring-summary result))
         indent-kws (kws (:docstring-indentation result))

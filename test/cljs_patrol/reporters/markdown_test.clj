@@ -1,5 +1,6 @@
 (ns cljs-patrol.reporters.markdown-test
   (:require
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.spade :as spade]
    [cljs-patrol.reporters.markdown :as md-reporter]
@@ -36,18 +37,18 @@
 (defn- run-report
   ([groups run-results]
    (with-out-str
-     (md-reporter/print-report groups ["src"] run-results)))
+     (md-reporter/print-report groups [(disk/typed-path "src")] run-results)))
   ([run-results]
    (run-report [re-frame/group] run-results)))
 
 (deftest report-header-test
-  (let [output (run-report [{:source-dir "src"
+  (let [output (run-report [{:source-dir (disk/path "src")
                              :group-results [(re-frame-result {})]}])]
     (testing "starts with report header"
       (is (str/starts-with? output "# cljs-patrol report")))))
 
 (deftest unused-subs-section-test
-  (let [output (run-report [{:source-dir "src"
+  (let [output (run-report [{:source-dir (disk/path "src")
                              :group-results [(re-frame-result {:unused-subs [kw-item]})]}])]
     (testing "renders section title with count"
       (is (str/includes? output "## Unused subs (1)")))
@@ -60,21 +61,21 @@
       (is (str/includes? output "[Docs](https://github.com/olecve/cljs-patrol/blob/")))))
 
 (deftest dynamic-sites-section-test
-  (let [output (run-report [{:source-dir "src"
+  (let [output (run-report [{:source-dir (disk/path "src")
                              :group-results [(re-frame-result {:dynamic-sites [dynamic-item]})]}])]
     (testing "renders form-based entries"
       (is (str/includes? output "## Dynamic sites (1)"))
       (is (str/includes? output "(rf/dispatch [event-kw])")))))
 
 (deftest empty-sections-omitted-test
-  (let [output (run-report [{:source-dir "src"
+  (let [output (run-report [{:source-dir (disk/path "src")
                              :group-results [(re-frame-result {:unused-subs [kw-item]})]}])]
     (testing "empty sections are not rendered"
       (is (not (str/includes? output "## Unused events")))
       (is (not (str/includes? output "## Phantom subs"))))))
 
 (deftest summary-table-test
-  (let [output (run-report [{:source-dir "src"
+  (let [output (run-report [{:source-dir (disk/path "src")
                              :group-results [(re-frame-result {:unused-subs [kw-item]
                                                                :unused-events [event-item]})]}])]
     (testing "summary table is present"
@@ -87,7 +88,7 @@
 (deftest multiple-groups-test
   (let [output (run-report
                 [re-frame/group spade/group]
-                [{:source-dir "src"
+                [{:source-dir (disk/path "src")
                   :group-results [(re-frame-result {:unused-subs [kw-item]})
                                   {:unused-styles [style-item]}]}])]
     (testing "renders sections from both groups"
@@ -105,9 +106,9 @@
                 :file "other/b.cljs"
                 :row 2
                 :type :sub}
-        output (run-report [{:source-dir "src"
+        output (run-report [{:source-dir (disk/path "src")
                              :group-results [(re-frame-result {:unused-subs [item-a]})]}
-                            {:source-dir "other"
+                            {:source-dir (disk/path "other")
                              :group-results [(re-frame-result {:unused-subs [item-b]})]}])]
     (testing "merges results from multiple source dirs"
       (is (str/includes? output "## Unused subs (2)"))

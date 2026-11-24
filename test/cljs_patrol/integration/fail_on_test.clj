@@ -20,7 +20,7 @@
 (def ^:private cleanup (severity/tier->rules rule->tier :cleanup))
 
 (defn- run-fixture []
-  [(core/run (disk/source fixture-dir) enabled-groups)])
+  [(core/run (disk/typed-path fixture-dir) enabled-groups)])
 
 (deftest standalone-fail-on-bugs-test
   (let [run-results (run-fixture)]

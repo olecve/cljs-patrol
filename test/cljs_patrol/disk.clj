@@ -10,8 +10,8 @@
   ^Path [first-part & more]
   (Path/of (str first-part) (into-array String (map str more))))
 
-(defn source
-  "Make the source folder map that `core/run-all` takes, with the text of the `Path` as its typed text."
+(defn typed-path
+  "Make a {:path :text} map, as `core/run-all` takes for a source folder, with the text of the `Path` as its typed text."
   [first-part & more]
   (let [p (apply path first-part more)]
     {:path p

@@ -4,17 +4,29 @@
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [cljs-patrol.severity :as severity]
-   [clojure.set :as set]))
+   [clojure.set :as set])
+  (:import
+   (java.nio.file
+    FileSystem
+    Path)))
 
-(defn- with-absolute-file-path [item]
+(defn- file-system-of
+  "Give the file system of the run, the one of the `Path` of the first of `sources`."
+  ^FileSystem [sources]
+  (.getFileSystem ^Path (:path (first sources))))
+
+(defn- absolute-dirs [sources]
+  (mapv #(-> % :path fs/absolute str) sources))
+
+(defn- with-absolute-file-path [file-system item]
   (if (:file item)
-    (update item :file fs/absolute-path)
+    (update item :file #(fs/absolute-text file-system %))
     item))
 
-(defn- with-absolute-file-paths [result]
+(defn- with-absolute-file-paths [file-system result]
   (->> result
        (map (fn [[k v]]
-              [k (if (sequential? v) (mapv with-absolute-file-path v) v)]))
+              [k (if (sequential? v) (mapv #(with-absolute-file-path file-system %) v) v)]))
        (into {})))
 
 (defn- merge-results [results]
@@ -36,15 +48,16 @@
   File paths are absolute for direct use with editor/tooling integrations.
   The output always includes :blocking-count and :warning-count. When
   fail-on-rules is empty, all issues are counted as blocking."
-  ([enabled-groups dirs run-results]
-   (print-report enabled-groups dirs run-results nil))
-  ([enabled-groups dirs run-results fail-on-rules]
-   (let [merged (->> enabled-groups
+  ([enabled-groups sources run-results]
+   (print-report enabled-groups sources run-results nil))
+  ([enabled-groups sources run-results fail-on-rules]
+   (let [file-system (file-system-of sources)
+         merged (->> enabled-groups
                      (map-indexed (fn [g-idx g]
                                     [(group/group-id g) (->> run-results
                                                              (map #(nth (:group-results %) g-idx))
                                                              merge-results
-                                                             with-absolute-file-paths)]))
+                                                             (with-absolute-file-paths file-system))]))
                      (into {}))
          suggestions (->> enabled-groups
                           (map (fn [g] [(group/group-id g) (group/suggestions g)]))
@@ -52,7 +65,7 @@
          docs (->> enabled-groups
                    (map (fn [g] [(group/group-id g) (group/docs-urls g)]))
                    (into {}))
-         output (merge {:source-dirs (mapv fs/absolute-path dirs)
+         output (merge {:source-dirs (absolute-dirs sources)
                         :results merged
                         :suggestions suggestions
                         :docs docs}
@@ -69,10 +82,10 @@
   :blocking-count, and :warning-count (counts apply to the new-issues
   partition; when fail-on-rules is empty, all new issues count as blocking).
   When rule->tier is provided, issues are annotated with :tier."
-  ([dirs new-issues baseline-issues fixed-issues exit-code]
-   (print-baseline-report dirs new-issues baseline-issues fixed-issues exit-code nil nil))
-  ([dirs new-issues baseline-issues fixed-issues exit-code fail-on-rules rule->tier]
-   (let [abs-dirs (mapv fs/absolute-path dirs)
+  ([sources new-issues baseline-issues fixed-issues exit-code]
+   (print-baseline-report sources new-issues baseline-issues fixed-issues exit-code nil nil))
+  ([sources new-issues baseline-issues fixed-issues exit-code fail-on-rules rule->tier]
+   (let [abs-dirs (absolute-dirs sources)
          new-sorted (vec (sort-by str new-issues))
          baseline-sorted (vec (sort-by str baseline-issues))
          fixed-sorted (vec (sort-by str fixed-issues))

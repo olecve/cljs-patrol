@@ -13,7 +13,7 @@
   (frequencies (map :row items)))
 
 (deftest img-alt-missing-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         {:keys [img-alt-missing]} (first group-results)
         by-row (rows img-alt-missing)]
 
@@ -83,7 +83,7 @@
           "every finding's :form starts with [:img"))))
 
 (deftest invalid-tabindex-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         {:keys [invalid-tabindex]} (first group-results)
         by-row (rows (filter #(str/ends-with? (:file %) "focus.cljs") invalid-tabindex))]
 
@@ -138,7 +138,7 @@
           "every finding's :form starts with the tag"))))
 
 (deftest on-click-on-non-interactive-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         {:keys [on-click-on-non-interactive]} (first group-results)
         by-row (rows on-click-on-non-interactive)]
 
@@ -241,7 +241,7 @@
       (is (every? #(re-find #"^\[:" (:form %)) on-click-on-non-interactive)))))
 
 (deftest empty-interactive-element-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         {:keys [empty-interactive-element]} (first group-results)
         by-file (group-by :file empty-interactive-element)
         rows-in-file (fn [path]
@@ -360,7 +360,7 @@
 
 (deftest missing-accessible-name-fixture-test
   (testing "without :component-aliases config: only native :textarea is checked"
-    (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+    (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
           {:keys [missing-accessible-name]} (first group-results)
           by-row (rows (filter #(str/ends-with? (:file %) "forms.cljs")
                                missing-accessible-name))]
@@ -430,7 +430,7 @@
     (let [configured (a11y/make-group
                       {:component-aliases {'blogapp.ui/textarea :textarea
                                            'blogapp.ui/dialog-root :dialog}})
-          {:keys [group-results]} (core/run (disk/source fixture-dir) [configured])
+          {:keys [group-results]} (core/run (disk/typed-path fixture-dir) [configured])
           {:keys [missing-accessible-name]} (first group-results)
           by-row (rows (filter #(str/ends-with? (:file %) "forms.cljs")
                                missing-accessible-name))]
@@ -464,7 +464,7 @@
 (deftest button-wrapper-fixture-test
   (let [buttons-file (str fixture-dir "/buttons.cljs")]
     (testing "without :component-aliases config: wrapper buttons are inert"
-      (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+      (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
             {:keys [empty-interactive-element]} (first group-results)]
         (is (empty? (filter #(= buttons-file (:file %)) empty-interactive-element))
             "no wrapper is mapped — buttons.cljs contributes no findings")))
@@ -472,7 +472,7 @@
     (testing "with :component-aliases {blogapp.ui/button :button}"
       (let [configured (a11y/make-group
                         {:component-aliases {'blogapp.ui/button :button}})
-            {:keys [group-results]} (core/run (disk/source fixture-dir) [configured])
+            {:keys [group-results]} (core/run (disk/typed-path fixture-dir) [configured])
             {:keys [empty-interactive-element]} (first group-results)
             in-buttons (filter #(= buttons-file (:file %)) empty-interactive-element)
             rows (set (map :row in-buttons))]
@@ -506,7 +506,7 @@
           (is (every? #(= :bugs (:tier %)) in-buttons)))))))
 
 (deftest aria-live-contradicts-role-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         {:keys [aria-live-contradicts-role]} (first group-results)
         by-row (rows aria-live-contradicts-role)]
 
@@ -572,7 +572,7 @@
             "echoes the author's keyword spelling of the role")))))
 
 (deftest svg-on-click-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         {:keys [on-click-on-non-interactive]} (first group-results)
         by-row (rows on-click-on-non-interactive)]
 
@@ -590,7 +590,7 @@
 
 (deftest namespace-glob-component-alias-fixture-test
   (testing "without the alias, an icon call resolves to no tag and is inert"
-    (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+    (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
           {:keys [on-click-on-non-interactive]} (first group-results)]
       (is (empty? (filter #(str/ends-with? (:file %) "icon_controls.cljs")
                           on-click-on-non-interactive))
@@ -598,7 +598,7 @@
 
   (testing "a `ns/*` alias maps every var in that namespace"
     (let [configured (a11y/make-group {:component-aliases {'blogapp.icons/* :svg}})
-          {:keys [group-results]} (core/run (disk/source fixture-dir) [configured])
+          {:keys [group-results]} (core/run (disk/typed-path fixture-dir) [configured])
           {:keys [on-click-on-non-interactive]} (first group-results)
           in-icons (filter #(str/ends-with? (:file %) "icon_controls.cljs")
                            on-click-on-non-interactive)
@@ -624,7 +624,7 @@
     (let [configured (a11y/make-group
                       {:component-aliases {'blogapp.icons/* :svg
                                            'blogapp.icons/square :button}})
-          {:keys [group-results]} (core/run (disk/source fixture-dir) [configured])
+          {:keys [group-results]} (core/run (disk/typed-path fixture-dir) [configured])
           {:keys [on-click-on-non-interactive empty-interactive-element]} (first group-results)]
       (is (empty? (filter #(str/ends-with? (:file %) "icon_controls.cljs")
                           on-click-on-non-interactive))
@@ -635,7 +635,7 @@
           "and it is judged as a nameless button instead"))))
 
 (deftest icon-only-button-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         {:keys [empty-interactive-element]} (first group-results)
         in-icons (filter #(str/ends-with? (:file %) "icon_controls.cljs")
                          empty-interactive-element)
@@ -675,7 +675,7 @@
 
 (deftest attr-construction-forms-fixture-test
   (let [configured (a11y/make-group {:component-aliases {'blogapp.icons/* :svg}})
-        {:keys [group-results]} (core/run (disk/source fixture-dir) [configured])
+        {:keys [group-results]} (core/run (disk/typed-path fixture-dir) [configured])
         {:keys [on-click-on-non-interactive empty-interactive-element]} (first group-results)
         in-icons (filter #(str/ends-with? (:file %) "icon_controls.cljs")
                          on-click-on-non-interactive)
@@ -708,7 +708,7 @@
           "constructed attrs cannot show a name is absent, only that a key is present"))))
 
 (deftest name-required-role-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         {:keys [missing-accessible-name]} (first group-results)
         in-roles (filter #(str/ends-with? (:file %) "named_roles.cljs")
                          missing-accessible-name)
@@ -750,7 +750,7 @@
 
 (deftest repeated-accessible-name-fixture-test
   (testing "without :component-aliases config: only native tags are checked"
-    (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+    (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
           {:keys [repeated-accessible-name]} (first group-results)
           in-lists (filter #(str/ends-with? (:file %) "lists.cljs") repeated-accessible-name)
           by-row (rows in-lists)]
@@ -854,7 +854,7 @@
 
   (testing "with :component-aliases config: wrapper calls also participate"
     (let [configured (a11y/make-group {:component-aliases {'blogapp.ui/button :button}})
-          {:keys [group-results]} (core/run (disk/source fixture-dir) [configured])
+          {:keys [group-results]} (core/run (disk/typed-path fixture-dir) [configured])
           {:keys [repeated-accessible-name]} (first group-results)
           by-row (rows (filter #(str/ends-with? (:file %) "lists.cljs")
                                repeated-accessible-name))]
@@ -864,7 +864,7 @@
             "bad-aliased-button-in-for")))))
 
 (deftest let-bound-attrs-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         {:keys [missing-accessible-name]} (first group-results)
         by-row (rows (filter #(str/ends-with? (:file %) "forms.cljs")
                              missing-accessible-name))]
@@ -923,7 +923,7 @@
           "ok-parameter-shadows-let-bound-props, the fn parameter is what the body sees, and it may hold a name"))))
 
 (deftest aria-hidden-focusable-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         {:keys [aria-hidden-focusable]} (first group-results)
         in-hidden (filter #(str/ends-with? (:file %) "hidden_focus.cljs") aria-hidden-focusable)
         by-row (rows in-hidden)]
@@ -1029,7 +1029,7 @@
           "fifteen bad- cases in the fixture, no more"))))
 
 (deftest nested-interactive-element-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         {:keys [nested-interactive-element]} (first group-results)
         in-nesting (filter #(str/ends-with? (:file %) "nesting.cljs") nested-interactive-element)
         by-row (rows in-nesting)]
@@ -1109,7 +1109,7 @@
           "eleven bad- cases in the fixture, no more"))))
 
 (deftest name-required-container-role-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         {:keys [missing-accessible-name]} (first group-results)
         in-containers (filter #(str/ends-with? (:file %) "containers.cljs")
                               missing-accessible-name)
@@ -1177,7 +1177,7 @@
 
 (deftest unrendered-markup-fixture-test
   (testing "nothing inside a quoted or discarded form is reported, at any depth"
-    (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+    (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
           result (first group-results)
           in-unrendered (->> (vals result)
                              (filter sequential?)
@@ -1188,7 +1188,7 @@
                (pr-str (map (juxt :type :row) in-unrendered)))))))
 
 (deftest label-not-associated-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         {:keys [label-not-associated]} (first group-results)
         in-labels (filter #(str/ends-with? (:file %) "labels.cljs") label-not-associated)
         by-row (rows in-labels)]
@@ -1296,7 +1296,8 @@
    'blogapp.ui/switch :switch})
 
 (defn- widget-findings [rule component-aliases]
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [(a11y/make-group {:component-aliases component-aliases})])]
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir)
+                                          [(a11y/make-group {:component-aliases component-aliases})])]
     (get (first group-results) rule)))
 
 (deftest missing-accessible-name-widget-fixture-test
@@ -1346,7 +1347,7 @@
 (defn- run-ids-project
   ([dirs] (run-ids-project dirs {}))
   ([dirs component-aliases]
-   (->> (core/run-all (mapv #(disk/source ids-project %) dirs)
+   (->> (core/run-all (mapv #(disk/typed-path ids-project %) dirs)
                       [(a11y/make-group {:component-aliases component-aliases})])
         (mapcat #(-> % :group-results first :missing-accessible-name)))))
 
@@ -1386,7 +1387,7 @@
 
 (deftest missing-accessible-name-unreferenced-id-label-component-test
   (let [findings (fn [config]
-                   (->> (core/run-all [(disk/source ids-project "app")] [(a11y/make-group config)])
+                   (->> (core/run-all [(disk/typed-path ids-project "app")] [(a11y/make-group config)])
                         (mapcat #(-> % :group-results first :missing-accessible-name))
                         (ids-project-fn-names "app/idsapp/field_ids.cljs")))]
     (is (= #{"textarea-in-labelled-field"} (findings {}))
@@ -1421,7 +1422,7 @@
 (def ^:private label-schemas-file (str fixture-dir "/label_schemas.cljc"))
 
 (deftest label-not-associated-malli-entry-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         reported (fn-names-in label-schemas-file (:label-not-associated (first group-results)))]
     (is (= #{"bad-label-entry-with-a-title-property"
              "bad-label-around-a-span"
@@ -1453,7 +1454,7 @@
                        :tag :switch}})
 
 (deftest label-props-fixture-test
-  (let [results (->> (core/run (disk/source fixture-dir) [(a11y/make-group {:component-aliases label-props-aliases})])
+  (let [results (->> (core/run (disk/typed-path fixture-dir) [(a11y/make-group {:component-aliases label-props-aliases})])
                      :group-results
                      first)]
     (is (= #{"bad-toggle-unlabeled"
@@ -1472,7 +1473,7 @@
 (deftest label-props-glob-fixture-test
   (let [glob-aliases {'blogapp.ui/* {:label-props :label
                                      :tag :switch}}
-        findings (->> (core/run (disk/source fixture-dir) [(a11y/make-group {:component-aliases glob-aliases})])
+        findings (->> (core/run (disk/typed-path fixture-dir) [(a11y/make-group {:component-aliases glob-aliases})])
                       :group-results
                       first
                       :missing-accessible-name
@@ -1483,7 +1484,7 @@
         "single keyword reads as one label prop")))
 
 (defn- separator-findings [& dirs]
-  (->> (core/run-all (mapv #(disk/source "test-projects/a11y-separator" %) dirs) [(a11y/make-group {})])
+  (->> (core/run-all (mapv #(disk/typed-path "test-projects/a11y-separator" %) dirs) [(a11y/make-group {})])
        (mapcat #(-> % :group-results first :missing-accessible-name))))
 
 (defn- separator-fn-names [file findings]
@@ -1562,8 +1563,9 @@
    'blogapp.ui/switch :switch})
 
 (defn- field-caption-findings [label-styles]
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [(a11y/make-group {:component-aliases field-caption-aliases
-                                                                                       :label-styles label-styles})])]
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir)
+                                          [(a11y/make-group {:component-aliases field-caption-aliases
+                                                             :label-styles label-styles})])]
     (:aria-label-beside-visible-label (first group-results))))
 
 (deftest aria-label-beside-visible-label-fixture-test
@@ -1600,7 +1602,7 @@
 (def ^:private data-vectors-file (str fixture-dir "/data_vectors.cljs"))
 
 (deftest data-vectors-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])]
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])]
     (is (= #{"bad-bound-whole-shell"
              "bad-conj-child-shell"
              "bad-shell-after-sibling-child"
@@ -1632,7 +1634,7 @@
 (def ^:private local-components-file (str fixture-dir "/local_components.cljs"))
 
 (deftest local-components-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])]
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])]
     (is (= #{"bad-button-holding-a-component-rendering-an-icon"
              "bad-button-holding-a-component-rendering-a-decorative-image"
              "bad-button-holding-an-external-component"
@@ -1661,7 +1663,7 @@
 (def ^:private hidden-text-file (str fixture-dir "/hidden_text.cljs"))
 
 (deftest hidden-text-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])]
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])]
     (is (= #{"bad-button-holding-only-hidden-text"
              "bad-button-holding-text-hidden-with-a-string"
              "bad-button-holding-text-hidden-with-a-keyword"
@@ -1672,7 +1674,7 @@
 (def ^:private field-wrappers-file (str fixture-dir "/field_wrappers.cljs"))
 
 (defn- field-wrapper-findings [label-components]
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir)
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir)
                                           [(a11y/make-group {:component-aliases {'blogapp.ui/select :combobox}
                                                              :label-components label-components})])]
     (fn-names-in field-wrappers-file (:missing-accessible-name (first group-results)))))
@@ -1742,7 +1744,7 @@
 (def ^:private built-attrs-file (str fixture-dir "/built_attrs.cljc"))
 
 (deftest attribute-rules-read-final-keys-of-built-maps-test
-  (let [result (first (:group-results (core/run (disk/source fixture-dir) [a11y/group])))
+  (let [result (first (:group-results (core/run (disk/typed-path fixture-dir) [a11y/group])))
         reported (fn [rule] (fn-names-in built-attrs-file (get result rule)))]
     (is (= #{"bad-built-positive-tabindex" "bad-built-positive-tabindex-merged-last"}
            (reported :invalid-tabindex))
@@ -1773,7 +1775,7 @@
     (set (map #(get names (:row %)) found))))
 
 (deftest button-missing-type-fixture-test
-  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [a11y/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [a11y/group])
         found (->> (first group-results)
                    :button-missing-type
                    (filter #(str/ends-with? (:file %) "button_types.cljs")))
@@ -1893,7 +1895,7 @@
 
 (deftest button-missing-type-alias-fixture-test
   (let [group (a11y/make-group {:component-aliases {'blogapp.ui/button :button}})
-        {:keys [group-results]} (core/run (disk/source fixture-dir) [group])
+        {:keys [group-results]} (core/run (disk/typed-path fixture-dir) [group])
         found (->> (first group-results)
                    :button-missing-type
                    (filter #(str/ends-with? (:file %) "button_types.cljs")))

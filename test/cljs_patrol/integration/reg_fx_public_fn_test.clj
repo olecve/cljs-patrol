@@ -7,7 +7,7 @@
    [clojure.test :refer [deftest is]]))
 
 (def ^:private findings
-  (delay (-> (core/run (disk/source "test-projects/reg-fx-app/src/webapp") [re-frame/group])
+  (delay (-> (core/run (disk/typed-path "test-projects/reg-fx-app/src/webapp") [re-frame/group])
              :group-results
              first
              :reg-fx-public-fn)))
