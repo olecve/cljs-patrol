@@ -3,7 +3,8 @@
 
   The `Path` functions work on the file system of the `Path` or `FileSystem` they get. They refuse nil and the empty
   path, which NIO reads as the working directory.
-  The string functions are adapters on the default file system for callers that still use strings."
+  The string functions are adapters on the default file system. They are deprecated, and new code uses the `Path`
+  functions."
   (:require
    [clojure.string :as str])
   (:import
@@ -272,43 +273,57 @@
   (or (default-path p)
       (throw (NoSuchFileException. p))))
 
-(defn absolute-path [^String path]
+(defn ^{:deprecated "0.0.63"} absolute-path
+  "Use `absolute` instead."
+  [^String path]
   (.getAbsolutePath (File. path)))
 
 (defn- io-file ^File [^String path]
   (File. path))
 
-(defn absolute-path? [^String path]
+(defn ^{:deprecated "0.0.63"} absolute-path?
+  "Use `absolute?` instead."
+  [^String path]
   (.isAbsolute (File. path)))
 
-(defn parent-dir
-  "Path of `path`'s parent directory, or nil when there is none."
+(defn ^{:deprecated "0.0.63"} parent-dir
+  "Path of `path`'s parent directory, or nil when there is none.
+
+  Use `parent` instead."
   [^String path]
   (some-> (File. path) .getParentFile .getPath))
 
-(defn file-exists? [^String path]
+(defn ^{:deprecated "0.0.63"} file-exists?
+  "Use `exists?` instead, which needs a `Path`: the text \"\" or a NUL makes none."
+  [^String path]
   (boolean (some-> (default-path path) exists?)))
 
-(defn mkdirs
+(defn ^{:deprecated "0.0.63"} mkdirs
   "Create `dir` and any missing intermediate directories, and give true when it made `dir`.
 
-  Give false when `dir` exists, when it cannot make `dir`, or when `dir` names no file, such as the empty string."
+  Give false when `dir` exists, when it cannot make `dir`, or when `dir` names no file, such as the empty string.
+
+  Use `create-dirs!` instead, which throws where this gives false, such as on an existing file."
   [^String dir]
   (and (not= "" dir)
        (.mkdirs (io-file dir))))
 
-(defn join-path
+(defn ^{:deprecated "0.0.63"} join-path
   "Combine `base` and `leaf` into a single path with the OS separator, as `java.io` does.
 
-  An empty `base` stands for the root, and an absolute `leaf` goes under `base`. A nil `base` throws."
+  An empty `base` stands for the root, and an absolute `leaf` goes under `base`. A nil `base` throws.
+
+  Use `resolve-path` instead, where an absolute `leaf` replaces `base` and an empty `base` throws."
   [^String base ^String leaf]
   (.getPath (File. (File. base) leaf)))
 
-(defn relativize
+(defn ^{:deprecated "0.0.63"} relativize
   "Return `target` as a path relative to `base`.
 
   Fall back to the text of `target` when it is not under `base`, or when the file system does not accept either.
-  An empty string stands for the working directory, as in `java.io`."
+  An empty string stands for the working directory, as in `java.io`.
+
+  Use `relative-path` instead, which gives `../` for a `target` outside `base` and throws when `target` is `base`."
   [^String base ^String target]
   (try
     (let [base-path (-> base File. .getAbsoluteFile .toPath)
@@ -322,38 +337,52 @@
 (defn nano-time []
   (System/nanoTime))
 
-(defn delete-file!
+(defn ^{:deprecated "0.0.63"} delete-file!
   "Delete the file or empty folder `path`, and give true when it was removed.
 
   Give false when `path` is missing, names no file, such as the empty string, or cannot be deleted.
-  Throw only on nil."
+  Throw only on nil.
+
+  Use `delete-if-exists!` instead, which throws where this gives false, but not for a missing file."
   [^String path]
   (and (not= "" path)
        (.delete (io-file path))))
 
-(defn move-replace!
+(defn ^{:deprecated "0.0.63"} move-replace!
   "Move `source` onto `target`, replacing any file already there.
+
   Atomic when the filesystem supports it, so `target` is never observed
-  half-written; falls back to a plain replace when it does not."
+  half-written; falls back to a plain replace when it does not.
+
+  Use `move-over!` instead."
   [^String source ^String target]
   (move-over! (existing-default-path source) (existing-default-path target)))
 
-(defn delete-tree!
+(defn ^{:deprecated "0.0.63"} delete-tree!
   "Recursively delete `path` if it exists.
-  No-op when `path` is missing or names no file."
+
+  No-op when `path` is missing or names no file.
+
+  Use `delete-recursively!` instead."
   [^String path]
   (some-> (default-path path) delete-recursively!))
 
-(defn list-source-files
+(defn ^{:deprecated "0.0.63"} list-source-files
   "Recursively return every file under `root-dir` carrying one of `extensions`, as string paths.
+
   Which extensions count is the caller's, since the set is the union of what the enabled
-  groups declare rather than a constant. `skipped-dirs` names what the walk does not enter."
+  groups declare rather than a constant. `skipped-dirs` names what the walk does not enter.
+
+  Use `source-paths` instead, which gives `Path`s and throws on the empty path."
   [^String root-dir extensions]
   (if-let [p (default-path root-dir)]
     (mapv str (source-paths p extensions))
     []))
 
-(defn missing-dirs
-  "Which of `paths` do not exist. A scan of one silently finds nothing, so callers check first."
+(defn ^{:deprecated "0.0.63"} missing-dirs
+  "Which of `paths` do not exist.
+
+  A scan of one silently finds nothing, so callers check first.
+  Use `missing-paths` instead."
   [paths]
-  (remove file-exists? paths))
+  (remove #(some-> (default-path %) exists?) paths))
