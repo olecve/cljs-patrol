@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.0.63] - 2026-11-24
+
+* Read and write files through NIO paths in the callers of fs by @olecve in https://github.com/olecve/cljs-patrol/pull/180
+* Deprecate the string functions of fs by @olecve in https://github.com/olecve/cljs-patrol/pull/181
+* Run the file unit tests on an in-memory file system by @olecve in https://github.com/olecve/cljs-patrol/pull/182
+* Remove the string functions of fs, and keep java.io out of src by @olecve in https://github.com/olecve/cljs-patrol/pull/183
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.62...v0.0.63
+
 ## [v0.0.62] - 2026-11-24
 
 * Mutation runner: cache results to resume a run and rerun only the gaps by @olecve in https://github.com/olecve/cljs-patrol/pull/175
