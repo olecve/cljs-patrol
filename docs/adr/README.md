@@ -2,20 +2,21 @@
 
 Each record states one decision, the options that were considered, and the condition to revisit it.
 
-| ADR                                                           | Title                                                        | Status                                 | Date       |
-| ------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------- | ---------- |
-| [0001](0001-native-image-garbage-collector.md)                | Build The Linux Native Binary With The G1 Garbage Collector  | Rejected                               | 2026-11-12 |
-| [0002](0002-per-file-result-cache.md)                         | Cache The Analysis Result Of Each File                       | Proposed                               | 2026-11-12 |
-| [0003](0003-tell-data-vectors-from-hiccup.md)                 | Tell Data Vectors From Hiccup                                | Accepted                               | 2026-11-15 |
-| [0004](0004-rule-docs-examples-are-tests.md)                  | Run The Rule Docs Examples As Tests                          | Accepted                               | 2026-11-16 |
-| [0005](0005-mutation-testing-in-one-jvm.md)                   | Test The Tests By Mutation In One JVM                        | Accepted                               | 2026-11-21 |
-| [0006](0006-mutation-test-which-code-the-runner-changes.md)   | Choose Which Code The Mutation Runner Changes                | Accepted                               | 2026-11-21 |
-| [0007](0007-mutation-test-undo-apply-with-a-kept-copy.md)     | Undo An Applied Mutant With A Kept Copy, Not Git             | Accepted                               | 2026-11-21 |
-| [0008](0008-mutation-test-report-in-plain-words.md)           | Show The Mutation Report In Plain Words On A Page Of Its Own | Accepted                               | 2026-11-21 |
-| [0009](0009-mutation-test-replace-a-body-with-nil.md)         | Replace A Function Body With Nil As A Mutant                 | Accepted                               | 2026-11-21 |
-| [0010](0010-mutation-test-cache-and-resume.md)                | Keep The Results Of A Mutation Run To Resume And Iterate     | Accepted                               | 2026-11-21 |
-| [0011](0011-mutation-test-stop-when-a-test-changes-a-file.md) | Stop A Mutation Run When A Test Changes A File               | Accepted, partially superseded by 0012 | 2026-11-23 |
-| [0012](0012-mutation-test-guard-skips-what-git-ignores.md)    | Skip What Git Ignores In The Mutation Test File Guard        | Accepted                               | 2026-11-23 |
+| ADR                                                           | Title                                                                          | Status                                 | Date       |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------- | ---------- |
+| [0001](0001-native-image-garbage-collector.md)                | Build The Linux Native Binary With The G1 Garbage Collector                    | Rejected                               | 2026-11-12 |
+| [0002](0002-per-file-result-cache.md)                         | Cache The Analysis Result Of Each File                                         | Proposed                               | 2026-11-12 |
+| [0003](0003-tell-data-vectors-from-hiccup.md)                 | Tell Data Vectors From Hiccup                                                  | Accepted                               | 2026-11-15 |
+| [0004](0004-rule-docs-examples-are-tests.md)                  | Run The Rule Docs Examples As Tests                                            | Accepted                               | 2026-11-16 |
+| [0005](0005-mutation-testing-in-one-jvm.md)                   | Test The Tests By Mutation In One JVM                                          | Accepted                               | 2026-11-21 |
+| [0006](0006-mutation-test-which-code-the-runner-changes.md)   | Choose Which Code The Mutation Runner Changes                                  | Accepted                               | 2026-11-21 |
+| [0007](0007-mutation-test-undo-apply-with-a-kept-copy.md)     | Undo An Applied Mutant With A Kept Copy, Not Git                               | Accepted                               | 2026-11-21 |
+| [0008](0008-mutation-test-report-in-plain-words.md)           | Show The Mutation Report In Plain Words On A Page Of Its Own                   | Accepted                               | 2026-11-21 |
+| [0009](0009-mutation-test-replace-a-body-with-nil.md)         | Replace A Function Body With Nil As A Mutant                                   | Accepted                               | 2026-11-21 |
+| [0010](0010-mutation-test-cache-and-resume.md)                | Keep The Results Of A Mutation Run To Resume And Iterate                       | Accepted                               | 2026-11-21 |
+| [0011](0011-mutation-test-stop-when-a-test-changes-a-file.md) | Stop A Mutation Run When A Test Changes A File                                 | Accepted, partially superseded by 0012 | 2026-11-23 |
+| [0012](0012-mutation-test-guard-skips-what-git-ignores.md)    | Skip What Git Ignores In The Mutation Test File Guard                          | Accepted                               | 2026-11-23 |
+| [0013](0013-nio-paths-and-in-memory-test-file-system.md)      | Read And Write Files Through NIO Paths, And Test With An In-Memory File System | Proposed                               | 2026-11-23 |
 
 ## Format
 
