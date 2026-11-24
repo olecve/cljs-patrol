@@ -72,7 +72,7 @@ git push origin v0.2.0
 ## Testing
 
 ```bash
-clojure -M:test          # run all tests
+clojure -M:clj-kondo-deps:test          # run all tests
 ```
 
 Tests live in `test/`, mirroring the `src/` structure. Fixture projects for the integration tests are in
@@ -218,8 +218,8 @@ and the `cljs-patrol.dev.mutate.*-test` ones. `fixtures.clj` holds the helpers t
 ## Linting
 
 ```bash
-clojure -M:clj-kondo --lint src test dev build.clj
-clojure -M:clj-kondo:java-io-check src     # no java.io file access in src/ (ADR 0013)
+clojure -M:clj-kondo-deps:clj-kondo --lint src test dev build.clj
+clojure -M:clj-kondo-deps:java-io-check src     # no java.io file access in src/ (ADR 0013)
 ```
 
 `test-projects/` is not linted: those fixtures are malformed on purpose.

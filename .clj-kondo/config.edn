@@ -6,7 +6,8 @@
              {:pattern "^cljs-patrol\\.(disk|memory-fs|temp-dir|temp-project)$" :name java-io-allowed}]
 
  :config-in-ns
- {java-io-allowed {:linters {:discouraged-var {clojure.core/slurp {:level :off}
+ {java-io-allowed {:linters {:discouraged-var {clojure.core/load-file {:level :off}
+                                               clojure.core/slurp {:level :off}
                                                clojure.core/spit {:level :off}
                                                clojure.java.io/as-file {:level :off}
                                                clojure.java.io/copy {:level :off}

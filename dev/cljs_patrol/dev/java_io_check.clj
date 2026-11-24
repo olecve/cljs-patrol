@@ -16,7 +16,7 @@
   #"java\.io\.(File\w*|RandomAccessFile)")
 
 (defn- place [{:keys [filename row col]}]
-  (if row
+  (if (and row (pos? row))
     (str filename ":" row ":" col)
     filename))
 
@@ -43,7 +43,7 @@
              :col name-col
              :text ".toFile"}))
          distinct
-         (sort-by (juxt :filename #(or (:row %) 0) #(or (:col %) 0))))))
+         (sort-by (juxt :filename :row :col)))))
 
 (defn hit-line [hit]
   (str (place hit) ": " (:text hit)))
@@ -51,41 +51,56 @@
 (defn lint
   "Lint with clj-kondo and the analysis this check reads.
 
-  The `options` go to `clj-kondo.core/run!`, such as `:lint` and `:filename`."
+  The `options` go to `clj-kondo.core/run!`, such as `:lint` and `:filename`. Their `:config` cannot turn off the
+  analysis this check reads."
   [options]
   ((requiring-resolve 'clj-kondo.core/run!)
-   (merge {:cache false
-           :config {:analysis {:java-class-usages true
-                               :instance-invocations true}}}
-          options)))
+   (-> options
+       (assoc-in [:config :analysis :java-class-usages] true)
+       (assoc-in [:config :analysis :instance-invocations] true))))
+
+(def ^:private untrusted-finding-types
+  "The clj-kondo finding types after which the analysis can miss code.
+
+  These are a file that clj-kondo cannot read or parse, and a missing path."
+  #{:file :syntax})
 
 (defn lint-problems
-  "Give a line for each reason that the clj-kondo `result` cannot prove the code clean: an error finding, or no file."
+  "Give a line for each reason that the clj-kondo `result` cannot prove the code clean.
+
+  These are a finding of a file that clj-kondo cannot read or parse, a missing path, and a run with no file. Other
+  findings, such as an unresolved symbol, leave the analysis whole."
   [{:keys [findings summary]}]
   (concat
    (for [finding findings
-         :when (= :error (:level finding))]
+         :when (untrusted-finding-types (:type finding))]
      (str (place finding) ": clj-kondo error: " (:message finding)))
    (when (zero? (:files summary 0))
      ["clj-kondo linted no file."])))
 
+(defn report
+  "Print each problem and hit of the clj-kondo `result`, and give the exit code.
+
+  The code is 2 when the check cannot run, 1 on a hit, and 0 otherwise."
+  [result]
+  (let [problems (lint-problems result)
+        found (hits (:analysis result))]
+    (run! println problems)
+    (run! #(println (hit-line %)) found)
+    (cond
+      (seq problems) (do (println "The check cannot run. Fix the clj-kondo errors above.")
+                         2)
+      (seq found) (do (println "Found java.io file access. Use the Path functions of cljs-patrol.fs.")
+                      1)
+      :else 0)))
+
 (defn run-cli
-  "Check `paths`, print each problem and hit, and give the exit code: 2 when the check cannot run, 1 on a hit, else 0."
+  "Check `paths`, print each problem and hit, and give the exit code of [[report]], or 2 when there is no path."
   [paths]
   (if (empty? paths)
     (do (println "Give the paths to check, such as src.")
         2)
-    (let [result (lint {:lint paths})
-          problems (lint-problems result)
-          found (hits (:analysis result))]
-      (run! println problems)
-      (run! #(println (hit-line %)) found)
-      (cond
-        (seq problems) (do (println "The check cannot run. Fix the clj-kondo errors above.")
-                           2)
-        (seq found) (do (println "Found java.io file access. Use the Path functions of cljs-patrol.fs.")
-                        1)
-        :else 0))))
+    (report (lint {:lint paths}))))
 
 (defn -main [& paths]
   (let [exit (run-cli paths)]

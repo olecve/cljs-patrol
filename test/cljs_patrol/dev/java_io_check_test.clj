@@ -2,7 +2,6 @@
   (:require
    [cljs-patrol.dev.java-io-check :as java-io-check]
    [cljs-patrol.temp-dir :as temp-dir]
-   [clojure.edn :as edn]
    [clojure.string :as str]
    [clojure.test :refer [deftest is]]))
 
@@ -53,73 +52,93 @@
            (map java-io-check/hit-line (java-io-check/hits {:java-class-usages [rowless]})))
         "use with no row stays when it is the only one")))
 
-(defn- lint-string [code]
-  (with-in-str code
-    (java-io-check/lint {:lint ["-"]
-                         :filename "src/a.clj"})))
+(def ^:private fixture
+  "Code with two hits, an unresolved symbol and, on its last line, a syntax error."
+  (str "(ns a)\n"
+       "(defn f [x p]\n"
+       "  [(java.io.File. x)\n"
+       "   (.toFile p)\n"
+       "   (unknown x)])\n"
+       "("))
 
-(deftest lint-gives-hits-with-row-and-column
-  (let [result (lint-string (str "(ns a)\n"
-                                 "(defn f [x p]\n"
-                                 "  [(java.io.File. x)\n"
-                                 "   (.toFile p)])\n"))]
-    (is (empty? (java-io-check/lint-problems result)))
-    (is (= ["src/a.clj:3:4: java.io.File"
-            "src/a.clj:4:5: .toFile"]
-           (map java-io-check/hit-line (java-io-check/hits (:analysis result)))))))
+(def ^:private fixture-result
+  "The one lint of [[fixture]] by real clj-kondo, with a caller `:config` that tries to turn the analysis off."
+  (delay (with-in-str fixture
+           (java-io-check/lint {:lint ["-"]
+                                :filename "src/a.clj"
+                                :config {:analysis {:java-class-usages false
+                                                    :instance-invocations false}}}))))
 
-(deftest lint-problems-names-error-findings
-  (is (= ["src/a.clj:1:8: clj-kondo error: Found an opening ( with no matching )"
-          "src/a.clj:1:9: clj-kondo error: Expected a ) to match ( from line 1"]
-         (java-io-check/lint-problems (lint-string "(ns a) (")))))
+(defn- without-syntax-findings [result]
+  (update result :findings #(remove (comp #{:syntax} :type) %)))
+
+(defn- report [result]
+  (let [exit (atom nil)
+        out (with-out-str (reset! exit (java-io-check/report result)))]
+    [@exit (str/split-lines out)]))
+
+(deftest lint-keeps-analysis-that-caller-config-turns-off
+  (is (= ["src/a.clj:3:4: java.io.File"
+          "src/a.clj:4:5: .toFile"]
+         (map java-io-check/hit-line (java-io-check/hits (:analysis @fixture-result))))))
+
+(deftest lint-problems-names-syntax-findings-only
+  (let [{:keys [findings]} @fixture-result
+        problems (java-io-check/lint-problems @fixture-result)]
+    (is (some #(= :unresolved-symbol (:type %)) findings)
+        "fixture has an error finding that is not about syntax")
+    (is (= (count (filter (comp #{:syntax} :type) findings)) (count problems)))
+    (is (every? #(re-find #"^src/a\.clj:6:\d+: clj-kondo error: " %) problems))))
+
+(deftest lint-problems-names-missing-path-without-place
+  (is (= ["nosuch: clj-kondo error: file does not exist"
+          "clj-kondo linted no file."]
+         (java-io-check/lint-problems {:findings [{:filename "nosuch"
+                                                   :type :file
+                                                   :level :error
+                                                   :row 0
+                                                   :col 0
+                                                   :message "file does not exist"}]
+                                       :summary {:files 0}}))))
 
 (deftest lint-problems-names-run-with-no-file
   (is (= ["clj-kondo linted no file."]
          (java-io-check/lint-problems {:findings []
                                        :summary {:files 0}}))))
 
+(deftest lint-problems-reads-missing-summary-as-no-file
+  (is (= ["clj-kondo linted no file."]
+         (java-io-check/lint-problems {}))))
+
+(deftest report-gives-2-on-syntax-error
+  (let [[exit lines] (report @fixture-result)]
+    (is (= 2 exit))
+    (is (= "The check cannot run. Fix the clj-kondo errors above." (last lines)))))
+
+(deftest report-gives-1-on-hit-next-to-other-error-finding
+  (let [[exit lines] (report (without-syntax-findings @fixture-result))]
+    (is (= 1 exit))
+    (is (= ["src/a.clj:3:4: java.io.File"
+            "src/a.clj:4:5: .toFile"
+            "Found java.io file access. Use the Path functions of cljs-patrol.fs."]
+           lines))))
+
+(deftest report-gives-0-on-clean-result
+  (is (= [0 [""]] (report {:summary {:files 1}}))))
+
 (defn- run-cli [paths]
   (let [exit (atom nil)
         out (with-out-str (reset! exit (java-io-check/run-cli paths)))]
     [@exit (str/split-lines out)]))
 
-(defn- run-cli-on-code [code]
-  (temp-dir/with-dir "java-io-check-"
-    (fn [dir]
-      (spit (str dir "/a.clj") code)
-      (run-cli [(str dir)]))))
-
-(deftest run-cli-gives-1-on-hit
-  (let [[exit lines] (run-cli-on-code "(ns a)\n(defn f [x] (java.io.File. x))\n")]
+(deftest run-cli-gives-1-on-hit-in-file
+  (let [[exit lines] (temp-dir/with-dir "java-io-check-"
+                       (fn [dir]
+                         (spit (str dir "/a.clj") "(ns a)\n(defn f [x] (java.io.File. x))\n")
+                         (run-cli [(str dir)])))]
     (is (= 1 exit))
     (is (str/ends-with? (first lines) "a.clj:2:13: java.io.File"))))
-
-(deftest run-cli-gives-0-on-clean-code
-  (is (= [0 [""]] (run-cli-on-code "(ns a)\n(defn f [x] x)\n"))))
-
-(deftest run-cli-gives-2-on-clj-kondo-error
-  (let [[exit lines] (run-cli-on-code "(ns a) (")]
-    (is (= 2 exit))
-    (is (= "The check cannot run. Fix the clj-kondo errors above." (last lines)))))
-
-(deftest run-cli-gives-2-on-missing-path
-  (is (= [2 ["nosuch:0:0: clj-kondo error: file does not exist"
-             "clj-kondo linted no file."
-             "The check cannot run. Fix the clj-kondo errors above."]]
-         (run-cli ["nosuch"]))))
-
-(deftest run-cli-gives-2-on-folder-with-no-file
-  (is (= [2 ["clj-kondo linted no file."
-             "The check cannot run. Fix the clj-kondo errors above."]]
-         (temp-dir/with-dir "java-io-check-" #(run-cli [(str %)])))))
 
 (deftest run-cli-gives-2-with-no-path
   (is (= [2 ["Give the paths to check, such as src."]]
          (run-cli []))))
-
-(deftest test-alias-pins-clj-kondo-version-of-clj-kondo-alias
-  (let [aliases (:aliases (edn/read-string (slurp "deps.edn")))
-        version-in (fn [alias] (get-in aliases [alias :extra-deps 'clj-kondo/clj-kondo :mvn/version]))]
-    (is (some? (version-in :clj-kondo)))
-    (is (= (version-in :clj-kondo) (version-in :test))
-        "tests run the java-io check on the clj-kondo that CI lints with")))
