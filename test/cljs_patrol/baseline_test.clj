@@ -646,36 +646,26 @@
                           "Baseline file not found: \n")
         "path that names no file is not found")))
 
-(deftest read-baseline-names-unreadable-file-as-typed-with-reason
+(deftest read-baseline-of-unreadable-file-names-typed-path-and-asks-for-read-access
   (let [path (tmp-baseline-path)]
     (spit path "{:version 4 :issues []}")
     (disk/with-locked-file
-      "read-baseline-names-unreadable-file-as-typed-with-reason"
       (disk/path path)
       (fn []
-        (is (= {:error (str "Failed to parse baseline file: ./ci//baseline.edn\nAccessDeniedException"
-                            "\nRe-run --baseline-write --allow-new to regenerate.")}
+        (is (= {:error (str "Cannot read baseline file ./ci//baseline.edn: AccessDeniedException"
+                            "\nGive the tool read access to the file, then run it again.")}
                (baseline/read-baseline {:path (disk/path path)
                                         :text "./ci//baseline.edn"}))
             "typed text and exception class, not path in message")))))
 
-(deftest find-added-identities-adds-nothing-for-path-that-names-no-file
-  (is (= {:added #{}}
-         (baseline/find-added-identities {:path nil
-                                          :text ""}
-                                         #{{:rule :unused-subs
-                                            :key :app/a}}))))
+(deftest find-added-identities-throws-on-nil-path
+  (is (thrown? NullPointerException (baseline/find-added-identities {:path nil
+                                                                     :text ""}
+                                                                    #{}))))
 
-(deftest collect-identities-keeps-file-without-source-dir
-  (is (= #{{:rule :deprecated-effects
-            :effect ":dispatch-n"
-            :file "src/events.cljs"
-            :line 1}}
-         (baseline/collect-identities [{:source-dir nil
-                                        :group-results [{:deprecated-effects [{:effect ":dispatch-n"
-                                                                               :file "src/events.cljs"
-                                                                               :row 1}]}]}]))
-      "nil source dir keeps file as it is and does not throw"))
+(deftest collect-identities-throws-on-nil-source-dir
+  (is (thrown? NullPointerException (baseline/collect-identities [{:source-dir nil
+                                                                   :group-results [{:deprecated-effects []}]}]))))
 
 (deftest write-baseline-writes-lone-surrogate-as-question-mark
   (let [path (tmp-baseline-path)]

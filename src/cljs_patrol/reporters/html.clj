@@ -231,7 +231,8 @@
    blocking-count warning-count]
   (let [dirs (str/join ", " (map :source-text run-results))
         timestamp (str (java.time.LocalDateTime/now))
-        source-dir (some-> run-results first :source-dir fs/absolute)]
+        source-dir (when (seq run-results)
+                     (-> run-results first :source-dir fs/absolute))]
     (html5 {:lang "en"}
            [:head
             [:meta {:charset "UTF-8"}]

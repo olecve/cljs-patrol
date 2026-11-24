@@ -116,7 +116,7 @@
   [^Path source-dir ^String path]
   (if source-dir
     (let [base (fs/absolute source-dir)
-          target (fs/absolute (fs/path (.getFileSystem base) path))]
+          target (fs/absolute (fs/path (fs/file-system-of base) path))]
       (cond
         (= base target) ""
         (.startsWith target base) (str (fs/relative-path base target))
@@ -226,7 +226,7 @@
   [^String configured-path source-dirs]
   (let [^Path first-dir (first source-dirs)]
     (if configured-path
-      {:path (fs/parse-path (.getFileSystem first-dir) configured-path)
+      {:path (fs/parse-path (fs/file-system-of first-dir) configured-path)
        :text configured-path}
       (let [path (fs/resolve-path first-dir default-baseline-path)]
         {:path path
@@ -323,7 +323,7 @@
   ([^Path path issues rule->tier]
    (let [sorted (sort-issues issues)
          parent (fs/parent path)
-         tmp-path (fs/path (.getFileSystem path) (str path "." (fs/nano-time) ".tmp"))]
+         tmp-path (fs/path (fs/file-system-of path) (str path "." (fs/nano-time) ".tmp"))]
      (when parent (fs/create-dirs! parent))
      (try
        (write-baseline-file tmp-path sorted rule->tier)
@@ -332,14 +332,17 @@
        (finally
          (delete-temp-file! tmp-path))))))
 
+(defn not-found-message [text]
+  (str "Baseline file not found: " text
+       "\nRun --baseline-write first to create one."))
+
 (defn read-baseline
   "Read and validate the baseline file `baseline`, a {:path :text} map as [[resolve-baseline-path]] gives.
 
   Returns {:ok issues} on success, {:error message} on failure. The messages print `:text`."
   [{:keys [path text]}]
   (if-not (some-> path fs/exists?)
-    {:error (str "Baseline file not found: " text
-                 "\nRun --baseline-write first to create one.")}
+    {:error (not-found-message text)}
     (try
       (let [data (edn/read-string (fs/read-text path))]
         (cond
@@ -355,8 +358,8 @@
           :else
           {:ok (set (:issues data))}))
       (catch IOException e
-        {:error (str "Failed to parse baseline file: " text "\n" (fs/failure-reason e)
-                     "\nRe-run --baseline-write --allow-new to regenerate.")})
+        {:error (str "Cannot read baseline file " text ": " (fs/failure-reason e)
+                     "\nGive the tool read access to the file, then run it again.")})
       (catch Exception e
         {:error (str "Failed to parse baseline file: " text "\n" (.getMessage e)
                      "\nRe-run --baseline-write --allow-new to regenerate.")}))))
@@ -376,7 +379,7 @@
   Returns {:added identities} for those not in it, empty when no baseline exists yet,
   or {:error message} when the existing file cannot be read and so cannot be compared."
   [baseline found]
-  (if-not (some-> (:path baseline) fs/exists?)
+  (if-not (fs/exists? (:path baseline))
     {:added #{}}
     (let [{:keys [ok error]} (read-baseline baseline)]
       (if error
@@ -390,7 +393,7 @@
   [run-results]
   (into #{}
         (mapcat (fn [{:keys [source-dir group-results]}]
-                  (let [base (some-> source-dir fs/absolute)]
+                  (let [base (fs/absolute source-dir)]
                     (mapcat #(result->identities % base) group-results))))
         run-results))
 

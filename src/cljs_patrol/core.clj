@@ -242,10 +242,10 @@
 (defn console-findings
   "Shape every finding of run-results as a console row, labeled by `severity-of`.
   It receives {:group :source-dir :rule :items :item}, items being all of that rule's findings, and the absolute
-  `:source-dir`, or nil when the run result has none."
+  `:source-dir`."
   [enabled-groups run-results severity-of]
   (for [{:keys [source-dir group-results]} run-results
-        :let [base (some-> source-dir fs/absolute)]
+        :let [base (fs/absolute source-dir)]
         [rule-group result] (map vector enabled-groups group-results)
         [rule-key items] result
         :when (sequential? items)
@@ -393,11 +393,11 @@
       (cond
         path baseline
         (:baseline-write opts) (do
-                                 (println (str "Error: baseline path names no file: " text))
-                                 (exit! nil 1))
+                                 (println (str "Error: baseline path names no file: " (pr-str text)))
+                                 (exit! opts 1))
         :else (do
-                (println (str "Error: " (:error (baseline/read-baseline baseline))))
-                (exit! nil 1))))))
+                (println (str "Error: " (baseline/not-found-message text)))
+                (exit! opts 1))))))
 
 (defn -main [& args]
   (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)

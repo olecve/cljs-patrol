@@ -252,7 +252,6 @@
     (try
       (spit (str file) "(ns a)")
       (disk/with-locked-file
-        "analyze-file-warns-with-reason-for-file-it-cannot-read"
         file
         (fn []
           (binding [*err* errors]

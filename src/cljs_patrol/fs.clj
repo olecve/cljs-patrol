@@ -25,7 +25,8 @@
     OpenOption
     Path
     StandardCopyOption]
-   [java.nio.file.attribute FileAttribute]))
+   [java.nio.file.attribute FileAttribute]
+   [java.text Normalizer Normalizer$Form]))
 
 (def ^:private no-link-options (make-array LinkOption 0))
 
@@ -67,9 +68,7 @@
   ^Path [^Path base ^String leaf]
   (.resolve (checked base) leaf))
 
-(defn file-system-of
-  "Give the file system of `p`, which is the file system of the run when `p` comes from it."
-  ^FileSystem [^Path p]
+(defn file-system-of ^FileSystem [^Path p]
   (.getFileSystem (checked p)))
 
 (defn absolute ^Path [^Path p]
@@ -189,9 +188,24 @@
          (or (contains? skipped-dirs name)
              (and (str/starts-with? name ".") (not (#{"." ".."} name)))))))
 
+(defn- as-listed-by-java-io
+  "Give the entry `p` with its name in NFC when that name names the same file, as `File.listFiles` gives it on macOS.
+
+  `Files/newDirectoryStream` gives the name as the disk keeps it, such as NFD. On a file system that does not normalize
+  names, the NFC name names no file or another file, and `p` stays as it is, as `File.listFiles` gives it there."
+  ^Path [^Path p]
+  (let [name (str (.getFileName p))
+        nfc (Normalizer/normalize name Normalizer$Form/NFC)
+        nfc-path (.resolveSibling p nfc)]
+    (if (and (not= name nfc)
+             (Files/exists nfc-path no-link-options)
+             (Files/isSameFile nfc-path p))
+      nfc-path
+      p)))
+
 (defn- directory-entries [^Path dir]
   (with-open [stream (Files/newDirectoryStream dir)]
-    (vec stream)))
+    (mapv as-listed-by-java-io stream)))
 
 (defn failure-reason
   "Give the class name of `e`, with its reason when it has one.

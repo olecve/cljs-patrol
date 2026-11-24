@@ -151,6 +151,35 @@
              (seq (Files/readAllBytes p)))
           "same bytes as clojure.java.io/writer, and old content replaced"))))
 
+(defn- nfd ^String [^String text]
+  (java.text.Normalizer/normalize text java.text.Normalizer$Form/NFD))
+
+(deftest source-paths-name-files-as-java-io-listed-them
+  (let [root (temp-dir/create-dir "fs-nfd-")
+        dir (fs/path (FileSystems/getDefault) root (nfd "\u00e9"))]
+    (try
+      (write! (fs/resolve-path dir (nfd "\u00e9.cljs")) "(ns e)")
+      (let [found (fs/source-paths (fs/path (FileSystems/getDefault) root) extensions)]
+        (is (= (java-io-source-files root extensions) (mapv str found))
+            "same text as File.listFiles, which is NFC on macOS")
+        (is (= ["(ns e)"] (map fs/read-text found))
+            "path names real file"))
+      (finally
+        (temp-dir/delete-dir! root)))))
+
+(deftest source-paths-keep-name-that-nfc-does-not-reach
+  (with-open [jimfs (unix-fs)]
+    (let [nfd-file (fs/path jimfs "/work/src" (nfd "\u00e9.cljs"))
+          nfc-file (fs/path jimfs "/work/src/\u00e9.cljs")
+          only-nfd (fs/path jimfs "/work/other" (nfd "\u00e9.cljs"))]
+      (write! nfd-file "(ns nfd)")
+      (write! nfc-file "(ns nfc)")
+      (write! only-nfd "(ns only)")
+      (is (= #{"(ns nfd)" "(ns nfc)"} (set (map fs/read-text (fs/source-paths (fs/path jimfs "/work/src") extensions))))
+          "NFD and NFC names of two files stay two files")
+      (is (= [only-nfd] (fs/source-paths (fs/path jimfs "/work/other") extensions))
+          "NFD name stays when NFC name names no file"))))
+
 (deftest path-throws-on-empty-path
   (with-open [jimfs (unix-fs)]
     (is (thrown? IllegalArgumentException (fs/path jimfs "")))
@@ -338,7 +367,8 @@
                          ["read-text" fs/read-text]
                          ["text-writer" fs/text-writer]
                          ["source-paths" #(fs/source-paths % extensions)]
-                         ["missing-paths" #(fs/missing-paths [%])]]]
+                         ["missing-paths" #(fs/missing-paths [%])]
+                         ["file-system-of" fs/file-system-of]]]
         (is (thrown? NullPointerException (f nil))
             (str label " on nil"))
         (is (thrown? IllegalArgumentException (f (empty-path jimfs)))
