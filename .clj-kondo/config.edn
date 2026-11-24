@@ -45,4 +45,32 @@
   ;; :missing-docstring stays off: CLAUDE.md prefers none to a redundant one.
   :docstring-blank {:level :warning}
   :docstring-leading-trailing-whitespace {:level :warning}
-  :docstring-no-summary {:level :warning}}}
+  :docstring-no-summary {:level :warning}
+
+  ;; The string adapters of cljs-patrol.fs are deprecated, and ADR 0013 removes them. Only the tests that still call
+  ;; one may call it, and the adapter missing-dirs may call file-exists?.
+  :deprecated-var
+  {:exclude
+   {cljs-patrol.fs/absolute-path {:namespaces [cljs-patrol.fs-test
+                                               cljs-patrol.integration.baseline-test]}
+    cljs-patrol.fs/absolute-path? {:namespaces [cljs-patrol.fs-test
+                                                cljs-patrol.integration.baseline-test
+                                                cljs-patrol.reporters.edn-test]}
+    cljs-patrol.fs/delete-file! {:namespaces [cljs-patrol.fs-test]}
+    cljs-patrol.fs/delete-tree! {:namespaces [cljs-patrol.fs-test
+                                              cljs-patrol.integration.baseline-test]}
+    cljs-patrol.fs/file-exists? {:defs [cljs-patrol.fs/missing-dirs]
+                                 :namespaces [cljs-patrol.baseline-test
+                                              cljs-patrol.core-test
+                                              cljs-patrol.fs-test]}
+    cljs-patrol.fs/join-path {:namespaces [cljs-patrol.baseline-test
+                                           cljs-patrol.core-test
+                                           cljs-patrol.fs-test
+                                           cljs-patrol.integration.baseline-test]}
+    cljs-patrol.fs/list-source-files {:namespaces [cljs-patrol.fs-test
+                                                   cljs-patrol.parser-test]}
+    cljs-patrol.fs/missing-dirs {:namespaces [cljs-patrol.fs-test]}
+    cljs-patrol.fs/mkdirs {:namespaces [cljs-patrol.fs-test]}
+    cljs-patrol.fs/move-replace! {:namespaces [cljs-patrol.fs-test]}
+    cljs-patrol.fs/parent-dir {:namespaces [cljs-patrol.fs-test]}
+    cljs-patrol.fs/relativize {:namespaces [cljs-patrol.fs-test]}}}}}
