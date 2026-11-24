@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.0.62] - 2026-11-24
+
+* Mutation runner: cache results to resume a run and rerun only the gaps by @olecve in https://github.com/olecve/cljs-patrol/pull/175
+* Stop a mutation run when a test changes a file by @olecve in https://github.com/olecve/cljs-patrol/pull/176
+* Skip what git ignores in the mutation runner's file guard by @olecve in https://github.com/olecve/cljs-patrol/pull/177
+* Keep the file guard running when git and its ignore check disagree by @olecve in https://github.com/olecve/cljs-patrol/pull/178
+* Read and write files through NIO paths in fs by @olecve in https://github.com/olecve/cljs-patrol/pull/179
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.61...v0.0.62
+
 ## [v0.0.61] - 2026-11-21
 
 * Report a presence check on a get-by helper by @olecve in https://github.com/olecve/cljs-patrol/pull/162
