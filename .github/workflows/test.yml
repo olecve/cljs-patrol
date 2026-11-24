@@ -43,6 +43,23 @@ jobs:
 
       - run: clojure -M:cljfmt check src/ test/ dev/
       - run: clojure -M:clj-kondo --lint src test dev build.clj
+
+      - name: No java.io file access in src
+        # ADR 0013: src/ reads and writes files through java.nio.file.Path. clj-kondo's
+        # :discouraged-var finds io/file, slurp, spit, io/reader and io/writer, but not
+        # java.io.File interop, so this grep finds the class: its full name, a
+        # constructor, a static call, a type hint and an import on one or more lines. A
+        # slurp in src/ may only read a classpath resource.
+        run: |
+          if grep -rnE 'java\.io\.File|(^|[^.[:alnum:]])File\.([[:space:]]|\)|$)|\bFile/|\^File\b|[[(]java\.io\b[^])]*\bFile\b|^[[:space:]]*File[])]*[[:space:]]*$|(^|[^.[:alnum:]])io/(file|reader|writer)\b|\(spit\b' src/; then
+            echo "src/ uses java.io file access. Use the Path functions of cljs-patrol.fs."
+            exit 1
+          fi
+          if grep -rnE '\(slurp\b' src/ | grep -v 'io/resource'; then
+            echo "src/ calls slurp on something that is not a classpath resource. Use fs/read-text."
+            exit 1
+          fi
+
       - run: clojure -M:test
 
       - name: Patrol our own sources

@@ -1,5 +1,25 @@
 ;; Linters clj-kondo ships off or at :info.
-{:linters
+{;; Code that must keep java.io: the mutation runner and its tests need git and the real disk, the other tests make
+ ;; fixture files on the real disk, and tools.build takes strings.
+ :ns-groups [{:filename-pattern "(^|/)(dev|test)/" :name java-io-allowed}]
+
+ :config-in-ns
+ {java-io-allowed {:linters {:discouraged-var {clojure.core/slurp {:level :off}
+                                               clojure.core/spit {:level :off}
+                                               clojure.java.io/file {:level :off}
+                                               clojure.java.io/reader {:level :off}
+                                               clojure.java.io/writer {:level :off}}}}
+  build {:linters {:discouraged-var {clojure.core/slurp {:level :off}
+                                     clojure.core/spit {:level :off}
+                                     clojure.java.io/file {:level :off}
+                                     clojure.java.io/reader {:level :off}
+                                     clojure.java.io/writer {:level :off}}}}
+  ;; These read a classpath resource, which has no `Path` on the default file system.
+  cljs-patrol.group {:linters {:discouraged-var {clojure.core/slurp {:level :off}}}}
+  cljs-patrol.groups.css-order.orders {:linters {:discouraged-var {clojure.core/slurp {:level :off}}}}
+  cljs-patrol.reporters.html {:linters {:discouraged-var {clojure.core/slurp {:level :off}}}}}
+
+ :linters
  {;; Real defects
   :case-symbol-test {:level :error}
   :equals-float {:level :error}
@@ -46,6 +66,14 @@
   :docstring-blank {:level :warning}
   :docstring-leading-trailing-whitespace {:level :warning}
   :docstring-no-summary {:level :warning}
+
+  ;; ADR 0013: files are read and written through `java.nio.file.Path`.
+  :discouraged-var
+  {clojure.core/slurp {:message "Use fs/read-text with a Path. Only a classpath resource is read with slurp."}
+   clojure.core/spit {:message "Use fs/text-writer with a Path."}
+   clojure.java.io/file {:message "Use fs/path. java.io.File reads a nil parent as the working directory."}
+   clojure.java.io/reader {:message "Use fs/read-text with a Path."}
+   clojure.java.io/writer {:message "Use fs/text-writer with a Path."}}
 
   ;; The string adapters of cljs-patrol.fs are deprecated. Only fs-test still calls them, to test them until step 4 of
   ;; ADR 0013 removes them.
