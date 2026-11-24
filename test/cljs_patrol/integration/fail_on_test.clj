@@ -5,6 +5,7 @@
   (:require
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
@@ -19,7 +20,7 @@
 (def ^:private cleanup (severity/tier->rules rule->tier :cleanup))
 
 (defn- run-fixture []
-  [(core/run fixture-dir enabled-groups)])
+  [(core/run (disk/typed-path fixture-dir) enabled-groups)])
 
 (deftest standalone-fail-on-bugs-test
   (let [run-results (run-fixture)]

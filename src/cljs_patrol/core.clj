@@ -32,7 +32,10 @@
    [cljs-patrol.severity :as severity]
    [cljs-patrol.timings :as timings]
    [clojure.string :as str]
-   [clojure.tools.cli :as cli]))
+   [clojure.tools.cli :as cli])
+  (:import
+   (java.nio.file
+    FileSystems)))
 
 (defn- assemble-groups
   "Build every rule group from `config`.
@@ -109,18 +112,22 @@
    [nil "--list-rules" "Print all rules grouped by tier and exit"]
    ["-h" "--help"]])
 
-(defn- filter-result [result files-set]
+(defn- filter-result [result file-system files-set]
   (->> result
        (map (fn [[k v]]
               [k (if (sequential? v)
-                   (filterv #(contains? files-set (fs/absolute-path (:file %))) v)
+                   (filterv #(contains? files-set (fs/absolute (fs/path file-system (:file %)))) v)
                    v)]))
        (into {})))
 
-(defn- filter-run-results [run-results files]
-  (let [files-set (set (map fs/absolute-path files))]
+(defn- filter-run-results
+  "Keep the findings of run-results that are in one of `files`, the texts of `--files`, on `file-system`.
+
+  A text that names no file, such as the empty string, keeps no finding."
+  [run-results file-system files]
+  (let [files-set (set (keep #(some-> (fs/parse-path file-system %) fs/absolute) files))]
     (mapv (fn [rr]
-            (update rr :group-results #(mapv (fn [r] (filter-result r files-set)) %)))
+            (update rr :group-results #(mapv (fn [r] (filter-result r file-system files-set)) %)))
           run-results)))
 
 (defn- print-summary [enabled-groups group-results]
@@ -184,56 +191,61 @@
     (timings/record-analyze! recorder (group/group-id group) nanos)
     result))
 
-(defn- analyze-groups [source-dir parsed-data enabled-groups recorder]
-  {:source-dir source-dir
+(defn- analyze-groups [{:keys [path text]} parsed-data enabled-groups recorder]
+  {:source-dir path
+   :source-text text
    :group-results (mapv (if recorder
                           #(analyze-group-timed recorder % parsed-data)
                           #(analyze-group % parsed-data))
                         enabled-groups)})
 
 (defn run-all
-  "Analyze each of source-dirs with enabled-groups, return one {:source-dir … :group-results [...]} per directory.
+  "Analyze each of sources with enabled-groups, return one {:source-dir … :source-text … :group-results [...]} per source.
+
+  A source is {:path its `Path`, :text the folder as typed}. The text is what the progress line and the HTML report print.
   Each directory is judged on its own findings, while `:usages-in-run` hands every group the
   usages of all of them, for a rule whose evidence may sit in another directory of the run.
   With a `recorder`, the time each step took is added to it. Up to `jobs` files are read at
   once, one by default."
-  ([source-dirs enabled-groups] (run-all source-dirs enabled-groups nil))
-  ([source-dirs enabled-groups recorder] (run-all source-dirs enabled-groups recorder 1))
-  ([source-dirs enabled-groups recorder jobs]
-   (let [parsed (mapv #(parser/analyze-project % enabled-groups recorder jobs) source-dirs)
+  ([sources enabled-groups] (run-all sources enabled-groups nil))
+  ([sources enabled-groups recorder] (run-all sources enabled-groups recorder 1))
+  ([sources enabled-groups recorder jobs]
+   (let [parsed (mapv #(parser/analyze-project % enabled-groups recorder jobs) sources)
          usages-in-run (vec (mapcat :usages parsed))]
-     (mapv (fn [source-dir {:keys [declarations dynamic-sites usages]}]
-             (analyze-groups source-dir
+     (mapv (fn [source {:keys [declarations dynamic-sites usages]}]
+             (analyze-groups source
                              {:declarations declarations
                               :dynamic-sites dynamic-sites
                               :usages usages
                               :usages-in-run usages-in-run}
                              enabled-groups
                              recorder))
-           source-dirs
+           sources
            parsed))))
 
 (defn run
-  "Analyze source-dir with enabled-groups, return {:source-dir source-dir :group-results [...]}."
-  [source-dir enabled-groups]
-  (first (run-all [source-dir] enabled-groups)))
+  "Analyze `source`, a {:path :text} map as [[run-all]] takes, with enabled-groups."
+  [source enabled-groups]
+  (first (run-all [source] enabled-groups)))
 
 (defn baseline-write-refusal
-  "Decide whether --baseline-write must leave the baseline at `path` as it is.
+  "Decide whether --baseline-write must leave the baseline file `baseline`, a {:path :text} map, as it is.
   Returns nil to write `found`, else {:error message} for a baseline that cannot be compared
   or {:added identities} for the findings it lacks. `allow-new` writes regardless."
-  [path found allow-new]
+  [baseline found allow-new]
   (when-not allow-new
     (let [{:keys [added error]
-           :as check} (baseline/find-added-identities path found)]
+           :as check} (baseline/find-added-identities baseline found)]
       (when (or error (seq added))
         check))))
 
 (defn console-findings
   "Shape every finding of run-results as a console row, labeled by `severity-of`.
-  It receives {:group :source-dir :rule :items :item}, items being all of that rule's findings."
+  It receives {:group :source-dir :rule :items :item}, items being all of that rule's findings, and the absolute
+  `:source-dir`."
   [enabled-groups run-results severity-of]
   (for [{:keys [source-dir group-results]} run-results
+        :let [base (fs/absolute source-dir)]
         [rule-group result] (map vector enabled-groups group-results)
         [rule-key items] result
         :when (sequential? items)
@@ -243,7 +255,7 @@
                                    :item item
                                    :items items
                                    :rule rule-key
-                                   :source-dir source-dir})
+                                   :source-dir base})
                      item)))
 
 (defn- docs-by-rule [enabled-groups]
@@ -280,6 +292,8 @@
 
 (def ^:private slowest-files-shown 10)
 
+(def ^:private report-file "report.html")
+
 (defn- available-processors []
   (.availableProcessors (Runtime/getRuntime)))
 
@@ -292,29 +306,28 @@
       (run! println (timings/report-lines (timings/summary recorder) slowest-files-shown))))
   (System/exit code))
 
-(defn- refuse-baseline-write! [enabled-groups run-results path added opts]
+(defn- refuse-baseline-write! [enabled-groups run-results baseline-text added opts]
   (console/print-report (:findings (baseline-console-rows enabled-groups run-results added nil true))
                         {:docs (docs-by-rule enabled-groups)})
-  (println (str "\nRefusing to write " path ": the findings above are not in it."
+  (println (str "\nRefusing to write " baseline-text ": the findings above are not in it."
                 " Fix them, or pass --allow-new to add them."))
   (exit! opts 1))
 
-(defn- run-baseline-write! [enabled-groups run-results opts dirs rule->tier]
+(defn- run-baseline-write! [enabled-groups run-results opts baseline rule->tier]
   (let [identities (baseline/collect-identities run-results)
-        path (baseline/resolve-baseline-path (:baseline-path opts) dirs)]
-    (when-let [{:keys [added error]} (baseline-write-refusal path identities (:allow-new opts))]
+        {:keys [path text]} baseline]
+    (when-let [{:keys [added error]} (baseline-write-refusal baseline identities (:allow-new opts))]
       (if error
         (do
           (println (str "Error: " error))
           (exit! opts 1))
-        (refuse-baseline-write! enabled-groups run-results path added opts)))
+        (refuse-baseline-write! enabled-groups run-results text added opts)))
     (baseline/write-baseline path identities rule->tier)
-    (println (str "Wrote baseline with " (count identities) " entries to " path))
+    (println (str "Wrote baseline with " (count identities) " entries to " text))
     (exit! opts 0)))
 
-(defn- run-baseline-compare! [enabled-groups run-results opts dirs rule->tier]
-  (let [path (baseline/resolve-baseline-path (:baseline-path opts) dirs)
-        {:keys [ok error]} (baseline/read-baseline path)]
+(defn- run-baseline-compare! [enabled-groups run-results opts sources baseline rule->tier]
+  (let [{:keys [ok error]} (baseline/read-baseline baseline)]
     (when error
       (println (str "Error: " error))
       (exit! opts 1))
@@ -333,15 +346,15 @@
         (exit! opts 1))
       (case (:output opts)
         :edn (edn-reporter/print-baseline-report
-              dirs new-issues present fixed exit-code
+              sources new-issues present fixed exit-code
               fail-on-rules rule->tier)
         :html (let [blocking-count (count (filter #(contains? fail-on-rules (:rule %)) new-issues))
                     warning-count (- (count new-issues) blocking-count)]
                 (html-reporter/write-baseline-report
-                 enabled-groups run-results "report.html"
+                 enabled-groups run-results (:report-path opts)
                  new-issues (count fixed)
                  fail-on-rules blocking-count warning-count)
-                (println "Report written to report.html"))
+                (println (str "Report written to " (:report-path opts))))
         (let [{:keys [findings present]} (baseline-console-rows enabled-groups run-results new-issues fail-on-rules
                                                                 (:quiet-baseline opts))]
           (console/print-report findings
@@ -351,22 +364,40 @@
                                  :docs (docs-by-rule enabled-groups)})))
       (exit! opts exit-code))))
 
-(defn- run-standalone! [enabled-groups run-results opts dirs]
+(defn- run-standalone! [enabled-groups run-results opts sources]
   (let [fail-on-rules (:fail-on-rules opts)
         any-failed? (standalone-failed? {:enabled-groups enabled-groups
                                          :run-results run-results
                                          :fail-on-rules fail-on-rules})]
     (case (:output opts)
       :html (do
-              (html-reporter/write-report enabled-groups run-results "report.html" fail-on-rules)
-              (println "Report written to report.html")
+              (html-reporter/write-report enabled-groups run-results (:report-path opts) fail-on-rules)
+              (println (str "Report written to " (:report-path opts)))
               (doseq [{:keys [group-results]} run-results]
                 (print-summary enabled-groups group-results)))
-      :edn (edn-reporter/print-report enabled-groups dirs run-results fail-on-rules)
-      :markdown (md-reporter/print-report enabled-groups dirs run-results)
+      :edn (edn-reporter/print-report enabled-groups sources run-results fail-on-rules)
+      :markdown (md-reporter/print-report enabled-groups sources run-results)
       (console/print-report (console-findings enabled-groups run-results (standalone-severity fail-on-rules))
                             {:docs (docs-by-rule enabled-groups)}))
     (exit! opts (if any-failed? 1 0))))
+
+(defn- start-baseline-file
+  "Give the baseline file of a baseline run as [[baseline/resolve-baseline-path]] gives it, or nil for another run.
+
+  A configured path that names no file stops the run before any file is read. `--baseline` prints the error of a
+  missing baseline, as for any missing file."
+  [opts sources]
+  (when (or (:baseline-write opts) (:baseline opts))
+    (let [{:keys [path text]
+           :as baseline} (baseline/resolve-baseline-path (:baseline-path opts) (map :path sources))]
+      (cond
+        path baseline
+        (:baseline-write opts) (do
+                                 (println (str "Error: baseline path names no file: " (pr-str text)))
+                                 (exit! opts 1))
+        :else (do
+                (println (str "Error: " (baseline/not-found-message text)))
+                (exit! opts 1))))))
 
 (defn -main [& args]
   (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)
@@ -380,27 +411,31 @@
       (println)
       (println "Options:")
       (println summary)
-      (System/exit 0))
+      (exit! nil 0))
     (when errors
       (doseq [e errors] (println e))
-      (System/exit 1))
+      (exit! nil 1))
     (when (and (:baseline-write options) (:baseline options))
       (println "Error: --baseline-write and --baseline are mutually exclusive.")
-      (System/exit 1))
+      (exit! nil 1))
     (when (and (:allow-new options) (not (:baseline-write options)))
       (println "Error: --allow-new only applies to --baseline-write.")
-      (System/exit 1))
+      (exit! nil 1))
     (when (and (:baseline-write options) (:files options))
       (println "Error: --baseline-write cannot be used with --files (would write a partial baseline).")
-      (System/exit 1))
-    (let [config (cond-> (baseline/read-config)
+      (exit! nil 1))
+    (let [file-system (FileSystems/getDefault)
+          config (cond-> (baseline/read-config (fs/path file-system baseline/default-config-path))
                    (:css-order options) (assoc-in [:css-order :order] (:css-order options)))
           base-opts (baseline/merge-config
                      config
                      (select-keys options [:only :disable :output :files
                                            :baseline-write :allow-new :baseline :strict-baseline
                                            :quiet-baseline]))
-          dirs arguments
+          sources (mapv (fn [dir]
+                          {:path (fs/parse-path file-system dir)
+                           :text dir})
+                        arguments)
           clj? (experimental-clj? options config)
           all-groups (assemble-groups config clj?)
           enabled-groups (filter-groups all-groups base-opts)
@@ -409,37 +444,39 @@
           {:keys [ok error]} (severity/parse-fail-on fail-on-input rule->tier)
           _ (when error
               (println (str "Error: " error))
-              (System/exit 1))
+              (exit! nil 1))
           opts (assoc base-opts
                       :fail-on-rules (or ok #{})
+                      :report-path (fs/path file-system report-file)
                       :timings recorder)]
       (when (:list-rules options)
         (println (severity/format-rules (severity/list-rules enabled-groups)))
-        (System/exit 0))
-      (when (empty? dirs)
+        (exit! nil 0))
+      (when (empty? sources)
         (println "Error: no source directories specified")
-        (System/exit 1))
-      (when-let [missing (seq (fs/missing-dirs dirs))]
-        (println (str "Error: no such path: " (str/join ", " missing)))
-        (System/exit 1))
-      (when clj?
-        (binding [*out* *err*]
-          (if-let [reading (seq (clj-reading-groups enabled-groups))]
-            (println (str "Experimental: reading .clj files with "
-                          (str/join " and " (map (comp name group/group-id) reading))
-                          "."))
-            (println (str "WARN: --experimental-clj does nothing here. No enabled group reads .clj; "
-                          "the groups that can are docstrings, tests, layout, idioms and comments.")))))
-      (let [analyzed (run-all dirs enabled-groups recorder (or (:jobs options) (available-processors)))
-            _ (some-> recorder (timings/start-phase! :report))
-            run-results (cond-> analyzed
-                          (:files opts) (filter-run-results (:files opts)))]
-        (cond
-          (:baseline-write opts)
-          (run-baseline-write! enabled-groups run-results opts dirs rule->tier)
+        (exit! nil 1))
+      (when-let [missing (seq (remove #(some-> (:path %) fs/exists?) sources))]
+        (println (str "Error: no such path: " (str/join ", " (map :text missing))))
+        (exit! nil 1))
+      (let [baseline-file (start-baseline-file opts sources)]
+        (when clj?
+          (binding [*out* *err*]
+            (if-let [reading (seq (clj-reading-groups enabled-groups))]
+              (println (str "Experimental: reading .clj files with "
+                            (str/join " and " (map (comp name group/group-id) reading))
+                            "."))
+              (println (str "WARN: --experimental-clj does nothing here. No enabled group reads .clj; "
+                            "the groups that can are docstrings, tests, layout, idioms and comments.")))))
+        (let [analyzed (run-all sources enabled-groups recorder (or (:jobs options) (available-processors)))
+              _ (some-> recorder (timings/start-phase! :report))
+              run-results (cond-> analyzed
+                            (:files opts) (filter-run-results file-system (:files opts)))]
+          (cond
+            (:baseline-write opts)
+            (run-baseline-write! enabled-groups run-results opts baseline-file rule->tier)
 
-          (:baseline opts)
-          (run-baseline-compare! enabled-groups run-results opts dirs rule->tier)
+            (:baseline opts)
+            (run-baseline-compare! enabled-groups run-results opts sources baseline-file rule->tier)
 
-          :else
-          (run-standalone! enabled-groups run-results opts dirs))))))
+            :else
+            (run-standalone! enabled-groups run-results opts sources)))))))

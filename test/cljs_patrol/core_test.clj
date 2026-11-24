@@ -2,13 +2,20 @@
   (:require
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
+   [cljs-patrol.groups.a11y :as a11y]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.spade :as spade]
    [cljs-patrol.temp-dir :as temp-dir]
+   [clojure.edn :as edn]
+   [clojure.string :as str]
    [clojure.test :refer [deftest is testing use-fixtures]]
-   [clojure.tools.cli :as cli]))
+   [clojure.tools.cli :as cli])
+  (:import
+   (java.nio.file
+    FileSystems)))
 
 (use-fixtures :each temp-dir/delete-created)
 
@@ -24,17 +31,19 @@
         item-b {:kw :b/sub
                 :file "src/b.cljs"
                 :row 1}
-        run-results [{:source-dir "src"
+        run-results [{:source-dir (disk/path "src")
                       :group-results [{:unused-subs [item-a item-b]
                                        :unused-events []}]}]]
     (testing "filters items to requested files only"
-      (let [result (filter-run-results run-results [(fs/absolute-path "src/a.cljs")])
+      (let [result (filter-run-results run-results (FileSystems/getDefault) ["" (str (disk/path "src/a.cljs"))])
             subs (get-in result [0 :group-results 0 :unused-subs])]
         (is (= 1 (count subs)))
         (is (= "src/a.cljs" (:file (first subs))))))
 
     (testing "empty result when no files match"
-      (let [result (filter-run-results run-results [(fs/absolute-path "src/other.cljs")])
+      (let [result (filter-run-results run-results
+                                       (FileSystems/getDefault)
+                                       [(str (.toAbsolutePath (disk/path "src/other.cljs")))])
             subs (get-in result [0 :group-results 0 :unused-subs])]
         (is (empty? subs))))))
 
@@ -63,14 +72,14 @@
 
 (deftest baseline-write-integration-test
   (let [enabled-groups [re-frame/group spade/group]
-        run-results [(core/run fixture-dir enabled-groups)]
+        run-results [(core/run (disk/typed-path fixture-dir) enabled-groups)]
         identities (baseline/collect-identities run-results)
         dir (temp-dir/file-path "missing")
         path (fs/join-path dir "baseline.edn")]
-    (baseline/write-baseline path identities)
+    (baseline/write-baseline (disk/path path) identities)
     (is (fs/file-exists? path)
         "baseline file created")
-    (let [{:keys [ok]} (baseline/read-baseline path)]
+    (let [{:keys [ok]} (baseline/read-baseline (disk/typed-path path))]
       (is (set? ok)
           "reads back as a set")
       (is (pos? (count ok))
@@ -78,33 +87,211 @@
       (is (every? :rule ok)
           "every identity has a :rule"))))
 
+(defn- capture-exit
+  "Call `f`, and give {:exit the code it exits with, :out what it prints, :err what it prints on stderr}.
+
+  The exit throws instead of stopping the JVM. Each exit of `-main` goes through `exit!`."
+  [f]
+  (let [exit (atom nil)
+        err (java.io.StringWriter.)
+        out (with-out-str
+              (binding [*err* err]
+                (with-redefs [core/exit! (fn [_ code]
+                                           (reset! exit code)
+                                           (throw (ex-info "exit" {})))]
+                  (try
+                    (f)
+                    (catch clojure.lang.ExceptionInfo _
+                      nil)))))]
+    {:err (str err)
+     :exit @exit
+     :out out}))
+
+(defn- run-main [& args]
+  (capture-exit #(apply core/-main args)))
+
+(deftest main-reports-missing-source-dirs-as-typed
+  (is (= {:err ""
+          :exit 1
+          :out "Error: no such path: , a\u0000b, test-projects/no-such-app\n"}
+         (run-main "" "test-projects/a11y-app/src" "a\u0000b" "test-projects/no-such-app" "test-projects/a11y-app/src/"))
+      "empty, unaccepted and missing dirs are reported as typed, in order"))
+
+(deftest main-tells-on-stderr-which-groups-read-clj
+  (is (str/includes? (:err (run-main "--experimental-clj" "--only" "docstrings" "test-projects/clj-app"))
+                     "Experimental: reading .clj files with docstrings.\n")
+      "group that reads .clj is named")
+  (is (str/includes? (:err (run-main "--experimental-clj" "--only" "a11y" "test-projects/clj-app"))
+                     "WARN: --experimental-clj does nothing here.")
+      "no group that reads .clj gives warning")
+  (is (not (str/includes? (:err (run-main "--only" "docstrings" "test-projects/clj-app")) "Experimental"))
+      "no notice without experimental mode"))
+
+(deftest main-exits-through-exit-on-bad-arguments
+  (is (= {:err ""
+          :exit 1
+          :out "Error: --allow-new only applies to --baseline-write.\n"}
+         (run-main "--allow-new" "src"))
+      "argument error exits 1")
+  (doseq [[args code] [[["--help"] 0]
+                       [["--jobs" "0" "src"] 1]
+                       [["--baseline-write" "--baseline" "src"] 1]
+                       [["--baseline-write" "--files" "a.cljs" "src"] 1]
+                       [["--fail-on" "no-such-rule" "src"] 1]
+                       [["--list-rules"] 0]
+                       [["--only" "a11y"] 1]]]
+    (is (= code (:exit (apply run-main args)))
+        (str "exit code of " (pr-str args)))))
+
+(defn- write-baseline-at
+  "Run the baseline write of `-main` on `run-results` with the configured baseline path `configured`."
+  [run-results sources configured allow-new]
+  (capture-exit #(#'core/run-baseline-write! [a11y/group]
+                                             run-results
+                                             {:allow-new allow-new}
+                                             (baseline/resolve-baseline-path configured (map :path sources))
+                                             {})))
+
+(defn- compare-baseline-at [run-results sources configured]
+  (capture-exit #(#'core/run-baseline-compare! [a11y/group]
+                                               run-results
+                                               {:fail-on-rules #{}}
+                                               sources
+                                               (baseline/resolve-baseline-path configured (map :path sources))
+                                               {})))
+
+(deftest configured-baseline-path-prints-as-typed
+  (let [dir (temp-dir/create-dir "cljs-patrol")
+        src (str dir "/src")
+        sources [(disk/typed-path src)]
+        configured (str dir "/./ci//baseline.edn")
+        one-finding (fn []
+                      (spit (str src "/a.cljs") "(ns a)\n(defn v [] [:img {:src \"x\"}])\n")
+                      [(core/run (first sources) [a11y/group])])]
+    (try
+      (.mkdirs (java.io.File. src))
+      (is (= {:err ""
+              :exit 1
+              :out (str "Error: Baseline file not found: " configured "\nRun --baseline-write first to create one.\n")}
+             (compare-baseline-at (one-finding) sources configured))
+          "missing file named as typed")
+      (is (= {:err ""
+              :exit 0
+              :out (str "Wrote baseline with 1 entries to " configured "\n")}
+             (write-baseline-at (one-finding) sources configured false))
+          "write names file as typed")
+      (spit (str src "/b.cljs") "(ns b)\n(defn w [] [:img {:src \"y\"}])\n")
+      (is (str/includes? (:out (write-baseline-at [(core/run (first sources) [a11y/group])] sources configured false))
+                         (str "\nRefusing to write " configured ": the findings above are not in it."))
+          "refusal names file as typed")
+      (is (= 1 (:exit (compare-baseline-at [(core/run (first sources) [a11y/group])] sources configured)))
+          "compare reads file at typed path")
+      (finally
+        (temp-dir/delete-dir! dir)))))
+
+(defn- start-baseline-file
+  "Run the start-up baseline check of `-main` with `opts`, and give {:err :exit :out} with :file, the baseline file it gives."
+  [opts]
+  (let [file (atom nil)]
+    (assoc (capture-exit #(reset! file (#'core/start-baseline-file opts [(disk/typed-path "test-projects/a11y-app/src")])))
+           :file @file)))
+
+(deftest configured-baseline-path-that-names-no-file-stops-run-at-start
+  (doseq [configured ["" "a\u0000b"]]
+    (is (= {:err ""
+            :exit 1
+            :out (str "Error: Baseline file not found: " configured "\nRun --baseline-write first to create one.\n")
+            :file nil}
+           (start-baseline-file {:baseline true
+                                 :baseline-path configured}))
+        (str "compare gives not-found error for " (pr-str configured)))
+    (is (= {:err ""
+            :exit 1
+            :out (str "Error: baseline path names no file: " (pr-str configured) "\n")
+            :file nil}
+           (start-baseline-file {:baseline-write true
+                                 :baseline-path configured}))
+        (str "write gives error for " (pr-str configured))))
+  (is (= {:err ""
+          :exit nil
+          :out ""
+          :file (disk/typed-path "test-projects/a11y-app/src/.cljs-patrol/baseline.edn")}
+         (start-baseline-file {:baseline true}))
+      "default baseline file of compare")
+  (is (= {:err ""
+          :exit nil
+          :out ""
+          :file {:path (disk/path "ci/b.edn")
+                 :text "ci//b.edn"}}
+         (start-baseline-file {:baseline-write true
+                               :baseline-path "ci//b.edn"}))
+      "configured baseline file of write")
+  (is (= {:err ""
+          :exit nil
+          :out ""
+          :file nil}
+         (start-baseline-file {:baseline-path ""}))
+      "run without baseline has no baseline file"))
+
+(deftest console-findings-throw-on-nil-source-dir
+  (is (thrown? NullPointerException
+               (doall (core/console-findings [re-frame/group]
+                                             [{:source-dir nil
+                                               :group-results [{:deprecated-effects []}]}]
+                                             (core/baseline-severity #{} #{}))))))
+
+(deftest main-writes-baseline-under-first-source-dir-and-compares-with-it
+  (let [dir (temp-dir/create-dir "cljs-patrol")
+        src (str dir "/src")
+        baseline-path (str src "/.cljs-patrol/baseline.edn")]
+    (try
+      (.mkdirs (java.io.File. src))
+      (spit (str src "/a.cljs") "(ns a)\n(defn v [] [:img {:src \"x\"}])\n")
+      (is (= {:err (str "Analyzing 1 files under " src " ...\n")
+              :exit 0
+              :out (str "Wrote baseline with 1 entries to " baseline-path "\n")}
+             (run-main "--only" "a11y" "--baseline-write" src))
+          "write exits 0 and names baseline beside first source dir")
+      (is (= [{:rule :img-alt-missing
+               :tag :img
+               :file "a.cljs"
+               :form "[:img {:src \"x\"}]"}]
+             (:issues (edn/read-string (slurp baseline-path))))
+          "key is relative to source dir")
+      (is (= 0 (:exit (run-main "--only" "a11y" "--baseline" src)))
+          "compare finds nothing new")
+      (is (= 1 (:exit (run-main "--only" "a11y" src)))
+          "run without baseline fails on finding")
+      (finally
+        (temp-dir/delete-dir! dir)))))
+
 (deftest baseline-write-refusal-test
   (let [kept {:rule :unused-subs
               :key :app/kept}
         added {:rule :unused-subs
                :key :app/added}
         path (temp-dir/file-path "baseline.edn")]
-    (is (nil? (core/baseline-write-refusal path #{kept} false))
+    (is (nil? (core/baseline-write-refusal (disk/typed-path path) #{kept} false))
         "first write goes through")
-    (baseline/write-baseline path #{kept})
-    (is (nil? (core/baseline-write-refusal path #{kept} false))
+    (baseline/write-baseline (disk/path path) #{kept})
+    (is (nil? (core/baseline-write-refusal (disk/typed-path path) #{kept} false))
         "unchanged findings go through")
-    (is (nil? (core/baseline-write-refusal path #{} false))
+    (is (nil? (core/baseline-write-refusal (disk/typed-path path) #{} false))
         "fixed findings go through")
     (is (= {:added #{added}}
-           (core/baseline-write-refusal path #{kept added} false))
+           (core/baseline-write-refusal (disk/typed-path path) #{kept added} false))
         "added finding is refused")
-    (is (nil? (core/baseline-write-refusal path #{kept added} true))
+    (is (nil? (core/baseline-write-refusal (disk/typed-path path) #{kept added} true))
         "allow-new writes added finding")
     (spit path "[1 2 3]")
-    (is (some? (:error (core/baseline-write-refusal path #{kept} false)))
+    (is (some? (:error (core/baseline-write-refusal (disk/typed-path path) #{kept} false)))
         "unreadable baseline is refused")
-    (is (nil? (core/baseline-write-refusal path #{kept} true))
+    (is (nil? (core/baseline-write-refusal (disk/typed-path path) #{kept} true))
         "allow-new overwrites unreadable baseline")))
 
 (deftest baseline-compare-integration-test
   (let [enabled-groups [re-frame/group spade/group]
-        run-results [(core/run fixture-dir enabled-groups)]
+        run-results [(core/run (disk/typed-path fixture-dir) enabled-groups)]
         found (baseline/collect-identities run-results)]
 
     (testing "all issues in baseline — nothing new"
@@ -142,12 +329,12 @@
 
 (deftest standalone-failed?-test
   (testing "without --fail-on, falls back to group/failed?"
-    (let [run-results [{:source-dir "src"
+    (let [run-results [{:source-dir (disk/path "src")
                         :group-results [{:unused-subs [blocking-issue]}]}]]
       (is (true? (core/standalone-failed? {:enabled-groups [re-frame/group]
                                            :run-results run-results}))
           ":unused-subs causes group/failed? to return truthy"))
-    (let [run-results [{:source-dir "src"
+    (let [run-results [{:source-dir (disk/path "src")
                         :group-results [{:unused-subs []
                                          :phantom-subs [non-blocking-issue]}]}]]
       (is (false? (core/standalone-failed? {:enabled-groups [re-frame/group]
@@ -155,14 +342,14 @@
           "phantom-subs alone does not trigger group/failed?")))
 
   (testing "with --fail-on rule set, only listed rules cause failure"
-    (let [run-results [{:source-dir "src"
+    (let [run-results [{:source-dir (disk/path "src")
                         :group-results [{:unused-subs [non-blocking-issue]
                                          :phantom-subs []}]}]]
       (is (false? (core/standalone-failed? {:enabled-groups [re-frame/group]
                                             :run-results run-results
                                             :fail-on-rules #{:phantom-subs}}))
           "unused-subs issues don't fail when only phantom-subs is selected"))
-    (let [run-results [{:source-dir "src"
+    (let [run-results [{:source-dir (disk/path "src")
                         :group-results [{:unused-subs []
                                          :phantom-subs [non-blocking-issue]}]}]]
       (is (true? (core/standalone-failed? {:enabled-groups [re-frame/group]
@@ -241,11 +428,12 @@
 
 (deftest baseline-with-files-filter-test
   (let [enabled-groups [re-frame/group spade/group]
-        run-results [(core/run fixture-dir enabled-groups)]
+        run-results [(core/run (disk/typed-path fixture-dir) enabled-groups)]
         all-ids (baseline/collect-identities run-results)
         filtered-results (#'core/filter-run-results
                           run-results
-                          [(fs/absolute-path (str fixture-dir "/subs.cljs"))])
+                          (FileSystems/getDefault)
+                          [(str (.toAbsolutePath (disk/path fixture-dir "subs.cljs")))])
         filtered-ids (baseline/collect-identities filtered-results)]
     (is (< (count filtered-ids) (count all-ids))
         "filtering reduces issue count")
@@ -363,7 +551,8 @@
 (deftest run-all-reads-files-on-jobs-threads
   (let [threads-with (fn [jobs]
                        (binding [*err* (java.io.StringWriter.)]
-                         (->> (core/run-all [fixture-dir] [(thread-probe)] nil jobs) first :group-results first :threads (map :thread))))
+                         (->> (core/run-all [(disk/typed-path fixture-dir)] [(thread-probe)] nil jobs)
+                              first :group-results first :threads (map :thread))))
         caller (Thread/currentThread)]
     (is (not-any? #(identical? caller %) (threads-with 1))
         "one job reads on worker")

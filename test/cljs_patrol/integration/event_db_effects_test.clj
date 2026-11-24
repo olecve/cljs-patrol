@@ -1,6 +1,7 @@
 (ns cljs-patrol.integration.event-db-effects-test
   (:require
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.groups.re-frame :as re-frame]
    [clojure.test :refer [deftest is testing]]))
 
@@ -10,7 +11,7 @@
   (set (map :kw items)))
 
 (deftest reg-event-db-returning-effects-fixture-test
-  (let [{:keys [group-results]} (core/run fixture-dir [re-frame/group])
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [re-frame/group])
         result (first group-results)
         flagged (kws (:reg-event-db-returning-effects result))]
 

@@ -1,6 +1,7 @@
 (ns cljs-patrol.integration.spade-attrs-test
   (:require
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
    [clojure.test :refer [deftest is testing]]))
@@ -8,7 +9,7 @@
 (def ^:private fixture-dir "test-projects/spade-attrs-app/src/webapp")
 
 (defn- flagged-names []
-  (->> (core/run fixture-dir [spade/group]) :group-results first :defattrs-as-data (map (comp name :kw))))
+  (->> (core/run (disk/typed-path fixture-dir) [spade/group]) :group-results first :defattrs-as-data (map (comp name :kw))))
 
 (deftest defattrs-as-data-test
   (let [flagged (flagged-names)
@@ -98,7 +99,7 @@
       (is (= 29 (count flagged))))))
 
 (deftest defattrs-as-data-fix-test
-  (let [[spade-result reagent-result] (:group-results (core/run fixture-dir [spade/group reagent/group]))]
+  (let [[spade-result reagent-result] (:group-results (core/run (disk/typed-path fixture-dir) [spade/group reagent/group]))]
     (is (some #(= "icon-attrs" (name (:kw %))) (:defattrs-as-data spade-result))
         "defattrs used whole and with other props")
     (is (not-any? #(= "icon-style" (name (:kw %))) (:defclass-as-sole-attr reagent-result))
@@ -122,7 +123,8 @@
         "defclass used whole, also inside a discarded form")))
 
 (deftest defattrs-as-data-prefers-file-declaration-test
-  (let [flagged (->> (core/run fixture-dir [spade/group]) :group-results first :defattrs-as-data (map :kw) set)]
+  (let [flagged (->> (core/run (disk/typed-path fixture-dir) [spade/group])
+                     :group-results first :defattrs-as-data (map :kw) set)]
     (is (contains? flagged :webapp.redeclared-names/redeclared-attrs)
         "defattrs declared in the file")
     (is (not (contains? flagged :webapp.attrs-styles/redeclared-attrs))

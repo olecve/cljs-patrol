@@ -1,5 +1,6 @@
 (ns cljs-patrol.parser-test
   (:require
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.re-frame :as re-frame]
@@ -10,7 +11,11 @@
    [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
-   [rewrite-clj.zip :as z]))
+   [rewrite-clj.zip :as z])
+  (:import
+   (java.nio.file
+    Files
+    OpenOption)))
 
 (deftest resolve-kw-test
   (testing "plain keyword"
@@ -154,8 +159,8 @@
     (try
       (spit styles "(defclass c [] [:a])")
       (spit views "(defn v [] [:a])")
-      (parser/analyze-file styles [probe])
-      (parser/analyze-file views [probe])
+      (parser/analyze-file (disk/path styles) [probe])
+      (parser/analyze-file (disk/path views) [probe])
       (let [[in-styles in-views] (map (fn [file] (filter #(= (str file) (:file %)) @seen)) [styles views])]
         (is (= [[true true] [false false]] (map #(map :style-decl? %) [in-styles in-views]))
             "each file answered from own forms")
@@ -192,6 +197,71 @@
                        :dynamics []
                        :usages []})})))
 
+(defn- text-probe
+  "Build a group whose file handler adds the text that the parser read to `texts`."
+  [texts]
+  (reify group/RuleGroup
+    (group-id [_] :text-probe)
+    (group-name [_] "Text probe")
+    (analyze [_ _] {})
+    (summary-lines [_ _] [])
+    (failed? [_ _] false)
+    (suggestions [_] {})
+    (docs-anchors [_] {})
+    (rule->tier [_] {})
+    (file-extensions [_] #{".cljs"})
+    (parse-handlers [_]
+      {:handle-file (fn [zloc _ _]
+                      (swap! texts conj (z/root-string zloc))
+                      nil)})))
+
+(deftest analyze-file-reads-bytes-that-are-not-utf-8-as-z-of-file-does
+  (let [dir (temp-dir/create-dir "cljs-patrol")
+        file (disk/path dir "a.cljs")
+        texts (atom [])]
+    (try
+      (Files/write file
+                   (byte-array (concat (.getBytes "(ns a)\r\n(def x \"" "UTF-8") [0xC3 0x28] (.getBytes "\")\n" "UTF-8")))
+                   (make-array OpenOption 0))
+      (parser/analyze-file file [(text-probe texts)])
+      (is (= [(z/root-string (z/of-file (str file)))] @texts)
+          "same text as z/of-file")
+      (is (= ["(ns a)\n(def x \"\uFFFD(\")\n"] @texts)
+          "U+FFFD for byte C3, and newlines normalized")
+      (finally
+        (temp-dir/delete-dir! dir)))))
+
+(deftest analyze-project-prints-source-folder-as-typed
+  (let [dir (temp-dir/create-dir "cljs-patrol")
+        errors (java.io.StringWriter.)]
+    (try
+      (spit (str dir "/a.cljs") "(ns a)")
+      (binding [*err* errors]
+        (parser/analyze-project {:path (disk/path dir)
+                                 :text (str dir "//")}
+                                [(file-probe (constantly nil))]))
+      (is (= (str "Analyzing 1 files under " dir "// ...\n") (str errors))
+          "typed text kept, though Path drops trailing slashes")
+      (finally
+        (temp-dir/delete-dir! dir)))))
+
+(deftest analyze-file-warns-with-reason-for-file-it-cannot-read
+  (let [dir (temp-dir/create-dir "cljs-patrol")
+        file (disk/path dir "a.cljs")
+        errors (java.io.StringWriter.)]
+    (try
+      (spit (str file) "(ns a)")
+      (disk/with-locked-file
+        file
+        (fn []
+          (binding [*err* errors]
+            (is (nil? (parser/analyze-file file [(file-probe (constantly nil))]))
+                "file that cannot be read gives no result"))
+          (is (= (str "WARN: could not parse " file " : AccessDeniedException\n") (str errors))
+              "warning names exception class")))
+      (finally
+        (temp-dir/delete-dir! dir)))))
+
 (defn- with-project
   "Write `sources`, a map of file name to source, to a temporary directory and call `f` with it and its files in walk order."
   [sources f]
@@ -211,7 +281,7 @@
 
 (defn- analyze-quietly [dir groups jobs]
   (binding [*err* (java.io.StringWriter.)]
-    (doall (:declarations (parser/analyze-project dir groups nil jobs)))))
+    (doall (:declarations (parser/analyze-project (disk/typed-path dir) groups nil jobs)))))
 
 (deftest parallel-results-keep-file-order
   (with-project four-files
@@ -254,7 +324,7 @@
       (spit (first files) (str (apply str (repeat 20000 "(defn f [x] [:div {:a 1} x])\n")) "(ns a"))
       (let [errors (java.io.StringWriter.)]
         (binding [*err* errors]
-          (doall (:declarations (parser/analyze-project dir [(file-probe (constantly nil))] nil 3))))
+          (doall (:declarations (parser/analyze-project (disk/typed-path dir) [(file-probe (constantly nil))] nil 3))))
         (is (= files
                (->> (str/split-lines (str errors))
                     (keep #(second (re-matches #"WARN: could not parse (\S+) :.*" %)))))

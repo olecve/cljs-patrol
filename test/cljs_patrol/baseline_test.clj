@@ -2,6 +2,7 @@
   (:require
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
@@ -17,7 +18,15 @@
    [clojure.test :refer [deftest is testing use-fixtures]])
   (:import
    (java.io
-    File)))
+    File
+    IOException
+    StringWriter)
+   (java.nio.file
+    DirectoryNotEmptyException
+    FileSystemException
+    Files)
+   (java.nio.file.attribute
+    FileAttribute)))
 
 (use-fixtures :each temp-dir/delete-created)
 
@@ -376,7 +385,7 @@
                                         :form ":dispatch-n"
                                         :file "/projects/myapp/src/events.cljs"
                                         :row 42}
-                                       "/projects/myapp")]
+                                       (disk/path "/projects/myapp"))]
       (is (= "src/events.cljs" (:file id))
           "absolute path becomes relative to source-dir"))
     (let [id (baseline/issue->identity :deprecated-effects
@@ -393,9 +402,27 @@
                                         :form ":dispatch-n"
                                         :file "/other/project/src/events.cljs"
                                         :row 42}
-                                       "/projects/myapp")]
+                                       (disk/path "/projects/myapp"))]
       (is (= "/other/project/src/events.cljs" (:file id))
-          "path outside source-dir stays unchanged"))))
+          "path outside source-dir stays unchanged"))
+    (let [id (baseline/issue->identity :deprecated-effects
+                                       {:type :deprecated
+                                        :effect ":dispatch-n"
+                                        :form ":dispatch-n"
+                                        :file "src/events.cljs"
+                                        :row 42}
+                                       (disk/path "src/events.cljs"))]
+      (is (= "" (:file id))
+          "path that is source-dir becomes empty, as a run on one file gives"))
+    (let [id (baseline/issue->identity :deprecated-effects
+                                       {:type :deprecated
+                                        :effect ":dispatch-n"
+                                        :form ":dispatch-n"
+                                        :file "src/events.cljs"
+                                        :row 42}
+                                       (disk/path "src"))]
+      (is (= "events.cljs" (:file id))
+          "relative path becomes relative to relative source-dir"))))
 
 (deftest result->identities-test
   (let [result {:unused-subs [{:kw :app/a
@@ -446,20 +473,20 @@
 (deftest write-baseline-test
   (testing "round-trip preserves issue set"
     (let [path (tmp-baseline-path)]
-      (baseline/write-baseline path test-issues)
-      (let [{:keys [ok]} (baseline/read-baseline path)]
+      (baseline/write-baseline (disk/path path) test-issues)
+      (let [{:keys [ok]} (baseline/read-baseline (disk/typed-path path))]
         (is (= test-issues ok)))))
 
   (testing "deterministic sort order"
     (let [path (tmp-baseline-path)]
-      (baseline/write-baseline path test-issues)
+      (baseline/write-baseline (disk/path path) test-issues)
       (let [data (edn/read-string (slurp path))
             rules (mapv :rule (:issues data))]
         (is (= rules (sort-by str rules))))))
 
   (testing "includes metadata"
     (let [path (tmp-baseline-path)]
-      (baseline/write-baseline path test-issues)
+      (baseline/write-baseline (disk/path path) test-issues)
       (let [data (edn/read-string (slurp path))]
         (is (= baseline/baseline-version (:version data)))
         (is (string? (:generated-at data)))
@@ -469,7 +496,7 @@
 
   (testing "tool-version falls back to \"dev\" when no VERSION resource is present"
     (let [path (tmp-baseline-path)]
-      (baseline/write-baseline path test-issues)
+      (baseline/write-baseline (disk/path path) test-issues)
       (let [data (edn/read-string (slurp path))]
         (is (= "dev" (:tool-version data))
             "test classpath has no cljs_patrol/VERSION resource"))))
@@ -477,12 +504,12 @@
   (testing "creates parent directories"
     (let [dir (temp-dir/file-path "missing")
           path (fs/join-path (fs/join-path dir "sub") "baseline.edn")]
-      (baseline/write-baseline path test-issues)
+      (baseline/write-baseline (disk/path path) test-issues)
       (is (fs/file-exists? path))))
 
   (testing "summary counts totals and rule->total (sorted, deterministic)"
     (let [path (tmp-baseline-path)]
-      (baseline/write-baseline path test-issues)
+      (baseline/write-baseline (disk/path path) test-issues)
       (let [data (edn/read-string (slurp path))
             summary (:summary data)]
         (is (= 4 (:total summary)))
@@ -505,7 +532,7 @@
     (let [path (tmp-baseline-path)
           rule->tier {:unused-subs :cleanup
                       :unused-styles :cleanup}]
-      (baseline/write-baseline path test-issues rule->tier)
+      (baseline/write-baseline (disk/path path) test-issues rule->tier)
       (let [data (edn/read-string (slurp path))
             summary (:summary data)]
         (is (= {:bugs 0
@@ -515,7 +542,7 @@
 
   (testing "summary handles empty issue set"
     (let [path (tmp-baseline-path)]
-      (baseline/write-baseline path #{})
+      (baseline/write-baseline (disk/path path) #{})
       (let [data (edn/read-string (slurp path))
             summary (:summary data)]
         (is (= 0 (:total summary)))
@@ -541,24 +568,24 @@
 (deftest write-baseline-atomicity-test
   (testing "a failure partway through leaves the existing baseline intact"
     (let [path (tmp-baseline-path)]
-      (baseline/write-baseline path test-issues)
+      (baseline/write-baseline (disk/path path) test-issues)
       (let [original (slurp path)]
         (is (thrown? RuntimeException
                      (with-redefs-fn {#'baseline/write-summary fail-mid-write}
-                       (fn [] (baseline/write-baseline path #{}))))
+                       (fn [] (baseline/write-baseline (disk/path path) #{}))))
             "the write failure still propagates")
         (is (= original (slurp path))
             "existing baseline is byte-for-byte unchanged")
-        (is (= test-issues (:ok (baseline/read-baseline path)))
+        (is (= test-issues (:ok (baseline/read-baseline (disk/typed-path path))))
             "surviving baseline is still readable"))))
 
   (testing "no temp file is left behind"
     (let [path (tmp-baseline-path)]
-      (baseline/write-baseline path test-issues)
+      (baseline/write-baseline (disk/path path) test-issues)
       (is (= [] (sibling-temp-files path))
           "after a successful write")
       (with-redefs-fn {#'baseline/write-summary fail-mid-write}
-        (fn [] (is (thrown? RuntimeException (baseline/write-baseline path #{}))
+        (fn [] (is (thrown? RuntimeException (baseline/write-baseline (disk/path path) #{}))
                    "the write failure still propagates")))
       (is (= [] (sibling-temp-files path))
           "after a failed write")))
@@ -566,19 +593,92 @@
   (testing "the temp file sits next to the target, which is what lets the move be atomic"
     (let [path (tmp-baseline-path)
           in-flight (atom nil)]
-      (baseline/write-baseline path test-issues)
+      (baseline/write-baseline (disk/path path) test-issues)
       (with-redefs-fn {#'baseline/write-summary
                        (fn [w summary]
                          (reset! in-flight (sibling-temp-files path))
                          (fail-mid-write w summary))}
-        (fn [] (is (thrown? RuntimeException (baseline/write-baseline path #{}))
+        (fn [] (is (thrown? RuntimeException (baseline/write-baseline (disk/path path) #{}))
                    "the write failure still propagates")))
       (is (= 1 (count @in-flight))
           "a temp file exists beside the target while the write is in flight"))))
 
+(deftest write-baseline-keeps-write-failure-when-temp-file-stays-test
+  (let [path (tmp-baseline-path)
+        temp-path (str path ".7.tmp")
+        _ (Files/createDirectories (disk/path temp-path "held") (make-array FileAttribute 0))
+        err (StringWriter.)
+        thrown (binding [*err* err]
+                 (with-redefs [fs/nano-time (constantly 7)]
+                   (try
+                     (baseline/write-baseline (disk/path path) test-issues)
+                     nil
+                     (catch IOException e
+                       e))))]
+    (is (some? thrown)
+        "write into folder throws")
+    (is (not (instance? DirectoryNotEmptyException thrown))
+        "failed delete of temp file does not replace write failure")
+    (is (str/includes? (str err) (str "WARN: could not delete " temp-path ": DirectoryNotEmptyException\n"))
+        "failed delete is warned about on stderr")))
+
+(deftest write-baseline-throws-when-parent-is-file-test
+  (let [path (tmp-baseline-path)]
+    (spit path "")
+    (is (thrown? FileSystemException (baseline/write-baseline (disk/path path "baseline.edn") test-issues))
+        "parent that is a file cannot hold baseline")))
+
+(deftest read-baseline-names-file-as-typed
+  (let [path (tmp-baseline-path)
+        baseline {:path (disk/path path)
+                  :text "./ci//baseline.edn"}
+        error-of (fn [content]
+                   (spit path content)
+                   (:error (baseline/read-baseline baseline)))]
+    (is (str/starts-with? (error-of "[1 2 3]") "Malformed baseline file: ./ci//baseline.edn ")
+        "malformed file named as typed")
+    (is (str/starts-with? (error-of "{:version 999}") "Baseline version mismatch in ./ci//baseline.edn: ")
+        "version mismatch named as typed")
+    (is (str/starts-with? (error-of "{:version") "Failed to parse baseline file: ./ci//baseline.edn\n")
+        "parse error named as typed")
+    (is (str/starts-with? (:error (baseline/read-baseline {:path nil
+                                                           :text ""}))
+                          "Baseline file not found: \n")
+        "path that names no file is not found")))
+
+(deftest read-baseline-of-unreadable-file-names-typed-path-and-asks-for-read-access
+  (let [path (tmp-baseline-path)]
+    (spit path "{:version 4 :issues []}")
+    (disk/with-locked-file
+      (disk/path path)
+      (fn []
+        (is (= {:error (str "Cannot read baseline file ./ci//baseline.edn: AccessDeniedException"
+                            "\nGive the tool read access to the file, then run it again.")}
+               (baseline/read-baseline {:path (disk/path path)
+                                        :text "./ci//baseline.edn"}))
+            "typed text and exception class, not path in message")))))
+
+(deftest find-added-identities-throws-on-nil-path
+  (is (thrown? NullPointerException (baseline/find-added-identities {:path nil
+                                                                     :text ""}
+                                                                    #{}))))
+
+(deftest collect-identities-throws-on-nil-source-dir
+  (is (thrown? NullPointerException (baseline/collect-identities [{:source-dir nil
+                                                                   :group-results [{:deprecated-effects []}]}]))))
+
+(deftest write-baseline-writes-lone-surrogate-as-question-mark
+  (let [path (tmp-baseline-path)]
+    (baseline/write-baseline (disk/path path) #{{:rule :commented-out-code
+                                                 :kind 'x
+                                                 :file "a.cljs"
+                                                 :form "x\uD83D"}})
+    (is (str/includes? (slurp path) ":form \"x?\"}]}\n")
+        "lone surrogate written as ?, as clojure.java.io/writer writes it")))
+
 (deftest read-baseline-test
   (testing "missing file"
-    (let [{:keys [error]} (baseline/read-baseline "/nonexistent/baseline.edn")]
+    (let [{:keys [error]} (baseline/read-baseline (disk/typed-path "/nonexistent/baseline.edn"))]
       (is (some? error))
       (is (re-find #"--baseline-write" error)
           "hints to run --baseline-write")))
@@ -587,20 +687,20 @@
     (let [path (tmp-baseline-path)]
       (spit path (pr-str {:version 999
                           :issues []}))
-      (let [{:keys [error]} (baseline/read-baseline path)]
+      (let [{:keys [error]} (baseline/read-baseline (disk/typed-path path))]
         (is (some? error))
         (is (re-find #"version" error)))))
 
   (testing "malformed data"
     (let [path (tmp-baseline-path)]
       (spit path "[1 2 3]")
-      (let [{:keys [error]} (baseline/read-baseline path)]
+      (let [{:keys [error]} (baseline/read-baseline (disk/typed-path path))]
         (is (some? error)))))
 
   (testing "unparseable EDN"
     (let [path (tmp-baseline-path)]
       (spit path "{:version 1 :issues [unclosed")
-      (let [{:keys [error]} (baseline/read-baseline path)]
+      (let [{:keys [error]} (baseline/read-baseline (disk/typed-path path))]
         (is (some? error)
             "returns error instead of throwing")))))
 
@@ -641,26 +741,26 @@
 (deftest find-added-identities-test
   (let [path (tmp-baseline-path)]
     (is (= {:added #{}}
-           (baseline/find-added-identities path #{id-a}))
+           (baseline/find-added-identities (disk/typed-path path) #{id-a}))
         "nothing to compare before first write")
-    (baseline/write-baseline path #{id-a id-b})
+    (baseline/write-baseline (disk/path path) #{id-a id-b})
     (is (= {:added #{}}
-           (baseline/find-added-identities path #{id-a id-b}))
+           (baseline/find-added-identities (disk/typed-path path) #{id-a id-b}))
         "same findings add nothing")
     (is (= {:added #{}}
-           (baseline/find-added-identities path #{id-a}))
+           (baseline/find-added-identities (disk/typed-path path) #{id-a}))
         "fixed findings add nothing")
     (is (= {:added #{id-c}}
-           (baseline/find-added-identities path #{id-a id-c}))
+           (baseline/find-added-identities (disk/typed-path path) #{id-a id-c}))
         "finding missing from baseline is added")
     (spit path (pr-str {:version 999
                         :issues []}))
     (is (re-find #"version"
-                 (:error (baseline/find-added-identities path #{id-a})))
+                 (:error (baseline/find-added-identities (disk/typed-path path) #{id-a})))
         "unreadable baseline reports its error")))
 
 (deftest collect-identities-test
-  (let [run-results [{:source-dir "src"
+  (let [run-results [{:source-dir (disk/path "src")
                       :group-results [{:unused-subs [{:kw :app/a
                                                       :type :sub
                                                       :file "a.cljs"
@@ -679,7 +779,7 @@
            ids))))
 
 (deftest collect-identities-when-empty-test
-  (let [run-results [{:source-dir "src"
+  (let [run-results [{:source-dir (disk/path "src")
                       :group-results [{:unused-subs []
                                        :phantom-events []}
                                       {:unused-styles []}]}]]
@@ -689,18 +789,19 @@
   (testing "malformed config surfaces a stderr warning and returns {}"
     (let [path (temp-dir/file-path "config.edn")]
       (spit path "{:unclosed")
-      (with-redefs [baseline/default-config-path path]
-        (let [err (java.io.StringWriter.)]
-          (binding [*err* err]
-            (is (= {} (baseline/read-config))))
-          (is (re-find #"could not parse" (str err))
-              "warning surfaces on stderr")))))
+      (let [err (java.io.StringWriter.)]
+        (binding [*err* err]
+          (is (= {} (baseline/read-config (disk/path path)))))
+        (is (str/includes? (str err) (str "could not parse " path ": "))
+            "warning names config file on stderr"))))
 
   (testing "valid config parses through"
     (let [path (temp-dir/file-path "config.edn")]
       (spit path "{:foo 1}")
-      (with-redefs [baseline/default-config-path path]
-        (is (= {:foo 1} (baseline/read-config)))))))
+      (is (= {:foo 1} (baseline/read-config (disk/path path))))))
+
+  (testing "missing config gives empty map"
+    (is (= {} (baseline/read-config (disk/path (temp-dir/file-path "config.edn")))))))
 
 (def ^:private defaults
   {:baseline-path nil
@@ -729,15 +830,24 @@
       "cli path overrides config path"))
 
 (deftest resolve-baseline-path-test
-  (is (= "/projects/myapp/.cljs-patrol/baseline.edn"
-         (baseline/resolve-baseline-path nil ["/projects/myapp"]))
+  (is (= (disk/typed-path "/projects/myapp/.cljs-patrol/baseline.edn")
+         (baseline/resolve-baseline-path nil [(disk/path "/projects/myapp")]))
       "defaults to source-dir/.cljs-patrol/baseline.edn")
-  (is (= "custom/baseline.edn"
-         (baseline/resolve-baseline-path "custom/baseline.edn" ["/projects/myapp"]))
-      "explicit path overrides default")
-  (is (= "src/myapp/.cljs-patrol/baseline.edn"
-         (baseline/resolve-baseline-path nil ["src/myapp"]))
-      "works with relative source dirs"))
+  (is (= {:path (disk/path "./custom/baseline.edn")
+          :text "./custom//baseline.edn"}
+         (baseline/resolve-baseline-path "./custom//baseline.edn" [(disk/path "/projects/myapp")]))
+      "explicit path overrides default and keeps typed text")
+  (is (= [{:path nil
+           :text ""}
+          {:path nil
+           :text "a\u0000b"}]
+         (map #(baseline/resolve-baseline-path % [(disk/path "/projects/myapp")]) ["" "a\u0000b"]))
+      "explicit path that names no file has no path")
+  (is (= (disk/typed-path "src/myapp/.cljs-patrol/baseline.edn")
+         (baseline/resolve-baseline-path nil [(disk/path "src/myapp") (disk/path "other")]))
+      "works with relative source dirs, beside first one")
+  (is (thrown? IllegalArgumentException (baseline/resolve-baseline-path nil [(disk/path "")]))
+      "empty source dir names no folder to put baseline in"))
 
 (def ^:private every-group
   [re-frame/group spade/group reagent/group typography/group a11y/group docstrings/group])

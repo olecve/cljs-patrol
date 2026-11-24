@@ -2,11 +2,12 @@
   (:require
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.groups.re-frame :as re-frame]
    [clojure.test :refer [deftest is]]))
 
 (def ^:private findings
-  (delay (-> (core/run "test-projects/reg-fx-app/src/webapp" [re-frame/group])
+  (delay (-> (core/run (disk/typed-path "test-projects/reg-fx-app/src/webapp") [re-frame/group])
              :group-results
              first
              :reg-fx-public-fn)))

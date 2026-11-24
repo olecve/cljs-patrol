@@ -7,7 +7,8 @@
   (:require
    [clojure.string :as str])
   (:import
-   [java.io File IOException]
+   [java.io BufferedWriter File IOException OutputStreamWriter Writer]
+   [java.nio.charset StandardCharsets]
    [java.nio.file
     AtomicMoveNotSupportedException
     CopyOption
@@ -21,9 +22,11 @@
     InvalidPathException
     LinkOption
     NoSuchFileException
+    OpenOption
     Path
     StandardCopyOption]
-   [java.nio.file.attribute FileAttribute]))
+   [java.nio.file.attribute FileAttribute]
+   [java.text Normalizer Normalizer$Form]))
 
 (def ^:private no-link-options (make-array LinkOption 0))
 
@@ -46,6 +49,18 @@
   ^Path [^FileSystem file-system ^String first-part & more]
   (checked (.getPath file-system first-part (into-array String more))))
 
+(defn parse-path
+  "Make a `Path` on `file-system` from the string `text`, or give nil when `text` names no file.
+
+  The empty string names no file, as in `java.io`, though NIO reads it as the working directory.
+  A string that the file system does not accept, such as one with a NUL character, names no file too."
+  ^Path [^FileSystem file-system ^String text]
+  (when-not (= "" text)
+    (try
+      (path file-system text)
+      (catch InvalidPathException _
+        nil))))
+
 (defn resolve-path
   "Give `leaf` under `base`, as `Path.resolve` does.
 
@@ -53,8 +68,16 @@
   ^Path [^Path base ^String leaf]
   (.resolve (checked base) leaf))
 
+(defn file-system-of ^FileSystem [^Path p]
+  (.getFileSystem (checked p)))
+
 (defn absolute ^Path [^Path p]
   (.toAbsolutePath (checked p)))
+
+(defn absolute-text
+  "Give the absolute path of `text` on `file-system` as text, for output that prints a path."
+  ^String [^FileSystem file-system ^String text]
+  (str (absolute (path file-system text))))
 
 (defn absolute? [^Path p]
   (.isAbsolute (checked p)))
@@ -66,6 +89,22 @@
 
 (defn exists? [^Path p]
   (Files/exists (checked p) no-link-options))
+
+(defn read-text
+  "Read the file `p` as UTF-8, with U+FFFD in place of each byte that is not UTF-8.
+
+  This is how `slurp` and the reader of `z/of-file` read a file. `Files/readString` throws on such a byte instead."
+  ^String [^Path p]
+  (String. (Files/readAllBytes (checked p)) StandardCharsets/UTF_8))
+
+(defn text-writer
+  "Open a buffered UTF-8 writer that creates or replaces the file `p`.
+
+  A character that UTF-8 cannot encode, such as a lone surrogate, is written as `?`, as `clojure.java.io/writer` does.
+  `Files/newBufferedWriter` throws on such a character instead."
+  ^Writer [^Path p]
+  (BufferedWriter. (OutputStreamWriter. (Files/newOutputStream (checked p) (make-array OpenOption 0))
+                                        StandardCharsets/UTF_8)))
 
 (defn create-dirs!
   "Create the folder `dir` and each missing folder above it.
@@ -149,12 +188,27 @@
          (or (contains? skipped-dirs name)
              (and (str/starts-with? name ".") (not (#{"." ".."} name)))))))
 
+(defn- as-listed-by-java-io
+  "Give the entry `p` with its name in NFC when that name names the same file, as `File.listFiles` gives it on macOS.
+
+  `Files/newDirectoryStream` gives the name as the disk keeps it, such as NFD. On a file system that does not normalize
+  names, the NFC name names no file or another file, and `p` stays as it is, as `File.listFiles` gives it there."
+  ^Path [^Path p]
+  (let [name (str (.getFileName p))
+        nfc (Normalizer/normalize name Normalizer$Form/NFC)
+        nfc-path (.resolveSibling p nfc)]
+    (if (and (not= name nfc)
+             (Files/exists nfc-path no-link-options)
+             (Files/isSameFile nfc-path p))
+      nfc-path
+      p)))
+
 (defn- directory-entries [^Path dir]
   (with-open [stream (Files/newDirectoryStream dir)]
-    (vec stream)))
+    (mapv as-listed-by-java-io stream)))
 
-(defn- failure-reason
-  "The class name of `e`, with its reason when it has one.
+(defn failure-reason
+  "Give the class name of `e`, with its reason when it has one.
 
   The message of a `FileSystemException` holds the path, so its reason comes from `getReason`."
   [^IOException e]
@@ -209,17 +263,8 @@
   [paths]
   (filterv (complement exists?) paths))
 
-(defn- default-path
-  "Make a `Path` from the string `p` on the default file system, or give nil when `p` names no file.
-
-  The empty string names no file, as in `java.io`, though NIO reads it as the working directory.
-  A string that the file system does not accept, such as one with a NUL character, names no file too."
-  ^Path [^String p]
-  (when-not (= "" p)
-    (try
-      (path (FileSystems/getDefault) p)
-      (catch InvalidPathException _
-        nil))))
+(defn- default-path ^Path [^String p]
+  (parse-path (FileSystems/getDefault) p))
 
 (defn- existing-default-path
   "Make a `Path` as [[default-path]] does, and throw `NoSuchFileException` when `p` names no file."

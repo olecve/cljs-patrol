@@ -1,5 +1,6 @@
 (ns cljs-patrol.groups.a11y-test
   (:require
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
    [cljs-patrol.parser :as parser]
@@ -315,7 +316,7 @@
         rule-group (a11y/make-group {:component-aliases {'ui.kit/Input :input}})
         usages (fn [jobs]
                  (binding [*err* (java.io.StringWriter.)]
-                   (vec (:usages (parser/analyze-project (str dir) [rule-group] nil jobs)))))]
+                   (vec (:usages (parser/analyze-project (disk/typed-path dir) [rule-group] nil jobs)))))]
     (try
       (doseq [index (range 64)]
         (spit (io/file dir (str "views" index ".cljs")) (file-source index)))

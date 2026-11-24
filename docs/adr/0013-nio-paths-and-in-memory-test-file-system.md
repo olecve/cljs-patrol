@@ -241,11 +241,13 @@ Each step is one pull request, and each one ships on its own.
    - Risk: reflection. `reflection_test` proves there is none.
    - Risk: Jimfs gets into the uberjar. The `unzip -l` check proves it does not.
    - Risk: Guava conflicts with a test dependency. `clojure -M:test` proves it does not.
-2. **The callers use `Path`.** `core/-main` makes the `Path` values. `baseline` writes with `Files/newBufferedWriter`
-   and reads with `Files/readAllBytes`. `reporters.html` writes with `Files`. `parser` reads bytes as the Decision says.
-   `read-config` takes the config `Path`. Each caller moves to the `Path` functions on purpose, because their results
-   are the results of NIO and not of `java.io`. For each of these rules, a caller keeps the rule of `java.io` in its own
-   code, or drops it on purpose:
+2. **The callers use `Path`.** `core/-main` makes the `Path` values. `baseline` writes with an `OutputStreamWriter` on
+   `Files/newOutputStream` and reads with `Files/readAllBytes`. `reporters.html` writes with `Files`. The writer writes
+   `?` for a character that UTF-8 cannot encode, such as a lone surrogate, as `io/writer` does.
+   `Files/newBufferedWriter` throws `MalformedInputException` on such a character (a probe). `parser` reads bytes as the
+   Decision says. `read-config` takes the config `Path`. Each caller moves to the `Path` functions on purpose, because
+   their results are the results of NIO and not of `java.io`. For each of these rules, a caller keeps the rule of
+   `java.io` in its own code, or drops it on purpose:
    - An empty base: `java.io` joins a leaf under the root, and NIO reads the empty path as the working directory. `path`
      throws on it.
    - An absolute leaf: `java.io` puts it under the base, and `resolve-path` gives the leaf.
@@ -254,6 +256,25 @@ Each step is one pull request, and each one ships on its own.
    - `mkdirs` on an existing file: `java.io` gives `false`, and `create-dirs!` throws.
    - A failed delete in the `finally` of `write-baseline`: `delete-file!` gives `false`, and `delete-if-exists!` throws.
      A throw there hides the first error.
+   - A configured baseline path that names no file, such as the empty string or a string with a NUL character: `java.io`
+     reads it as a missing file, so `--baseline` prints "Baseline file not found". `path` throws on the empty string,
+     and NIO throws `InvalidPathException` on a NUL character. `core` keeps the result of `--baseline`: it prints
+     "Baseline file not found" and exits 1. `core` changes the result of `--baseline-write`: `main` threw an exception,
+     and step 2 prints `Error: baseline path names no file: ""` and exits 1. Both checks run before any file is
+     analyzed.
+
+   Step 2 also changes these results on purpose:
+   - A source file that cannot be read gives a warning with the class of the exception, such as `AccessDeniedException`.
+     `java.io` gave a reason, such as "Permission denied", and NIO gives no reason for this exception.
+   - A baseline file that cannot be read gives "Cannot read baseline file", the typed path and the class of the
+     exception, and asks for read access. `main` called it a parse failure and asked for `--allow-new`.
+
+   Unicode form of discovered names: `Files/newDirectoryStream` gives a file name in the form that the disk keeps, such
+   as NFD, and on macOS `File.listFiles` gives NFC (a probe on JDK 22). Step 1 thus gave NFD text where `java.io` gave
+   NFC. Step 2 gives the NFC name when that name names the same file, so discovery gives the text of `File.listFiles`
+   again. On macOS, an NFC path opens a file that the disk keeps in NFD (a probe on APFS). On a file system that does
+   not normalize names, the NFC name names no file or another file, and the name stays as the disk keeps it, as
+   `File.listFiles` gives it there.
 
    The baseline byte compare on `test-projects/a11y-app`, and the compare of the console, EDN and Markdown output on all
    17 `test-projects/*-app` against `main`, prove the result.

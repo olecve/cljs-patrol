@@ -1,5 +1,6 @@
 (ns cljs-patrol.reporters.edn-test
   (:require
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.fs :as fs]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.reporters.edn :as edn-reporter]
@@ -13,7 +14,7 @@
                         :type :sub})
 
 (deftest print-report-test
-  (let [run-results [{:source-dir "src"
+  (let [run-results [{:source-dir (disk/path "src")
                       :group-results [{:unused-subs [kw-item]
                                        :unused-events []
                                        :phantom-subs []
@@ -23,7 +24,7 @@
                                        :deprecated-effects []
                                        :dynamic-sites []}]}]
         output (with-out-str
-                 (edn-reporter/print-report [re-frame/group] ["src"] run-results))
+                 (edn-reporter/print-report [re-frame/group] [(disk/typed-path "src")] run-results))
         parsed (edn/read-string output)]
 
     (testing "output is valid EDN"
@@ -61,7 +62,7 @@
                 :file "src/b.cljs"
                 :row 2
                 :type :sub}
-        run-results [{:source-dir "src"
+        run-results [{:source-dir (disk/path "src")
                       :group-results [{:unused-subs [item-a]
                                        :unused-events []
                                        :phantom-subs []
@@ -70,7 +71,7 @@
                                        :duplicate-events []
                                        :deprecated-effects []
                                        :dynamic-sites []}]}
-                     {:source-dir "other"
+                     {:source-dir (disk/path "other")
                       :group-results [{:unused-subs [item-b]
                                        :unused-events []
                                        :phantom-subs []
@@ -80,7 +81,7 @@
                                        :deprecated-effects []
                                        :dynamic-sites []}]}]
         output (with-out-str
-                 (edn-reporter/print-report [re-frame/group] ["src" "other"] run-results))
+                 (edn-reporter/print-report [re-frame/group] [(disk/typed-path "src") (disk/typed-path "other")] run-results))
         parsed (edn/read-string output)]
 
     (testing "merges unused-subs from multiple source dirs"
@@ -95,7 +96,7 @@
         fixed-issues #{{:rule :unused-subs
                         :key :app/gone}}
         output (with-out-str
-                 (edn-reporter/print-baseline-report ["src"] new-issues baseline-issues
+                 (edn-reporter/print-baseline-report [(disk/typed-path "src")] new-issues baseline-issues
                                                      fixed-issues 1))
         parsed (edn/read-string output)]
     (is (= 1 (:exit-code parsed)))
@@ -116,7 +117,7 @@
                     :unused-subs :cleanup}
         output (with-out-str
                  (edn-reporter/print-baseline-report
-                  ["src"] new-issues #{} #{} 1
+                  [(disk/typed-path "src")] new-issues #{} #{} 1
                   #{:duplicate-subs} rule->tier))
         parsed (edn/read-string output)]
     (is (= 1 (:blocking-count parsed))
@@ -127,7 +128,7 @@
         "issues are annotated with :tier")))
 
 (deftest print-report-with-fail-on-test
-  (let [run-results [{:source-dir "src"
+  (let [run-results [{:source-dir (disk/path "src")
                       :group-results [{:duplicate-subs [{:kw :app/dup
                                                          :type :sub
                                                          :file "a.cljs"
@@ -145,7 +146,7 @@
                                        :deprecated-effects []
                                        :dynamic-sites []}]}]
         output (with-out-str
-                 (edn-reporter/print-report [re-frame/group] ["src"] run-results
+                 (edn-reporter/print-report [re-frame/group] [(disk/typed-path "src")] run-results
                                             #{:duplicate-subs}))
         parsed (edn/read-string output)]
     (is (= 1 (:blocking-count parsed)))

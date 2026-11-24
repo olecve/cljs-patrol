@@ -2,6 +2,7 @@
   (:require
    [cljs-patrol.fs :as fs]
    [cljs-patrol.temp-dir :as temp-dir]
+   [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]])
   (:import
@@ -113,6 +114,71 @@
     (is (= "/work/src/a.cljs" (str (fs/resolve-path (fs/path jimfs "/work/src") "a.cljs"))))
     (is (= "/abs" (str (fs/resolve-path (fs/path jimfs "/work/src") "/abs")))
         "absolute leaf replaces base, as in NIO")))
+
+(deftest parse-path-test
+  (with-open [jimfs (unix-fs)]
+    (is (= (fs/path jimfs "src/a.cljs") (fs/parse-path jimfs "src//a.cljs/"))
+        "text makes path on given file system")
+    (is (nil? (fs/parse-path jimfs ""))
+        "empty string names no file")
+    (is (nil? (fs/parse-path jimfs "a\u0000b"))
+        "text that file system does not accept names no file")))
+
+(deftest absolute-text-test
+  (with-open [jimfs (unix-fs)]
+    (is (= "/work/src/a.cljs" (fs/absolute-text jimfs "src//a.cljs")))
+    (is (= "/abs/a.cljs" (fs/absolute-text jimfs "/abs/a.cljs")))))
+
+(deftest read-text-reads-bytes-that-are-not-utf-8-as-replacement-character
+  (with-open [jimfs (unix-fs)]
+    (let [p (fs/path jimfs "/work/a.cljs")]
+      (fs/create-dirs! (fs/parent p))
+      (Files/write p (byte-array [0x61 0xC3 0x28 0x62]) (make-array OpenOption 0))
+      (is (= "a\uFFFD(b" (fs/read-text p))))))
+
+(deftest text-writer-writes-lone-surrogate-as-question-mark
+  (with-open [jimfs (unix-fs)]
+    (let [p (fs/path jimfs "/work/a.txt")
+          text "a\u00e9\uD83D"]
+      (fs/create-dirs! (fs/parent p))
+      (write! p "old text that is longer")
+      (with-open [w (fs/text-writer p)]
+        (.write w text))
+      (is (= (seq (let [out (java.io.ByteArrayOutputStream.)]
+                    (with-open [w (io/writer out)]
+                      (.write w text))
+                    (.toByteArray out)))
+             (seq (Files/readAllBytes p)))
+          "same bytes as clojure.java.io/writer, and old content replaced"))))
+
+(defn- nfd ^String [^String text]
+  (java.text.Normalizer/normalize text java.text.Normalizer$Form/NFD))
+
+(deftest source-paths-name-files-as-java-io-listed-them
+  (let [root (temp-dir/create-dir "fs-nfd-")
+        dir (fs/path (FileSystems/getDefault) root (nfd "\u00e9"))]
+    (try
+      (write! (fs/resolve-path dir (nfd "\u00e9.cljs")) "(ns e)")
+      (let [found (fs/source-paths (fs/path (FileSystems/getDefault) root) extensions)]
+        (is (= (java-io-source-files root extensions) (mapv str found))
+            "same text as File.listFiles, which is NFC on macOS")
+        (is (= ["(ns e)"] (map fs/read-text found))
+            "path names real file"))
+      (finally
+        (temp-dir/delete-dir! root)))))
+
+(deftest source-paths-keep-name-that-nfc-does-not-reach
+  (with-open [jimfs (unix-fs)]
+    (let [nfd-file (fs/path jimfs "/work/src" (nfd "\u00e9.cljs"))
+          nfc-file (fs/path jimfs "/work/src/\u00e9.cljs")
+          only-nfd (fs/path jimfs "/work/other" (nfd "\u00e9.cljs"))]
+      (write! nfd-file "(ns nfd)")
+      (write! nfc-file "(ns nfc)")
+      (write! only-nfd "(ns only)")
+      (is (= #{"(ns nfd)" "(ns nfc)"} (set (map fs/read-text (fs/source-paths (fs/path jimfs "/work/src") extensions))))
+          "NFD and NFC names of two files stay two files")
+      (is (= [only-nfd] (fs/source-paths (fs/path jimfs "/work/other") extensions))
+          "NFD name stays when NFC name names no file"))))
 
 (deftest path-throws-on-empty-path
   (with-open [jimfs (unix-fs)]
@@ -298,8 +364,11 @@
                          ["move-over! source" #(fs/move-over! % q)]
                          ["move-over! target" #(fs/move-over! p %)]
                          ["delete-recursively!" fs/delete-recursively!]
+                         ["read-text" fs/read-text]
+                         ["text-writer" fs/text-writer]
                          ["source-paths" #(fs/source-paths % extensions)]
-                         ["missing-paths" #(fs/missing-paths [%])]]]
+                         ["missing-paths" #(fs/missing-paths [%])]
+                         ["file-system-of" fs/file-system-of]]]
         (is (thrown? NullPointerException (f nil))
             (str label " on nil"))
         (is (thrown? IllegalArgumentException (f (empty-path jimfs)))

@@ -1,6 +1,7 @@
 (ns cljs-patrol.integration.analysis-test
   (:require
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
    [cljs-patrol.groups.spade :as spade]
@@ -10,7 +11,7 @@
 (def ^:private all-groups [re-frame/group spade/group reagent/group])
 
 (deftest full-analysis-test
-  (let [{:keys [group-results]} (core/run fixture-dir all-groups)
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) all-groups)
         re-frame-result (nth group-results 0)
         spade-result (nth group-results 1)
         reagent-result (nth group-results 2)]
@@ -161,7 +162,7 @@
 
 (deftest reagent-only-test
   (testing "reagent group works when run without spade group"
-    (let [{:keys [group-results]} (core/run fixture-dir [reagent/group])
+    (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) [reagent/group])
           reagent-result (nth group-results 0)]
       (is (= 3 (count (:defclass-as-sole-attr reagent-result))))
       (is (= #{:webapp.styles/sole-attr-style
@@ -170,7 +171,7 @@
              (->> reagent-result :defclass-as-sole-attr (map :kw) set))))))
 
 (deftest issues-carry-tier-test
-  (let [{:keys [group-results]} (core/run fixture-dir all-groups)
+  (let [{:keys [group-results]} (core/run (disk/typed-path fixture-dir) all-groups)
         re-frame-result (nth group-results 0)
         spade-result (nth group-results 1)
         reagent-result (nth group-results 2)]

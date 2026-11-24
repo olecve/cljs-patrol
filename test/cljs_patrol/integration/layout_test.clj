@@ -1,6 +1,7 @@
 (ns cljs-patrol.integration.layout-test
   (:require
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.groups.layout :as layout]
    [clojure.test :refer [deftest is testing]]))
 
@@ -8,7 +9,7 @@
 
 (defn- result
   ([] (result layout/group))
-  ([rule-group] (-> (core/run fixture-dir [rule-group]) :group-results first)))
+  ([rule-group] (-> (core/run (disk/typed-path fixture-dir) [rule-group]) :group-results first)))
 
 (defn- rows [findings]
   (sort (map :row findings)))
