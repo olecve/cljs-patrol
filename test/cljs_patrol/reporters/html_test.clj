@@ -2,12 +2,10 @@
   (:require
    [cljs-patrol.disk :as disk]
    [cljs-patrol.groups.re-frame :as re-frame]
+   [cljs-patrol.memory-fs :as memory-fs]
    [cljs-patrol.reporters.html :as html]
-   [cljs-patrol.temp-dir :as temp-dir]
    [clojure.string :as str]
-   [clojure.test :refer [deftest is testing use-fixtures]]))
-
-(use-fixtures :each temp-dir/delete-created)
+   [clojure.test :refer [deftest is testing]]))
 
 (def ^:private key->title #'html/key->title)
 (def ^:private infer-columns #'html/infer-columns)
@@ -89,162 +87,171 @@
             "description carries docs link")))))
 
 (deftest write-report-test
-  (let [run-results [{:source-dir (disk/path "src")
-                      :group-results [{:unused-subs [kw-item]
-                                       :unused-events []
-                                       :phantom-subs []
-                                       :phantom-events []
-                                       :duplicate-subs []
-                                       :duplicate-events []
-                                       :deprecated-effects []
-                                       :dynamic-sites []}]}]
-        tmp-file (temp-dir/file-path "report.html")]
-    (html/write-report [re-frame/group] run-results (disk/path tmp-file))
-    (let [content (slurp tmp-file)]
-      (testing "produces HTML document"
-        (is (str/includes? content "<!DOCTYPE html>")))
-      (testing "includes group name"
-        (is (str/includes? content "Re-frame")))
-      (testing "includes keyword from result"
-        (is (str/includes? content ":my-ns/sub"))))))
+  (with-open [file-system (memory-fs/unix)]
+    (let [run-results [{:source-dir (disk/path "src")
+                        :group-results [{:unused-subs [kw-item]
+                                         :unused-events []
+                                         :phantom-subs []
+                                         :phantom-events []
+                                         :duplicate-subs []
+                                         :duplicate-events []
+                                         :deprecated-effects []
+                                         :dynamic-sites []}]}]
+          tmp-file (memory-fs/path file-system "/work/report.html")]
+      (html/write-report [re-frame/group] run-results tmp-file)
+      (let [content (memory-fs/read-text tmp-file)]
+        (testing "produces HTML document"
+          (is (str/includes? content "<!DOCTYPE html>")))
+        (testing "includes group name"
+          (is (str/includes? content "Re-frame")))
+        (testing "includes keyword from result"
+          (is (str/includes? content ":my-ns/sub")))))))
 
 (deftest reports-print-source-folders-as-typed
-  (let [run-results [{:source-dir (disk/path "src")
-                      :source-text "src/"
-                      :group-results [{:unused-subs []}]}
-                     {:source-dir (disk/path "test")
-                      :source-text "test//"
-                      :group-results [{:unused-subs []}]}]
-        report-file (temp-dir/file-path "report.html")
-        baseline-file (temp-dir/file-path "baseline-report.html")]
-    (html/write-report [re-frame/group] run-results (disk/path report-file))
-    (html/write-baseline-report [re-frame/group] run-results (disk/path baseline-file) #{} 0)
-    (is (str/includes? (slurp report-file) " | Analyzed: src/, test//")
-        "report header keeps typed text")
-    (is (str/includes? (slurp baseline-file) " | Analyzed: src/, test//")
-        "baseline report header keeps typed text")))
+  (with-open [file-system (memory-fs/unix)]
+    (let [run-results [{:source-dir (disk/path "src")
+                        :source-text "src/"
+                        :group-results [{:unused-subs []}]}
+                       {:source-dir (disk/path "test")
+                        :source-text "test//"
+                        :group-results [{:unused-subs []}]}]
+          report-file (memory-fs/path file-system "/work/report.html")
+          baseline-file (memory-fs/path file-system "/work/baseline-report.html")]
+      (html/write-report [re-frame/group] run-results report-file)
+      (html/write-baseline-report [re-frame/group] run-results baseline-file #{} 0)
+      (is (str/includes? (memory-fs/read-text report-file) " | Analyzed: src/, test//")
+          "report header keeps typed text")
+      (is (str/includes? (memory-fs/read-text baseline-file) " | Analyzed: src/, test//")
+          "baseline report header keeps typed text"))))
 
 (deftest write-report-opens-only-sections-with-findings
-  (let [run-results [{:source-dir (disk/path "src")
-                      :source-text "src"
-                      :group-results [{:unused-subs [kw-item]
-                                       :unused-events []}]}]
-        report-file (temp-dir/file-path "report.html")]
-    (html/write-report [re-frame/group] run-results (disk/path report-file))
-    (is (= ["<details open>" "<details>"] (re-seq #"<details[^>]*>" (slurp report-file)))
-        "section with findings open, empty one closed")))
+  (with-open [file-system (memory-fs/unix)]
+    (let [run-results [{:source-dir (disk/path "src")
+                        :source-text "src"
+                        :group-results [{:unused-subs [kw-item]
+                                         :unused-events []}]}]
+          report-file (memory-fs/path file-system "/work/report.html")]
+      (html/write-report [re-frame/group] run-results report-file)
+      (is (= ["<details open>" "<details>"] (re-seq #"<details[^>]*>" (memory-fs/read-text report-file)))
+          "section with findings open, empty one closed"))))
 
 (deftest write-baseline-report-reads-identities-against-first-source-dir
-  (let [item {:type :deprecated
-              :effect ":dispatch-n"
-              :form ":dispatch-n"
-              :file "src/events.cljs"
-              :row 1}
-        run-results [{:source-dir (disk/path "src")
-                      :source-text "src"
-                      :group-results [{:deprecated-effects [item]}]}
-                     {:source-dir (disk/path "test")
-                      :source-text "test"
-                      :group-results [{:deprecated-effects []}]}]
-        report-file (temp-dir/file-path "report.html")]
-    (html/write-baseline-report [re-frame/group] run-results (disk/path report-file)
-                                #{{:rule :deprecated-effects
-                                   :effect ":dispatch-n"
-                                   :file "events.cljs"
-                                   :line 1}}
-                                0)
-    (is (str/includes? (slurp report-file) "class=\"new-issue\"")
-        "finding relative to first source dir matches new identity")))
+  (with-open [file-system (memory-fs/unix)]
+    (let [item {:type :deprecated
+                :effect ":dispatch-n"
+                :form ":dispatch-n"
+                :file "src/events.cljs"
+                :row 1}
+          run-results [{:source-dir (disk/path "src")
+                        :source-text "src"
+                        :group-results [{:deprecated-effects [item]}]}
+                       {:source-dir (disk/path "test")
+                        :source-text "test"
+                        :group-results [{:deprecated-effects []}]}]
+          report-file (memory-fs/path file-system "/work/report.html")]
+      (html/write-baseline-report [re-frame/group] run-results report-file
+                                  #{{:rule :deprecated-effects
+                                     :effect ":dispatch-n"
+                                     :file "events.cljs"
+                                     :line 1}}
+                                  0)
+      (is (str/includes? (memory-fs/read-text report-file) "class=\"new-issue\"")
+          "finding relative to first source dir matches new identity"))))
 
 (deftest write-baseline-report-of-empty-run-results
-  (let [report-file (temp-dir/file-path "report.html")]
-    (html/write-baseline-report [re-frame/group] [] (disk/path report-file) #{} 0)
-    (is (str/includes? (slurp report-file) "cljs-patrol report (baseline)")
-        "empty run results give report")))
+  (with-open [file-system (memory-fs/unix)]
+    (let [report-file (memory-fs/path file-system "/work/report.html")]
+      (html/write-baseline-report [re-frame/group] [] report-file #{} 0)
+      (is (str/includes? (memory-fs/read-text report-file) "cljs-patrol report (baseline)")
+          "empty run results give report"))))
 
 (deftest write-report-writes-lone-surrogate-as-question-mark
-  (let [run-results [{:source-dir (disk/path "src")
-                      :source-text "src"
-                      :group-results [{:dynamic-sites [{:form "(rf/dispatch [x\uD83D])"
-                                                        :file "src/a.cljs"
-                                                        :row 1}]}]}]
-        report-file (temp-dir/file-path "report.html")]
-    (html/write-report [re-frame/group] run-results (disk/path report-file))
-    (is (str/includes? (slurp report-file) "(rf/dispatch [x?])")
-        "lone surrogate written as ?, as clojure.java.io/writer writes it")
-    (is (str/includes? (slurp report-file) (str "vscode://file/" (.toAbsolutePath (disk/path "src/a.cljs")) ":1"))
-        "link holds absolute path on file system of report")))
+  (with-open [file-system (memory-fs/unix)]
+    (let [run-results [{:source-dir (disk/path "src")
+                        :source-text "src"
+                        :group-results [{:dynamic-sites [{:form "(rf/dispatch [x\uD83D])"
+                                                          :file "src/a.cljs"
+                                                          :row 1}]}]}]
+          report-file (memory-fs/path file-system "/work/report.html")]
+      (html/write-report [re-frame/group] run-results report-file)
+      (is (str/includes? (memory-fs/read-text report-file) "(rf/dispatch [x?])")
+          "lone surrogate written as ?, as clojure.java.io/writer writes it")
+      (is (str/includes? (memory-fs/read-text report-file) "vscode://file//work/src/a.cljs:1")
+          "link holds absolute path on file system of report"))))
 
 (deftest write-baseline-report-test
-  (let [new-item {:kw :app/new-sub
-                  :type :sub
-                  :file "src/new.cljs"
-                  :row 1}
-        old-item {:kw :app/old-sub
-                  :type :sub
-                  :file "src/old.cljs"
-                  :row 2}
-        run-results [{:source-dir (disk/path "src")
-                      :group-results [{:unused-subs [new-item old-item]
-                                       :unused-events []
-                                       :phantom-subs []
-                                       :phantom-events []
-                                       :duplicate-subs []
-                                       :duplicate-events []
-                                       :deprecated-effects []
-                                       :dynamic-sites []}]}]
-        new-ids #{{:rule :unused-subs
-                   :key :app/new-sub}}
-        tmp-file (temp-dir/file-path "report.html")]
-    (html/write-baseline-report [re-frame/group] run-results (disk/path tmp-file) new-ids 3)
-    (let [content (slurp tmp-file)]
-      (is (str/includes? content "new-issue")
-          "marks new issues with CSS class")
-      (is (str/includes? content "baseline-issue")
-          "marks baseline issues with CSS class")
-      (is (str/includes? content "baseline")
-          "includes baseline in title")
-      (is (str/includes? content "3 baseline issues no longer present")
-          "shows fixed count banner"))))
+  (with-open [file-system (memory-fs/unix)]
+    (let [new-item {:kw :app/new-sub
+                    :type :sub
+                    :file "src/new.cljs"
+                    :row 1}
+          old-item {:kw :app/old-sub
+                    :type :sub
+                    :file "src/old.cljs"
+                    :row 2}
+          run-results [{:source-dir (disk/path "src")
+                        :group-results [{:unused-subs [new-item old-item]
+                                         :unused-events []
+                                         :phantom-subs []
+                                         :phantom-events []
+                                         :duplicate-subs []
+                                         :duplicate-events []
+                                         :deprecated-effects []
+                                         :dynamic-sites []}]}]
+          new-ids #{{:rule :unused-subs
+                     :key :app/new-sub}}
+          tmp-file (memory-fs/path file-system "/work/report.html")]
+      (html/write-baseline-report [re-frame/group] run-results tmp-file new-ids 3)
+      (let [content (memory-fs/read-text tmp-file)]
+        (is (str/includes? content "new-issue")
+            "marks new issues with CSS class")
+        (is (str/includes? content "baseline-issue")
+            "marks baseline issues with CSS class")
+        (is (str/includes? content "baseline")
+            "includes baseline in title")
+        (is (str/includes? content "3 baseline issues no longer present")
+            "shows fixed count banner")))))
 
 (deftest write-report-marks-blocking-test
-  (let [run-results [{:source-dir (disk/path "src")
-                      :group-results [{:unused-subs [kw-item]
-                                       :unused-events []
-                                       :phantom-subs []
-                                       :phantom-events []
-                                       :duplicate-subs []
-                                       :duplicate-events []
-                                       :deprecated-effects []
-                                       :dynamic-sites []}]}]
-        tmp-file (temp-dir/file-path "report.html")]
-    (html/write-report [re-frame/group] run-results (disk/path tmp-file)
-                       #{:unused-subs})
-    (let [content (slurp tmp-file)]
-      (is (str/includes? content "BLOCKING")
-          "blocking badge present"))))
+  (with-open [file-system (memory-fs/unix)]
+    (let [run-results [{:source-dir (disk/path "src")
+                        :group-results [{:unused-subs [kw-item]
+                                         :unused-events []
+                                         :phantom-subs []
+                                         :phantom-events []
+                                         :duplicate-subs []
+                                         :duplicate-events []
+                                         :deprecated-effects []
+                                         :dynamic-sites []}]}]
+          tmp-file (memory-fs/path file-system "/work/report.html")]
+      (html/write-report [re-frame/group] run-results tmp-file
+                         #{:unused-subs})
+      (let [content (memory-fs/read-text tmp-file)]
+        (is (str/includes? content "BLOCKING")
+            "blocking badge present")))))
 
 (deftest write-baseline-report-with-fail-on-test
-  (let [run-results [{:source-dir (disk/path "src")
-                      :group-results [{:unused-subs [{:kw :app/new-sub
-                                                      :type :sub
-                                                      :file "src/new.cljs"
-                                                      :row 1}]
-                                       :unused-events []
-                                       :phantom-subs []
-                                       :phantom-events []
-                                       :duplicate-subs []
-                                       :duplicate-events []
-                                       :deprecated-effects []
-                                       :dynamic-sites []}]}]
-        new-ids #{{:rule :unused-subs
-                   :key :app/new-sub}}
-        tmp-file (temp-dir/file-path "report.html")]
-    (html/write-baseline-report [re-frame/group] run-results (disk/path tmp-file)
-                                new-ids 0
-                                #{:unused-subs} 1 0)
-    (let [content (slurp tmp-file)]
-      (is (str/includes? content "BLOCKING")
-          "blocking badge applied in baseline HTML")
-      (is (str/includes? content "1 blocking, 0 warnings")
-          "tier summary panel shown"))))
+  (with-open [file-system (memory-fs/unix)]
+    (let [run-results [{:source-dir (disk/path "src")
+                        :group-results [{:unused-subs [{:kw :app/new-sub
+                                                        :type :sub
+                                                        :file "src/new.cljs"
+                                                        :row 1}]
+                                         :unused-events []
+                                         :phantom-subs []
+                                         :phantom-events []
+                                         :duplicate-subs []
+                                         :duplicate-events []
+                                         :deprecated-effects []
+                                         :dynamic-sites []}]}]
+          new-ids #{{:rule :unused-subs
+                     :key :app/new-sub}}
+          tmp-file (memory-fs/path file-system "/work/report.html")]
+      (html/write-baseline-report [re-frame/group] run-results tmp-file
+                                  new-ids 0
+                                  #{:unused-subs} 1 0)
+      (let [content (memory-fs/read-text tmp-file)]
+        (is (str/includes? content "BLOCKING")
+            "blocking badge applied in baseline HTML")
+        (is (str/includes? content "1 blocking, 0 warnings")
+            "tier summary panel shown")))))

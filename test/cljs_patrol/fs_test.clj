@@ -1,6 +1,7 @@
 (ns cljs-patrol.fs-test
   (:require
    [cljs-patrol.fs :as fs]
+   [cljs-patrol.memory-fs :as memory-fs]
    [cljs-patrol.temp-dir :as temp-dir]
    [clojure.java.io :as io]
    [clojure.string :as str]
@@ -23,20 +24,13 @@
 
 (def ^:private extensions #{".cljs" ".cljc" ".clj"})
 
-(defn- scratch-tree []
-  (let [root (temp-dir/create-dir "fs-test-")]
-    (doseq [dir ["src" "target/classes/app" "node_modules/thing" ".hidden" "out"]]
-      (fs/mkdirs (fs/join-path root dir)))
+(deftest source-paths-skip-build-output-dot-folders-and-other-extensions
+  (with-open [file-system (memory-fs/unix)]
     (doseq [leaf ["src/kept.clj" "src/kept.cljs" "src/skipped.txt"
                   "target/classes/app/stale.clj" "node_modules/thing/vendored.cljs"
                   ".hidden/secret.clj" "out/compiled.cljs"]]
-      (spit (fs/join-path root leaf) "(ns x)"))
-    root))
-
-(deftest list-source-files-test
-  (let [root (scratch-tree)
-        found (set (map #(last (str/split % #"[/\\\\]")) (fs/list-source-files root extensions)))]
-    (try
+      (memory-fs/write! (fs/path file-system "/work" leaf) "(ns x)"))
+    (let [found (set (map #(str (.getFileName ^Path %)) (fs/source-paths (fs/path file-system "/work") extensions)))]
       (testing "every source file outside build output is returned"
         (is (= #{"kept.clj" "kept.cljs"} found)))
 
@@ -50,22 +44,21 @@
         (is (not (contains? found "secret.clj"))))
 
       (testing "an extension nothing asked for is left alone"
-        (is (not (contains? found "skipped.txt"))))
-      (finally (fs/delete-tree! root)))))
+        (is (not (contains? found "skipped.txt")))))))
 
-(deftest missing-dirs-test
-  (let [root (scratch-tree)]
-    (try
+(deftest missing-paths-reports-every-missing-path-in-order
+  (with-open [file-system (memory-fs/unix)]
+    (let [root (fs/path file-system "/work")
+          src (fs/path file-system "/work/src")
+          nope (fs/path file-system "nope")
+          also-nope (fs/path file-system "/also-nope")]
+      (fs/create-dirs! src)
       (testing "a path that exists is not reported"
-        (is (empty? (fs/missing-dirs [root (fs/join-path root "src")]))))
+        (is (empty? (fs/missing-paths [root src]))))
 
       (testing "every path that does not exist is reported, not just the first"
-        (is (= ["nope" "also-nope"]
-               (fs/missing-dirs ["nope" root "also-nope"]))))
-
-      (testing "the empty path is reported, not read as the working directory"
-        (is (= [""] (fs/missing-dirs [""]))))
-      (finally (fs/delete-tree! root)))))
+        (is (= [nope also-nope]
+               (fs/missing-paths [nope root also-nope])))))))
 
 (defn- java-io-source-files
   "Discovery as it was with `java.io.File`, to compare the text and the order of the paths it gives."
@@ -93,30 +86,21 @@
       (is (= expected (fs/list-source-files root extensions))
           (str root " gives the same paths in the same order")))))
 
-(defn- unix-fs ^FileSystem [] (Jimfs/newFileSystem (Configuration/unix)))
-
-(defn- write! [^Path p text]
-  (fs/create-dirs! (fs/parent p))
-  (Files/writeString p text (make-array OpenOption 0)))
-
-(defn- read-text [^Path p]
-  (Files/readString p))
-
 (deftest path-test
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (let [p (fs/path jimfs "/work" "src" "a.cljs")]
       (is (= "/work/src/a.cljs" (str p)))
       (is (identical? jimfs (.getFileSystem p))
           "path belongs to given file system"))))
 
 (deftest resolve-path-test
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (is (= "/work/src/a.cljs" (str (fs/resolve-path (fs/path jimfs "/work/src") "a.cljs"))))
     (is (= "/abs" (str (fs/resolve-path (fs/path jimfs "/work/src") "/abs")))
         "absolute leaf replaces base, as in NIO")))
 
 (deftest parse-path-test
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (is (= (fs/path jimfs "src/a.cljs") (fs/parse-path jimfs "src//a.cljs/"))
         "text makes path on given file system")
     (is (nil? (fs/parse-path jimfs ""))
@@ -125,23 +109,23 @@
         "text that file system does not accept names no file")))
 
 (deftest absolute-text-test
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (is (= "/work/src/a.cljs" (fs/absolute-text jimfs "src//a.cljs")))
     (is (= "/abs/a.cljs" (fs/absolute-text jimfs "/abs/a.cljs")))))
 
 (deftest read-text-reads-bytes-that-are-not-utf-8-as-replacement-character
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (let [p (fs/path jimfs "/work/a.cljs")]
       (fs/create-dirs! (fs/parent p))
       (Files/write p (byte-array [0x61 0xC3 0x28 0x62]) (make-array OpenOption 0))
       (is (= "a\uFFFD(b" (fs/read-text p))))))
 
 (deftest text-writer-writes-lone-surrogate-as-question-mark
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (let [p (fs/path jimfs "/work/a.txt")
           text "a\u00e9\uD83D"]
       (fs/create-dirs! (fs/parent p))
-      (write! p "old text that is longer")
+      (memory-fs/write! p "old text that is longer")
       (with-open [w (fs/text-writer p)]
         (.write w text))
       (is (= (seq (let [out (java.io.ByteArrayOutputStream.)]
@@ -158,7 +142,7 @@
   (let [root (temp-dir/create-dir "fs-nfd-")
         dir (fs/path (FileSystems/getDefault) root (nfd "\u00e9"))]
     (try
-      (write! (fs/resolve-path dir (nfd "\u00e9.cljs")) "(ns e)")
+      (memory-fs/write! (fs/resolve-path dir (nfd "\u00e9.cljs")) "(ns e)")
       (let [found (fs/source-paths (fs/path (FileSystems/getDefault) root) extensions)]
         (is (= (java-io-source-files root extensions) (mapv str found))
             "same text as File.listFiles, which is NFC on macOS")
@@ -168,20 +152,20 @@
         (temp-dir/delete-dir! root)))))
 
 (deftest source-paths-keep-name-that-nfc-does-not-reach
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (let [nfd-file (fs/path jimfs "/work/src" (nfd "\u00e9.cljs"))
           nfc-file (fs/path jimfs "/work/src/\u00e9.cljs")
           only-nfd (fs/path jimfs "/work/other" (nfd "\u00e9.cljs"))]
-      (write! nfd-file "(ns nfd)")
-      (write! nfc-file "(ns nfc)")
-      (write! only-nfd "(ns only)")
+      (memory-fs/write! nfd-file "(ns nfd)")
+      (memory-fs/write! nfc-file "(ns nfc)")
+      (memory-fs/write! only-nfd "(ns only)")
       (is (= #{"(ns nfd)" "(ns nfc)"} (set (map fs/read-text (fs/source-paths (fs/path jimfs "/work/src") extensions))))
           "NFD and NFC names of two files stay two files")
       (is (= [only-nfd] (fs/source-paths (fs/path jimfs "/work/other") extensions))
           "NFD name stays when NFC name names no file"))))
 
 (deftest path-throws-on-empty-path
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (is (thrown? IllegalArgumentException (fs/path jimfs "")))
     (is (thrown? IllegalArgumentException (fs/path jimfs "" "")))))
 
@@ -189,38 +173,38 @@
   (.getPath file-system "" (make-array String 0)))
 
 (deftest absolute-test
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (is (= "/work/src" (str (fs/absolute (fs/path jimfs "src"))))
         "relative path resolves against working directory of its file system")
     (is (fs/absolute? (fs/path jimfs "/work/src")))
     (is (not (fs/absolute? (fs/path jimfs "src"))))))
 
 (deftest parent-test
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (is (= "/work/src" (str (fs/parent (fs/path jimfs "/work/src/a.cljs")))))
     (is (nil? (fs/parent (fs/path jimfs "a.cljs"))))))
 
 (deftest exists-test
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (let [p (fs/path jimfs "/work/a.cljs")]
       (is (not (fs/exists? p)))
-      (write! p "(ns a)")
+      (memory-fs/write! p "(ns a)")
       (is (fs/exists? p)))))
 
 (deftest create-dirs-test
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (let [dir (fs/path jimfs "/work/a/b/c")]
       (fs/create-dirs! dir)
       (is (Files/isDirectory dir (make-array java.nio.file.LinkOption 0)))
       (fs/create-dirs! dir)
       (is (fs/exists? dir)
           "second call on existing folder does nothing")
-      (write! (fs/path jimfs "/work/file") "x")
+      (memory-fs/write! (fs/path jimfs "/work/file") "x")
       (is (thrown? FileSystemException (fs/create-dirs! (fs/path jimfs "/work/file/sub")))
           "folder under regular file throws with reason"))))
 
 (deftest relative-path-test
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (let [base (fs/path jimfs "/work/src")]
       (is (= "x/a.cljs" (str (fs/relative-path base (fs/path jimfs "/work/src/x/a.cljs")))))
       (is (= "x/a.cljs" (str (fs/relative-path base (fs/path jimfs "src/x/a.cljs"))))
@@ -231,40 +215,40 @@
           "target that is base throws, since result is empty path"))))
 
 (deftest delete-if-exists-test
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (let [p (fs/path jimfs "/work/a.cljs")]
-      (write! p "x")
+      (memory-fs/write! p "x")
       (is (true? (fs/delete-if-exists! p)))
       (is (not (fs/exists? p)))
       (is (false? (fs/delete-if-exists! p))
           "missing file gives false"))))
 
 (deftest move-over-test
-  (with-open [jimfs (unix-fs)
-              other (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)
+              other (memory-fs/unix)]
     (let [source (fs/path jimfs "/work/new")
           target (fs/path jimfs "/work/old")]
-      (write! source "new")
-      (write! target "old")
+      (memory-fs/write! source "new")
+      (memory-fs/write! target "old")
       (fs/move-over! source target)
-      (is (= "new" (read-text target)))
+      (is (= "new" (memory-fs/read-text target)))
       (is (not (fs/exists? source))))
     (testing "file system that cannot move atomically gets plain replace"
       (let [source (fs/path jimfs "/work/a")
             target (fs/path other "/work/b")]
-        (write! source "a")
-        (write! target "b")
+        (memory-fs/write! source "a")
+        (memory-fs/write! target "b")
         (fs/move-over! source target)
-        (is (= "a" (read-text target)))
+        (is (= "a" (memory-fs/read-text target)))
         (is (not (fs/exists? source)))))))
 
 (deftest delete-recursively-test
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (let [root (fs/path jimfs "/work/tree")
           outside (fs/path jimfs "/work/outside/kept.txt")]
-      (write! (fs/path jimfs "/work/tree/a/b.txt") "x")
-      (write! (fs/path jimfs "/work/tree/c.txt") "x")
-      (write! outside "x")
+      (memory-fs/write! (fs/path jimfs "/work/tree/a/b.txt") "x")
+      (memory-fs/write! (fs/path jimfs "/work/tree/c.txt") "x")
+      (memory-fs/write! outside "x")
       (Files/createSymbolicLink (fs/path jimfs "/work/tree/link")
                                 (fs/parent outside)
                                 (make-array FileAttribute 0))
@@ -276,10 +260,10 @@
           "missing path does nothing"))))
 
 (deftest source-paths-test
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (doseq [leaf ["src/a.cljs" "src/x/b.cljc" "src/c.txt" "src/target/d.cljs" "src/.cache/e.cljs"
                   "elsewhere/f.cljs"]]
-      (write! (fs/path jimfs "/work" leaf) "(ns x)"))
+      (memory-fs/write! (fs/path jimfs "/work" leaf) "(ns x)"))
     (Files/createSymbolicLink (fs/path jimfs "/work/src/linked")
                               (fs/path jimfs "/work/elsewhere")
                               (make-array FileAttribute 0))
@@ -288,12 +272,6 @@
       (is (= #{"/work/src/a.cljs" "/work/src/x/b.cljc" "/work/src/linked/f.cljs"}
              (set (map str found)))
           "walk follows link to folder and skips build and dot folders"))))
-
-(deftest missing-paths-test
-  (with-open [jimfs (unix-fs)]
-    (let [here (fs/path jimfs "/work")
-          gone (fs/path jimfs "/gone")]
-      (is (= [gone] (fs/missing-paths [here gone]))))))
 
 (defn- set-permissions! [^Path p ^String text]
   (Files/setPosixFilePermissions p (PosixFilePermissions/fromString text)))
@@ -308,8 +286,8 @@
   (let [root (temp-dir/create-dir "fs-locked-")
         locked (fs/path (FileSystems/getDefault) root "src" "locked")]
     (try
-      (write! (fs/path (FileSystems/getDefault) root "src" "ok.cljs") "(ns ok)")
-      (write! (fs/resolve-path locked "hidden.cljs") "(ns hidden)")
+      (memory-fs/write! (fs/path (FileSystems/getDefault) root "src" "ok.cljs") "(ns ok)")
+      (memory-fs/write! (fs/resolve-path locked "hidden.cljs") "(ns hidden)")
       (set-permissions! locked "---------")
       (if (Files/isReadable locked)
         (println (str "SKIP " test-name ": the JVM can read a folder with no permissions, so this test does not run"))
@@ -345,10 +323,10 @@
                    (fs/delete-recursively! (fs/path (FileSystems/getDefault) root)))))))
 
 (deftest path-functions-throw-on-nil-and-empty-path
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (let [p (fs/path jimfs "/work/a")
           q (fs/path jimfs "/work/b")]
-      (write! p "x")
+      (memory-fs/write! p "x")
       (is (thrown? NullPointerException (fs/path nil "src")))
       (is (thrown? NullPointerException (fs/path jimfs nil)))
       (is (thrown? NullPointerException (fs/resolve-path p nil)))
@@ -387,9 +365,9 @@
 (defn- warnings-for-failing-folder
   "Run `source-paths` on a Jimfs tree where reading `/work/src/bad` throws `exception`, and give the paths and stderr."
   [exception]
-  (with-open [jimfs (unix-fs)]
-    (write! (fs/path jimfs "/work/src/ok.cljs") "(ns ok)")
-    (write! (fs/path jimfs "/work/src/bad/hidden.cljs") "(ns hidden)")
+  (with-open [jimfs (memory-fs/unix)]
+    (memory-fs/write! (fs/path jimfs "/work/src/ok.cljs") "(ns ok)")
+    (memory-fs/write! (fs/path jimfs "/work/src/bad/hidden.cljs") "(ns hidden)")
     (let [err (StringWriter.)
           original (var-get #'fs/directory-entries)
           found (with-redefs [fs/directory-entries (fn [dir]
@@ -422,7 +400,7 @@
         "one warning with cause and its message")))
 
 (deftest delete-recursively-throws-when-folder-listing-failed
-  (with-open [jimfs (unix-fs)]
+  (with-open [jimfs (memory-fs/unix)]
     (let [folder (fs/path jimfs "/work/tree")
           ^FileVisitor visitor (#'fs/deleting-visitor)]
       (fs/create-dirs! folder)
@@ -466,6 +444,10 @@
           (is (false? (fs/mkdirs dir))
               "second mkdirs on existing folder gives false")
           (is (fs/file-exists? dir))))
+
+      (testing "missing-dirs"
+        (is (= ["nope" "also-nope"] (fs/missing-dirs ["nope" root "also-nope"]))
+            "folder that exists is not reported, and each missing one is"))
 
       (testing "relativize"
         (is (= "x/a.cljs" (fs/relativize "src" "src/x/a.cljs")))

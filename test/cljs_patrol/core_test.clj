@@ -3,21 +3,21 @@
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.core :as core]
    [cljs-patrol.disk :as disk]
-   [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.spade :as spade]
+   [cljs-patrol.memory-fs :as memory-fs]
    [cljs-patrol.temp-dir :as temp-dir]
    [clojure.edn :as edn]
    [clojure.string :as str]
-   [clojure.test :refer [deftest is testing use-fixtures]]
+   [clojure.test :refer [deftest is testing]]
    [clojure.tools.cli :as cli])
   (:import
    (java.nio.file
-    FileSystems)))
-
-(use-fixtures :each temp-dir/delete-created)
+    Files
+    FileSystems
+    LinkOption)))
 
 (def ^:private filter-groups #'core/filter-groups)
 (def ^:private filter-run-results #'core/filter-run-results)
@@ -73,19 +73,19 @@
 (deftest baseline-write-integration-test
   (let [enabled-groups [re-frame/group spade/group]
         run-results [(core/run (disk/typed-path fixture-dir) enabled-groups)]
-        identities (baseline/collect-identities run-results)
-        dir (temp-dir/file-path "missing")
-        path (fs/join-path dir "baseline.edn")]
-    (baseline/write-baseline (disk/path path) identities)
-    (is (fs/file-exists? path)
-        "baseline file created")
-    (let [{:keys [ok]} (baseline/read-baseline (disk/typed-path path))]
-      (is (set? ok)
-          "reads back as a set")
-      (is (pos? (count ok))
-          "contains issues from fixture project")
-      (is (every? :rule ok)
-          "every identity has a :rule"))))
+        identities (baseline/collect-identities run-results)]
+    (with-open [file-system (memory-fs/unix)]
+      (let [path (memory-fs/path file-system "/work/missing/baseline.edn")]
+        (baseline/write-baseline path identities)
+        (is (Files/isRegularFile path (make-array LinkOption 0))
+            "baseline file created")
+        (let [{:keys [ok]} (baseline/read-baseline (memory-fs/typed path))]
+          (is (set? ok)
+              "reads back as a set")
+          (is (pos? (count ok))
+              "contains issues from fixture project")
+          (is (every? :rule ok)
+              "every identity has a :rule"))))))
 
 (defn- capture-exit
   "Call `f`, and give {:exit the code it exits with, :out what it prints, :err what it prints on stderr}.
@@ -161,15 +161,13 @@
                                                {})))
 
 (deftest configured-baseline-path-prints-as-typed
-  (let [dir (temp-dir/create-dir "cljs-patrol")
-        src (str dir "/src")
-        sources [(disk/typed-path src)]
-        configured (str dir "/./ci//baseline.edn")
-        one-finding (fn []
-                      (spit (str src "/a.cljs") "(ns a)\n(defn v [] [:img {:src \"x\"}])\n")
-                      [(core/run (first sources) [a11y/group])])]
-    (try
-      (.mkdirs (java.io.File. src))
+  (with-open [file-system (memory-fs/unix)]
+    (let [src (memory-fs/path file-system "/work/src")
+          sources [(memory-fs/typed src)]
+          configured "/work/./ci//baseline.edn"
+          one-finding (fn []
+                        (memory-fs/write! (.resolve src "a.cljs") "(ns a)\n(defn v [] [:img {:src \"x\"}])\n")
+                        [(core/run (first sources) [a11y/group])])]
       (is (= {:err ""
               :exit 1
               :out (str "Error: Baseline file not found: " configured "\nRun --baseline-write first to create one.\n")}
@@ -180,14 +178,12 @@
               :out (str "Wrote baseline with 1 entries to " configured "\n")}
              (write-baseline-at (one-finding) sources configured false))
           "write names file as typed")
-      (spit (str src "/b.cljs") "(ns b)\n(defn w [] [:img {:src \"y\"}])\n")
+      (memory-fs/write! (.resolve src "b.cljs") "(ns b)\n(defn w [] [:img {:src \"y\"}])\n")
       (is (str/includes? (:out (write-baseline-at [(core/run (first sources) [a11y/group])] sources configured false))
                          (str "\nRefusing to write " configured ": the findings above are not in it."))
           "refusal names file as typed")
       (is (= 1 (:exit (compare-baseline-at [(core/run (first sources) [a11y/group])] sources configured)))
-          "compare reads file at typed path")
-      (finally
-        (temp-dir/delete-dir! dir)))))
+          "compare reads file at typed path"))))
 
 (defn- start-baseline-file
   "Run the start-up baseline check of `-main` with `opts`, and give {:err :exit :out} with :file, the baseline file it gives."
@@ -269,25 +265,27 @@
   (let [kept {:rule :unused-subs
               :key :app/kept}
         added {:rule :unused-subs
-               :key :app/added}
-        path (temp-dir/file-path "baseline.edn")]
-    (is (nil? (core/baseline-write-refusal (disk/typed-path path) #{kept} false))
-        "first write goes through")
-    (baseline/write-baseline (disk/path path) #{kept})
-    (is (nil? (core/baseline-write-refusal (disk/typed-path path) #{kept} false))
-        "unchanged findings go through")
-    (is (nil? (core/baseline-write-refusal (disk/typed-path path) #{} false))
-        "fixed findings go through")
-    (is (= {:added #{added}}
-           (core/baseline-write-refusal (disk/typed-path path) #{kept added} false))
-        "added finding is refused")
-    (is (nil? (core/baseline-write-refusal (disk/typed-path path) #{kept added} true))
-        "allow-new writes added finding")
-    (spit path "[1 2 3]")
-    (is (some? (:error (core/baseline-write-refusal (disk/typed-path path) #{kept} false)))
-        "unreadable baseline is refused")
-    (is (nil? (core/baseline-write-refusal (disk/typed-path path) #{kept} true))
-        "allow-new overwrites unreadable baseline")))
+               :key :app/added}]
+    (with-open [file-system (memory-fs/unix)]
+      (let [path (memory-fs/path file-system "/work/baseline.edn")
+            baseline-file (memory-fs/typed path)]
+        (is (nil? (core/baseline-write-refusal baseline-file #{kept} false))
+            "first write goes through")
+        (baseline/write-baseline path #{kept})
+        (is (nil? (core/baseline-write-refusal baseline-file #{kept} false))
+            "unchanged findings go through")
+        (is (nil? (core/baseline-write-refusal baseline-file #{} false))
+            "fixed findings go through")
+        (is (= {:added #{added}}
+               (core/baseline-write-refusal baseline-file #{kept added} false))
+            "added finding is refused")
+        (is (nil? (core/baseline-write-refusal baseline-file #{kept added} true))
+            "allow-new writes added finding")
+        (memory-fs/write! path "[1 2 3]")
+        (is (some? (:error (core/baseline-write-refusal baseline-file #{kept} false)))
+            "unreadable baseline is refused")
+        (is (nil? (core/baseline-write-refusal baseline-file #{kept} true))
+            "allow-new overwrites unreadable baseline")))))
 
 (deftest baseline-compare-integration-test
   (let [enabled-groups [re-frame/group spade/group]

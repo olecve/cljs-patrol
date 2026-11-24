@@ -5,17 +5,20 @@
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.hiccup :as hiccup]
+   [cljs-patrol.memory-fs :as memory-fs]
    [cljs-patrol.parser :as parser]
    [cljs-patrol.temp-dir :as temp-dir]
    [cljs-patrol.temp-project :as temp-project]
-   [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
    [rewrite-clj.zip :as z])
   (:import
    (java.nio.file
     Files
-    OpenOption)))
+    OpenOption
+    Path)
+   (java.nio.file.attribute
+    FileAttribute)))
 
 (deftest resolve-kw-test
   (testing "plain keyword"
@@ -151,16 +154,15 @@
                         nil)})))
 
 (deftest analyze-file-gives-each-file-own-memo
-  (let [dir (io/file (temp-dir/create-dir "cljs-patrol"))
-        styles (io/file dir "styles.cljs")
-        views (io/file dir "views.cljs")
-        seen (atom [])
-        probe (memo-probe seen)]
-    (try
-      (spit styles "(defclass c [] [:a])")
-      (spit views "(defn v [] [:a])")
-      (parser/analyze-file (disk/path styles) [probe])
-      (parser/analyze-file (disk/path views) [probe])
+  (with-open [file-system (memory-fs/unix)]
+    (let [styles (memory-fs/path file-system "/work/styles.cljs")
+          views (memory-fs/path file-system "/work/views.cljs")
+          seen (atom [])
+          probe (memo-probe seen)]
+      (memory-fs/write! styles "(defclass c [] [:a])")
+      (memory-fs/write! views "(defn v [] [:a])")
+      (parser/analyze-file styles [probe])
+      (parser/analyze-file views [probe])
       (let [[in-styles in-views] (map (fn [file] (filter #(= (str file) (:file %)) @seen)) [styles views])]
         (is (= [[true true] [false false]] (map #(map :style-decl? %) [in-styles in-views]))
             "each file answered from own forms")
@@ -171,9 +173,7 @@
         (is (not (identical? (:memo (first in-styles)) (:memo (first in-views))))
             "fresh memo per file")
         (is (nil? parser/*file-memo*)
-            "memo unbound after file"))
-      (finally
-        (temp-dir/delete-dir! dir)))))
+            "memo unbound after file")))))
 
 (defn- file-probe
   "Build a group whose file handler calls `on-file` with the file's path and declares the file."
@@ -216,6 +216,7 @@
                       nil)})))
 
 (deftest analyze-file-reads-bytes-that-are-not-utf-8-as-z-of-file-does
+  ;; z/of-file opens a file with clojure.java.io, which reads only the real disk.
   (let [dir (temp-dir/create-dir "cljs-patrol")
         file (disk/path dir "a.cljs")
         texts (atom [])]
@@ -232,20 +233,19 @@
         (temp-dir/delete-dir! dir)))))
 
 (deftest analyze-project-prints-source-folder-as-typed
-  (let [dir (temp-dir/create-dir "cljs-patrol")
-        errors (java.io.StringWriter.)]
-    (try
-      (spit (str dir "/a.cljs") "(ns a)")
+  (with-open [file-system (memory-fs/unix)]
+    (let [dir (memory-fs/path file-system "/work/src")
+          errors (java.io.StringWriter.)]
+      (memory-fs/write! (.resolve dir "a.cljs") "(ns a)")
       (binding [*err* errors]
-        (parser/analyze-project {:path (disk/path dir)
-                                 :text (str dir "//")}
+        (parser/analyze-project {:path dir
+                                 :text "/work/src//"}
                                 [(file-probe (constantly nil))]))
-      (is (= (str "Analyzing 1 files under " dir "// ...\n") (str errors))
-          "typed text kept, though Path drops trailing slashes")
-      (finally
-        (temp-dir/delete-dir! dir)))))
+      (is (= "Analyzing 1 files under /work/src// ...\n" (str errors))
+          "typed text kept, though Path drops trailing slashes"))))
 
 (deftest analyze-file-warns-with-reason-for-file-it-cannot-read
+  ;; Jimfs does not check file permissions, so this test locks a file on the real disk.
   (let [dir (temp-dir/create-dir "cljs-patrol")
         file (disk/path dir "a.cljs")
         errors (java.io.StringWriter.)]
@@ -263,15 +263,14 @@
         (temp-dir/delete-dir! dir)))))
 
 (defn- with-project
-  "Write `sources`, a map of file name to source, to a temporary directory and call `f` with it and its files in walk order."
+  "Write `sources`, a map of file name to source, to an in-memory folder and call `f` with it and its files in walk order."
   [sources f]
-  (let [dir (io/file (temp-dir/create-dir "cljs-patrol"))]
-    (try
+  (with-open [file-system (memory-fs/unix)]
+    (let [dir (memory-fs/path file-system "/work/src")]
+      (Files/createDirectories dir (make-array FileAttribute 0))
       (doseq [[file-name source] sources]
-        (spit (io/file dir file-name) source))
-      (f (str dir) (fs/list-source-files (str dir) #{".cljs"}))
-      (finally
-        (temp-dir/delete-dir! dir)))))
+        (memory-fs/write! (.resolve dir ^String file-name) source))
+      (f dir (mapv str (fs/source-paths dir #{".cljs"}))))))
 
 (def ^:private four-files
   {"a.cljs" "(ns a)"
@@ -281,7 +280,7 @@
 
 (defn- analyze-quietly [dir groups jobs]
   (binding [*err* (java.io.StringWriter.)]
-    (doall (:declarations (parser/analyze-project (disk/typed-path dir) groups nil jobs)))))
+    (doall (:declarations (parser/analyze-project (memory-fs/typed dir) groups nil jobs)))))
 
 (deftest parallel-results-keep-file-order
   (with-project four-files
@@ -321,10 +320,11 @@
                  "b.cljs" "(ns b"
                  "c.cljs" "(ns c"}
     (fn [dir files]
-      (spit (first files) (str (apply str (repeat 20000 "(defn f [x] [:div {:a 1} x])\n")) "(ns a"))
+      (memory-fs/write! (memory-fs/path (.getFileSystem ^Path dir) (first files))
+                        (str (apply str (repeat 20000 "(defn f [x] [:div {:a 1} x])\n")) "(ns a"))
       (let [errors (java.io.StringWriter.)]
         (binding [*err* errors]
-          (doall (:declarations (parser/analyze-project (disk/typed-path dir) [(file-probe (constantly nil))] nil 3))))
+          (doall (:declarations (parser/analyze-project (memory-fs/typed dir) [(file-probe (constantly nil))] nil 3))))
         (is (= files
                (->> (str/split-lines (str errors))
                     (keep #(second (re-matches #"WARN: could not parse (\S+) :.*" %)))))
