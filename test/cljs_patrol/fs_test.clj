@@ -1,5 +1,6 @@
 (ns cljs-patrol.fs-test
   (:require
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.fs :as fs]
    [cljs-patrol.memory-fs :as memory-fs]
    [cljs-patrol.temp-dir :as temp-dir]
@@ -23,28 +24,6 @@
    [java.nio.file.attribute FileAttribute PosixFilePermissions]))
 
 (def ^:private extensions #{".cljs" ".cljc" ".clj"})
-
-(deftest source-paths-skip-build-output-dot-folders-and-other-extensions
-  (with-open [file-system (memory-fs/unix)]
-    (doseq [leaf ["src/kept.clj" "src/kept.cljs" "src/skipped.txt"
-                  "target/classes/app/stale.clj" "node_modules/thing/vendored.cljs"
-                  ".hidden/secret.clj" "out/compiled.cljs"]]
-      (memory-fs/write! (fs/path file-system "/work" leaf) "(ns x)"))
-    (let [found (set (map #(str (.getFileName ^Path %)) (fs/source-paths (fs/path file-system "/work") extensions)))]
-      (testing "every source file outside build output is returned"
-        (is (= #{"kept.clj" "kept.cljs"} found)))
-
-      (testing "a build directory is not descended into"
-        (is (not (contains? found "stale.clj"))
-            "target/classes holds a copy of src that goes on being reported after the original is fixed")
-        (is (not (contains? found "vendored.cljs")))
-        (is (not (contains? found "compiled.cljs"))))
-
-      (testing "a dot-directory is skipped whatever it is called"
-        (is (not (contains? found "secret.clj"))))
-
-      (testing "an extension nothing asked for is left alone"
-        (is (not (contains? found "skipped.txt")))))))
 
 (deftest missing-paths-reports-every-missing-path-in-order
   (with-open [file-system (memory-fs/unix)]
@@ -142,7 +121,7 @@
   (let [root (temp-dir/create-dir "fs-nfd-")
         dir (fs/path (FileSystems/getDefault) root (nfd "\u00e9"))]
     (try
-      (memory-fs/write! (fs/resolve-path dir (nfd "\u00e9.cljs")) "(ns e)")
+      (disk/write! (fs/resolve-path dir (nfd "\u00e9.cljs")) "(ns e)")
       (let [found (fs/source-paths (fs/path (FileSystems/getDefault) root) extensions)]
         (is (= (java-io-source-files root extensions) (mapv str found))
             "same text as File.listFiles, which is NFC on macOS")
@@ -261,17 +240,17 @@
 
 (deftest source-paths-test
   (with-open [jimfs (memory-fs/unix)]
-    (doseq [leaf ["src/a.cljs" "src/x/b.cljc" "src/c.txt" "src/target/d.cljs" "src/.cache/e.cljs"
-                  "elsewhere/f.cljs"]]
+    (doseq [leaf ["src/a.cljs" "src/x/b.cljc" "src/c.txt" "src/target/classes/d.cljs" "src/node_modules/thing/e.cljs"
+                  "src/out/f.cljs" "src/.cache/g.cljs" "elsewhere/h.cljs"]]
       (memory-fs/write! (fs/path jimfs "/work" leaf) "(ns x)"))
     (Files/createSymbolicLink (fs/path jimfs "/work/src/linked")
                               (fs/path jimfs "/work/elsewhere")
                               (make-array FileAttribute 0))
     (let [found (fs/source-paths (fs/path jimfs "/work/src") extensions)]
       (is (every? #(instance? Path %) found))
-      (is (= #{"/work/src/a.cljs" "/work/src/x/b.cljc" "/work/src/linked/f.cljs"}
+      (is (= #{"/work/src/a.cljs" "/work/src/x/b.cljc" "/work/src/linked/h.cljs"}
              (set (map str found)))
-          "walk follows link to folder and skips build and dot folders"))))
+          "walk follows link to folder, skips target, node_modules, out and dot folders, and leaves other extensions"))))
 
 (defn- set-permissions! [^Path p ^String text]
   (Files/setPosixFilePermissions p (PosixFilePermissions/fromString text)))
@@ -286,8 +265,8 @@
   (let [root (temp-dir/create-dir "fs-locked-")
         locked (fs/path (FileSystems/getDefault) root "src" "locked")]
     (try
-      (memory-fs/write! (fs/path (FileSystems/getDefault) root "src" "ok.cljs") "(ns ok)")
-      (memory-fs/write! (fs/resolve-path locked "hidden.cljs") "(ns hidden)")
+      (disk/write! (fs/path (FileSystems/getDefault) root "src" "ok.cljs") "(ns ok)")
+      (disk/write! (fs/resolve-path locked "hidden.cljs") "(ns hidden)")
       (set-permissions! locked "---------")
       (if (Files/isReadable locked)
         (println (str "SKIP " test-name ": the JVM can read a folder with no permissions, so this test does not run"))

@@ -481,22 +481,16 @@
      :ns "app.ui"
      :var "a-style"}})
 
-(defn- with-baseline-path
-  "Call `f` with the `Path` of a baseline file that does not exist yet, on a new in-memory file system."
-  [f]
-  (with-open [file-system (memory-fs/unix)]
-    (f (memory-fs/path file-system "/work/baseline.edn"))))
-
 (deftest write-baseline-test
   (testing "round-trip preserves issue set"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (baseline/write-baseline path test-issues)
         (let [{:keys [ok]} (baseline/read-baseline (memory-fs/typed path))]
           (is (= test-issues ok))))))
 
   (testing "deterministic sort order"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (baseline/write-baseline path test-issues)
         (let [data (edn/read-string (memory-fs/read-text path))
@@ -504,7 +498,7 @@
           (is (= rules (sort-by str rules)))))))
 
   (testing "includes metadata"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (baseline/write-baseline path test-issues)
         (let [data (edn/read-string (memory-fs/read-text path))]
@@ -515,7 +509,7 @@
               "tool-version is never blank")))))
 
   (testing "tool-version falls back to \"dev\" when no VERSION resource is present"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (baseline/write-baseline path test-issues)
         (let [data (edn/read-string (memory-fs/read-text path))]
@@ -523,14 +517,14 @@
               "test classpath has no cljs_patrol/VERSION resource")))))
 
   (testing "creates parent directories"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [^Path file]
         (let [path (.resolveSibling file "missing/sub/baseline.edn")]
           (baseline/write-baseline path test-issues)
           (is (Files/isRegularFile path (make-array LinkOption 0)))))))
 
   (testing "summary counts totals and rule->total (sorted, deterministic)"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (baseline/write-baseline path test-issues)
         (let [data (edn/read-string (memory-fs/read-text path))
@@ -552,7 +546,7 @@
               "tier->total keys follow canonical order: bugs, deprecations, cleanup")))))
 
   (testing "summary tier->total is populated when rule->tier is provided"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (let [rule->tier {:unused-subs :cleanup
                           :unused-styles :cleanup}]
@@ -565,7 +559,7 @@
                    (:tier->total summary))))))))
 
   (testing "summary handles empty issue set"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (baseline/write-baseline path #{})
         (let [data (edn/read-string (memory-fs/read-text path))
@@ -591,7 +585,7 @@
 
 (deftest write-baseline-atomicity-test
   (testing "a failure partway through leaves the existing baseline intact"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (baseline/write-baseline path test-issues)
         (let [original (memory-fs/read-text path)]
@@ -605,7 +599,7 @@
               "surviving baseline is still readable")))))
 
   (testing "no temp file is left behind"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (baseline/write-baseline path test-issues)
         (is (= [] (sibling-temp-files path))
@@ -617,7 +611,7 @@
             "after a failed write"))))
 
   (testing "the temp file sits next to the target, which is what lets the move be atomic"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (let [in-flight (atom nil)]
           (baseline/write-baseline path test-issues)
@@ -631,7 +625,7 @@
               "a temp file exists beside the target while the write is in flight"))))))
 
 (deftest write-baseline-keeps-write-failure-when-temp-file-stays-test
-  (with-baseline-path
+  (memory-fs/with-baseline-path
     (fn [^Path path]
       (let [temp-path (.resolveSibling path (str (.getFileName path) ".7.tmp"))
             _ (Files/createDirectories (.resolve temp-path "held") (make-array FileAttribute 0))
@@ -651,14 +645,14 @@
             "failed delete is warned about on stderr")))))
 
 (deftest write-baseline-throws-when-parent-is-file-test
-  (with-baseline-path
+  (memory-fs/with-baseline-path
     (fn [^Path path]
       (memory-fs/write! path "")
       (is (thrown? FileSystemException (baseline/write-baseline (.resolve path "baseline.edn") test-issues))
           "parent that is a file cannot hold baseline"))))
 
 (deftest read-baseline-names-file-as-typed
-  (with-baseline-path
+  (memory-fs/with-baseline-path
     (fn [path]
       (let [baseline {:path path
                       :text "./ci//baseline.edn"}
@@ -698,7 +692,7 @@
                                                                    :group-results [{:deprecated-effects []}]}]))))
 
 (deftest write-baseline-writes-lone-surrogate-as-question-mark
-  (with-baseline-path
+  (memory-fs/with-baseline-path
     (fn [path]
       (baseline/write-baseline path #{{:rule :commented-out-code
                                        :kind 'x
@@ -709,7 +703,7 @@
 
 (deftest read-baseline-test
   (testing "missing file"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (let [{:keys [error]} (baseline/read-baseline (memory-fs/typed path))]
           (is (some? error))
@@ -717,7 +711,7 @@
               "hints to run --baseline-write")))))
 
   (testing "version mismatch"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (memory-fs/write! path (pr-str {:version 999
                                         :issues []}))
@@ -726,14 +720,14 @@
           (is (re-find #"version" error))))))
 
   (testing "malformed data"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (memory-fs/write! path "[1 2 3]")
         (let [{:keys [error]} (baseline/read-baseline (memory-fs/typed path))]
           (is (some? error))))))
 
   (testing "unparseable EDN"
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (memory-fs/write! path "{:version 1 :issues [unclosed")
         (let [{:keys [error]} (baseline/read-baseline (memory-fs/typed path))]
@@ -775,7 +769,7 @@
       "both empty"))
 
 (deftest find-added-identities-test
-  (with-baseline-path
+  (memory-fs/with-baseline-path
     (fn [path]
       (let [baseline (memory-fs/typed path)]
         (is (= {:added #{}}

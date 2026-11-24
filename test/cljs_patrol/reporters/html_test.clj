@@ -88,7 +88,7 @@
 
 (deftest write-report-test
   (with-open [file-system (memory-fs/unix)]
-    (let [run-results [{:source-dir (disk/path "src")
+    (let [run-results [{:source-dir (memory-fs/path file-system "src")
                         :group-results [{:unused-subs [kw-item]
                                          :unused-events []
                                          :phantom-subs []
@@ -109,10 +109,10 @@
 
 (deftest reports-print-source-folders-as-typed
   (with-open [file-system (memory-fs/unix)]
-    (let [run-results [{:source-dir (disk/path "src")
+    (let [run-results [{:source-dir (memory-fs/path file-system "src")
                         :source-text "src/"
                         :group-results [{:unused-subs []}]}
-                       {:source-dir (disk/path "test")
+                       {:source-dir (memory-fs/path file-system "test")
                         :source-text "test//"
                         :group-results [{:unused-subs []}]}]
           report-file (memory-fs/path file-system "/work/report.html")
@@ -126,7 +126,7 @@
 
 (deftest write-report-opens-only-sections-with-findings
   (with-open [file-system (memory-fs/unix)]
-    (let [run-results [{:source-dir (disk/path "src")
+    (let [run-results [{:source-dir (memory-fs/path file-system "src")
                         :source-text "src"
                         :group-results [{:unused-subs [kw-item]
                                          :unused-events []}]}]
@@ -142,10 +142,10 @@
                 :form ":dispatch-n"
                 :file "src/events.cljs"
                 :row 1}
-          run-results [{:source-dir (disk/path "src")
+          run-results [{:source-dir (memory-fs/path file-system "src")
                         :source-text "src"
                         :group-results [{:deprecated-effects [item]}]}
-                       {:source-dir (disk/path "test")
+                       {:source-dir (memory-fs/path file-system "test")
                         :source-text "test"
                         :group-results [{:deprecated-effects []}]}]
           report-file (memory-fs/path file-system "/work/report.html")]
@@ -167,7 +167,7 @@
 
 (deftest write-report-writes-lone-surrogate-as-question-mark
   (with-open [file-system (memory-fs/unix)]
-    (let [run-results [{:source-dir (disk/path "src")
+    (let [run-results [{:source-dir (memory-fs/path file-system "src")
                         :source-text "src"
                         :group-results [{:dynamic-sites [{:form "(rf/dispatch [x\uD83D])"
                                                           :file "src/a.cljs"
@@ -189,7 +189,7 @@
                     :type :sub
                     :file "src/old.cljs"
                     :row 2}
-          run-results [{:source-dir (disk/path "src")
+          run-results [{:source-dir (memory-fs/path file-system "src")
                         :group-results [{:unused-subs [new-item old-item]
                                          :unused-events []
                                          :phantom-subs []
@@ -214,7 +214,7 @@
 
 (deftest write-report-marks-blocking-test
   (with-open [file-system (memory-fs/unix)]
-    (let [run-results [{:source-dir (disk/path "src")
+    (let [run-results [{:source-dir (memory-fs/path file-system "src")
                         :group-results [{:unused-subs [kw-item]
                                          :unused-events []
                                          :phantom-subs []
@@ -232,7 +232,7 @@
 
 (deftest write-baseline-report-with-fail-on-test
   (with-open [file-system (memory-fs/unix)]
-    (let [run-results [{:source-dir (disk/path "src")
+    (let [run-results [{:source-dir (memory-fs/path file-system "src")
                         :group-results [{:unused-subs [{:kw :app/new-sub
                                                         :type :sub
                                                         :file "src/new.cljs"

@@ -44,3 +44,9 @@
   "Read the file `p` as UTF-8."
   ^String [^Path p]
   (Files/readString p))
+
+(defn with-baseline-path
+  "Call `f` with the `Path` of a baseline file that does not exist yet, on a new Unix file system."
+  [f]
+  (with-open [file-system (unix)]
+    (f (path file-system "/work/baseline.edn"))))

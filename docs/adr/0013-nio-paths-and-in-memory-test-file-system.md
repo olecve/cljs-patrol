@@ -291,9 +291,12 @@ Each step is one pull request, and each one ships on its own.
    disk keep it. In `fs_test`, these are the tests of an unreadable directory, the compare of the discovered paths with
    `java.io`, and the tests of the string adapters. In `baseline_test` and `parser_test`, these are the tests of a file
    that cannot be read, because Jimfs does not check permissions, and in `parser_test` the compare with `z/of-file`,
-   which reads only the default file system. Add the Windows test of the baseline key. The string functions of `fs` are
-   deprecated, and `.clj-kondo/config.edn` exempts the test namespaces that still call them. A test namespace loses its
-   exemption when it moves. Step 4 removes the exemptions with the functions.
+   which reads only the default file system. `integration/baseline_test` and the `baseline-write-integration-test` of
+   `core_test` read `test-projects/` on the real disk and write the baseline file on Jimfs. This split is intended. It
+   does not break the rule that all paths of one run come from one `FileSystem`: the baseline write and read use only
+   the baseline `Path`, and the identities they hold are strings. Add the Windows test of the baseline key. The string
+   functions of `fs` are deprecated, and `.clj-kondo/config.edn` exempts the test namespaces that still call them. A
+   test namespace loses its exemption when it moves. Step 4 removes the exemptions with the functions.
 4. **Remove the string adapters.** Remove each string function of `fs` that has no caller. Keep `nano-time` while the
    baseline write names its temporary file with it.
    - Risk: a caller still passes a string. A string where a `Path` is hinted gives a `ClassCastException`, and

@@ -20,15 +20,9 @@
     {:run-results run-results
      :identities (baseline/collect-identities run-results)}))
 
-(defn- with-baseline-path
-  "Call `f` with the `Path` of a baseline file that does not exist yet, on a new in-memory file system."
-  [f]
-  (with-open [file-system (memory-fs/unix)]
-    (f (memory-fs/path file-system "/work/baseline.edn"))))
-
 (deftest baseline-write-and-read-test
   (let [{:keys [identities]} (run-analysis)]
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (baseline/write-baseline path identities)
         (let [{:keys [ok error]} (baseline/read-baseline (memory-fs/typed path))]
@@ -144,7 +138,7 @@
 (deftest baseline-round-trip-with-absolute-source-dir-test
   (let [run-results [(core/run (disk/typed-path absolute-dir) enabled-groups)]
         identities (baseline/collect-identities run-results)]
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (baseline/write-baseline path identities)
         (let [{:keys [ok]} (baseline/read-baseline (memory-fs/typed path))
@@ -158,7 +152,7 @@
 
 (deftest baseline-round-trip-survives-reanalysis-test
   (let [{:keys [identities]} (run-analysis)]
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (baseline/write-baseline path identities)
         (let [{:keys [ok]} (baseline/read-baseline (memory-fs/typed path))
@@ -172,7 +166,7 @@
 (deftest baseline-snapshot-test
   (let [{:keys [identities]} (run-analysis)
         expected (edn/read-string (slurp "test-projects/baseline-app/expected-baseline.edn"))]
-    (with-baseline-path
+    (memory-fs/with-baseline-path
       (fn [path]
         (baseline/write-baseline path identities)
         (let [data (edn/read-string (memory-fs/read-text path))]
