@@ -205,12 +205,12 @@ Each step is one pull request, and each one ships on its own.
    most simply uses it, because step 4 removes the adapters.
    - The `Path` functions refuse nil and the empty path. NIO reads the empty path as the working directory. Each public
      `Path` function throws `NullPointerException` on a nil `Path` argument, and `IllegalArgumentException` on an empty
-     `Path` argument. `path` and `resolve-path` also throw `IllegalArgumentException` when their result is the empty
-     path.
+     `Path` argument. `path` also throws `IllegalArgumentException` when its parts make the empty path.
    - `resolve-path` gives the result of `Path.resolve`: an absolute leaf replaces the base.
    - `relative-path` gives the result of `Path.relativize` on the two absolute paths. A target outside the base gives a
      path up from the base, such as `../other/a.cljs`. A target that is the base throws `IllegalArgumentException`,
-     because the result is the empty path. Only the adapter `relativize` falls back to the text of the target.
+     because the result is the empty path. A target with another root than the base, such as another drive on Windows,
+     throws `IllegalArgumentException` too. Only the adapter `relativize` falls back to the text of the target.
    - The adapters keep the results of `java.io` for the empty string. `file-exists?`, `absolute-path?`, `mkdirs` and
      `delete-file!` give `false`, `parent-dir` gives nil, `delete-tree!` does nothing, `list-source-files` gives `[]`,
      `missing-dirs` reports it, and `move-replace!` throws `NoSuchFileException`. `absolute-path` gives the working

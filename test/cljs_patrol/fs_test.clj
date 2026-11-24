@@ -122,14 +122,6 @@
 (defn- empty-path ^Path [^FileSystem file-system]
   (.getPath file-system "" (make-array String 0)))
 
-(deftest delete-recursively-throws-on-empty-path
-  (with-open [jimfs (unix-fs)]
-    (let [work (fs/path jimfs "/work")]
-      (write! (fs/resolve-path work "a.txt") "x")
-      (is (thrown? IllegalArgumentException (fs/delete-recursively! (empty-path jimfs))))
-      (is (fs/exists? (fs/path jimfs "/work/a.txt"))
-          "working directory keeps its files"))))
-
 (deftest absolute-test
   (with-open [jimfs (unix-fs)]
     (is (= "/work/src" (str (fs/absolute (fs/path jimfs "src"))))
@@ -313,7 +305,15 @@
         (is (thrown? IllegalArgumentException (f (empty-path jimfs)))
             (str label " on empty path")))
       (is (fs/exists? p)
-          "file stays after failed calls"))))
+          "file in working directory stays after failed calls, delete-recursively! on empty path included"))))
+
+(deftest relative-path-throws-on-different-roots
+  (with-open [windows (Jimfs/newFileSystem (-> (Configuration/windows)
+                                               .toBuilder
+                                               (.setRoots "C:\\" (into-array String ["D:\\"]))
+                                               .build))]
+    (is (thrown? IllegalArgumentException
+                 (fs/relative-path (fs/path windows "C:\\work") (fs/path windows "D:\\x"))))))
 
 (defn- warnings-for-failing-folder
   "Run `source-paths` on a Jimfs tree where reading `/work/src/bad` throws `exception`, and give the paths and stderr."
@@ -438,6 +438,7 @@
   (let [calls (atom [])
         record (fn [& args] (swap! calls conj args) nil)]
     (with-redefs [fs/delete-recursively! record
+                  fs/io-file record
                   fs/move-over! record]
       (is (= (System/getProperty "user.dir") (fs/absolute-path ""))
           "empty path gives working directory, as in java.io")
@@ -468,6 +469,8 @@
       (is (= (str (System/getProperty "user.dir") "/" nul-path) (fs/absolute-path nul-path))
           "absolute-path keeps text of java.io")
       (is (false? (fs/absolute-path? nul-path)))
+      (is (true? (fs/absolute-path? (str "/" nul-path)))
+          "absolute NUL path gives true, as in java.io")
       (is (= "x" (fs/parent-dir (str "x/" nul-path)))
           "parent-dir keeps text of java.io")
       (is (false? (fs/file-exists? nul-path)))

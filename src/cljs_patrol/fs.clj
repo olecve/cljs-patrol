@@ -1,7 +1,8 @@
 (ns cljs-patrol.fs
   "File system helpers used by the analyzer, baseline, and tests.
 
-  The `Path` functions work on the file system of the `Path` or `FileSystem` they get, and throw on a nil path.
+  The `Path` functions work on the file system of the `Path` or `FileSystem` they get. They refuse nil and the empty
+  path, which NIO reads as the working directory.
   The string functions are adapters on the default file system for callers that still use strings."
   (:require
    [clojure.string :as str])
@@ -27,12 +28,16 @@
 (def ^:private no-link-options (make-array LinkOption 0))
 
 (defn- checked
-  "Give `p`, or throw when `p` is nil or the empty path, which NIO reads as the working directory."
-  ^Path [^Path p]
-  (cond
-    (nil? p) (throw (NullPointerException. "The path is nil"))
-    (= "" (.toString p)) (throw (IllegalArgumentException. "The empty path names no file"))
-    :else p))
+  "Give `p`, or throw when `p` is nil or the empty path, which NIO reads as the working directory.
+
+  The `IllegalArgumentException` for the empty path has `empty-message`, or a general message."
+  (^Path [^Path p]
+   (checked p "The empty path names no file"))
+  (^Path [^Path p ^String empty-message]
+   (cond
+     (nil? p) (throw (NullPointerException. "The path is nil"))
+     (= "" (.toString p)) (throw (IllegalArgumentException. empty-message))
+     :else p)))
 
 (defn path
   "Make a `Path` on `file-system` from `first-part` and the `more` parts.
@@ -42,9 +47,11 @@
   (checked (.getPath file-system first-part (into-array String more))))
 
 (defn resolve-path
-  "Give `leaf` under `base`, as `Path.resolve` does. An absolute `leaf` replaces `base`."
+  "Give `leaf` under `base`, as `Path.resolve` does.
+
+  An absolute `leaf` replaces `base`."
   ^Path [^Path base ^String leaf]
-  (-> base checked (.resolve leaf) checked))
+  (.resolve (checked base) leaf))
 
 (defn absolute ^Path [^Path p]
   (.toAbsolutePath (checked p)))
@@ -71,12 +78,10 @@
   "Give `target` relative to `base`, as `Path.relativize` does, such as `../other/a.cljs` for a `target` outside `base`.
 
   Both are made absolute first, so a relative `target` is compared from the working directory of its file system.
-  Throw when `target` is `base`, because the result is then the empty path."
+  Throw `IllegalArgumentException` when `target` is `base`, because the result is then the empty path, and when the
+  two have different roots, such as different drives on Windows."
   ^Path [^Path base ^Path target]
-  (let [relative (.relativize (absolute base) (absolute target))]
-    (if (= "" (.toString relative))
-      (throw (IllegalArgumentException. "The target is the base"))
-      relative)))
+  (checked (.relativize (absolute base) (absolute target)) "The target is the base"))
 
 (defn delete-if-exists!
   "Delete the file or empty folder `p`, and give true when it was there."
@@ -119,7 +124,7 @@
   The walk does not follow a link, so a link to a folder goes, and that folder stays.
   Throw on nil and on the empty path, which NIO reads as the working directory."
   [^Path p]
-  (when (exists? p)
+  (when (exists? (checked p))
     (Files/walkFileTree p (deleting-visitor))
     nil))
 
@@ -225,6 +230,9 @@
 (defn absolute-path [^String path]
   (.getAbsolutePath (File. path)))
 
+(defn- io-file ^File [^String path]
+  (File. path))
+
 (defn absolute-path? [^String path]
   (.isAbsolute (File. path)))
 
@@ -242,7 +250,7 @@
   Give false when `dir` exists, when it cannot make `dir`, or when `dir` names no file, such as the empty string."
   [^String dir]
   (and (not= "" dir)
-       (.mkdirs (File. dir))))
+       (.mkdirs (io-file dir))))
 
 (defn join-path
   "Combine `base` and `leaf` into a single path with the OS separator, as `java.io` does.
@@ -276,7 +284,7 @@
   Throw only on nil."
   [^String path]
   (and (not= "" path)
-       (.delete (File. path))))
+       (.delete (io-file path))))
 
 (defn move-replace!
   "Move `source` onto `target`, replacing any file already there.
