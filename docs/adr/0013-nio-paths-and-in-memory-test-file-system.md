@@ -289,7 +289,9 @@ Each step is one pull request, and each one ships on its own.
    tests of `baseline_test`, the write tests of `reporters/html_test`, the baseline write tests of `core_test` and the
    discovery tests of `parser_test` to Jimfs. These tests then do not use `cljs-patrol.temp-dir`. The tests on the real
    disk keep it. In `fs_test`, these are the tests of an unreadable directory, the compare of the discovered paths with
-   `java.io`, and the tests of the string adapters. Add the Windows test of the baseline key.
+   `java.io`, and the tests of the string adapters. Add the Windows test of the baseline key. The string functions of
+   `fs` are deprecated, and `.clj-kondo/config.edn` exempts the test namespaces that still call them. A test namespace
+   loses its exemption when it moves. Step 4 removes the exemptions with the functions.
 4. **Remove the string adapters.** Remove each string function of `fs` that has no caller. Keep `nano-time` while the
    baseline write names its temporary file with it.
    - Risk: a caller still passes a string. A string where a `Path` is hinted gives a `ClassCastException`, and
