@@ -5,11 +5,17 @@
    [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
    [clojure.edn :as edn]
-   [clojure.java.io :as io]
    [clojure.string :as str])
   (:import
    (java.io
+    IOException
     Writer)
+   (java.nio.charset
+    StandardCharsets)
+   (java.nio.file
+    Files
+    OpenOption
+    Path)
    (java.time
     Instant)))
 
@@ -106,10 +112,20 @@
     :focus-ring-missing-outline :focus-ring-raw-shadow})
 
 (defn- relativize-path
-  "Strip source-dir prefix from path to produce a portable relative path.
-  Falls back to the original path if source-dir is nil or not a prefix."
-  [source-dir path]
-  (if source-dir (fs/relativize source-dir path) path))
+  "Give `path` relative to the `Path` `source-dir`, so a key does not hold the folder the run started in.
+
+  Give `path` unchanged when `source-dir` is nil or is not above it, and the empty string when `path` is `source-dir`,
+  which is so when the run reads one file. `fs/relative-path` gives `../` or throws in those two cases, and a baseline
+  written before keeps its keys only with these results."
+  [^Path source-dir ^String path]
+  (if source-dir
+    (let [base (fs/absolute source-dir)
+          target (fs/absolute (fs/path (.getFileSystem base) path))]
+      (cond
+        (= base target) ""
+        (.startsWith target base) (str (fs/relative-path base target))
+        :else path))
+    path))
 
 (defn issue->identity
   "Extract the stable identity of an issue for baseline comparison.
@@ -205,12 +221,15 @@
 (def default-baseline-path ".cljs-patrol/baseline.edn")
 
 (defn resolve-baseline-path
-  "Return `configured-path` when one is set, else the default under the first source directory.
+  "Give `configured-path` as a `Path` when one is set, else the default under the first source directory.
   Which directory that is matters: a run over several source roots keeps its baseline beside the
-  first, so the same invocation always reads and writes the same file."
-  [configured-path source-dirs]
-  (or configured-path
-      (fs/join-path (first source-dirs) default-baseline-path)))
+  first, so the same invocation always reads and writes the same file. The `Path` values of `source-dirs` give the
+  file system."
+  ^Path [^String configured-path source-dirs]
+  (let [^Path first-dir (first source-dirs)]
+    (if configured-path
+      (fs/path (.getFileSystem first-dir) configured-path)
+      (fs/resolve-path first-dir default-baseline-path))))
 
 (defn- sort-key
   "Vector of stringified identity fields used to sort baseline entries deterministically.
@@ -263,8 +282,8 @@
         (.write w (str (pr-str rule) " " n)))
       (.write w "}}\n"))))
 
-(defn- write-baseline-file [^String path sorted rule->tier]
-  (with-open [w (io/writer path)]
+(defn- write-baseline-file [^Path path sorted rule->tier]
+  (with-open [w (Files/newBufferedWriter path (make-array OpenOption 0))]
     (.write w (str "{:version " baseline-version "\n"))
     (.write w (str " :generated-at \"" (Instant/now) "\"\n"))
     (.write w (str " :tool-version \"" group/tool-version "\"\n"))
@@ -279,8 +298,20 @@
       (.write w "}"))
     (.write w "]}\n")))
 
+(defn- delete-temp-file!
+  "Delete the temporary file `tmp-path` when it is there.
+
+  A failed delete prints a warning on stderr and does not throw, because it runs in a `finally`, and a throw there
+  hides the error that stopped the write."
+  [^Path tmp-path]
+  (try
+    (fs/delete-if-exists! tmp-path)
+    (catch IOException e
+      (binding [*out* *err*]
+        (println (str "WARN: could not delete " tmp-path ": " e))))))
+
 (defn write-baseline
-  "Write a baseline file at `path` with the given set of identity maps.
+  "Write a baseline file at the `Path` `path` with the given set of identity maps.
 
   `rule->tier` is used to compute `:summary :tier->total`; when absent, all
   tier counts are zero (tier info isn't part of the identity itself).
@@ -288,27 +319,30 @@
   once it is complete, so a failure partway through leaves an existing
   baseline untouched rather than truncated."
   ([path issues] (write-baseline path issues {}))
-  ([path issues rule->tier]
+  ([^Path path issues rule->tier]
    (let [sorted (sort-issues issues)
-         parent (fs/parent-dir path)
-         tmp-path (str path "." (fs/nano-time) ".tmp")]
-     (when parent (fs/mkdirs parent))
+         parent (fs/parent path)
+         tmp-path (fs/path (.getFileSystem path) (str path "." (fs/nano-time) ".tmp"))]
+     (when parent (fs/create-dirs! parent))
      (try
        (write-baseline-file tmp-path sorted rule->tier)
-       (fs/move-replace! tmp-path path)
+       (fs/move-over! tmp-path path)
        nil
        (finally
-         (fs/delete-file! tmp-path))))))
+         (delete-temp-file! tmp-path))))))
+
+(defn- read-text ^String [^Path path]
+  (String. (Files/readAllBytes path) StandardCharsets/UTF_8))
 
 (defn read-baseline
-  "Read and validate a baseline file at `path`.
+  "Read and validate a baseline file at the `Path` `path`.
   Returns {:ok issues} on success, {:error message} on failure."
   [path]
-  (if-not (fs/file-exists? path)
+  (if-not (fs/exists? path)
     {:error (str "Baseline file not found: " path
                  "\nRun --baseline-write first to create one.")}
     (try
-      (let [data (edn/read-string (slurp path))]
+      (let [data (edn/read-string (read-text path))]
         (cond
           (not (map? data))
           {:error (str "Malformed baseline file: " path " (expected a map)"
@@ -340,7 +374,7 @@
   Returns {:added identities} for those not in it, empty when no baseline exists yet,
   or {:error message} when the existing file cannot be read and so cannot be compared."
   [path found]
-  (if-not (fs/file-exists? path)
+  (if-not (fs/exists? path)
     {:added #{}}
     (let [{:keys [ok error]} (read-baseline path)]
       (if error
@@ -360,19 +394,19 @@
 (def default-config-path ".cljs-patrol/config.edn")
 
 (defn read-config
-  "Read `.cljs-patrol/config.edn` and return the full map.
+  "Read the config file at the `Path` `config-path` and return the full map.
 
   Returns {} if the file is missing. On a malformed file, prints a
   warning to stderr and returns {} so the tool still runs against
   defaults — a broken config shouldn't crash CI, but silently
   ignoring one that never took effect is worse."
-  []
-  (if (fs/file-exists? default-config-path)
+  [config-path]
+  (if (fs/exists? config-path)
     (try
-      (edn/read-string (slurp default-config-path))
+      (edn/read-string (read-text config-path))
       (catch Exception e
         (binding [*out* *err*]
-          (println (str "WARN: could not parse " default-config-path ": "
+          (println (str "WARN: could not parse " config-path ": "
                         (.getMessage e))))
         {}))
     {}))

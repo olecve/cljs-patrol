@@ -1,13 +1,14 @@
 (ns cljs-patrol.integration.react-testing-library-cljs-test
   (:require
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.groups.react-testing-library-cljs :as react-testing-library-cljs]
    [clojure.test :refer [deftest is]]))
 
 (def ^:private fixture-dir "test-projects/react-testing-library-cljs-app/src/webapp")
 
 (defn- result []
-  (-> (core/run fixture-dir [react-testing-library-cljs/group]) :group-results first))
+  (-> (core/run (disk/source fixture-dir) [react-testing-library-cljs/group]) :group-results first))
 
 (defn- fn-names-of
   "Name the deftest each finding sits in, as the fixture's `:test` records it."
@@ -116,14 +117,14 @@
 
 (deftest test-id-built-by-opaque-call-fixture-test
   (is (empty? (:test-id-query-on-role
-               (-> (core/run "test-projects/react-testing-library-cljs-app/src/opaque"
+               (-> (core/run (disk/source "test-projects/react-testing-library-cljs-app/src/opaque")
                              [react-testing-library-cljs/group])
                    :group-results
                    first)))
       "a test id built by a call with no literal part may be any id"))
 
 (deftest test-id-query-on-role-reads-what-a-test-may-render-test
-  (let [findings (->> (core/run "test-projects/react-testing-library-cljs-app/src/shared_ids"
+  (let [findings (->> (core/run (disk/source "test-projects/react-testing-library-cljs-app/src/shared_ids")
                                 [react-testing-library-cljs/group])
                       :group-results
                       first
@@ -183,7 +184,7 @@
         "lookup in render!'s own arguments runs before it, so the test reads the whole run")))
 
 (deftest test-id-query-on-role-findings-follow-file-and-row-test
-  (let [findings (->> (core/run "test-projects/react-testing-library-cljs-app/src/shared_ids"
+  (let [findings (->> (core/run (disk/source "test-projects/react-testing-library-cljs-app/src/shared_ids")
                                 [react-testing-library-cljs/group])
                       :group-results
                       first
@@ -194,7 +195,7 @@
         "findings of one file follow its rows")))
 
 (defn- configured-findings [config]
-  (->> (core/run "test-projects/react-testing-library-cljs-app/src/configured"
+  (->> (core/run (disk/source "test-projects/react-testing-library-cljs-app/src/configured")
                  [(react-testing-library-cljs/make-group config)])
        :group-results
        first

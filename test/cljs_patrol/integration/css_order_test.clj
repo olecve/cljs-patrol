@@ -2,13 +2,14 @@
   (:require
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.groups.css-order :as css-order]
    [clojure.test :refer [deftest is testing]]))
 
 (def ^:private fixture-dir "test-projects/css-order-app/src/webapp")
 
 (defn- run []
-  (core/run fixture-dir [css-order/group]))
+  (core/run (disk/source fixture-dir) [css-order/group]))
 
 (defn- findings []
   (-> (run) :group-results first :css-property-order-outside-in))
@@ -96,7 +97,7 @@
 (deftest order-choice-test
   (testing "the chosen table decides what reads as out of order"
     (let [flagged (fn [order]
-                    (set (map :kw (-> (core/run fixture-dir [(css-order/make-group {:order order})])
+                    (set (map :kw (-> (core/run (disk/source fixture-dir) [(css-order/make-group {:order order})])
                                       :group-results
                                       first
                                       :css-property-order-outside-in))))

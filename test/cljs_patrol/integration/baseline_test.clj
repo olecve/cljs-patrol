@@ -3,6 +3,7 @@
   (:require
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.fs :as fs]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.groups.reagent :as reagent]
@@ -17,7 +18,7 @@
 (def ^:private dir-prefix "cljs-patrol-integration-")
 
 (defn- run-analysis []
-  (let [run-results [(core/run fixture-dir enabled-groups)]]
+  (let [run-results [(core/run (disk/source fixture-dir) enabled-groups)]]
     {:run-results run-results
      :identities (baseline/collect-identities run-results)}))
 
@@ -27,8 +28,8 @@
         dir (temp-dir/create-dir dir-prefix)
         path (fs/join-path dir "baseline.edn")]
     (try
-      (baseline/write-baseline path identities)
-      (let [{:keys [ok error]} (baseline/read-baseline path)]
+      (baseline/write-baseline (disk/path path) identities)
+      (let [{:keys [ok error]} (baseline/read-baseline (disk/path path))]
         (is (nil? error))
         (is (= identities ok)))
       (reset! completed true)
@@ -131,7 +132,7 @@
 
 (deftest baseline-identities-use-relative-paths-test
   (let [absolute-dir (fs/absolute-path fixture-dir)
-        run-results [(core/run absolute-dir enabled-groups)]
+        run-results [(core/run (disk/source absolute-dir) enabled-groups)]
         identities (baseline/collect-identities run-results)
         ids-with-file (filter :file identities)]
     (is (seq ids-with-file)
@@ -145,14 +146,14 @@
 (deftest baseline-round-trip-with-absolute-source-dir-test
   (let [completed (atom false)
         absolute-dir (fs/absolute-path fixture-dir)
-        run-results [(core/run absolute-dir enabled-groups)]
+        run-results [(core/run (disk/source absolute-dir) enabled-groups)]
         identities (baseline/collect-identities run-results)
         dir (temp-dir/create-dir dir-prefix)
         path (fs/join-path dir "baseline.edn")]
     (try
-      (baseline/write-baseline path identities)
-      (let [{:keys [ok]} (baseline/read-baseline path)
-            rerun-results [(core/run absolute-dir enabled-groups)]
+      (baseline/write-baseline (disk/path path) identities)
+      (let [{:keys [ok]} (baseline/read-baseline (disk/path path))
+            rerun-results [(core/run (disk/source absolute-dir) enabled-groups)]
             rerun-identities (baseline/collect-identities rerun-results)
             {:keys [new fixed]} (baseline/diff-baseline ok rerun-identities)]
         (is (empty? new)
@@ -171,8 +172,8 @@
         dir (temp-dir/create-dir dir-prefix)
         path (fs/join-path dir "baseline.edn")]
     (try
-      (baseline/write-baseline path identities)
-      (let [{:keys [ok]} (baseline/read-baseline path)
+      (baseline/write-baseline (disk/path path) identities)
+      (let [{:keys [ok]} (baseline/read-baseline (disk/path path))
             {reanalyzed :identities} (run-analysis)
             {:keys [new present fixed]} (baseline/diff-baseline ok reanalyzed)]
         (is (empty? new)
@@ -192,7 +193,7 @@
     (try
       (let [{:keys [identities]} (run-analysis)
             expected (edn/read-string (slurp "test-projects/baseline-app/expected-baseline.edn"))]
-        (baseline/write-baseline path identities)
+        (baseline/write-baseline (disk/path path) identities)
         (let [data (edn/read-string (slurp path))]
           (is (= baseline/baseline-version (:version data)))
           (is (string? (:generated-at data)))

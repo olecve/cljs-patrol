@@ -1,6 +1,7 @@
 (ns cljs-patrol.groups.docstrings-test
   (:require
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.docstrings :as docstrings]
    [cljs-patrol.temp-project :as temp-project]
@@ -13,7 +14,7 @@
   (set (map :kw items)))
 
 (deftest analyze-fixture-test
-  (let [{:keys [group-results]} (core/run fixture-dir [docstrings/group])
+  (let [{:keys [group-results]} (core/run (disk/source fixture-dir) [docstrings/group])
         result (first group-results)
         summary-kws (kws (:docstring-summary result))
         indent-kws (kws (:docstring-indentation result))

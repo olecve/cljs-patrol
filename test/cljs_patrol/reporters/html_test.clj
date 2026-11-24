@@ -1,5 +1,6 @@
 (ns cljs-patrol.reporters.html-test
   (:require
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.groups.re-frame :as re-frame]
    [cljs-patrol.reporters.html :as html]
    [cljs-patrol.temp-dir :as temp-dir]
@@ -61,7 +62,7 @@
                           :row 7})
 
 (deftest aggregate-sections-test
-  (let [run-results [{:source-dir "src"
+  (let [run-results [{:source-dir (disk/path "src")
                       :group-results [{:unused-subs [kw-item]
                                        :dynamic-sites [form-item]}]}]
         sections (aggregate-sections re-frame/group 0 run-results)]
@@ -88,7 +89,7 @@
             "description carries docs link")))))
 
 (deftest write-report-test
-  (let [run-results [{:source-dir "src"
+  (let [run-results [{:source-dir (disk/path "src")
                       :group-results [{:unused-subs [kw-item]
                                        :unused-events []
                                        :phantom-subs []
@@ -98,7 +99,7 @@
                                        :deprecated-effects []
                                        :dynamic-sites []}]}]
         tmp-file (temp-dir/file-path "report.html")]
-    (html/write-report [re-frame/group] run-results tmp-file)
+    (html/write-report [re-frame/group] run-results (disk/path tmp-file))
     (let [content (slurp tmp-file)]
       (testing "produces HTML document"
         (is (str/includes? content "<!DOCTYPE html>")))
@@ -106,6 +107,22 @@
         (is (str/includes? content "Re-frame")))
       (testing "includes keyword from result"
         (is (str/includes? content ":my-ns/sub"))))))
+
+(deftest reports-print-source-folders-as-typed
+  (let [run-results [{:source-dir (disk/path "src")
+                      :source-text "src/"
+                      :group-results [{:unused-subs []}]}
+                     {:source-dir (disk/path "test")
+                      :source-text "test//"
+                      :group-results [{:unused-subs []}]}]
+        report-file (temp-dir/file-path "report.html")
+        baseline-file (temp-dir/file-path "baseline-report.html")]
+    (html/write-report [re-frame/group] run-results (disk/path report-file))
+    (html/write-baseline-report [re-frame/group] run-results (disk/path baseline-file) #{} 0)
+    (is (str/includes? (slurp report-file) " | Analyzed: src/, test//")
+        "report header keeps typed text")
+    (is (str/includes? (slurp baseline-file) " | Analyzed: src/, test//")
+        "baseline report header keeps typed text")))
 
 (deftest write-baseline-report-test
   (let [new-item {:kw :app/new-sub
@@ -116,7 +133,7 @@
                   :type :sub
                   :file "src/old.cljs"
                   :row 2}
-        run-results [{:source-dir "src"
+        run-results [{:source-dir (disk/path "src")
                       :group-results [{:unused-subs [new-item old-item]
                                        :unused-events []
                                        :phantom-subs []
@@ -128,7 +145,7 @@
         new-ids #{{:rule :unused-subs
                    :key :app/new-sub}}
         tmp-file (temp-dir/file-path "report.html")]
-    (html/write-baseline-report [re-frame/group] run-results tmp-file new-ids 3)
+    (html/write-baseline-report [re-frame/group] run-results (disk/path tmp-file) new-ids 3)
     (let [content (slurp tmp-file)]
       (is (str/includes? content "new-issue")
           "marks new issues with CSS class")
@@ -140,7 +157,7 @@
           "shows fixed count banner"))))
 
 (deftest write-report-marks-blocking-test
-  (let [run-results [{:source-dir "src"
+  (let [run-results [{:source-dir (disk/path "src")
                       :group-results [{:unused-subs [kw-item]
                                        :unused-events []
                                        :phantom-subs []
@@ -150,14 +167,14 @@
                                        :deprecated-effects []
                                        :dynamic-sites []}]}]
         tmp-file (temp-dir/file-path "report.html")]
-    (html/write-report [re-frame/group] run-results tmp-file
+    (html/write-report [re-frame/group] run-results (disk/path tmp-file)
                        #{:unused-subs})
     (let [content (slurp tmp-file)]
       (is (str/includes? content "BLOCKING")
           "blocking badge present"))))
 
 (deftest write-baseline-report-with-fail-on-test
-  (let [run-results [{:source-dir "src"
+  (let [run-results [{:source-dir (disk/path "src")
                       :group-results [{:unused-subs [{:kw :app/new-sub
                                                       :type :sub
                                                       :file "src/new.cljs"
@@ -172,7 +189,7 @@
         new-ids #{{:rule :unused-subs
                    :key :app/new-sub}}
         tmp-file (temp-dir/file-path "report.html")]
-    (html/write-baseline-report [re-frame/group] run-results tmp-file
+    (html/write-baseline-report [re-frame/group] run-results (disk/path tmp-file)
                                 new-ids 0
                                 #{:unused-subs} 1 0)
     (let [content (slurp tmp-file)]

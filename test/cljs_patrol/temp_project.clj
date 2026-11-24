@@ -2,6 +2,7 @@
   "A project written to a temporary directory, for tests that run the whole analysis."
   (:require
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.temp-dir :as temp-dir]
    [clojure.java.io :as io]))
 
@@ -18,7 +19,7 @@
           (io/make-parents file)
           (spit file source)))
       {:results (binding [*err* errors]
-                  (-> (core/run (str dir) [rule-group]) :group-results first))
+                  (-> (core/run (disk/source dir) [rule-group]) :group-results first))
        :errors (str errors)}
       (finally
         (temp-dir/delete-dir! dir)))))

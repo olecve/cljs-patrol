@@ -1,6 +1,7 @@
 (ns cljs-patrol.integration.experimental-clj-test
   (:require
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
    [cljs-patrol.groups.docstrings :as docstrings]
@@ -23,7 +24,7 @@
   ([config clj?] (into #{} (map group/group-id) (clj-reading (assemble-groups config clj?)))))
 
 (defn- findings [rule-group rule]
-  (-> (core/run fixture-dir [rule-group]) :group-results first rule))
+  (-> (core/run (disk/source fixture-dir) [rule-group]) :group-results first rule))
 
 (deftest enabled-extensions-test
   (testing "the set is the union of what the enabled groups declare"
@@ -72,7 +73,7 @@
       (is (str/ends-with? (:file (first found)) "widget.cljs"))))
 
   (testing "experimental mode does not widen a group that did not ask for it"
-    (let [found (-> (core/run fixture-dir [(a11y/make-group nil) (docstrings/make-group nil true)])
+    (let [found (-> (core/run (disk/source fixture-dir) [(a11y/make-group nil) (docstrings/make-group nil true)])
                     :group-results first :img-alt-missing)]
       (is (= 1 (count found))
           "discovery now walks .clj for the docstrings group, and a11y still skips those files")

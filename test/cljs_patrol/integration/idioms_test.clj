@@ -1,6 +1,7 @@
 (ns cljs-patrol.integration.idioms-test
   (:require
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.groups.idioms :as idioms]
    [clojure.test :refer [deftest is testing]]))
 
@@ -8,7 +9,7 @@
 
 (defn- found
   ([] (found :nested-call-chain))
-  ([rule] (-> (core/run fixture-dir [idioms/group]) :group-results first rule)))
+  ([rule] (-> (core/run (disk/source fixture-dir) [idioms/group]) :group-results first rule)))
 
 (deftest nested-call-chain-fixture-test
   (testing "a function defined in another file counts, referred or through an alias"

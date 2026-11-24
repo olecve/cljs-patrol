@@ -7,7 +7,14 @@
    [clojure.java.io :as io]
    [clojure.string :as str]
    [hiccup.page :refer [html5]]
-   [hiccup.util :refer [raw-string]]))
+   [hiccup.util :refer [raw-string]])
+  (:import
+   (java.nio.charset
+    StandardCharsets)
+   (java.nio.file
+    Files
+    OpenOption
+    Path)))
 
 (def ^:private css (slurp (io/resource "cljs_patrol/report.css")))
 
@@ -177,7 +184,7 @@
         (aggregate-sections g g-idx run-results))])
 
 (defn- render-html [enabled-groups run-results fail-on-rules]
-  (let [dirs (str/join ", " (map :source-dir run-results))
+  (let [dirs (str/join ", " (map :source-text run-results))
         timestamp (str (java.time.LocalDateTime/now))]
     (html5 {:lang "en"}
            [:head
@@ -194,11 +201,14 @@
                          enabled-groups)
             [:script (raw-string js)]])))
 
+(defn- write-html [^Path output-path html]
+  (Files/writeString output-path (str html) StandardCharsets/UTF_8 (make-array OpenOption 0)))
+
 (defn write-report
   ([enabled-groups run-results output-path]
    (write-report enabled-groups run-results output-path nil))
   ([enabled-groups run-results output-path fail-on-rules]
-   (spit output-path (render-html enabled-groups run-results fail-on-rules))))
+   (write-html output-path (render-html enabled-groups run-results fail-on-rules))))
 
 (defn- render-baseline-details [{:keys [title description columns items rule-key]} new-identities source-dir fail-on-rules]
   (let [cnt (count items)
@@ -223,7 +233,7 @@
 (defn- render-baseline-html
   [enabled-groups run-results new-identities fixed-count fail-on-rules
    blocking-count warning-count]
-  (let [dirs (str/join ", " (map :source-dir run-results))
+  (let [dirs (str/join ", " (map :source-text run-results))
         timestamp (str (java.time.LocalDateTime/now))
         source-dir (:source-dir (first run-results))]
     (html5 {:lang "en"}
@@ -258,6 +268,6 @@
                           new-identities fixed-count nil 0 0))
   ([enabled-groups run-results output-path new-identities fixed-count
     fail-on-rules blocking-count warning-count]
-   (spit output-path
-         (render-baseline-html enabled-groups run-results new-identities fixed-count
-                               fail-on-rules blocking-count warning-count))))
+   (write-html output-path
+               (render-baseline-html enabled-groups run-results new-identities fixed-count
+                                     fail-on-rules blocking-count warning-count))))

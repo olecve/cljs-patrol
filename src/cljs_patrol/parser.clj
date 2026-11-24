@@ -11,6 +11,11 @@
    (java.io
     StringWriter
     Writer)
+   (java.nio.charset
+    StandardCharsets)
+   (java.nio.file
+    Files
+    Path)
    (java.util
     HashMap
     IdentityHashMap
@@ -365,7 +370,7 @@
 (defn find-ns-info
   "Find and parse the ns form from a rewrite-clj zip.
 
-  z/of-file positions at the first top-level form (not a :forms wrapper).
+  rewrite-clj positions at the first top-level form (not a :forms wrapper).
   Walk top-level siblings with z/right until the ns form is found."
   [zloc]
   (let [top-level (take-while #(and % (not (z/end? %))) (iterate z/right zloc))]
@@ -487,10 +492,17 @@
           :else
           (recur (z/up current) current (conj passed node)))))))
 
+(defn- read-source
+  "Read `file` as UTF-8, with U+FFFD in place of each byte that is not UTF-8, as `z/of-file` reads a file.
+
+  `Files/readString` throws on such a byte instead."
+  ^String [^Path file]
+  (String. (Files/readAllBytes file) StandardCharsets/UTF_8))
+
 (defn- parse-file
   "Read file and its ns form, or warn and return nil for a file the reader cannot parse."
   [file file-path]
-  (when-let [zloc (try (z/of-file file)
+  (when-let [zloc (try (z/of-string (read-source file))
                        (catch Exception e
                          (binding [*out* *err*]
                            (println "WARN: could not parse" file-path ":" (.getMessage e)))
@@ -526,11 +538,11 @@
     result))
 
 (defn analyze-file
-  "Parse a single source file and return {:declarations :usages :dynamic-sites}.
+  "Parse the source file at the `Path` `file` and return {:declarations :usages :dynamic-sites}.
   Only groups whose `file-extensions` include this file's extension are invoked. With a
   `recorder`, the time each step and each group's handlers took is added to it."
   ([file enabled-groups] (analyze-file file enabled-groups nil))
-  ([file enabled-groups recorder]
+  ([^Path file enabled-groups recorder]
    (let [file-path (str file)
          applicable (groups-for-extension enabled-groups (file-extension file-path))]
      (when (seq applicable)
@@ -609,17 +621,19 @@
         (.shutdownNow pool)))))
 
 (defn analyze-project
-  "Analyze all source files under root-dir using enabled-groups.
+  "Analyze all source files under the source folder `source` using enabled-groups.
+
+  `source` is {:path the `Path` to read, :text the folder as typed}, and the progress line prints that text.
   Returns {:declarations :usages :dynamic-sites} across all files. With a `recorder`, the
   time discovery and each file took is added to it. Up to `jobs` files are read at once,
   one by default."
-  ([root-dir enabled-groups] (analyze-project root-dir enabled-groups nil))
-  ([root-dir enabled-groups recorder] (analyze-project root-dir enabled-groups recorder 1))
-  ([root-dir enabled-groups recorder jobs]
-   (let [discover #(fs/list-source-files root-dir (enabled-extensions enabled-groups))
+  ([source enabled-groups] (analyze-project source enabled-groups nil))
+  ([source enabled-groups recorder] (analyze-project source enabled-groups recorder 1))
+  ([{:keys [path text]} enabled-groups recorder jobs]
+   (let [discover #(fs/source-paths path (enabled-extensions enabled-groups))
          files (if recorder (timings/timed recorder :discovery discover) (discover))]
      (binding [*out* *err*]
-       (println (str "Analyzing " (count files) " files under " root-dir " ...")))
+       (println (str "Analyzing " (count files) " files under " text " ...")))
      (let [results (analyze-files files enabled-groups recorder jobs)]
        {:declarations (mapcat :declarations results)
         :usages (mapcat :usages results)

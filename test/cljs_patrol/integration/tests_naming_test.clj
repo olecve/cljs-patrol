@@ -2,6 +2,7 @@
   (:require
    [cljs-patrol.baseline :as baseline]
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.groups.tests :as tests]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]))
@@ -9,7 +10,7 @@
 (def ^:private fixture-dir "test-projects/tests-app/src/webapp")
 
 (defn- result []
-  (-> (core/run fixture-dir [tests/group]) :group-results first))
+  (-> (core/run (disk/source fixture-dir) [tests/group]) :group-results first))
 
 (defn- findings []
   (:deftest-leading-article (result)))
@@ -54,7 +55,7 @@
     (let [issue (first (findings))
           identity-of (fn [row] (baseline/issue->identity :deftest-leading-article
                                                           (assoc issue :row row)
-                                                          fixture-dir))]
+                                                          (disk/path fixture-dir)))]
       (is (= (identity-of 26) (identity-of 94))
           "the row moves whenever anything above the var does")
       (is (= #{:rule :name :file} (set (keys (identity-of 26))))))))
@@ -410,12 +411,12 @@
 (def ^:private paths-fixture-dir "test-projects/tests-paths-app")
 
 (defn- paths-result [paths]
-  (-> (core/run paths-fixture-dir [(tests/make-group {:paths paths})])
+  (-> (core/run (disk/source paths-fixture-dir) [(tests/make-group {:paths paths})])
       :group-results first :js-hint-in-test))
 
 (deftest test-paths-config-test
   (testing "with no paths configured the namespace name decides"
-    (let [found (-> (core/run paths-fixture-dir [(tests/make-group)])
+    (let [found (-> (core/run (disk/source paths-fixture-dir) [(tests/make-group)])
                     :group-results first :js-hint-in-test)]
       (is (empty? found)
           "neither fixture namespace ends in -test, so neither is read as test code")))
@@ -439,7 +440,7 @@
 
   (testing "one path may be written on its own"
     (is (= (map :file (paths-result ["latest"]))
-           (map :file (-> (core/run paths-fixture-dir [(tests/make-group {:paths "latest"})])
+           (map :file (-> (core/run (disk/source paths-fixture-dir) [(tests/make-group {:paths "latest"})])
                           :group-results first :js-hint-in-test)))
         "a bare string reads as a one-element vector"))
 

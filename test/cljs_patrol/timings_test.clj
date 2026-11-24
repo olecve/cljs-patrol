@@ -1,6 +1,7 @@
 (ns cljs-patrol.timings-test
   (:require
    [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.group :as group]
    [cljs-patrol.parser :as parser]
    [cljs-patrol.timings :as timings]
@@ -175,9 +176,9 @@
         file (temp-source-file "(ns a.b)\n(defn f [x] (g x :k))\n")
         recorder (timings/recorder (ticking-clock))]
     (try
-      (let [untimed (parser/analyze-file file groups)
+      (let [untimed (parser/analyze-file (disk/path file) groups)
             _ (reset! calls {})
-            timed (parser/analyze-file file groups recorder)
+            timed (parser/analyze-file (disk/path file) groups recorder)
             {:keys [token list shared]} @calls
             [{:keys [handlers parse]
               :as file-times}] (:files @(:state recorder))]
@@ -202,10 +203,10 @@
   (let [recorder (timings/recorder (ticking-clock))
         groups [(fake-group :tokens {:handle-token (constantly nil)})
                 (fake-group :lists {})]
-        timed (core/run-all ["test-projects/a11y-app/src"] groups recorder)
+        timed (core/run-all (mapv disk/source ["test-projects/a11y-app/src"]) groups recorder)
         {:keys [phases files]
          recorded-groups :groups} (timings/summary recorder)]
-    (is (= (core/run-all ["test-projects/a11y-app/src"] groups) timed)
+    (is (= (core/run-all (mapv disk/source ["test-projects/a11y-app/src"]) groups) timed)
         "recording leaves results as they were")
     (is (= 1 (:discovery phases))
         "discovery spans one tick")
@@ -262,9 +263,9 @@
         file (temp-source-file "(ns a.b)\n")
         recorder (timings/recorder (ticking-clock))]
     (try
-      (let [untimed (parser/analyze-file file groups)
+      (let [untimed (parser/analyze-file (disk/path file) groups)
             _ (reset! calls 0)
-            timed (parser/analyze-file file groups recorder)
+            timed (parser/analyze-file (disk/path file) groups recorder)
             [{:keys [handlers]}] (:files (timings/summary recorder))]
         (is (= untimed timed)
             "recording leaves result as it was")
@@ -291,7 +292,7 @@
         recorder (timings/recorder (ticking-clock))]
     (try
       (is (nil? (binding [*err* (java.io.StringWriter.)]
-                  (parser/analyze-file file groups recorder)))
+                  (parser/analyze-file (disk/path file) groups recorder)))
           "unparsable file yields no result")
       (let [{:keys [phases files]} (timings/summary recorder)]
         (is (= 1 (:parse phases))
