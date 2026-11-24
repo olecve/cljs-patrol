@@ -26,59 +26,62 @@
 
 (def ^:private no-link-options (make-array LinkOption 0))
 
-(defn- non-empty
-  "Give `p`, or throw when `p` is the empty path, which NIO reads as the working directory."
+(defn- checked
+  "Give `p`, or throw when `p` is nil or the empty path, which NIO reads as the working directory."
   ^Path [^Path p]
-  (if (= "" (.toString p))
-    (throw (IllegalArgumentException. "The empty path names no file"))
-    p))
+  (cond
+    (nil? p) (throw (NullPointerException. "The path is nil"))
+    (= "" (.toString p)) (throw (IllegalArgumentException. "The empty path names no file"))
+    :else p))
 
 (defn path
   "Make a `Path` on `file-system` from `first-part` and the `more` parts.
 
   Throw when the parts make the empty path, because NIO reads it as the working directory."
   ^Path [^FileSystem file-system ^String first-part & more]
-  (non-empty (.getPath file-system first-part (into-array String more))))
+  (checked (.getPath file-system first-part (into-array String more))))
 
-(defn resolve-path ^Path [^Path base ^String leaf]
-  (.resolve base leaf))
+(defn resolve-path
+  "Give `leaf` under `base`, as `Path.resolve` does. An absolute `leaf` replaces `base`."
+  ^Path [^Path base ^String leaf]
+  (-> base checked (.resolve leaf) checked))
 
 (defn absolute ^Path [^Path p]
-  (.toAbsolutePath p))
+  (.toAbsolutePath (checked p)))
 
 (defn absolute? [^Path p]
-  (.isAbsolute p))
+  (.isAbsolute (checked p)))
 
 (defn parent
   "The parent of `p`, or nil when `p` has none."
   ^Path [^Path p]
-  (.getParent p))
+  (.getParent (checked p)))
 
 (defn exists? [^Path p]
-  (Files/exists p no-link-options))
+  (Files/exists (checked p) no-link-options))
 
 (defn create-dirs!
   "Create the folder `dir` and each missing folder above it.
 
   Do nothing when `dir` exists. Throw with the reason when a folder cannot be made."
   ^Path [^Path dir]
-  (Files/createDirectories dir (make-array FileAttribute 0)))
+  (Files/createDirectories (checked dir) (make-array FileAttribute 0)))
 
 (defn relative-path
-  "Give `target` relative to `base` when `target` is under `base`, else `target` unchanged.
+  "Give `target` relative to `base`, as `Path.relativize` does, such as `../other/a.cljs` for a `target` outside `base`.
 
-  Both are made absolute first, so a relative `target` is compared from the working directory of its file system."
+  Both are made absolute first, so a relative `target` is compared from the working directory of its file system.
+  Throw when `target` is `base`, because the result is then the empty path."
   ^Path [^Path base ^Path target]
-  (let [base-path (absolute base)
-        target-path (absolute target)]
-    (if (.startsWith target-path base-path)
-      (.relativize base-path target-path)
-      target)))
+  (let [relative (.relativize (absolute base) (absolute target))]
+    (if (= "" (.toString relative))
+      (throw (IllegalArgumentException. "The target is the base"))
+      relative)))
 
 (defn delete-if-exists!
   "Delete the file or empty folder `p`, and give true when it was there."
   [^Path p]
-  (Files/deleteIfExists p))
+  (Files/deleteIfExists (checked p)))
 
 (defn move-over!
   "Move `source` onto `target`, and replace the file at `target`.
@@ -86,6 +89,8 @@
   The move is atomic when the file system can do it, so a reader never sees half of `target`.
   When it cannot, the move is a plain replace."
   ^Path [^Path source ^Path target]
+  (checked source)
+  (checked target)
   (try
     (Files/move source target (into-array CopyOption [StandardCopyOption/ATOMIC_MOVE]))
     (catch AtomicMoveNotSupportedException _
@@ -114,7 +119,7 @@
   The walk does not follow a link, so a link to a folder goes, and that folder stays.
   Throw on nil and on the empty path, which NIO reads as the working directory."
   [^Path p]
-  (when (exists? (non-empty p))
+  (when (exists? p)
     (Files/walkFileTree p (deleting-visitor))
     nil))
 
@@ -188,7 +193,7 @@
   groups declare rather than a constant. `skipped-dirs` names what the walk does not enter.
   A link to a folder is followed."
   [^Path root extensions]
-  (->> (walk-files root)
+  (->> (walk-files (checked root))
        (filter (fn [^Path p] (Files/isRegularFile p no-link-options)))
        (filterv #(source-file? (str %) extensions))))
 
@@ -221,7 +226,7 @@
   (.getAbsolutePath (File. path)))
 
 (defn absolute-path? [^String path]
-  (boolean (some-> (default-path path) absolute?)))
+  (.isAbsolute (File. path)))
 
 (defn parent-dir
   "Path of `path`'s parent directory, or nil when there is none."
@@ -234,9 +239,10 @@
 (defn mkdirs
   "Create `dir` and any missing intermediate directories, and give true when it made `dir`.
 
-  Give false when `dir` exists, when it cannot make `dir`, or when `dir` names no file."
+  Give false when `dir` exists, when it cannot make `dir`, or when `dir` names no file, such as the empty string."
   [^String dir]
-  (.mkdirs (File. dir)))
+  (and (not= "" dir)
+       (.mkdirs (File. dir))))
 
 (defn join-path
   "Combine `base` and `leaf` into a single path with the OS separator, as `java.io` does.
@@ -248,8 +254,8 @@
 (defn relativize
   "Return `target` as a path relative to `base`.
 
-  Fall back to the text of `target` when it is not under `base`, or when either names no file.
-  An empty `base` stands for the working directory, as in `java.io`."
+  Fall back to the text of `target` when it is not under `base`, or when the file system does not accept either.
+  An empty string stands for the working directory, as in `java.io`."
   [^String base ^String target]
   (try
     (let [base-path (-> base File. .getAbsoluteFile .toPath)
@@ -266,9 +272,11 @@
 (defn delete-file!
   "Delete the file or empty folder `path`, and give true when it was removed.
 
-  Give false when `path` is missing, names no file, or cannot be deleted. It does not throw."
+  Give false when `path` is missing, names no file, such as the empty string, or cannot be deleted.
+  Throw only on nil."
   [^String path]
-  (.delete (File. path)))
+  (and (not= "" path)
+       (.delete (File. path))))
 
 (defn move-replace!
   "Move `source` onto `target`, replacing any file already there.

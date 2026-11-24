@@ -110,18 +110,23 @@
 
 (deftest resolve-path-test
   (with-open [jimfs (unix-fs)]
-    (is (= "/work/src/a.cljs" (str (fs/resolve-path (fs/path jimfs "/work/src") "a.cljs"))))))
+    (is (= "/work/src/a.cljs" (str (fs/resolve-path (fs/path jimfs "/work/src") "a.cljs"))))
+    (is (= "/abs" (str (fs/resolve-path (fs/path jimfs "/work/src") "/abs")))
+        "absolute leaf replaces base, as in NIO")))
 
 (deftest path-throws-on-empty-path
   (with-open [jimfs (unix-fs)]
     (is (thrown? IllegalArgumentException (fs/path jimfs "")))
     (is (thrown? IllegalArgumentException (fs/path jimfs "" "")))))
 
+(defn- empty-path ^Path [^FileSystem file-system]
+  (.getPath file-system "" (make-array String 0)))
+
 (deftest delete-recursively-throws-on-empty-path
   (with-open [jimfs (unix-fs)]
     (let [work (fs/path jimfs "/work")]
-      (write! (fs/path jimfs "/work/a.txt") "x")
-      (is (thrown? IllegalArgumentException (fs/delete-recursively! (fs/relative-path work work))))
+      (write! (fs/resolve-path work "a.txt") "x")
+      (is (thrown? IllegalArgumentException (fs/delete-recursively! (empty-path jimfs))))
       (is (fs/exists? (fs/path jimfs "/work/a.txt"))
           "working directory keeps its files"))))
 
@@ -162,9 +167,10 @@
       (is (= "x/a.cljs" (str (fs/relative-path base (fs/path jimfs "/work/src/x/a.cljs")))))
       (is (= "x/a.cljs" (str (fs/relative-path base (fs/path jimfs "src/x/a.cljs"))))
           "relative target is compared from working directory")
-      (let [outside (fs/path jimfs "/other/a.cljs")]
-        (is (identical? outside (fs/relative-path base outside))
-            "target outside base comes back unchanged")))))
+      (is (= "../../other/a.cljs" (str (fs/relative-path base (fs/path jimfs "/other/a.cljs"))))
+          "target outside base gives path up from base")
+      (is (thrown-with-msg? IllegalArgumentException #"target is the base" (fs/relative-path base base))
+          "target that is base throws, since result is empty path"))))
 
 (deftest delete-if-exists-test
   (with-open [jimfs (unix-fs)]
@@ -280,30 +286,34 @@
       (is (thrown? AccessDeniedException
                    (fs/delete-recursively! (fs/path (FileSystems/getDefault) root)))))))
 
-(deftest path-functions-throw-on-nil
+(deftest path-functions-throw-on-nil-and-empty-path
   (with-open [jimfs (unix-fs)]
     (let [p (fs/path jimfs "/work/a")
           q (fs/path jimfs "/work/b")]
       (write! p "x")
-      (doseq [[label f] [["path without file system" #(fs/path nil "src")]
-                         ["path without first part" #(fs/path jimfs nil)]
-                         ["resolve-path without base" #(fs/resolve-path nil "a")]
-                         ["resolve-path without leaf" #(fs/resolve-path p nil)]
-                         ["absolute" #(fs/absolute nil)]
-                         ["absolute?" #(fs/absolute? nil)]
-                         ["parent" #(fs/parent nil)]
-                         ["exists?" #(fs/exists? nil)]
-                         ["create-dirs!" #(fs/create-dirs! nil)]
-                         ["relative-path without base" #(fs/relative-path nil p)]
-                         ["relative-path without target" #(fs/relative-path p nil)]
-                         ["delete-if-exists!" #(fs/delete-if-exists! nil)]
-                         ["move-over! without source" #(fs/move-over! nil q)]
-                         ["move-over! without target" #(fs/move-over! p nil)]
-                         ["delete-recursively!" #(fs/delete-recursively! nil)]
-                         ["source-paths" #(fs/source-paths nil extensions)]
-                         ["missing-paths with nil path" #(fs/missing-paths [nil])]]]
-        (is (thrown? NullPointerException (f))
-            label)))))
+      (is (thrown? NullPointerException (fs/path nil "src")))
+      (is (thrown? NullPointerException (fs/path jimfs nil)))
+      (is (thrown? NullPointerException (fs/resolve-path p nil)))
+      (doseq [[label f] [["resolve-path" #(fs/resolve-path % "a")]
+                         ["absolute" fs/absolute]
+                         ["absolute?" fs/absolute?]
+                         ["parent" fs/parent]
+                         ["exists?" fs/exists?]
+                         ["create-dirs!" fs/create-dirs!]
+                         ["relative-path base" #(fs/relative-path % p)]
+                         ["relative-path target" #(fs/relative-path p %)]
+                         ["delete-if-exists!" fs/delete-if-exists!]
+                         ["move-over! source" #(fs/move-over! % q)]
+                         ["move-over! target" #(fs/move-over! p %)]
+                         ["delete-recursively!" fs/delete-recursively!]
+                         ["source-paths" #(fs/source-paths % extensions)]
+                         ["missing-paths" #(fs/missing-paths [%])]]]
+        (is (thrown? NullPointerException (f nil))
+            (str label " on nil"))
+        (is (thrown? IllegalArgumentException (f (empty-path jimfs)))
+            (str label " on empty path")))
+      (is (fs/exists? p)
+          "file stays after failed calls"))))
 
 (defn- warnings-for-failing-folder
   "Run `source-paths` on a Jimfs tree where reading `/work/src/bad` throws `exception`, and give the paths and stderr."
@@ -450,7 +460,7 @@
     (is (empty? @calls)
         "no file operation runs on working directory")))
 
-(deftest string-adapters-read-invalid-path-as-no-file
+(deftest string-adapters-keep-results-for-nul-path
   (let [calls (atom [])
         record (fn [& args] (swap! calls conj args) nil)]
     (with-redefs [fs/delete-recursively! record

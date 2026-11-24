@@ -203,23 +203,28 @@ Each step is one pull request, and each one ships on its own.
    The `Path` functions give the results of NIO, with one added rule: they refuse nil and the empty path. Keep each
    string function as an adapter that gives the same result as `java.io` gave. An adapter that `java.io.File` matches
    most simply uses it, because step 4 removes the adapters.
-   - The `Path` functions refuse nil and the empty path. NIO reads the empty path as the working directory. `path`
-     throws `IllegalArgumentException` when its parts make the empty path, and `delete-recursively!` throws on the empty
-     path. Each `Path` function throws `NullPointerException` on nil.
-   - `resolve-path` gives the result of `Path.resolve`: an absolute leaf replaces the base. `relative-path` gives the
-     target unchanged when the target is not under the base.
+   - The `Path` functions refuse nil and the empty path. NIO reads the empty path as the working directory. Each public
+     `Path` function throws `NullPointerException` on a nil `Path` argument, and `IllegalArgumentException` on an empty
+     `Path` argument. `path` and `resolve-path` also throw `IllegalArgumentException` when their result is the empty
+     path.
+   - `resolve-path` gives the result of `Path.resolve`: an absolute leaf replaces the base.
+   - `relative-path` gives the result of `Path.relativize` on the two absolute paths. A target outside the base gives a
+     path up from the base, such as `../other/a.cljs`. A target that is the base throws `IllegalArgumentException`,
+     because the result is the empty path. Only the adapter `relativize` falls back to the text of the target.
    - The adapters keep the results of `java.io` for the empty string. `file-exists?`, `absolute-path?`, `mkdirs` and
      `delete-file!` give `false`, `parent-dir` gives nil, `delete-tree!` does nothing, `list-source-files` gives `[]`,
      `missing-dirs` reports it, and `move-replace!` throws `NoSuchFileException`. `absolute-path` gives the working
-     directory, `relativize` reads an empty base as the working directory, and `(join-path "" "x")` gives `/x`.
+     directory, `relativize` reads an empty base as the working directory, and `(join-path "" "x")` gives `/x`. `mkdirs`
+     and `delete-file!` check for the empty string themselves, because from JDK 24, `java.io.File` reads the empty path
+     as the working directory too.
    - `(join-path "src" "/abs")` gives `src/abs`, as in `java.io`. `join-path` throws on a nil `base`.
    - NIO throws `InvalidPathException` on a string that `java.io` accepts, such as one with a NUL character. In the
-     adapters, such a string names no file. A check gives `false`, a create or a delete does nothing and gives `false`
-     or nil, a listing gives `[]`, `missing-dirs` reports it, and `move-replace!` throws `NoSuchFileException`. The
-     adapters that give a path text give the text of `java.io`: `absolute-path`, `parent-dir` and `join-path`.
-     `relativize` gives back the text of the target.
+     adapters, such a string names no file. `file-exists?` gives `false`, a create or a delete does nothing and gives
+     `false` or nil, a listing gives `[]`, `missing-dirs` reports it, and `move-replace!` throws `NoSuchFileException`.
+     The adapters that give a path text, and `absolute-path?`, give the result of `java.io`: `absolute-path`,
+     `parent-dir` and `join-path`. `relativize` gives back the text of the target.
    - `mkdirs` gives `true` when it made the folder, and `false` when it did not, as in `java.io`. `delete-file!` gives
-     `false` and does not throw when it cannot delete, as in `java.io`.
+     `false` and does not throw when it cannot delete, as in `java.io`. It throws only on nil.
    - `delete-tree!` does not follow a link to a folder. It deletes the link, and the folder behind it stays. `java.io`
      deleted the files behind the link. This change is intended, because a delete must stay in its tree.
    - The warning for an unreadable directory names the class of the exception, and its reason when the reason is not
@@ -243,6 +248,8 @@ Each step is one pull request, and each one ships on its own.
    - An empty base: `java.io` joins a leaf under the root, and NIO reads the empty path as the working directory. `path`
      throws on it.
    - An absolute leaf: `java.io` puts it under the base, and `resolve-path` gives the leaf.
+   - A target outside the base: `relativize` gives the text of the target, and `relative-path` gives a path up from the
+     base. A target that is the base: `relativize` gives the empty string, and `relative-path` throws.
    - `mkdirs` on an existing file: `java.io` gives `false`, and `create-dirs!` throws.
    - A failed delete in the `finally` of `write-baseline`: `delete-file!` gives `false`, and `delete-if-exists!` throws.
      A throw there hides the first error.
