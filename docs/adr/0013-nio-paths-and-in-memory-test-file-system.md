@@ -186,19 +186,23 @@ output as `main`. Steps 2 to 4 make the others pass.
 - `clojure -M:test` passes, and each test of `fs_test` that needs no real disk runs on Jimfs.
 - A test shows that each public function of `fs` throws on a nil path.
 - `clojure -M:clj-kondo --lint src test dev build.clj` gives no warning. The `:discouraged-var` linter of
-  `.clj-kondo/config.edn` finds each use of `slurp`, `spit` and the `clojure.java.io` vars `file`, `as-file`, `reader`,
-  `writer`, `input-stream`, `output-stream`, `make-parents`, `delete-file` and `copy`. clj-kondo resolves the var, so it
-  finds each spelling: the full name such as `clojure.java.io/file`, any alias, and a `:refer`, in a call or as a value.
-  It does not apply to the namespaces that must keep `java.io`: `cljs-patrol.dev.*`, each `*-test` namespace, the test
-  helpers `cljs-patrol.disk`, `cljs-patrol.memory-fs`, `cljs-patrol.temp-dir` and `cljs-patrol.temp-project`, and, for
+  `.clj-kondo/config.edn` finds each use of `slurp`, `spit`, `load-file` and the `clojure.java.io` vars `file`,
+  `as-file`, `reader`, `writer`, `input-stream`, `output-stream`, `make-reader`, `make-writer`, `make-input-stream`,
+  `make-output-stream`, `make-parents`, `delete-file` and `copy`. clj-kondo resolves the var, so it finds each spelling:
+  the full name such as `clojure.java.io/file`, any alias, and a `:refer`, in a call or as a value. It does not apply to
+  the namespaces that must keep `java.io`: `cljs-patrol.dev.*`, each `cljs-patrol.*-test` namespace, the test helpers
+  `cljs-patrol.disk`, `cljs-patrol.memory-fs`, `cljs-patrol.temp-dir` and `cljs-patrol.temp-project`, and, for
   `io/file`, `io/make-parents` and `spit` only, `build`. In `src/`, only the `slurp` of a classpath resource in `group`,
   `groups.css-order.orders` and `reporters.html` has an ignore, on that one form.
 - The step "No java.io file access in src" of `.github/workflows/test.yml` passes. It runs
   `clojure -M:clj-kondo:java-io-check src`, which lints `src/` with the clj-kondo API and reads its analysis
   (`:java-class-usages` and `:instance-invocations`). It fails on each use of `java.io.File`, or of a `java.io` class
-  whose name starts with `File`, such as `FileReader` or `FileInputStream`: in an import of any shape, a full class
-  name, a constructor, a static call or a type hint. It also fails on each `.toFile` call. It prints each hit as
-  `file:line:column`. The `:discouraged-var` linter cannot find this Java interop.
+  whose name starts with `File`, such as `FileReader` or `FileInputStream`, or of `java.io.RandomAccessFile`: in an
+  import of any shape, a full class name, a constructor, a static call or a type hint. It also fails on each `.toFile`
+  call. It prints each hit as `file:line:column`. It also fails when clj-kondo gives an error, such as for a missing
+  path or a file it cannot read, and when it lints no file. The `:discouraged-var` linter cannot find this Java interop.
+  Known gaps: the analysis of clj-kondo 2026.08.04 has no entry for `(memfn toFile)` or for an array type hint such as
+  `^"[Ljava.io.File;"`, so the check does not find them.
 - `clojure -T:build uber` passes, and `unzip -l target/cljs-patrol-dev.jar | grep -ci jimfs` prints `0`.
 - The `native-verify` job passes.
 - On `test-projects/a11y-app`, `--baseline-write src` on `main` and on the branch give files that differ only in

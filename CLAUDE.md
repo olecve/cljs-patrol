@@ -219,6 +219,7 @@ and the `cljs-patrol.dev.mutate.*-test` ones. `fixtures.clj` holds the helpers t
 
 ```bash
 clojure -M:clj-kondo --lint src test dev build.clj
+clojure -M:clj-kondo:java-io-check src     # no java.io file access in src/ (ADR 0013)
 ```
 
 `test-projects/` is not linted: those fixtures are malformed on purpose.

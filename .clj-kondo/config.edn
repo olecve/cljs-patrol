@@ -2,7 +2,7 @@
 {;; Code that must keep java.io, by namespace name: the mutation runner and its tests need git and the real disk, and
  ;; the tests and their helpers make fixture files on the real disk.
  :ns-groups [{:pattern "^cljs-patrol\\.dev\\." :name java-io-allowed}
-             {:pattern "-test$" :name java-io-allowed}
+             {:pattern "^cljs-patrol\\..*-test$" :name java-io-allowed}
              {:pattern "^cljs-patrol\\.(disk|memory-fs|temp-dir|temp-project)$" :name java-io-allowed}]
 
  :config-in-ns
@@ -13,7 +13,11 @@
                                                clojure.java.io/delete-file {:level :off}
                                                clojure.java.io/file {:level :off}
                                                clojure.java.io/input-stream {:level :off}
+                                               clojure.java.io/make-input-stream {:level :off}
+                                               clojure.java.io/make-output-stream {:level :off}
                                                clojure.java.io/make-parents {:level :off}
+                                               clojure.java.io/make-reader {:level :off}
+                                               clojure.java.io/make-writer {:level :off}
                                                clojure.java.io/output-stream {:level :off}
                                                clojure.java.io/reader {:level :off}
                                                clojure.java.io/writer {:level :off}}}}
@@ -72,14 +76,19 @@
 
   ;; ADR 0013: files are read and written through `java.nio.file.Path`.
   :discouraged-var
-  {clojure.core/slurp {:message "Use fs/read-text with a Path. Only a classpath resource is read with slurp."}
+  {clojure.core/load-file {:message "Load code from the classpath with require."}
+   clojure.core/slurp {:message "Use fs/read-text with a Path. Only a classpath resource is read with slurp."}
    clojure.core/spit {:message "Use fs/text-writer with a Path."}
-   clojure.java.io/as-file {:message "Use fs/path. java.io.File reads a nil parent as the working directory."}
+   clojure.java.io/as-file {:message "Use fs/path."}
    clojure.java.io/copy {:message "Use Files/copy with Path values."}
    clojure.java.io/delete-file {:message "Use fs/delete-if-exists! with a Path."}
    clojure.java.io/file {:message "Use fs/path. java.io.File reads a nil parent as the working directory."}
    clojure.java.io/input-stream {:message "Use Files/newInputStream with a Path."}
+   clojure.java.io/make-input-stream {:message "Use Files/newInputStream with a Path."}
+   clojure.java.io/make-output-stream {:message "Use Files/newOutputStream with a Path."}
    clojure.java.io/make-parents {:message "Use fs/create-dirs! on the fs/parent of the Path."}
+   clojure.java.io/make-reader {:message "Use fs/read-text with a Path."}
+   clojure.java.io/make-writer {:message "Use fs/text-writer with a Path."}
    clojure.java.io/output-stream {:message "Use Files/newOutputStream with a Path."}
    clojure.java.io/reader {:message "Use fs/read-text with a Path."}
    clojure.java.io/writer {:message "Use fs/text-writer with a Path."}}}}
