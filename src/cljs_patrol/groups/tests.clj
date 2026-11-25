@@ -154,6 +154,12 @@
          (boolean (some #(= wanted (take (count wanted) %))
                         (take-while seq (iterate rest actual)))))))
 
+(defn normalize-paths [paths]
+  (cond
+    (string? paths) [paths]
+    (coll? paths) (vec paths)
+    :else []))
+
 (defn test-file?
   "True when the file holds test code.
 
@@ -820,10 +826,6 @@
   ([] (make-group nil false))
   ([config] (make-group config false))
   ([{:keys [paths]} clj?]
-   (->TestsGroup (cond
-                   (string? paths) [paths]
-                   (coll? paths) (vec paths)
-                   :else [])
-                 (group/extensions-for clj?))))
+   (->TestsGroup (normalize-paths paths) (group/extensions-for clj?))))
 
 (def group (make-group))

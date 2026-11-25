@@ -87,6 +87,36 @@
   (is (= 1 (count (run config nil {"app.cljc" "(ns app) \"#fff\""}))))
   (is (= 1 (count (run config nil {"app.cljs" "\"#fff\""})))))
 
+(deftest single-test-path-matches-whole-segments
+  (is (= ["#123"]
+         (mapv :literal
+               (run config "test"
+                    {"test/app.cljs" "(ns app.spec) \"#fff\""
+                     "src/t/app.cljs" "(ns app.t) \"#123\""})))))
+
+(deftest quoted-definitions-do-not-supply-token-hints
+  (is (= ["Use app.tokens/white."]
+         (mapv :hint
+               (run config nil
+                    {"tokens.cljs" (str "(ns app.tokens) (def white \"#fff\") "
+                                        "(def example '(def literal \"#fff\")) "
+                                        "(def other (quote (def explicit \"#fff\"))) "
+                                        "(def template `(def syntax \"#fff\")) "
+                                        "(def nested-template `[`[~(def nested \"#fff\")]])")
+                     "app.cljs" "(ns app) \"#fff\""})))))
+
+(deftest unquoted-definitions-supply-token-hints
+  (is (= ["Use app.tokens/black, app.tokens/gray, app.tokens/ink, app.tokens/paper, app.tokens/white."]
+         (mapv :hint
+               (run config nil
+                    {"tokens.cljs" (str "(ns app.tokens) "
+                                        "`[~(def white \"#fff\") ~@(do (def gray \"#fff\") []) "
+                                        "'~(def black \"#fff\") "
+                                        "(#_old clojure.core/unquote (def ink \"#fff\")) "
+                                        "(clojure.core/unquote-splicing (do (def paper \"#fff\") [])) "
+                                        "(example/unquote (def phantom \"#fff\"))]")
+                     "app.cljs" "(ns app) \"#fff\""})))))
+
 (deftest token-hints
   (let [files {"tokens.cljs" (str "(ns app.tokens) (def white \"#FFFFFF\") (def snow \"#fff\") "
                                   "(def alpha \"#abcd\") (def themed \"var(--example-accent)\") "

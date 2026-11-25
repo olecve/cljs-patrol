@@ -94,6 +94,23 @@
           (parser/sym-name id)
           (when (parser/kw-node? id) (parser/raw id)))))))
 
+(defn- quoted-definition? [loc]
+  (let [ancestors (->> (iterate z/up (z/up loc))
+                       (take-while some?)
+                       reverse)]
+    (loop [[parent & remaining] ancestors
+           syntax-depth 0]
+      (let [tag (z/tag parent)
+            head (when (= :list tag) (some-> parent effective-children first parser/raw))]
+        (cond
+          (nil? parent) (pos? syntax-depth)
+          (= :syntax-quote tag) (recur remaining (inc syntax-depth))
+          (or (contains? #{:unquote :unquote-splicing} tag)
+              (contains? #{"clojure.core/unquote" "clojure.core/unquote-splicing"} head))
+          (or (zero? syntax-depth) (recur remaining (dec syntax-depth)))
+          (and (zero? syntax-depth) (or (= :quote tag) (= "quote" head))) true
+          :else (recur remaining syntax-depth))))))
+
 (defn- handle-file [allowed paths loc ns-info file]
   (when-not (tests/test-file? paths ns-info file)
     (let [forms (take-while some? (iterate z/right loc))
@@ -106,7 +123,7 @@
                          :when (and (= "def" (list-head definition)) (re-matches exact-hex value))
                          :let [[_ id & values] (effective-children definition)
                                token-name (parser/sym-name id)]
-                         :when (and token-name (= value-loc (last values)))]
+                         :when (and token-name (= value-loc (last values)) (not (quoted-definition? definition)))]
                      {:type :color-token
                       :value (normalize-hex value)
                       :token (symbol (:ns-name ns-info) token-name)}))
@@ -166,4 +183,4 @@
                       (every? simple-symbol? (:allowed-namespaces config))))
      (throw (ex-info (str ":colors :allowed-namespaces must be a set of namespace symbols, got " (pr-str config))
                      {:colors config})))
-   (->ColorsGroup (:allowed-namespaces config) paths)))
+   (->ColorsGroup (:allowed-namespaces config) (tests/normalize-paths paths))))
