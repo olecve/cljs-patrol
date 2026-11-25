@@ -41,6 +41,23 @@ jobs:
       - run: npm ci
       - run: npm run format:check
 
+      - name: No private names in the backlog
+        # backlog/ is public. The secret holds a case-insensitive regex of names that must stay in the private
+        # backlog. The step prints only file:line, so the names do not reach the public log.
+        env:
+          FORBIDDEN: ${{ secrets.BACKLOG_FORBIDDEN_PATTERN }}
+        run: |
+          if [ -z "$FORBIDDEN" ]; then
+            echo "BACKLOG_FORBIDDEN_PATTERN is not set, so the backlog is not checked."
+            exit 0
+          fi
+          hits=$(grep -rniE -- "$FORBIDDEN" backlog/ | cut -d: -f1,2 || true)
+          if [ -n "$hits" ]; then
+            echo "Private names in backlog/ at:"
+            echo "$hits"
+            exit 1
+          fi
+
       - run: clojure -M:cljfmt check src/ test/ dev/
       - run: clojure -M:clj-kondo-deps:clj-kondo --lint src test dev build.clj
 

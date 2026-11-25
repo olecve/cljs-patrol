@@ -2,7 +2,13 @@
 
 ## Status
 
-Proposed, 2026-11-25
+Accepted, 2026-11-25 (proposed 2026-11-25)
+
+## Outcome
+
+2026-11-25: [PR #185](https://github.com/olecve/cljs-patrol/pull/185) implements the opt-in rule. The test and native
+verification jobs pass. Reader conditionals used as form heads or names and some conditional docs are covered by a
+separate follow-up.
 
 ## Context
 
