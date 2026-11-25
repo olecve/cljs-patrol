@@ -1,0 +1,15 @@
+project_name: "cljs-patrol"
+default_status: "Idea"
+statuses: ["Idea", "Next", "Review", "Done"]
+labels: ["a11y", "colors", "core", "docs", "docstrings", "focus-ring", "forbid-props", "idioms", "layout", "mutation-runner", "react-testing-library-cljs", "reagent", "spade", "tests"]
+date_format: yyyy-mm-dd
+max_column_width: 80
+default_port: 6420
+bypass_git_hooks: false
+active_branch_days: 30
+auto_open_browser: false
+remote_operations: false
+auto_commit: false
+filesystem_only: true
+check_active_branches: false
+task_prefix: "cp"
