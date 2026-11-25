@@ -154,7 +154,7 @@
          (boolean (some #(= wanted (take (count wanted) %))
                         (take-while seq (iterate rest actual)))))))
 
-(defn- test-file?
+(defn test-file?
   "True when the file holds test code.
 
   Configured paths win when a project sets them: the directory a test lives in is a fact,

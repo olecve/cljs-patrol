@@ -53,6 +53,7 @@ Analysis is split into independent rule groups. By default all groups run.
   Hiccup, a fragment's `{}` that keeps nothing from being read as props, a fragment around a single element, and a `let`
   binding holding a component written inline
 - **[`typography`](docs/rules/typography.md)** — mixed Figma typography token groups in a single style
+- **[`colors`](docs/rules/colors.md)**: color literals outside configured token namespaces; off until configured.
 - **[`focus-ring`](docs/rules/focus-ring.md)** — focus rings in Spade styles that lose the forced-colors outline or skip
   the design system's preset; off until configured
 - **[`forbid-props`](docs/rules/forbid-props.md)** — props a codebase forbids on some elements or components, each with
@@ -205,6 +206,7 @@ Every setting can live in `.cljs-patrol/config.edn`, where it persists for the p
  :tests {:paths ["test"]}
  :layout {:split-map-after-symbol true}
  :idioms {:min-calls 3}
+ :colors {:allowed-namespaces #{my.ui.styles.tokens}}
  :focus-ring {:approved-shadows #{my.ui.styles.focus-rings/primary-shadow}}
  :forbid-props [{:prop :aria-disabled
                  :disallowed-for #{:button my.ui/button}
@@ -218,7 +220,8 @@ A CLI flag overrides the matching setting. See [Severity tiers](docs/severity.md
 [Label components](docs/rules/a11y.md#label-components) and [Label styles](docs/rules/a11y.md#label-styles) for `:a11y`,
 [Test id elements](docs/rules/react-testing-library-cljs.md#test-id-elements) for `:react-testing-library-cljs`,
 [Test paths](docs/rules/tests.md#test-paths) for `:tests`, [Layout options](docs/rules/layout.md#layout-options) for
-`:layout`, [Focus ring options](docs/rules/focus-ring.md#focus-ring-options) for `:focus-ring`,
+`:layout`, [Colors options](docs/rules/colors.md#colors-options) for `:colors`,
+[Focus ring options](docs/rules/focus-ring.md#focus-ring-options) for `:focus-ring`,
 [Forbid props options](docs/rules/forbid-props.md#forbid-props-options) for `:forbid-props`,
 [Idioms options](docs/rules/idioms.md#idioms-options) for `:idioms`, and
 [Reading .clj files](docs/rules.md#experimental-reading-clj-files) for `:experimental-clj`. A flag written
