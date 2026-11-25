@@ -130,10 +130,16 @@
 (deftest native-tabindex-tag-shapes
   (let [markup ["[#_:span :button {:tabIndex 0}]"
                 "[:div>button {:tabIndex 0}]"
-                "[:div.wrapper>span>button.action {:tabindex 0}]"]]
+                "[:div.wrapper>span>button.action {:tabindex 0}]"
+                "[\"button\" {:tabindex 0}]"]]
+    (is (= ["[:image {:tabindex 0}]"]
+           (vector-findings :prefer-tab-index ["[:svg [:g [:image {:tabindex 0}]]]"])))
     (is (= markup (vector-findings :prefer-tab-index markup))))
   (is (empty? (vector-findings :prefer-tab-index
                                ["(rf/dispatch [:input {:tabIndex 0}])"
+                                "(rf/dispatch #?(:cljs [:input {:tabIndex 0}]))"
+                                "(rf/dispatch ^:example [:input {:tabIndex 0}])"
+                                "[:image {:tabindex 0}]"
                                 "{:fx [[:dispatch [:input {:tabIndex 0}]]]}"
                                 "(quote [:button {:tabIndex 0}])"
                                 "[::x>button {:tabIndex 0}]"

@@ -611,7 +611,11 @@
 (defn- native-props-tag
   "Read the tag that receives the props, which is the last tag in a Reagent tag chain."
   [loc]
-  (let [raw (some->> loc parser/written-child-locs first parser/raw)]
+  (let [head (first (parser/written-child-locs loc))
+        text (some-> head parser/raw)
+        raw (if (and text (str/starts-with? text "\""))
+              (str ":" (z/sexpr head))
+              text)]
     (when-let [tag (hiccup/parse-tag raw)]
       (if (str/includes? raw ">")
         (let [tags (str/split (subs raw 1) #">" -1)]
@@ -619,9 +623,14 @@
             (hiccup/parse-tag (str ":" (last tags)))))
         tag))))
 
+(defn- svg-child-tag? [loc tag]
+  (and (contains? #{:desc :filter :image :set} tag)
+       (some #(and (= :vector (z/tag %)) (= :svg (native-props-tag %)))
+             (take-while some? (iterate z/up (z/up loc))))))
+
 (defn- tabindex-spelling-finding [loc file]
   (let [tag (native-props-tag loc)]
-    (when (hiccup/html-tag? tag)
+    (when (or (hiccup/html-tag? tag) (svg-child-tag? loc tag))
       (let [{:keys [attrs]} (hiccup/attrs-info loc)]
         (when (and (some #(contains? attrs %) [:tabIndex :tabindex])
                    (not (hiccup/re-frame-vector? loc))

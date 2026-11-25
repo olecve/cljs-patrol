@@ -132,14 +132,10 @@
   search has to carry on past the form rather than answer from its binding."
   #{"if-let" "if-some"})
 
-(def ^:private opaque-binding-heads
-  "Binding forms whose bound values we never read, but which still shadow.
-  Their binding vectors hold shapes a pairwise scan would misread — `for` clauses,
-  `letfn` fn specs, a `loop` name `recur` rebinds, the first element of a collection
-  `when-first` takes — so any mention of the symbol inside one ends the search
-  instead of letting an enclosing `let` answer for it."
-  #{"loop" "go-loop" "for" "doseq" "dotimes" "when-first" "letfn" "with-let"
-    "binding" "with-open" "with-redefs" "with-local-vars"})
+(def ^:private opaque-pair-binding-heads
+  "Forms with ordered binding pairs whose values are unknown to the props reader."
+  #{"loop" "loop*" "go-loop" "dotimes" "when-first" "with-let" "binding" "with-open" "with-redefs"
+    "with-local-vars"})
 
 (def ^:private parameter-binding-heads
   "Forms whose parameter vectors bind symbols for the body that follows.
@@ -176,19 +172,6 @@
     (when (and symbol-name (= symbol-name (parser/raw loc)))
       symbol-name)))
 
-(defn- mentions-symbol?
-  "True when symbol-name appears anywhere in the form loc holds.
-  symbol-name is known to be a bare symbol, and every other token prints with
-  something a symbol cannot start with — a colon, a quote, a digit — so comparing
-  raw source is the same test as reading the token, without building an sexpr for
-  every node of every binding vector we scan."
-  [loc symbol-name]
-  (loop [current (z/subzip loc)]
-    (cond
-      (z/end? current) false
-      (and (= :token (z/tag current)) (= symbol-name (parser/raw current))) true
-      :else (recur (z/next current)))))
-
 (defn- same-node? [a b]
   (boolean (and a b (identical? (z/node a) (z/node b)))))
 
@@ -203,13 +186,11 @@
                           (get parameter-list-offsets (some-> head parser/sym-name) 0))]
     (keep :params (heads/arities start))))
 
-(defn- binding-pairs [vector-loc]
-  (loop [form (z/down vector-loc)
-         pairs []]
-    (if (nil? form)
-      pairs
-      (let [init (z/right form)]
-        (recur (some-> init z/right) (conj pairs [form init]))))))
+(defn- binding-pairs [bindings]
+  (partition-all 2 (parser/written-child-locs bindings)))
+
+(defn- before-binding? [cut [form init]]
+  (not (or (same-node? form cut) (same-node? init cut))))
 
 (defn- bound-init
   "Return the init a let-style binding vector binds symbol-name to.
@@ -224,8 +205,28 @@
               (contains? (heads/binding-names (z/node form)) symbol-name) ::shadowed
               :else found))
           nil
-          (cond->> (binding-pairs bindings-loc)
-            cut (take-while (fn [[form init]] (not (or (same-node? form cut) (same-node? init cut))))))))
+          (take-while (partial before-binding? cut) (binding-pairs bindings-loc))))
+
+(defn- enclosing-child [loc parent]
+  (loop [child loc]
+    (when child
+      (if (same-node? parent (z/up child))
+        child
+        (recur (z/up child))))))
+
+(defn- comprehension-init [bindings symbol-name cut usage]
+  (let [[clauses [[modifier init]]] (split-with (partial before-binding? cut) (binding-pairs bindings))]
+    (or (when (and (same-node? init cut) (= ":let" (parser/raw modifier)))
+          (bound-init init symbol-name (enclosing-child usage init)))
+        (reduce (fn [found [form value]]
+                  (case (parser/raw form)
+                    ":let" (or (bound-init value symbol-name nil) found)
+                    (":when" ":while") found
+                    (if (contains? (heads/binding-names (z/node form)) symbol-name)
+                      ::shadowed
+                      found)))
+                nil
+                clauses))))
 
 (defn- fn-like-head?
   "True for a head that plausibly defines a function, and so binds a parameter list.
@@ -277,8 +278,10 @@
   [list-loc]
   (let [holder (z/up list-loc)]
     (and (some? (some-> list-loc z/down parser/sym-name))
-         (= :list (some-> holder z/tag))
-         (contains? method-holder-heads (some-> holder z/down parser/sym-name)))))
+         (or (and (= :list (some-> holder z/tag))
+                  (contains? method-holder-heads (some-> holder z/down parser/sym-name)))
+             (and (= :vector (some-> holder z/tag))
+                  (= "letfn" (some-> holder z/up z/down parser/sym-name)))))))
 
 (defn- in-scope-branch?
   "True when child is a branch the binding of a binding form reaches.
@@ -294,18 +297,27 @@
   `child` is that form's own child the usage descends from and `inner` the one below
   it: together they place a usage written inside the binding vector itself, where the
   bindings to its right are not in scope yet."
-  [list-loc child inner symbol-name]
+  [list-loc child inner usage symbol-name]
   (let [head (z/down list-loc)
         head-name (some-> head parser/sym-name)
         bindings (some-> head z/right)
-        binding-vector? (= :vector (some-> bindings z/tag))]
+        binding-vector? (= :vector (some-> bindings z/tag))
+        cut (when (same-node? child bindings) inner)]
     (cond
       (and binding-vector? (contains? map-binding-heads head-name))
       (when (in-scope-branch? head-name child bindings)
-        (bound-init bindings symbol-name (when (same-node? child bindings) inner)))
+        (bound-init bindings symbol-name cut))
 
-      (and binding-vector? (contains? opaque-binding-heads head-name))
-      (when (mentions-symbol? bindings symbol-name) ::shadowed)
+      (and binding-vector? (contains? #{"for" "doseq"} head-name))
+      (comprehension-init bindings symbol-name cut usage)
+
+      (and binding-vector? (contains? opaque-pair-binding-heads head-name))
+      (when (bound-init bindings symbol-name cut) ::shadowed)
+
+      (and binding-vector? (= "letfn" head-name))
+      (when (some #(= symbol-name (some-> % z/down unqualified-symbol-name))
+                  (parser/written-child-locs bindings))
+        ::shadowed)
 
       (contains? symbol-binding-heads head-name)
       (let [bound (skip-right bindings (get symbol-binding-heads head-name))]
@@ -340,7 +352,7 @@
          parent (z/up loc)]
     (when (some? parent)
       (let [found (when (= :list (z/tag parent))
-                    (binder-lookup parent child inner symbol-name))]
+                    (binder-lookup parent child inner loc symbol-name))]
         (if (some? found)
           found
           (recur child parent (z/up parent)))))))
@@ -393,7 +405,7 @@
 
 (defn- file-ns-info [loc]
   @@(parser/file-state ::file-ns-info
-                       (delay (or (parser/find-ns-info (first-top-level-form (file-root loc))) {}))))
+                       (delay (or (-> loc file-root first-top-level-form parser/find-ns-info) {}))))
 
 (def ^:private component-def-heads
   "Forms defining a component that renders the last form of its body."
@@ -896,12 +908,13 @@
   included, a vector after a `:dispatch`-like effect key, in an effect map or an fx tuple, or an
   item of one after `:dispatch-n`, and every fx tuple, `[:track {…}]` in `{:fx [[:track {…}]]}`."
   [loc]
-  (let [parent (z/up loc)
+  (let [site (heads/site loc)
+        parent (z/up site)
         tag (some-> parent z/tag)
         after-effect-key? #(contains? event-effect-keys (some-> % z/left parser/raw))]
     (case tag
       (:list :fn) (contains? re-frame-calls (parser/sym-name (z/down parent)))
-      (:map :vector) (or (after-effect-key? loc)
+      (:map :vector) (or (after-effect-key? site)
                          (and (= :vector tag)
                               (or (after-effect-key? parent)
                                   (= ":fx" (some-> parent z/left parser/raw)))))
