@@ -586,7 +586,9 @@
         (is (= 0 (:exit (run-main "--only" "colors" "--baseline-write" "--allow-new" src))))
         (is (= 0 (:exit (run-main "--only" "colors" "--baseline" src))))
         (disk/write! config-path "{:colors {:allowed-namespaces #{\"app.tokens\"}}}")
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #":colors :allowed-namespaces"
-                              (core/-main "--only" "colors" src))))
+        (with-redefs [core/exit! (fn [_ code] (throw (AssertionError. (str "Unexpected exit: " code))))]
+          (is (thrown-with-msg? AssertionError #"Unexpected exit: 0" (#'core/exit! nil 0)))
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #":colors :allowed-namespaces"
+                                (core/-main "--only" "colors" src)))))
       (finally
         (temp-dir/delete-dir! dir)))))
