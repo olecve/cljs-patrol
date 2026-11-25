@@ -83,9 +83,10 @@ The rule reads hex colors with 3, 4, 6, or 8 digits. A hex color must start the 
 It must end the string or precede a space, `)`, `,`, or `;`. The rule also reads `rgb(`, `rgba(`, `hsl(`, and `hsla(` in
 any case. Named colors pass. An anchor such as `"#add"` and a reference such as `"url(#beef)"` are reported.
 
-The hint reads exact hex values from `(def name "#hex")` forms in allowed namespaces within the source paths. It
-compares values in lower case and expands short hex values. Alpha stays significant. When several tokens match, the hint
-names all of them in sorted order. A token that holds `var(--...)` gives no hex match.
+The hint reads exact hex values from `(def name "#hex")` forms in allowed namespaces within the source paths. It uses
+the first matching ClojureScript or default branch of each reader conditional. It compares values in lower case and
+expands short hex values. Alpha stays significant. When several tokens match, the hint names all of them in sorted
+order. A token that holds `var(--...)` gives no hex match.
 
 Use `--baseline-write` to record current findings. Then use `--baseline` to block new literals. A baseline identity uses
 the file, top-level name, and literal text. Equal literals in one top-level form share an identity. A literal that must
