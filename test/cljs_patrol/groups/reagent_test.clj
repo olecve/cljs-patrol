@@ -117,6 +117,7 @@
   (is (empty? (vector-findings :prefer-tab-index
                                ["[:button {:tab-index -1} \"More\"]"
                                 "[:div opaque-props]"
+                                "(let [merge other] [:button (merge {:tabIndex 0})])"
                                 "[:<> {:tabIndex 0}]"
                                 "[menu-item {:tabIndex 0}]"
                                 "[:> MenuItem {:tabIndex 0}]"

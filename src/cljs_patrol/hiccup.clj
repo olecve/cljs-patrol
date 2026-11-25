@@ -383,6 +383,10 @@
     (z/down root)
     (z/leftmost root)))
 
+(defn- file-ns-info [loc]
+  @@(parser/file-state ::file-ns-info
+                       (delay (or (parser/find-ns-info (first-top-level-form (file-root loc))) {}))))
+
 (def ^:private component-def-heads
   "Forms defining a component that renders the last form of its body."
   #{'cljs.core/defn 'cljs.core/defn- 'reagent.core/defc 'rum.core/defc})
@@ -404,7 +408,7 @@
   The last definition of a name wins, the way it does at load time: a re-`def` rebinds the
   var, and a function body called afterwards sees the value that rebinding left."
   [first-form]
-  (let [ns-info @@(parser/file-state ::file-ns-info (delay (or (parser/find-ns-info first-form) {})))]
+  (let [ns-info (file-ns-info first-form)]
     (loop [form first-form
            definitions {}]
       (if (nil? form)
@@ -470,7 +474,7 @@
 
 (def ^:private attr-construction-heads
   "Calls that build a map from a base plus literal keys we can still read."
-  #{"assoc" "merge" "assoc-in"})
+  #{'cljs.core/assoc 'cljs.core/merge 'cljs.core/assoc-in})
 
 (declare construction-attrs)
 
@@ -511,7 +515,7 @@
 
   Handles `(assoc base :k v …)`, `(merge base {:k v} …)` and `(assoc-in base [:k] v)`,
   nesting through each other and through a symbol naming a map literal. Returns nil
-  when the call is not one of those.
+  when the call does not resolve to one of those core functions.
 
   `:complete?` is the whole point of the distinction: with an opaque base or a
   computed key the attrs are a floor, enough to answer that a key is present and
@@ -522,68 +526,66 @@
   them. `(assoc base :k v)` makes `:k` final, `(merge {:k v} base)` does not."
   [list-loc]
   (when (= :list (z/tag list-loc))
-    (when-let [head (z/down list-loc)]
-      (let [head-str (parser/raw head)]
-        (when (contains? attr-construction-heads head-str)
-          (let [args (rest (parser/written-child-locs list-loc))]
-            (case head-str
-              "merge"
-              (reduce (fn [acc arg]
-                        (let [{:keys [attrs complete? final]} (contributed arg)]
-                          {:attrs (merge (:attrs acc) attrs)
-                           :complete? (and (:complete? acc) complete?)
-                           :final (if complete?
-                                    (into (:final acc) final)
-                                    final)}))
-                      {:attrs {}
-                       :complete? true
-                       :final #{}}
-                      args)
+    (when-let [head (heads/resolve-head list-loc (file-ns-info list-loc) attr-construction-heads)]
+      (let [args (rest (parser/written-child-locs list-loc))]
+        (case (name head)
+          "merge"
+          (reduce (fn [acc arg]
+                    (let [{:keys [attrs complete? final]} (contributed arg)]
+                      {:attrs (merge (:attrs acc) attrs)
+                       :complete? (and (:complete? acc) complete?)
+                       :final (if complete?
+                                (into (:final acc) final)
+                                final)}))
+                  {:attrs {}
+                   :complete? true
+                   :final #{}}
+                  args)
 
-              "assoc"
-              (->> args
-                   rest
-                   (partition-all 2)
-                   (reduce (fn [acc [key-loc value-loc]]
-                             (cond
-                               (or (nil? value-loc) (splice-form? value-loc))
-                               (reduced (assoc acc
-                                               :complete? false
-                                               :final #{}))
+          "assoc"
+          (->> args
+               rest
+               (partition-all 2)
+               (reduce (fn [acc [key-loc value-loc]]
+                         (cond
+                           (or (nil? value-loc) (splice-form? value-loc))
+                           (reduced (assoc acc
+                                           :complete? false
+                                           :final #{}))
 
-                               (parser/kw-node? key-loc)
-                               (-> acc
-                                   (assoc-in [:attrs (z/sexpr key-loc)] value-loc)
-                                   (update :final conj (z/sexpr key-loc)))
+                           (parser/kw-node? key-loc)
+                           (-> acc
+                               (assoc-in [:attrs (z/sexpr key-loc)] value-loc)
+                               (update :final conj (z/sexpr key-loc)))
 
-                               :else
-                               (assoc acc
-                                      :complete? false
-                                      :final #{})))
-                           (contributed (first args))))
+                           :else
+                           (assoc acc
+                                  :complete? false
+                                  :final #{})))
+                       (contributed (first args))))
 
-              "assoc-in"
-              (let [[base path-loc value-loc] args
-                    path-keys (when (= :vector (some-> path-loc z/tag))
-                                (vec (parser/written-child-locs path-loc)))
-                    outer-key (first path-keys)
-                    readable-key? (and outer-key (parser/kw-node? outer-key))]
-                (cond-> (contributed base)
-                  ;; Only a one-key path states a value. A deeper one leaves the outer
-                  ;; key holding a map that was not read, and an entry whose value is
-                  ;; not the value is worse than no entry: rules read those values.
-                  (and readable-key? (not (next path-keys)))
-                  (-> (assoc-in [:attrs (z/sexpr outer-key)] value-loc)
-                      (update :final conj (z/sexpr outer-key)))
+          "assoc-in"
+          (let [[base path-loc value-loc] args
+                path-keys (when (= :vector (some-> path-loc z/tag))
+                            (vec (parser/written-child-locs path-loc)))
+                outer-key (first path-keys)
+                readable-key? (and outer-key (parser/kw-node? outer-key))]
+            (cond-> (contributed base)
+              ;; Only a one-key path states a value. A deeper one leaves the outer
+              ;; key holding a map that was not read, and an entry whose value is
+              ;; not the value is worse than no entry: rules read those values.
+              (and readable-key? (not (next path-keys)))
+              (-> (assoc-in [:attrs (z/sexpr outer-key)] value-loc)
+                  (update :final conj (z/sexpr outer-key)))
 
-                  (or (not readable-key?) (next path-keys))
-                  (assoc :complete? false)
+              (or (not readable-key?) (next path-keys))
+              (assoc :complete? false)
 
-                  (and readable-key? (next path-keys))
-                  (update :final disj (z/sexpr outer-key))
+              (and readable-key? (next path-keys))
+              (update :final disj (z/sexpr outer-key))
 
-                  (not readable-key?)
-                  (assoc :final #{}))))))))))
+              (not readable-key?)
+              (assoc :final #{}))))))))
 
 (defn attrs-info
   "Classify the second child of a Hiccup vector.

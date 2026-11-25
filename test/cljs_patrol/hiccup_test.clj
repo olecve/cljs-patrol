@@ -222,6 +222,25 @@
       (is (= :map (:kind info)))
       (is (nil? (:attrs info))))))
 
+(deftest attrs-info-resolves-map-builder
+  (testing "shadowed map builders leave the props opaque"
+    (doseq [source ["(let [merge other] [:img (merge {:alt \"cat\"})])"
+                    "(defn view [assoc] [:img (assoc {} :alt \"cat\")])"
+                    "(ns app.view (:require [app.props :refer [assoc-in]])) [:img (assoc-in {} [:alt] \"cat\")]"
+                    "(ns app.view) (defn merge [& _] {}) (defn view [] [:img (merge {:alt \"cat\"})])"
+                    "(ns app.view (:refer-clojure :exclude [merge])) [:img (merge {:alt \"cat\"})]"]]
+      (is (= :dynamic (:kind (img-attrs-info source))) source)))
+
+  (testing "a shadowed nested call contributes no keys"
+    (let [info (img-attrs-info "(let [merge other] [:img (assoc (merge {:tabIndex 0}) :alt \"cat\")])")]
+      (is (= :dynamic-map (:kind info)))
+      (is (= #{:alt} (set (keys (:attrs info)))))))
+
+  (testing "a qualified core call still reads when the bare name is shadowed"
+    (let [info (img-attrs-info "(let [merge other] [:img (cljs.core/merge {:alt \"cat\"})])")]
+      (is (= :map (:kind info)))
+      (is (= #{:alt} (set (keys (:attrs info))))))))
+
 (deftest attrs-info-construction-completeness-test
   (testing "a construction whose every part is readable states the whole map"
     (is (= :map (:kind (img-attrs-info "[:img (assoc {:class \"c\"} :alt \"cat\")]")))
