@@ -131,6 +131,27 @@
   [loc]
   (remove #(= :uneval (z/tag %)) (child-locs loc)))
 
+(defn reader-conditional-kind
+  "Return the marker of a written reader conditional, or nil."
+  [loc]
+  (when (= :reader-macro (z/tag loc))
+    (let [marker (some-> loc z/down raw)]
+      (when (contains? #{"?" "?@"} marker) marker))))
+
+(defn reader-conditional-branches
+  "Return a reader conditional's pairs of feature loc and branch loc in source order."
+  [loc]
+  (when (reader-conditional-kind loc)
+    (partition 2 (written-child-locs (some-> loc z/down z/right)))))
+
+(defn reader-conditional-branch
+  "Return the first branch selected by feature, including a preceding :default branch."
+  [loc feature]
+  (some (fn [[key branch]]
+          (let [name (raw key)]
+            (when (or (= name feature) (= name ":default")) branch)))
+        (reader-conditional-branches loc)))
+
 (defn right-siblings
   "Return the locs to the right of loc, loc itself excluded."
   [loc]

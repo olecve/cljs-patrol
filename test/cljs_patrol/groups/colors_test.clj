@@ -41,6 +41,28 @@
                   "(defn tint \"Color.\" {:private true} ([x] x) ([x y] y) {:doc \"#fff\"})"]]
     (is (empty? (run source)) source)))
 
+(deftest reader-conditional-documentation
+  (doseq [source ["(defn tint #?(:cljs \"#fff\" :clj \"#abc\") [x] x)"
+                  "(defn tint #?@(:cljs [\"#fff\"] :clj (\"#abc\")) [x] x)"
+                  "(defn tint #?@(:cljs #?(:cljs [\"#fff\"])) [x] x)"
+                  "(defn tint #?@(:cljs ^:example [\"#fff\"]) [x] x)"
+                  "(do (defn tint #?(:example \"#fff\" :cljs \"#abc\") [x] x))"
+                  "(defn tint {:doc #?(:cljs \"#fff\" :default \"#abc\")} [x] x)"
+                  "(defn tint #?(:cljs {:doc \"#fff\"}) [x] x)"
+                  "(defn tint ([x] x) #?(:cljs {:doc \"#fff\"}))"
+                  "(def ^{:doc #?(:cljs \"#fff\")} tint 1)"
+                  "(defprotocol Tint (tint [x] #?(:cljs \"#fff\" :clj \"#abc\")))"]]
+    (is (empty? (run config nil {"app.cljc" source})) source)))
+
+(deftest reader-conditional-code-literals
+  (doseq [source ["(def tint #?(:cljs \"#fff\" :clj nil))"
+                  "(def tint \"#fff\" #?(:clj nil))"
+                  "(defn tint [x] #?(:cljs {:doc \"#fff\"}))"
+                  "(defn tint [x] #?@(:cljs [\"#fff\"]))"
+                  "(def tint {:doc #?(:cljs \"#fff\")})"
+                  "(defn tint #?(:cljs {:doc \"#abc\" :example \"#fff\"}) [x] x)"]]
+    (is (= ["#fff"] (mapv :literal (run config nil {"app.cljc" source}))) source)))
+
 (deftest reader-conditional-baseline-identities
   (let [findings (run config nil
                       {"app.cljc" (str "(ns app) #?(:cljs (def first-color \"#fff\")) "
@@ -142,6 +164,21 @@
                     {"tokens.cljs" (str "(ns app.tokens) #_(def discarded \"#fff\") "
                                         "(comment (def example \"#fff\")) (def documented \"#fff\" 1)")
                      "app.cljs" "(ns app) \"#fff\""})))))
+
+(deftest reader-conditional-token-hints
+  (let [files {"tokens.cljc" (str "(ns app.tokens) "
+                                  "#?(:clj (def clj-only \"#fff\")) "
+                                  "#?(:clj (def shared \"#fff\") :cljs (def shared \"#abc\")) "
+                                  "(def tint #?(:clj \"#fff\" :cljs \"#123\")) "
+                                  "(do #?@(:clj [(def absent \"#fff\")] :cljs [(def spliced \"#456\")])) "
+                                  "#?(:default (def first-match \"#789\") :cljs (def unreachable \"#fff\")) "
+                                  "#?(:cljs (def cljs-first \"#def\") :default (def late-default \"#fff\")) "
+                                  "#?(:cljs #?(:clj (def nested-clj \"#fff\") :cljs (def nested \"#999\"))) ")
+               "app.cljs" "(ns app) [\"#fff\" \"#abc\" \"#123\" \"#456\" \"#789\" \"#def\" \"#999\"]"}]
+    (is (= ["Use a token from app.tokens." "Use app.tokens/shared." "Use app.tokens/tint."
+            "Use app.tokens/spliced." "Use app.tokens/first-match." "Use app.tokens/cljs-first."
+            "Use app.tokens/nested."]
+           (mapv :hint (run config nil files))))))
 
 (deftest config-validation
   (is (empty? (run nil nil {"app.cljs" "\"#fff\""})))
