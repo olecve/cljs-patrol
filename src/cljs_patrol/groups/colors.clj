@@ -142,19 +142,27 @@
     (string-value loc) [loc]
     :else (mapcat strings (parser/written-child-locs loc))))
 
-(defn- form-features [form]
+(defn- documentation-features [loc]
   (let [custom (into #{}
                      (comp (mapcat parser/reader-conditional-branches)
                            (map (comp parser/raw first))
                            (remove #{":clj" ":cljs" ":default"}))
-                     (tree-seq some? parser/written-child-locs form))
-        feature-count (count custom)
-        combinations (cond-> (into [#{}] (map hash-set) (sort custom))
-                       (= 2 feature-count) (conj custom))]
-    {:complete? (<= feature-count 2)
-     :sets (for [language [":cljs" ":clj"]
-                 features combinations]
-             (conj features language))}))
+                     ;; Only projections at the string's enclosing levels can change its role.
+                     (->> (iterate z/up loc)
+                          (take-while some?)
+                          (mapcat parser/written-child-locs)
+                          (mapcat #(tree-seq (fn [node] (or (= :meta (z/tag node))
+                                                            (parser/reader-conditional-kind node)))
+                                             (fn [node]
+                                               (if (parser/reader-conditional-kind node)
+                                                 (map second (parser/reader-conditional-branches node))
+                                                 (parser/written-child-locs node)))
+                                             %))))
+        combinations (reduce (fn [sets feature] (concat sets (map #(conj % feature) sets)))
+                             [#{}] (sort custom))]
+    (for [language [":cljs" ":clj"]
+          features combinations]
+      (conj features language))))
 
 (defn- top-level-name [loc features]
   (let [top (parser/top-level-loc loc)
@@ -211,17 +219,14 @@
           literals (when-not allowed?
                      (let [cljc? (str/ends-with? file ".cljc")]
                        (for [form forms
-                             :let [{:keys [complete? sets]} (if cljc?
-                                                              (form-features form)
-                                                              {:complete? true
-                                                               :sets [#{":cljs"}]})]
                              string-loc (strings form)
                              :let [text (string-value string-loc)
                                    matches (concat (re-seq hex-pattern text)
                                                    (when (re-find function-pattern text) [text]))]
                              :when (seq matches)
-                             :let [active-features (active-feature-sets string-loc sets)]
-                             :when (not (and complete? (documentation? string-loc active-features)))
+                             :let [sets (if cljc? (documentation-features string-loc) [#{":cljs"}])
+                                   active-features (active-feature-sets string-loc sets)]
+                             :when (not (documentation? string-loc active-features))
                              :let [[row col] (parser/position string-loc)]
                              literal matches]
                          {:type :color-literal
