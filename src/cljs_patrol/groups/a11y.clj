@@ -2189,6 +2189,67 @@
                                 (hiccup/add-note % note))
                              usages)})))))))
 
+(def ^:private radix-tooltip-triggers
+  #{(symbol "@radix-ui/react-tooltip" "Trigger")
+    (symbol "@radix-ui/react-tooltip" "TooltipTrigger")})
+
+(defn- literal-as-child? [props]
+  (when (= :map (z/tag props))
+    (let [[attr & extra] (select-keys (hiccup/literal-map props) [:as-child :asChild])]
+      (and (nil? extra) (some-> attr val literal-sexpr true?)))))
+
+(defn- quoted-tooltip? [loc]
+  (->> (iterate z/up (z/up loc))
+       (take-while some?)
+       (filter #(= :list (z/tag %)))
+       (some #(= "quote" (->> % parser/written-child-locs first parser/raw)))))
+
+(defn- tooltip-child [loc ns-info tooltip-components]
+  (let [children (parser/written-child-locs loc)
+        head (first children)
+        interop? (and (= :token (z/tag head)) (= ":>" (parser/raw head)))]
+    (when (or interop? (parser/sym-name head))
+      (let [[component props child & extra] (if interop? (rest children) children)
+            name (parser/sym-name component)
+            written (when name (parser/raw component))
+            resolved (when written (parser/resolve-full-symbol written ns-info))]
+        (when (and (nil? extra)
+                   (= :vector (z/tag child))
+                   (or (contains? tooltip-components resolved)
+                       (and interop? (contains? radix-tooltip-triggers resolved) (literal-as-child? props)))
+                   (not (and (= name written) (heads/locally-bound? loc name)))
+                   (not (hiccup/inside-non-hiccup-form? loc))
+                   (not (quoted-tooltip? loc)))
+          child)))))
+
+(defn- non-focusable-tooltip-child [loc]
+  (let [tag (some->> (parser/written-child-locs loc) first parser/raw hiccup/parse-tag)]
+    (when (contains? #{:div :span} tag)
+      (let [{:keys [kind attrs]
+             :as info} (hiccup/attrs-info loc)
+            readable (case kind
+                       :map attrs
+                       (:absent :non-map) {}
+                       nil)]
+        (when (and readable
+                   (not (names-unreadable-props? loc info))
+                   (= :none (tabindex-reading readable))
+                   (not-any? #(attr-written? readable %)
+                             [:content-editable :contentEditable :contenteditable :is]))
+          tag)))))
+
+(defn- tooltip-trigger-finding [loc ns-info file tooltip-components]
+  (when-let [child (tooltip-child loc ns-info tooltip-components)]
+    (when-let [tag (non-focusable-tooltip-child child)]
+      (let [[row col] (parser/position child)]
+        {:type :non-focusable-tooltip-trigger
+         :kw tag
+         :form (source-snippet loc)
+         :inner-form (source-snippet child)
+         :file file
+         :row row
+         :col col}))))
+
 (defn- analyze* [{:keys [usages usages-in-run]}]
   ;; The parser pools :usages across ALL enabled groups into one seq before
   ;; each group's `analyze` is called (see parser/analyze-project + core/run).
@@ -2229,13 +2290,14 @@
      :aria-hidden-focusable (vec (:aria-hidden-focusable by-type))
      :nested-interactive-element (vec (:nested-interactive-element by-type))
      :repeated-accessible-name (vec (:repeated-accessible-name by-type))
-     :aria-live-contradicts-role (vec (:aria-live-contradicts-role by-type))}))
+     :aria-live-contradicts-role (vec (:aria-live-contradicts-role by-type))
+     :non-focusable-tooltip-trigger (vec (:non-focusable-tooltip-trigger by-type))}))
 
 (defn- summary-lines* [{:keys [img-alt-missing invalid-tabindex button-missing-type on-click-on-non-interactive
                                empty-interactive-element missing-accessible-name
                                repeated-accessible-name aria-live-contradicts-role
                                aria-hidden-focusable nested-interactive-element
-                               label-not-associated aria-label-beside-visible-label]}]
+                               label-not-associated aria-label-beside-visible-label non-focusable-tooltip-trigger]}]
   [["Img missing alt:" (count img-alt-missing)]
    ["Invalid tabindex:" (count invalid-tabindex)]
    ["Button missing type:" (count button-missing-type)]
@@ -2247,13 +2309,14 @@
    ["Aria-hidden focusable:" (count aria-hidden-focusable)]
    ["Nested interactive element:" (count nested-interactive-element)]
    ["Label not associated:" (count label-not-associated)]
-   ["Aria-label beside visible label:" (count aria-label-beside-visible-label)]])
+   ["Aria-label beside visible label:" (count aria-label-beside-visible-label)]
+   ["Non-focusable tooltip trigger:" (count non-focusable-tooltip-trigger)]])
 
 (defn- failed?* [{:keys [img-alt-missing invalid-tabindex button-missing-type on-click-on-non-interactive
                          empty-interactive-element missing-accessible-name
                          repeated-accessible-name aria-live-contradicts-role
                          aria-hidden-focusable nested-interactive-element
-                         label-not-associated aria-label-beside-visible-label]}]
+                         label-not-associated aria-label-beside-visible-label non-focusable-tooltip-trigger]}]
   (or (seq img-alt-missing)
       (seq invalid-tabindex)
       (seq button-missing-type)
@@ -2265,17 +2328,21 @@
       (seq aria-hidden-focusable)
       (seq nested-interactive-element)
       (seq label-not-associated)
-      (seq aria-label-beside-visible-label)))
+      (seq aria-label-beside-visible-label)
+      (seq non-focusable-tooltip-trigger)))
 
-(defrecord A11yGroup [component-aliases label-components label-styles]
+(defrecord A11yGroup [component-aliases label-components label-styles tooltip-components]
   group/RuleGroup
   (group-id [_] :a11y)
   (group-name [_] "A11y")
   (parse-handlers [_]
     {:handle-vector (fn [loc ns-info file]
-                      (handle-vector* loc ns-info file {:component-aliases component-aliases
-                                                        :label-components label-components
-                                                        :label-styles label-styles}))
+                      (let [result (handle-vector* loc ns-info file {:component-aliases component-aliases
+                                                                     :label-components label-components
+                                                                     :label-styles label-styles})]
+                        (if-let [finding (tooltip-trigger-finding loc ns-info file tooltip-components)]
+                          (update result :usages (fnil conj []) finding)
+                          result)))
      :handle-list (fn [loc _ns-info _file]
                     (file-literals loc))})
   (analyze [_ data] (analyze* data))
@@ -2326,7 +2393,10 @@
      :aria-live-contradicts-role
      (str "The :aria-live politeness differs from what the :role implies, and the attribute wins "
           "(WAI-ARIA Implicit Value for Role). Drop :aria-live and let the role speak, or change it to "
-          "match: \"status\" and \"log\" imply polite, \"alert\" assertive.")})
+          "match: \"status\" and \"log\" imply polite, \"alert\" assertive.")
+     :non-focusable-tooltip-trigger
+     (str "Use a focusable element as the direct tooltip trigger, such as a button or link. "
+          "Move the trigger props and ref to that element if removing a wrapper.")})
   (docs-anchors [_]
     {:aria-hidden-focusable "aria-hidden-on-a-focusable-element"
      :aria-label-beside-visible-label "aria-label-beside-visible-label"
@@ -2338,6 +2408,7 @@
      :label-not-associated "label-not-associated"
      :missing-accessible-name "missing-accessible-name"
      :nested-interactive-element "nested-interactive-element"
+     :non-focusable-tooltip-trigger "non-focusable-tooltip-trigger"
      :on-click-on-non-interactive "on-click-on-non-interactive-tag"
      :repeated-accessible-name "repeated-accessible-name"})
   (rule->tier [_]
@@ -2351,6 +2422,7 @@
      :aria-live-contradicts-role :bugs
      :aria-hidden-focusable :bugs
      :nested-interactive-element :bugs
+     :non-focusable-tooltip-trigger :bugs
      :label-not-associated :bugs
      :aria-label-beside-visible-label :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
@@ -2397,15 +2469,13 @@
           {}
           component-aliases))
 
-(defn- normalize-label-styles
-  "Read the label styles as a set of fully qualified symbols, refusing any other shape."
-  [label-styles]
-  (if (and (or (nil? label-styles) (coll? label-styles))
-           (every? qualified-symbol? label-styles))
-    (set label-styles)
-    (throw (ex-info (str ":a11y :label-styles must be a collection of fully qualified symbols, got "
-                         (pr-str label-styles))
-                    {:label-styles label-styles}))))
+(defn- normalize-symbol-set [option value]
+  (if (and (or (nil? value) (coll? value))
+           (every? qualified-symbol? value))
+    (set value)
+    (throw (ex-info (str ":a11y " option " must be a collection of fully qualified symbols, got "
+                         (pr-str value))
+                    {option value}))))
 
 (defn- normalize-label-components
   "Read the label components as a map from a fully qualified symbol to a set of prop keywords, refusing any other shape."
@@ -2445,11 +2515,14 @@
       control, when one of the props is set. The props are one keyword or a
       non-empty collection of them. A `some.ns/*` key lists every var there.
     :label-styles #{full-qualified-symbol …} — style functions that mark
-      text as a field's visible label. Off until set."
+      text as a field's visible label. Off until set.
+    :tooltip-components #{full-qualified-symbol …} — wrappers that take props
+      and use their single child as a tooltip trigger."
   ([] (make-group nil))
-  ([{:keys [component-aliases label-components label-styles]}]
+  ([{:keys [component-aliases label-components label-styles tooltip-components]}]
    (->A11yGroup (normalize-aliases component-aliases)
                 (normalize-label-components label-components)
-                (normalize-label-styles label-styles))))
+                (normalize-symbol-set :label-styles label-styles)
+                (normalize-symbol-set :tooltip-components tooltip-components))))
 
 (def group (make-group))

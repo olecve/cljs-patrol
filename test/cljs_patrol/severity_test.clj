@@ -118,7 +118,7 @@
            :spade-keyword-combinator-selector
            :missing-accessible-name :repeated-accessible-name
            :aria-live-contradicts-role
-           :aria-hidden-focusable :nested-interactive-element
+           :aria-hidden-focusable :nested-interactive-element :non-focusable-tooltip-trigger
            :label-not-associated :aria-label-beside-visible-label :button-missing-type
            :discarded-hiccup :remounting-branch}
          (severity/tier->rules rule->tier :bugs)))
@@ -156,7 +156,7 @@
                   :spade-keyword-combinator-selector
                   :missing-accessible-name :repeated-accessible-name
                   :aria-live-contradicts-role
-                  :aria-hidden-focusable :nested-interactive-element
+                  :aria-hidden-focusable :nested-interactive-element :non-focusable-tooltip-trigger
                   :label-not-associated :aria-label-beside-visible-label :button-missing-type
                   :discarded-hiccup :remounting-branch}}
            (severity/parse-fail-on "bugs" rule->tier)))
@@ -224,7 +224,7 @@
                :spade-keyword-combinator-selector
                :missing-accessible-name :repeated-accessible-name
                :aria-live-contradicts-role
-               :aria-hidden-focusable :nested-interactive-element
+               :aria-hidden-focusable :nested-interactive-element :non-focusable-tooltip-trigger
                :label-not-associated :aria-label-beside-visible-label :button-missing-type
                :discarded-hiccup :remounting-branch}
              (->> tiered :bugs (map :rule) set)))
