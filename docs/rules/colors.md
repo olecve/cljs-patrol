@@ -88,6 +88,9 @@ the first matching ClojureScript or default branch of each reader conditional. I
 expands short hex values. Alpha stays significant. When several tokens match, the hint names all of them in sorted
 order. A token that holds `var(--...)` gives no hex match.
 
+In `.cljc` files, the rule checks combinations of up to two custom reader features per top-level form. A form with more
+custom features can still produce a finding when documentation depends on which features are active.
+
 Use `--baseline-write` to record current findings. Then use `--baseline` to block new literals. A baseline identity uses
 the file, top-level name, and literal text. Equal literals in one top-level form share an identity. A literal that must
 stay needs `--baseline-write --allow-new`. See [Baseline](../baseline.md#setup).
