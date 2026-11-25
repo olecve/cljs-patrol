@@ -4,7 +4,7 @@ title: "Share one reader of top-level forms and reader-conditional branches acro
 status: Idea
 labels: ["spade", "tests", "focus-ring"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-25"
 references: []
 ---
 
@@ -40,4 +40,14 @@ A fix to one copy does not reach the others. Found in round 5 of the review of t
 Decide one branch policy per use: style declarations care about the branch ClojureScript reads; the tests group cares
 about which branches may compile. Moving spade.clj onto the shared helper changes which style names it sees, so run it
 against a real codebase before and after.
+
+PR #185 added a shared branch selector in `cljs-patrol.parser` for the colors and focus-ring groups. PR #186 lets
+callers pass a set of active features and uses it for color findings in `.cljc` files. Sharing the top-level form
+traversal and updating the tests and spade groups are still open.
+
+### Links
+
+- [Shared branch selector](https://github.com/olecve/cljs-patrol/pull/185)
+- [Reader-conditional follow-up](https://github.com/olecve/cljs-patrol/pull/186)
+
 <!-- SECTION:DESCRIPTION:END -->
