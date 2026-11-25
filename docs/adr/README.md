@@ -17,7 +17,7 @@ Each record states one decision, the options that were considered, and the condi
 | [0011](0011-mutation-test-stop-when-a-test-changes-a-file.md) | Stop A Mutation Run When A Test Changes A File                                 | Accepted, partially superseded by 0012 | 2026-11-23 |
 | [0012](0012-mutation-test-guard-skips-what-git-ignores.md)    | Skip What Git Ignores In The Mutation Test File Guard                          | Accepted                               | 2026-11-23 |
 | [0013](0013-nio-paths-and-in-memory-test-file-system.md)      | Read And Write Files Through NIO Paths, And Test With An In-Memory File System | Accepted                               | 2026-11-23 |
-| [0014](0014-flag-color-literals-outside-token-namespaces.md)  | Flag Color Literals Outside The Token Namespaces                               | Proposed                               | 2026-11-25 |
+| [0014](0014-flag-color-literals-outside-token-namespaces.md)  | Flag Color Literals Outside The Token Namespaces                               | Accepted                               | 2026-11-25 |
 
 ## Format
 
