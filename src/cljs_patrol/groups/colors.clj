@@ -33,12 +33,15 @@
                 reader
                 (recur reader))))))
 
+(defn- reader-site [loc]
+  (if-let [wrapper (or (branch-reader loc) (splice-reader (z/up loc)))]
+    (recur wrapper)
+    loc))
+
 (defn- enclosing-form [loc]
-  (let [parent (z/up loc)]
-    (if-let [wrapper (or (when (= :meta (z/tag parent)) parent)
-                         (branch-reader loc)
-                         (splice-reader parent))]
-      (recur wrapper)
+  (let [parent (z/up (reader-site loc))]
+    (if (= :meta (z/tag parent))
+      (recur parent)
       parent)))
 
 (defn- active-branch? [feature loc]
@@ -68,6 +71,10 @@
   (when (= :list (z/tag loc))
     (some-> loc effective-children first parser/sym-name)))
 
+(defn- projected-list-head [features loc]
+  (when (= :list (z/tag loc))
+    (some->> (projected-children features loc) first parser/sym-name)))
+
 (defn- string-value [loc]
   (when (contains? #{:token :multi-line} (z/tag loc))
     (let [value (z/sexpr loc)]
@@ -81,20 +88,21 @@
 
 (defn- docstring-loc [feature loc]
   (when (= :list (z/tag loc))
-    (if (contains? doc-heads (list-head loc))
+    (if (contains? doc-heads (projected-list-head feature loc))
       (let [[candidate & following] (drop 2 (projected-children feature loc))]
         (when (and candidate (string-value candidate) (seq following)) candidate))
-      (when (= "defprotocol" (list-head (enclosing-form loc)))
+      (when (= "defprotocol" (projected-list-head feature (enclosing-form loc)))
         (let [candidate (last (projected-children feature loc))]
           (when (string-value candidate) candidate))))))
 
 (def ^:private attr-heads #{"defn" "defn-" "defmacro" "defmulti" "defprotocol"})
 
 (defn- doc-map? [feature loc]
-  (let [parent (z/up loc)
+  (let [site (reader-site loc)
+        parent (z/up site)
         form (enclosing-form loc)
-        head (list-head form)]
-    (or (and (= :meta (z/tag parent)) (= loc (first (parser/written-child-locs parent))))
+        head (projected-list-head feature form)]
+    (or (and (= :meta (z/tag parent)) (= site (first (parser/written-child-locs parent))))
         (when (contains? attr-heads head)
           (let [children (drop 2 (projected-children feature form))
                 [attrs & body] (if (some-> children first string-value) (rest children) children)]
@@ -109,12 +117,22 @@
        (some (fn [[key value]] (and (= loc value) (= ":doc" (parser/raw key))))
              (partition 2 (projected-children feature parent)))))
 
-(defn- documentation? [loc features]
-  (let [parent (enclosing-form loc)
-        active-features (filter #(active-branch? % loc) features)]
+(defn- skipped-context? [features loc]
+  (->> (iterate z/up loc)
+       (take-while some?)
+       (some #(contains? #{"ns" "comment"} (projected-list-head features %)))))
+
+(defn- active-feature-sets [loc feature-sets]
+  (or (seq (filter #(active-branch? % loc) feature-sets))
+      (when (active-branch? #{} loc) [#{}])))
+
+(defn- documentation? [loc active-features]
+  (let [parent (enclosing-form loc)]
     (and (seq active-features)
          (every? (fn [feature]
-                   (or (= loc (docstring-loc feature parent)) (doc-map-value? feature loc parent)))
+                   (or (= loc (docstring-loc feature parent))
+                       (doc-map-value? feature loc parent)
+                       (skipped-context? feature loc)))
                  active-features))))
 
 (defn- strings [loc]
@@ -124,44 +142,50 @@
     (string-value loc) [loc]
     :else (mapcat strings (parser/written-child-locs loc))))
 
-(defn- written-features [forms]
-  (into #{nil ":clj" ":cljs"}
-        (comp (mapcat #(tree-seq some? parser/written-child-locs %))
-              (filter parser/reader-conditional-kind)
-              (mapcat parser/reader-conditional-branches)
-              (map (comp parser/raw first)))
-        forms))
+(defn- form-features [form]
+  (let [custom (into #{}
+                     (comp (mapcat parser/reader-conditional-branches)
+                           (map (comp parser/raw first))
+                           (remove #{":clj" ":cljs" ":default"}))
+                     (tree-seq some? parser/written-child-locs form))
+        feature-count (count custom)
+        combinations (cond-> (into [#{}] (map hash-set) (sort custom))
+                       (= 2 feature-count) (conj custom))]
+    {:complete? (<= feature-count 2)
+     :sets (for [language [":cljs" ":clj"]
+                 features combinations]
+             (conj features language))}))
 
-(defn- top-level-name [loc]
+(defn- top-level-name [loc features]
   (let [top (parser/top-level-loc loc)
         form (unwrap-meta top)
-        definition (if (= :reader-macro (z/tag form))
+        definition (if (parser/reader-conditional-kind form)
                      (->> (iterate z/up loc)
                           (take-while #(not= % top))
-                          (filter list-head)
+                          (filter (partial projected-list-head features))
                           last)
                      form)]
-    (when-let [head (list-head definition)]
-      (let [[_ id] (effective-children definition)]
+    (when-let [head (projected-list-head features definition)]
+      (let [[_ id] (projected-children features definition)]
         (if (str/starts-with? head "def")
           (parser/sym-name id)
           (when (parser/kw-node? id) (parser/raw id)))))))
 
-(defn- quoted-definition? [loc]
+(defn- non-executable-definition? [loc]
   (let [ancestors (->> (iterate z/up (z/up loc))
                        (take-while some?)
                        reverse)]
     (loop [[parent & remaining] ancestors
            syntax-depth 0]
       (let [tag (z/tag parent)
-            head (when (= :list tag) (some-> parent effective-children first parser/raw))]
+            head (when (= :list tag) (some->> (projected-children #{":cljs"} parent) first parser/raw))]
         (cond
           (nil? parent) (pos? syntax-depth)
           (= :syntax-quote tag) (recur remaining (inc syntax-depth))
           (or (contains? #{:unquote :unquote-splicing} tag)
               (contains? #{"clojure.core/unquote" "clojure.core/unquote-splicing"} head))
           (or (zero? syntax-depth) (recur remaining (dec syntax-depth)))
-          (and (zero? syntax-depth) (or (= :quote tag) (= "quote" head))) true
+          (and (zero? syntax-depth) (or (= :quote tag) (contains? #{"quote" "comment"} head))) true
           :else (recur remaining syntax-depth))))))
 
 (defn- handle-file [allowed paths loc ns-info file]
@@ -173,30 +197,36 @@
                          value-loc (strings form)
                          :let [definition (enclosing-form value-loc)
                                value (string-value value-loc)]
-                         :when (and (= "def" (list-head definition))
+                         :when (and (= "def" (projected-list-head #{":cljs"} definition))
                                     (re-matches exact-hex value)
-                                    (active-branch? ":cljs" value-loc))
-                         :let [[_ id & values] (projected-children ":cljs" definition)
+                                    (active-branch? #{":cljs"} value-loc))
+                         :let [[_ id & values] (projected-children #{":cljs"} definition)
                                token-name (parser/sym-name id)]
                          :when (and token-name
                                     (= value-loc (last values))
-                                    (not (quoted-definition? definition)))]
+                                    (not (non-executable-definition? definition)))]
                      {:type :color-token
                       :value (normalize-hex value)
                       :token (symbol (:ns-name ns-info) token-name)}))
           literals (when-not allowed?
-                     (let [features (if (str/ends-with? file ".cljc") (written-features forms) [nil])]
+                     (let [cljc? (str/ends-with? file ".cljc")]
                        (for [form forms
+                             :let [{:keys [complete? sets]} (if cljc?
+                                                              (form-features form)
+                                                              {:complete? true
+                                                               :sets [#{":cljs"}]})]
                              string-loc (strings form)
                              :let [text (string-value string-loc)
                                    matches (concat (re-seq hex-pattern text)
                                                    (when (re-find function-pattern text) [text]))]
-                             :when (and (seq matches) (not (documentation? string-loc features)))
+                             :when (seq matches)
+                             :let [active-features (active-feature-sets string-loc sets)]
+                             :when (not (and complete? (documentation? string-loc active-features)))
                              :let [[row col] (parser/position string-loc)]
                              literal matches]
                          {:type :color-literal
                           :kw :color-literal
-                          :top-level (top-level-name string-loc)
+                          :top-level (top-level-name string-loc (or (first active-features) #{":cljs"}))
                           :literal literal
                           :form (pr-str text)
                           :file file

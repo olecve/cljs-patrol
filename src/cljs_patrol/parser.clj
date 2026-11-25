@@ -145,11 +145,11 @@
     (partition 2 (written-child-locs (some-> loc z/down z/right)))))
 
 (defn reader-conditional-branch
-  "Return the first branch selected by feature, including a preceding :default branch."
-  [loc feature]
+  "Return the first branch matching the active feature names or :default."
+  [loc features]
   (some (fn [[key branch]]
           (let [name (raw key)]
-            (when (or (= name feature) (= name ":default")) branch)))
+            (when (or (contains? features name) (= name ":default")) branch)))
         (reader-conditional-branches loc)))
 
 (defn right-siblings

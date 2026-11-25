@@ -53,7 +53,7 @@
                              ["#?(:clj jvm)" nil]
                              ["#js (:cljs script)" nil]
                              ["#js [:cljs script]" nil]]]
-    (is (= expected (some-> source z/of-string (parser/reader-conditional-branch ":cljs") z/sexpr))
+    (is (= expected (some-> source z/of-string (parser/reader-conditional-branch #{":cljs"}) z/sexpr))
         source)))
 
 (deftest position-reads-node-metadata

@@ -1,11 +1,11 @@
 ---
 id: CP-94
 title: "Flag a hardcoded color literal outside the token namespace"
-status: Next
+status: Done
 labels: ["colors"]
 priority: high
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-25"
 references: []
 ---
 
@@ -50,17 +50,22 @@ Using tokens instead of literals lets colors adapt to runtime themes.
 "#/settings"   ; route fragment, not hex digits
 "#section"       ; anchor
 ;; literals inside the configured token namespaces
-;; namespaces in :allow-namespaces, test files, docstrings, comments, ns forms
+;; test files, docstrings, comments, and namespace declarations
 ```
 
 ### Notes
 
-One setting only, {:colors {:allowed-namespaces #{example.tokens}}}, to identify where color literals are allowed.
-Literals are fine anywhere in those namespaces, and the token hint reads their (def name "#hex") forms. No
-allowed-colors list for now; exceptions use the usual ignore comment. A new opt-in group `colors`, cleanup tier. Color =
-hex strings of exactly 3/4/6/8 hex digits after #, and rgb(/rgba(/hsl(/hsla( anywhere in a string; named colors left out
-of v1. Looks at every string literal in code, skips docstrings, comments, ns forms and test files. Hint: hex->token map
-from the allowed namespaces; a var(--...) token gives no hex, so the hint falls back to "use a token". Adoption through
-the existing baseline flow. Plan: ADR 0014 draft for review, then a PR with the rule, rule doc examples, config and
-hint. Related: focus-ring (token vs hand-written), typography (token namespaces).
+Use `{:colors {:allowed-namespaces #{example.tokens}}}` to enable the cleanup rule. It recognizes hex strings of 3, 4,
+6, or 8 digits and strings containing `rgb(`, `rgba(`, `hsl(`, or `hsla(`. Exact hex values can match a token. Use the
+baseline to keep findings that must stay.
+
+The rule merged in PR #185. PR #186 covers additional reader-conditional documentation cases and keeps baseline keys
+distinct when a definition name is conditional.
+
+### Links
+
+- [ADR 0014](../../docs/adr/0014-flag-color-literals-outside-token-namespaces.md)
+- [Rule implementation](https://github.com/olecve/cljs-patrol/pull/185)
+- [Reader-conditional follow-up](https://github.com/olecve/cljs-patrol/pull/186)
+
 <!-- SECTION:DESCRIPTION:END -->

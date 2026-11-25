@@ -344,7 +344,7 @@
 
   A splicing branch's vector is spread out."
   [loc]
-  (when-let [form (parser/reader-conditional-branch loc ":cljs")]
+  (when-let [form (parser/reader-conditional-branch loc #{":cljs"})]
     (if (and (= "?@" (parser/reader-conditional-kind loc)) (= :vector (z/tag form)))
       (parser/written-child-locs form)
       [form])))
