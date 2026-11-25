@@ -226,10 +226,22 @@
   (testing "shadowed map builders leave the props opaque"
     (doseq [source ["(let [merge other] [:img (merge {:alt \"cat\"})])"
                     "(defn view [assoc] [:img (assoc {} :alt \"cat\")])"
+                    "(fn merge [] [:img (merge {:alt \"cat\"})])"
+                    "(let [{:keys [:merge]} options] [:img (merge {:alt \"cat\"})])"
+                    "(defn view [{:keys [ops/merge]}] [:img (merge {:alt \"cat\"})])"
                     "(ns app.view (:require [app.props :refer [assoc-in]])) [:img (assoc-in {} [:alt] \"cat\")]"
                     "(ns app.view) (defn merge [& _] {}) (defn view [] [:img (merge {:alt \"cat\"})])"
                     "(ns app.view (:refer-clojure :exclude [merge])) [:img (merge {:alt \"cat\"})]"]]
       (is (= :dynamic (:kind (img-attrs-info source))) source)))
+
+  (testing "a global core call stays readable where the local does not reach it"
+    (doseq [source ["(def photo [:img (assoc {} :alt \"cat\")])"
+                    "(let [merge (merge {:alt \"cat\"})] [:img merge])"
+                    "(let [props (merge {:alt \"cat\"}) merge other] [:img props])"
+                    "(defn view ([merge] nil) ([] [:img (merge {:alt \"cat\"})]))"]]
+      (let [info (img-attrs-info source)]
+        (is (= :map (:kind info)) source)
+        (is (= #{:alt} (set (keys (:attrs info))))))))
 
   (testing "a shadowed nested call contributes no keys"
     (let [info (img-attrs-info "(let [merge other] [:img (assoc (merge {:tabIndex 0}) :alt \"cat\")])")]

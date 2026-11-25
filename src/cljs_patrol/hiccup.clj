@@ -221,7 +221,7 @@
   (reduce (fn [found [form init]]
             (cond
               (= symbol-name (unqualified-symbol-name form)) init
-              (mentions-symbol? form symbol-name) ::shadowed
+              (contains? (heads/binding-names (z/node form)) symbol-name) ::shadowed
               :else found))
           nil
           (cond->> (binding-pairs bindings-loc)
@@ -312,10 +312,18 @@
         (when (= symbol-name (unqualified-symbol-name bound)) ::shadowed))
 
       (or (contains? parameter-binding-heads head-name) (method-form? list-loc))
-      (when (some #(mentions-symbol? % symbol-name) (parameter-vectors list-loc)) ::shadowed)
+      (when (or (and (contains? #{"fn" "fn*"} head-name)
+                     (= symbol-name (unqualified-symbol-name bindings)))
+                (some (fn [params]
+                        (let [owner (z/up (heads/site params))]
+                          (and (or (same-node? owner list-loc) (same-node? owner child))
+                               (contains? (heads/binding-names (z/node params)) symbol-name))))
+                      (parameter-vectors list-loc)))
+        ::shadowed)
 
       (fn-like-head? head-name)
-      (when (some #(mentions-symbol? % symbol-name) (unknown-form-parameters list-loc child))
+      (when (some #(contains? (heads/binding-names (z/node %)) symbol-name)
+                  (unknown-form-parameters list-loc child))
         ::shadowed))))
 
 (defn lexically-bound-value
@@ -526,7 +534,8 @@
   them. `(assoc base :k v)` makes `:k` final, `(merge {:k v} base)` does not."
   [list-loc]
   (when (= :list (z/tag list-loc))
-    (when-let [head (heads/resolve-head list-loc (file-ns-info list-loc) attr-construction-heads)]
+    (when-let [head (heads/resolve-head list-loc (file-ns-info list-loc) attr-construction-heads
+                                        #(some? (lexically-bound-value list-loc %)))]
       (let [args (rest (parser/written-child-locs list-loc))]
         (case (name head)
           "merge"
@@ -870,6 +879,41 @@
   "True when a quoting, discarding, style-declaration or `ns` form encloses loc, or loc is in the value of a data `def`."
   [loc]
   (boolean (seq (enclosing-forms loc))))
+
+(def ^:private re-frame-calls
+  "Calls whose vector arguments are event or subscription vectors, not Hiccup."
+  #{"dispatch" "dispatch-sync" "dispatch-n" "subscribe" "sub"
+    "reg-event-db" "reg-event-fx" "reg-event-ctx" "reg-sub" "reg-sub-raw"})
+
+(def ^:private event-effect-keys
+  "Effect keys whose value is an event vector, or a vector of them."
+  #{":dispatch" ":dispatch-sync" ":dispatch-later" ":dispatch-n"})
+
+(defn re-frame-vector?
+  "True when a vector is a re-frame event or subscription, though its id names an HTML element.
+
+  An argument of `dispatch`, `subscribe` or a `reg-event-*` or `reg-sub` call, `#(…)`
+  included, a vector after a `:dispatch`-like effect key, in an effect map or an fx tuple, or an
+  item of one after `:dispatch-n`, and every fx tuple, `[:track {…}]` in `{:fx [[:track {…}]]}`."
+  [loc]
+  (let [parent (z/up loc)
+        tag (some-> parent z/tag)
+        after-effect-key? #(contains? event-effect-keys (some-> % z/left parser/raw))]
+    (case tag
+      (:list :fn) (contains? re-frame-calls (parser/sym-name (z/down parent)))
+      (:map :vector) (or (after-effect-key? loc)
+                         (and (= :vector tag)
+                              (or (after-effect-key? parent)
+                                  (= ":fx" (some-> parent z/left parser/raw)))))
+      false)))
+
+(defn explicitly-quoted?
+  "True when an explicit quote form encloses loc."
+  [loc]
+  (->> (iterate z/up (z/up loc))
+       (take-while some?)
+       (filter #(= :list (z/tag %)))
+       (some #(= "quote" (->> % parser/written-child-locs first parser/raw)))))
 
 (defn inside-unrendered-form?
   "True when a quoting or discarding form encloses loc at any depth.

@@ -608,12 +608,24 @@
      :usages []
      :dynamics []}))
 
+(defn- native-props-tag
+  "Read the tag that receives the props, which is the last tag in a Reagent tag chain."
+  [loc]
+  (let [raw (some->> loc parser/written-child-locs first parser/raw)]
+    (when-let [tag (hiccup/parse-tag raw)]
+      (if (str/includes? raw ">")
+        (let [tags (str/split (subs raw 1) #">" -1)]
+          (when (every? seq tags)
+            (hiccup/parse-tag (str ":" (last tags)))))
+        tag))))
+
 (defn- tabindex-spelling-finding [loc file]
-  (let [tag (some-> loc z/down parser/raw hiccup/parse-tag)]
-    (when (and (hiccup/html-tag? tag)
-               (not= :<> tag))
+  (let [tag (native-props-tag loc)]
+    (when (hiccup/html-tag? tag)
       (let [{:keys [attrs]} (hiccup/attrs-info loc)]
         (when (and (some #(contains? attrs %) [:tabIndex :tabindex])
+                   (not (hiccup/re-frame-vector? loc))
+                   (not (hiccup/explicitly-quoted? loc))
                    (not (inside-comment-form? loc)))
           (let [[row col] (parser/position loc)]
             {:kw tag

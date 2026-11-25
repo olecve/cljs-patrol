@@ -2197,12 +2197,6 @@
   (let [[attr & extra] (select-keys attrs [:as-child :asChild])]
     (and (nil? extra) (some-> attr val literal-sexpr true?))))
 
-(defn- quoted-tooltip? [loc]
-  (->> (iterate z/up (z/up loc))
-       (take-while some?)
-       (filter #(= :list (z/tag %)))
-       (some #(= "quote" (->> % parser/written-child-locs first parser/raw)))))
-
 (defn- tooltip-trigger [loc ns-info tooltip-components]
   (let [children (parser/written-child-locs loc)
         head (first children)
@@ -2219,7 +2213,7 @@
                    (or (contains? tooltip-components resolved) (literal-as-child? forwarded))
                    (not (and (= name written) (heads/locally-bound? loc name)))
                    (not (hiccup/inside-non-hiccup-form? loc))
-                   (not (quoted-tooltip? loc)))
+                   (not (hiccup/explicitly-quoted? loc)))
           {:child child
            :forwarded forwarded})))))
 
