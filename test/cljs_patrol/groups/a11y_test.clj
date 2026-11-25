@@ -229,6 +229,22 @@
                                         "[:> Tooltip/TooltipTrigger {:asChild true} [:div \"Details\"]]"))]
     (is (= [[:div 2] [:span 3] [:div 10]] (mapv (juxt :kw :row) findings)))))
 
+(deftest radix-forwards-focus-props-to-the-trigger-child
+  (doseq [props ["{:asChild true :tabIndex 0}"
+                 "{:as-child true :tab-index -1}"
+                 "{:asChild true :tabindex 0}"
+                 "{:asChild true :tabIndex focus-order}"
+                 "{:asChild true :contentEditable true}"
+                 "{:asChild true :contenteditable \"plaintext-only\"}"]]
+    (is (empty? (tooltip-findings nil (str "[:> Tooltip/Trigger " props " [:span \"More\"]]")))
+        props)))
+
+(deftest radix-trigger-child-props-override-forwarded-props
+  (doseq [source ["[:> Tooltip/Trigger {:asChild true :tabIndex 0} [:span {:tab-index nil} \"More\"]]"
+                  "[:> Tooltip/Trigger {:as-child true :tab-index 0} [:span {:tabIndex nil} \"More\"]]"
+                  "[:> Tooltip/Trigger {:asChild true :contentEditable true} [:div {:content-editable false} \"Edit\"]]"]]
+    (is (= 1 (count (tooltip-findings nil source))) source)))
+
 (deftest tooltip-triggers-respect-reader-discard-and-quote
   (let [findings (tooltip-findings tooltip-config
                                    (str "(quote [tooltip {} [:span \"Quoted\"]])\n"
@@ -240,6 +256,8 @@
   (doseq [child ["[:button {:type \"button\"} \"More\"]"
                  "[:a {:href \"/help\"} \"Help\"]"
                  "[:span {:tab-index 0} \"More\"]"
+                 "[:span {:tabindex 0} \"Browser attribute\"]"
+                 "[:span {:tab-index nil :tabIndex 0} \"One spelling sets tabindex\"]"
                  "[:div {:tabIndex -1} \"Moved by code\"]"
                  "[:span {:tab-index (if active? 0 -1)} \"Roving focus\"]"
                  "[:div {:content-editable true} \"Edit\"]"
