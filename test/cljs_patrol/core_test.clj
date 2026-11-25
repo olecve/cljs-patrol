@@ -49,7 +49,7 @@
 
 (deftest filter-groups-test
   (testing "no filters returns all groups"
-    (is (= 14 (count (filter-groups default-groups {})))))
+    (is (= 15 (count (filter-groups default-groups {})))))
 
   (testing "--only selects specific group"
     (let [groups (filter-groups default-groups {:only #{:re-frame}})]
@@ -58,8 +58,9 @@
 
   (testing "--disable removes specific group"
     (let [groups (filter-groups default-groups {:disable #{:spade}})]
-      (is (= 13 (count groups)))
-      (is (= #{:re-frame :reagent :typography :focus-ring :forbid-props :a11y :docstrings :css-order :tests :react-testing-library-cljs :layout :idioms :comments}
+      (is (= 14 (count groups)))
+      (is (= #{:re-frame :reagent :typography :focus-ring :forbid-props :a11y :docstrings :css-order :tests
+               :react-testing-library-cljs :layout :idioms :comments :colors}
              (set (map group/group-id groups))))))
 
   (testing "--only takes precedence over --disable"
@@ -556,3 +557,36 @@
         "one job reads on worker")
     (is (not-any? #(identical? caller %) (threads-with 4))
         "four jobs read on workers")))
+
+(deftest colors-baseline-flow
+  (let [dir (temp-dir/create-dir "cljs-patrol-colors")
+        src (str dir "/src")
+        config-path (disk/path dir ".cljs-patrol/config.edn")
+        baseline-path (str src "/.cljs-patrol/baseline.edn")
+        config-source (slurp "test-projects/colors-app/.cljs-patrol/config.edn")]
+    (try
+      (doseq [file ["app/core.cljs" "app/tokens.cljs"]]
+        (disk/write! (disk/path src file) (slurp (str "test-projects/colors-app/src/" file))))
+      (disk/write! config-path config-source)
+      (with-redefs [baseline/default-config-path (str config-path)]
+        (is (= 0 (:exit (run-main "--only" "colors" src))))
+        (is (= 0 (:exit (run-main "--only" "colors" "--baseline-write" src))))
+        (is (= 2 (count (:issues (edn/read-string (slurp baseline-path))))))
+        (is (= 0 (:exit (run-main "--only" "colors" "--baseline" src))))
+        (disk/write! (disk/path src "app/core.cljs")
+                     "(ns app.core)\n\n(def canvas-color\n  \"#fff\")\n(def chart-options {:color \"rgba(0, 38, 255, 0.4)\"})")
+        (is (= 0 (:exit (run-main "--only" "colors" "--baseline" src))))
+        (disk/write! (disk/path src "app/added.cljs") "(ns app.added) (def border \"#ddd\")")
+        (is (= 1 (:exit (run-main "--only" "colors" "--baseline" src))))
+        (let [before (slurp baseline-path)
+              refused (run-main "--only" "colors" "--baseline-write" src)]
+          (is (= 1 (:exit refused)))
+          (is (str/includes? (:out refused) "Refusing to write"))
+          (is (= before (slurp baseline-path))))
+        (is (= 0 (:exit (run-main "--only" "colors" "--baseline-write" "--allow-new" src))))
+        (is (= 0 (:exit (run-main "--only" "colors" "--baseline" src))))
+        (disk/write! config-path "{:colors {:allowed-namespaces #{\"app.tokens\"}}}")
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #":colors :allowed-namespaces"
+                              (core/-main "--only" "colors" src))))
+      (finally
+        (temp-dir/delete-dir! dir)))))

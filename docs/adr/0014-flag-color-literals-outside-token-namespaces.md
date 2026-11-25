@@ -77,8 +77,8 @@ literal in a string outside the namespaces that the config allows.
 - **The function shape.** `rgb(`, `rgba(`, `hsl(` or `hsla(` anywhere in a string, in any case.
 - **Named colors are not reported in v1.**
 - **Skipped places.** Test files, docstrings, `;` comments, `(comment …)` forms, `#_` forms and the `ns` form. A test
-  file is a file that the `tests` group counts as test code: a file under `:tests :paths` when that key is set, or else
-  a namespace whose name ends in `-test`.
+  file is a file that the `tests` group counts as test code: a file under `:tests :paths` when those paths are
+  non-empty, or else a namespace whose name ends in `-test`.
 - **Tests are not checked in v1.** Test code holds more color literals than the app code: 277 hex literals and 70 `rgb(`
   literals in the survey. Most of them have a reason: fixture data, a check of a computed style that the browser gives
   back as a literal, or an input to a color picker or a chart. Reports in tests would fill the baseline with entries
