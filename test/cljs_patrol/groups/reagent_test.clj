@@ -140,6 +140,8 @@
                                 "(rf/dispatch #?(:cljs [:input {:tabIndex 0}]))"
                                 "(rf/dispatch ^:example [:input {:tabIndex 0}])"
                                 "[:image {:tabindex 0}]"
+                                "[:div [:image {:tabindex 0}]]"
+                                "[:div>custom-tag {:tabIndex 0}]"
                                 "{:fx [[:dispatch [:input {:tabIndex 0}]]]}"
                                 "(quote [:button {:tabIndex 0}])"
                                 "[::x>button {:tabIndex 0}]"
