@@ -1,8 +1,11 @@
 (ns cljs-patrol.groups.colors-test
   (:require
    [cljs-patrol.baseline :as baseline]
+   [cljs-patrol.core :as core]
+   [cljs-patrol.disk :as disk]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.colors :as colors]
+   [cljs-patrol.temp-dir :as temp-dir]
    [cljs-patrol.temp-project :as temp-project]
    [clojure.test :refer [deftest is]]))
 
@@ -24,8 +27,8 @@
          (mapv :literal (run "\"linear-gradient(#ABC,#123456)\"")))))
 
 (deftest non-color-boundaries
-  (doseq [text ["&#160;" "#main-content" "#12345" "#1234567" "#fffg" "#ffffffz"
-                "x#fff" "#fff!" "\t#fff" "#fff\n" "white" "transparent" "var(--primary)"]]
+  (doseq [text ["&#160;" "#/settings" "#12345" "#1234567" "#fffg" "#ffffffz"
+                "x#fff" "#fff!" "\t#fff" "#fff\n" "white" "transparent" "var(--example-accent)"]]
     (is (empty? (run (pr-str text))) text)))
 
 (deftest discarded-forms-do-not-set-docstring-positions
@@ -86,7 +89,7 @@
 
 (deftest token-hints
   (let [files {"tokens.cljs" (str "(ns app.tokens) (def white \"#FFFFFF\") (def snow \"#fff\") "
-                                  "(def alpha \"#abcd\") (def themed \"var(--primary)\") "
+                                  "(def alpha \"#abcd\") (def themed \"var(--example-accent)\") "
                                   "(def border \"1px solid #123\") (def other 1) (defn fake [] \"#123\")")
                "app.cljs" "(ns app) [\"#fff\" \"#AABBCCDD\" \"#ffff\" \"#123\" \"rgb(0,0,0)\"]"}
         findings (run config nil files)]
@@ -137,8 +140,76 @@
             :kw :color-literal}
            (select-keys finding [:row :col :top-level :literal :form :kw])))
     (is (= identity (baseline/issue->identity :color-literal (assoc finding :row 200 :col 30))))
+    (is (not= identity (baseline/issue->identity :color-literal (assoc finding :file "other.cljs"))))
     (is (not= identity (baseline/issue->identity :color-literal (assoc finding :top-level "other"))))
     (is (not= identity (baseline/issue->identity :color-literal (assoc finding :literal "#FFF"))))))
+
+(deftest effective-token-declarations
+  (is (= ["Use app.tokens/white."]
+         (mapv :hint (run config nil
+                          {"tokens.cljs" "(ns app.tokens) (def #_old white \"#fff\")"
+                           "app.cljs" "(ns app) \"#fff\""}))))
+  (is (= ["Use app.tokens/ink."]
+         (mapv :hint (run config nil
+                          {"tokens.cljs" "(ns app.tokens) ^:example (#_old def ^:private ink \"#123\")"
+                           "app.cljs" "(ns app) \"#123\""})))))
+
+(deftest metadata-wrapped-definition-identities
+  (let [findings (run "^:example (def a \"#fff\") ^:example (def b \"#fff\")")
+        identities (mapv #(baseline/issue->identity :color-literal %) findings)]
+    (is (= ["a" "b"] (mapv :name identities)))
+    (is (= 2 (count (set identities))))))
+
+(deftest effective-documentation-map-entries
+  (doseq [source ["(defn tint {:doc #_\"old\" \"#fff\"} [] nil)"
+                  "(def ^{:doc #_\"old\" \"#fff\"} tint 1)"
+                  "(defn tint ([x] x) {:doc #_\"old\" \"#fff\"})"
+                  "(defn tint {#_:old :doc ^:example \"#fff\"} [] nil)"]]
+    (is (empty? (run source)) source)))
+
+(deftest documentation-maps-with-other-values
+  (is (= ["#abc"]
+         (mapv :literal (run "(defn tint {:doc \"#fff\" :example \"#abc\"} [] nil)")))))
+
+(deftest registration-identities
+  (is (= [":example/tint" nil]
+         (mapv :top-level (run "(register #_old :example/tint \"#fff\") (render value \"#fff\")")))))
+
+(deftest effective-list-heads
+  (doseq [source ["(#_old comment \"#fff\")"
+                  "(#_old defn tint \"#fff\" [] nil)"
+                  "^:example (defn tint \"#fff\" [] nil)"
+                  "(^:example comment \"#fff\")"
+                  "(#_old defprotocol Tint (#_old tint [x] \"#fff\"))"]]
+    (is (empty? (run source)) source)))
+
+(deftest metadata-does-not-hide-code-literals
+  (is (= ["#123" "#456"]
+         (mapv :literal (run "(def ^{:doc \"#abc\" :example \"#123\"} tint ^:example [comment \"#456\"])"))))
+  (is (empty? (run "(defn tint ^:example {:doc \"#123\"} [] nil)"))))
+
+(deftest only-lists-supply-definition-identities
+  (is (= [nil "tint"]
+         (mapv :top-level
+               (run config nil
+                    {"app.cljc" "(ns app) [def color \"#fff\"] ^:example #?(:cljs (def tint \"#fff\"))"})))))
+
+(deftest only-named-def-initializers-supply-token-hints
+  (is (= ["Use a token from app.tokens." "Use app.tokens/white."]
+         (mapv :hint (run config nil
+                          {"tokens.cljs" "(ns app.tokens) (def :malformed \"#123\") (def white \"#abc\" ^:example \"#fff\")"
+                           "app.cljs" "(ns app) [\"#123\" \"#fff\"]"})))))
+
+(deftest token-hints-across-source-roots
+  (temp-dir/with-dir "cljs-patrol-colors-roots"
+    (fn [dir]
+      (let [app (disk/path dir "app")
+            tokens (disk/path dir "tokens")]
+        (disk/write! (disk/path app "core.cljs") "(ns app) (def tint \"#fff\")")
+        (disk/write! (disk/path tokens "core.cljs") "(ns app.tokens) (def white \"#fff\")")
+        (let [results (core/run-all [(disk/typed-path app) (disk/typed-path tokens)] [(colors/make-group config)])]
+          (is (= [["Use app.tokens/white."] []]
+                 (mapv #(mapv :hint (get-in % [:group-results 0 :color-literal])) results))))))))
 
 (deftest group-contract
   (let [rule-group (colors/make-group config)]

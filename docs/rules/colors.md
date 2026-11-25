@@ -8,49 +8,49 @@
 design-token namespaces.
 
 ```clojure
-;; config {:colors {:allowed-namespaces #{app.styles.tokens}}}
+;; config {:colors {:allowed-namespaces #{app.tokens}}}
 
 ;; flagged
-(def warning-color "#f5a623")
+(def warning-color "#336699")
 
 ;; a Hiccup attribute
-[:circle {:fill "#d7dffe" :r 4}]
+[:circle {:fill "#669933" :r 4}]
 
 ;; interop
 (set! (.-fillStyle ctx) "#fff")
 
 ;; a data map
-(def chart-options {:series [{:color "rgba(0, 38, 255, 0.4)"}]})
+(def chart-options {:series [{:color "rgba(51, 102, 153, 0.4)"}]})
 
 ;; a nested selector
 (defclass row-style []
-  [:&:hover {:background "#f3f3f3"}])
+  [:&:hover {:background "#cccccc"}])
 
 ;; a color inside a larger value
 (defclass card-style []
   {:border "1px solid #ddd"})
 
 ;; fix
-(def warning-color tokens/warning-500)
+(def warning-color tokens/accent)
 ```
 
 **Left alone:**
 
 ```clojure
-;; config {:colors {:allowed-namespaces #{app.styles.tokens}}}
+;; config {:colors {:allowed-namespaces #{app.tokens}}}
 
 ;; left alone: an allowed namespace
-(ns app.styles.tokens)
+(ns app.tokens)
 (def accent "#336699")
 
 ;; a docstring
 (defn tint
   "Mixes a color such as #336699 with white."
   [color amount]
-  (mix color tokens/global-white amount))
+  (mix color tokens/paper amount))
 
 ;; an anchor that is not only hex digits
-[:a {:href "#main-content"} "Skip to content"]
+[:a {:href "#/settings"} "Settings"]
 
 ;; an HTML entity
 (str/replace markup "&nbsp;" "&#160;")
@@ -61,18 +61,18 @@ design-token namespaces.
 
 ;; code in a comment form
 (comment
-  (draw! ctx "#ff0000"))
+  (draw! ctx "#993366"))
 ```
 
-A finding names the token when one has the same value, such as "Use app.styles.tokens/global-white." for `"#FFF"`. When
-no token has the value, it says "Use a token from app.styles.tokens."
+A finding names the token when one has the same value, such as "Use app.tokens/paper." for `"#FFF"`. When no token has
+the value, it says "Use a token from app.tokens."
 
 ## Colors options
 
 Set `:colors` to turn on this group. Run it alone with `--only colors`.
 
 ```clojure
-{:colors {:allowed-namespaces #{app.styles.tokens}}}
+{:colors {:allowed-namespaces #{app.tokens}}}
 ```
 
 `:allowed-namespaces` must be a set of namespace symbols. Each allowed namespace may hold color literals. The group
