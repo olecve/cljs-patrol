@@ -83,6 +83,7 @@
     :on-click-on-non-interactive
     :aria-hidden-focusable
     :nested-interactive-element
+    :non-focusable-tooltip-trigger
     :label-not-associated
     :aria-label-beside-visible-label
     :redundant-into-hiccup
