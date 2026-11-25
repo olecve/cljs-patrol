@@ -10,6 +10,7 @@
    [cljs-patrol.fs :as fs]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
+   [cljs-patrol.groups.colors :as colors]
    [cljs-patrol.groups.comments :as comments]
    [cljs-patrol.groups.css-order :as css-order]
    [cljs-patrol.groups.css-order.orders :as orders]
@@ -48,6 +49,7 @@
    spade/group
    reagent/group
    typography/group
+   (colors/make-group (:colors config) (get-in config [:tests :paths]))
    (focus-ring/make-group (get config :focus-ring))
    (forbid-props/make-group (get config :forbid-props))
    (a11y/make-group (get config :a11y))

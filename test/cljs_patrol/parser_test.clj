@@ -46,6 +46,16 @@
   (testing "unknown alias returns nil"
     (is (nil? (parser/resolve-sym "unknown/fn-name" "my.ns" {})))))
 
+(deftest reader-conditional-branch-selection
+  (doseq [[source expected] [["#?(:clj jvm :cljs script :default fallback)" 'script]
+                             ["#?(:clj jvm :default fallback :cljs script)" 'fallback]
+                             ["#?@(:clj [jvm] :cljs [script])" '[script]]
+                             ["#?(:clj jvm)" nil]
+                             ["#js (:cljs script)" nil]
+                             ["#js [:cljs script]" nil]]]
+    (is (= expected (some-> source z/of-string (parser/reader-conditional-branch ":cljs") z/sexpr))
+        source)))
+
 (deftest position-reads-node-metadata
   (let [loc (-> (z/of-string "(ns a)\n\n  (f\n   x)") z/right)]
     (is (= [3 3] (parser/position loc))

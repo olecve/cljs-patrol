@@ -344,16 +344,10 @@
 
   A splicing branch's vector is spread out."
   [loc]
-  (let [splicing? (= "?@" (some-> loc z/down parser/raw))]
-    (when-let [form (some->> (parser/written-child-locs loc)
-                             (filter #(= :list (z/tag %)))
-                             first
-                             parser/written-child-locs
-                             (partition 2)
-                             (some (fn [[platform form]] (when (contains? #{:cljs :default} (literal platform)) form))))]
-      (if (and splicing? (= :vector (z/tag form)))
-        (parser/written-child-locs form)
-        [form]))))
+  (when-let [form (parser/reader-conditional-branch loc ":cljs")]
+    (if (and (= "?@" (parser/reader-conditional-kind loc)) (= :vector (z/tag form)))
+      (parser/written-child-locs form)
+      [form])))
 
 (defn- unwrapped-forms
   "Return the forms a top-level form stands for: the ClojureScript branch of a reader conditional, or the form under metadata."
