@@ -15,6 +15,7 @@ code block splits into examples.
 - **[`spade`](rules/spade.md)**
 - **[`reagent`](rules/reagent.md)**
 - **[`typography`](rules/typography.md)**
+- **[`colors`](rules/colors.md)**
 - **[`focus-ring`](rules/focus-ring.md)**
 - **[`forbid-props`](rules/forbid-props.md)**
 - **[`a11y`](rules/a11y.md)**

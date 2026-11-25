@@ -143,6 +143,12 @@
           :ns (namespace kw)
           :var (name kw)})
 
+       (= :color-literal rule)
+       {:rule rule
+        :file (rel (:file issue))
+        :name (:top-level issue)
+        :literal (:literal issue)}
+
        (= :deprecated-effects rule)
        {:rule rule
         :effect (:effect issue)
