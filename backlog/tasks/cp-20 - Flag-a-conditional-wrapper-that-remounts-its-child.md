@@ -1,11 +1,11 @@
 ---
 id: CP-20
 title: "Flag a conditional wrapper that remounts its child"
-status: Review
+status: Done
 labels: ["reagent"]
 priority: high
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-25"
 references: ["https://github.com/olecve/cljs-patrol/pull/163"]
 ---
 
@@ -48,11 +48,14 @@ Changing the wrapper changes the React tree and remounts the child, losing its f
 
 ### Notes
 
+Shipped as the `remounting-branch` rule.
+
 Match: branches [W … x] and x for the same symbol or form x; or two focusable elements (button, a, :tab-index) with
 different tags holding the same child.
 
 ### Links
 
-- cljs-patrol PR 163: https://github.com/olecve/cljs-patrol/pull/163
+- [Implementation in PR #163](https://github.com/olecve/cljs-patrol/pull/163)
+- [Rule documentation](../../docs/rules/reagent.md#remounting-branch)
 
 <!-- SECTION:DESCRIPTION:END -->
