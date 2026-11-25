@@ -608,13 +608,28 @@
      :usages []
      :dynamics []}))
 
-(defn- handle-fragment
-  "Emit an :empty-fragment-props or :redundant-fragment finding when `loc` is a fragment that does nothing."
+(defn- tabindex-spelling-finding [loc file]
+  (let [tag (some-> loc z/down parser/raw hiccup/parse-tag)]
+    (when (and (hiccup/html-tag? tag)
+               (not= :<> tag))
+      (let [{:keys [attrs]} (hiccup/attrs-info loc)]
+        (when (and (some #(contains? attrs %) [:tabIndex :tabindex])
+                   (not (inside-comment-form? loc)))
+          (let [[row col] (parser/position loc)]
+            {:kw tag
+             :type :prefer-tab-index
+             :form (parser/source-snippet loc)
+             :file file
+             :row row
+             :col col}))))))
+
+(defn- handle-vector
   [loc ns-info file]
   (when-not (hiccup/inside-non-hiccup-form? loc)
     (when-let [finding (cond
                          (empty-fragment-props? loc) (empty-fragment-props-finding loc file)
-                         (redundant-fragment? loc ns-info) (redundant-fragment-finding loc file))]
+                         (redundant-fragment? loc ns-info) (redundant-fragment-finding loc file)
+                         :else (tabindex-spelling-finding loc file))]
       {:decls [(hiccup/add-note finding (hiccup/mixed-schema-note loc))]
        :usages []
        :dynamics []})))
@@ -633,14 +648,16 @@
         redundant-fragment (filter #(= :redundant-fragment (:type %)) declarations)
         inline-component (filter #(= :inline-component (:type %)) declarations)
         discarded-hiccup (filter #(= :discarded-hiccup (:type %)) declarations)
-        remounting-branch (filter #(= :remounting-branch (:type %)) declarations)]
+        remounting-branch (filter #(= :remounting-branch (:type %)) declarations)
+        prefer-tab-index (filter #(= :prefer-tab-index (:type %)) declarations)]
     {:defclass-as-sole-attr (vec defclass-as-sole-attr)
      :redundant-into-hiccup (vec redundant-into)
      :empty-fragment-props (vec empty-fragment-props)
      :redundant-fragment (vec redundant-fragment)
      :inline-component (vec inline-component)
      :discarded-hiccup (vec discarded-hiccup)
-     :remounting-branch (vec remounting-branch)}))
+     :remounting-branch (vec remounting-branch)
+     :prefer-tab-index (vec prefer-tab-index)}))
 
 (defn- summary-lines* [{:keys [defclass-as-sole-attr
                                redundant-into-hiccup
@@ -648,14 +665,16 @@
                                redundant-fragment
                                inline-component
                                discarded-hiccup
-                               remounting-branch]}]
+                               remounting-branch
+                               prefer-tab-index]}]
   [["defclass as sole attr:" (count defclass-as-sole-attr)]
    ["Redundant into-hiccup:" (count redundant-into-hiccup)]
    ["Empty fragment props:" (count empty-fragment-props)]
    ["Redundant fragment:" (count redundant-fragment)]
    ["Inline component:" (count inline-component)]
    ["Discarded hiccup:" (count discarded-hiccup)]
-   ["Remounting branch:" (count remounting-branch)]])
+   ["Remounting branch:" (count remounting-branch)]
+   ["Prefer :tab-index:" (count prefer-tab-index)]])
 
 (defn- failed?* [{:keys [discarded-hiccup]}]
   (boolean (seq discarded-hiccup)))
@@ -665,7 +684,7 @@
   (group-id [_] :reagent)
   (group-name [_] "Reagent")
   (parse-handlers [_] {:handle-list [spade-handle-list handle-into handle-let handle-discarded-hiccup handle-remounting-branch]
-                       :handle-vector handle-fragment})
+                       :handle-vector handle-vector})
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ result] (failed?* result))
@@ -688,7 +707,10 @@
           "[:<> ...] or a parent element, or remove the one that should not render.")
      :remounting-branch
      (str "The branches of a condition render the same child under different elements, so React mounts it again when "
-          "the condition flips, and keyboard focus inside it falls to the page. Keep the same elements around it.")})
+          "the condition flips, and keyboard focus inside it falls to the page. Keep the same elements around it.")
+     :prefer-tab-index
+     (str "Use :tab-index for this DOM attribute. If the props contain multiple spellings, "
+          "choose the intended value and keep one :tab-index key.")})
   (docs-anchors [_]
     {:defclass-as-sole-attr "defclass-as-sole-attr"
      :redundant-into-hiccup "redundant-into-around-hiccup"
@@ -696,7 +718,8 @@
      :redundant-fragment "redundant-fragment"
      :inline-component "inline-component"
      :discarded-hiccup "discarded-hiccup"
-     :remounting-branch "remounting-branch"})
+     :remounting-branch "remounting-branch"
+     :prefer-tab-index "prefer-tab-index"})
   (rule->tier [_]
     {:defclass-as-sole-attr :deprecations
      :redundant-into-hiccup :cleanup
@@ -704,7 +727,8 @@
      :redundant-fragment :cleanup
      :inline-component :cleanup
      :discarded-hiccup :bugs
-     :remounting-branch :bugs})
+     :remounting-branch :bugs
+     :prefer-tab-index :cleanup})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->ReagentGroup))

@@ -443,3 +443,32 @@ changes between the branches; the same child under two different wrappers; a `[:
 quoted code, `#_` forms, `(comment …)` blocks and Spade declarations.
 
 </details>
+
+### Prefer tab-index
+
+`prefer-tab-index` · cleanup — Use `:tab-index` for the DOM attribute in native Reagent Hiccup.
+
+```clojure
+;; flagged
+[:button {:type "button" :tabIndex -1} "More"]
+
+;; lowercase spelling
+[:a {:href "/help" :tabindex 0} "Help"]
+
+;; fix
+[:button {:type "button" :tab-index -1} "More"]
+```
+
+**Left alone:**
+
+```clojure
+;; React props
+(react/createElement "button" #js {:tabIndex 0})
+
+;; component props
+[:> MenuItem {:tabIndex -1}]
+```
+
+The rule reads props on native HTML and SVG tags, including props built with a readable `assoc` or `merge`. If one
+element has several spellings, keep a single `:tab-index` with the intended value. The
+[invalid tabindex rule](a11y.md#invalid-tabindex) checks values separately.

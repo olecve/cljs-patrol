@@ -72,18 +72,20 @@
                                     :redundant-fragment []
                                     :inline-component []
                                     :discarded-hiccup []
-                                    :remounting-branch []})]
-    (is (= 7 (count lines)))
+                                    :remounting-branch []
+                                    :prefer-tab-index []})]
+    (is (= 8 (count lines)))
     (is (= 1 (second (first lines))))
     (is (= 0 (second (second lines))))
     (is (= [["Empty fragment props:" 0]
             ["Redundant fragment:" 0]
             ["Inline component:" 0]
             ["Discarded hiccup:" 0]
-            ["Remounting branch:" 0]]
-           (take-last 5 lines)))))
+            ["Remounting branch:" 0]
+            ["Prefer :tab-index:" 0]]
+           (take-last 6 lines)))))
 
-(defn- fragment-findings
+(defn- vector-findings
   "Walk `lines` the way the parser walks a file, and return the forms `rule` reports."
   [rule lines]
   (let [{:keys [handle-vector]} (group/parse-handlers reagent/group)
@@ -100,12 +102,36 @@
          rule
          (mapv :form))))
 
-(defn- empty-fragment-props [lines] (fragment-findings :empty-fragment-props lines))
+(deftest native-tabindex-spelling
+  (is (= ["[:button {:tabIndex -1} \"More\"]"
+          "[:a.help {:tabindex 0} \"Help\"]"
+          "[:span props \"Status\"]"
+          "[:div (assoc other :tabIndex n)]"
+          "[:button {:tab-index 0 :tabIndex -1 :tabindex 0}]"]
+         (vector-findings :prefer-tab-index
+                          ["[:button {:tabIndex -1} \"More\"]"
+                           "[:a.help {:tabindex 0} \"Help\"]"
+                           "(let [props {:tabindex 0}] [:span props \"Status\"])"
+                           "[:div (assoc other :tabIndex n)]"
+                           "[:button {:tab-index 0 :tabIndex -1 :tabindex 0}]"])))
+  (is (empty? (vector-findings :prefer-tab-index
+                               ["[:button {:tab-index -1} \"More\"]"
+                                "[:div opaque-props]"
+                                "[:<> {:tabIndex 0}]"
+                                "[menu-item {:tabIndex 0}]"
+                                "[:> MenuItem {:tabIndex 0}]"
+                                "(react/createElement \"button\" #js {:tabIndex 0})"
+                                "{:tabIndex 0}"
+                                "'[:button {:tabIndex 0}]"
+                                "(comment [:button {:tabIndex 0}])"
+                                "(defclass selector [] [:button {:tabIndex 0}])"]))))
+
+(defn- empty-fragment-props [lines] (vector-findings :empty-fragment-props lines))
 
 (defn- redundant-fragments
   "Return the forms the rule reports for `lines`, each written as the body of a function."
   [lines]
-  (fragment-findings :redundant-fragment (map #(str "(defn view [] " % ")") lines)))
+  (vector-findings :redundant-fragment (map #(str "(defn view [] " % ")") lines)))
 
 (deftest fragment-with-empty-props-is-flagged-whatever-follows
   (is (= ["[:<> {} [edit-controls {:editing? false}] [accept-button]]"
@@ -244,15 +270,15 @@
 
 (deftest fragment-under-rum-defc-is-flagged
   (is (= ["[:<> [row]]"]
-         (fragment-findings :redundant-fragment ["(rum/defc view [] [:<> [row]])"]))
+         (vector-findings :redundant-fragment ["(rum/defc view [] [:<> [row]])"]))
       "reads rum defc as function body"))
 
 (deftest fragment-under-look-alike-heads-is-left-alone
-  (is (empty? (fragment-findings :redundant-fragment ["(x/defn view [] [:<> [row]])"
-                                                      "(defn view [] (x/when c [:<> [row]]))"
-                                                      "(defn view [] (x/if c [:<> [row]] [cell]))"
-                                                      "(defn view [] (x/for [x xs] [:<> [row x]]))"
-                                                      "(let [defn f] (defn view [] [:<> [row]]))"]))
+  (is (empty? (vector-findings :redundant-fragment ["(x/defn view [] [:<> [row]])"
+                                                    "(defn view [] (x/when c [:<> [row]]))"
+                                                    "(defn view [] (x/if c [:<> [row]] [cell]))"
+                                                    "(defn view [] (x/for [x xs] [:<> [row x]]))"
+                                                    "(let [defn f] (defn view [] [:<> [row]]))"]))
       "skips heads resolving outside core, reagent and rum"))
 
 (deftest unrendered-redundant-fragment-is-left-alone
