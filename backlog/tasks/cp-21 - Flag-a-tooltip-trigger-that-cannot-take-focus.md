@@ -1,11 +1,11 @@
 ---
 id: CP-21
 title: "Flag a tooltip trigger that cannot take focus"
-status: Next
+status: Done
 labels: ["a11y"]
 priority: high
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-25"
 references: []
 ---
 
@@ -15,13 +15,13 @@ references: []
 
 ### Problem
 
-Radix Tooltip uses as-child, so the tooltip's first child becomes the trigger and gets aria-describedby. When that child
-is a plain span or div (no role, no tab stop), keyboard users never open the tooltip and screen readers never read its
-text, even if a button sits inside the span.
+Radix Tooltip's as-child mode puts the trigger props, including `aria-describedby` when the tooltip is open, on the
+direct child. A plain span or div without a tab stop cannot receive keyboard focus. If a button inside the wrapper
+receives focus, the description still belongs to the wrapper.
 
 ### Why
 
-An as-child tooltip trigger must be keyboard-focusable; this rule would check that requirement.
+Keyboard users need to reach the element that acts as the tooltip trigger.
 
 ### Flagged
 
@@ -47,5 +47,12 @@ An as-child tooltip trigger must be keyboard-focusable; this rule would check th
 
 ### Notes
 
-Configurable tooltip component names and a list of known focusable components (button, icon-button).
+The `non-focusable-tooltip-trigger` rule checks direct native span and div triggers in configured tooltip wrappers and
+in explicit Radix triggers with `:asChild true`. It recognizes `:tab-index`, `:tabIndex`, and `:tabindex`.
+
+### Links
+
+- [Implementation in PR #187](https://github.com/olecve/cljs-patrol/pull/187)
+- [Rule documentation](../../docs/rules/a11y.md#non-focusable-tooltip-trigger)
+
 <!-- SECTION:DESCRIPTION:END -->
