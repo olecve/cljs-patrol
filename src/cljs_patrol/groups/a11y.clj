@@ -2193,10 +2193,9 @@
   #{(symbol "@radix-ui/react-tooltip" "Trigger")
     (symbol "@radix-ui/react-tooltip" "TooltipTrigger")})
 
-(defn- literal-as-child? [props]
-  (when (= :map (z/tag props))
-    (let [[attr & extra] (select-keys (hiccup/literal-map props) [:as-child :asChild])]
-      (and (nil? extra) (some-> attr val literal-sexpr true?)))))
+(defn- literal-as-child? [attrs]
+  (let [[attr & extra] (select-keys attrs [:as-child :asChild])]
+    (and (nil? extra) (some-> attr val literal-sexpr true?))))
 
 (defn- quoted-tooltip? [loc]
   (->> (iterate z/up (z/up loc))
@@ -2204,7 +2203,7 @@
        (filter #(= :list (z/tag %)))
        (some #(= "quote" (->> % parser/written-child-locs first parser/raw)))))
 
-(defn- tooltip-child [loc ns-info tooltip-components]
+(defn- tooltip-trigger [loc ns-info tooltip-components]
   (let [children (parser/written-child-locs loc)
         head (first children)
         interop? (and (= :token (z/tag head)) (= ":>" (parser/raw head)))]
@@ -2212,17 +2211,33 @@
       (let [[component props child & extra] (if interop? (rest children) children)
             name (parser/sym-name component)
             written (when name (parser/raw component))
-            resolved (when written (parser/resolve-full-symbol written ns-info))]
+            resolved (when written (parser/resolve-full-symbol written ns-info))
+            forwarded (when (and interop? (contains? radix-tooltip-triggers resolved) (= :map (z/tag props)))
+                        (hiccup/literal-map props))]
         (when (and (nil? extra)
                    (= :vector (z/tag child))
-                   (or (contains? tooltip-components resolved)
-                       (and interop? (contains? radix-tooltip-triggers resolved) (literal-as-child? props)))
+                   (or (contains? tooltip-components resolved) (literal-as-child? forwarded))
                    (not (and (= name written) (heads/locally-bound? loc name)))
                    (not (hiccup/inside-non-hiccup-form? loc))
                    (not (quoted-tooltip? loc)))
-          child)))))
+          {:child child
+           :forwarded forwarded})))))
 
-(defn- non-focusable-tooltip-child [loc]
+(def ^:private tooltip-focus-prop-keys
+  "Spellings grouped by the React prop Reagent passes to Radix Slot."
+  [[:tab-index :tabIndex] [:tabindex]
+   [:content-editable :contentEditable] [:contenteditable]
+   [:is]])
+
+(defn- tooltip-focus-prop?
+  "Ask the child first, since Radix Slot lets a written child prop override a forwarded one.
+  Lowercase keys stay separate: React may still emit them as DOM attributes."
+  [attrs forwarded keys]
+  (if-let [child-keys (seq (filter #(contains? attrs %) keys))]
+    (some #(attr-written? attrs %) child-keys)
+    (some #(attr-written? forwarded %) keys)))
+
+(defn- non-focusable-tooltip-child [loc forwarded]
   (let [tag (some->> (parser/written-child-locs loc) first parser/raw hiccup/parse-tag)]
     (when (contains? #{:div :span} tag)
       (let [{:keys [kind attrs]
@@ -2233,14 +2248,12 @@
                        nil)]
         (when (and readable
                    (not (names-unreadable-props? loc info))
-                   (= :none (tabindex-reading readable))
-                   (not-any? #(attr-written? readable %)
-                             [:content-editable :contentEditable :contenteditable :is]))
+                   (not-any? #(tooltip-focus-prop? readable forwarded %) tooltip-focus-prop-keys))
           tag)))))
 
 (defn- tooltip-trigger-finding [loc ns-info file tooltip-components]
-  (when-let [child (tooltip-child loc ns-info tooltip-components)]
-    (when-let [tag (non-focusable-tooltip-child child)]
+  (when-let [{:keys [child forwarded]} (tooltip-trigger loc ns-info tooltip-components)]
+    (when-let [tag (non-focusable-tooltip-child child forwarded)]
       (let [[row col] (parser/position child)]
         {:type :non-focusable-tooltip-trigger
          :kw tag
