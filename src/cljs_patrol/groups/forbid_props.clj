@@ -35,33 +35,6 @@
                             (or (parser/resolve-full-symbol raw ns-info)
                                 (when (some-> (namespace value) (str/includes? ".")) value))))))))
 
-(def ^:private re-frame-calls
-  "Calls whose vector arguments are event or subscription vectors, not Hiccup."
-  #{"dispatch" "dispatch-sync" "dispatch-n" "subscribe" "sub"
-    "reg-event-db" "reg-event-fx" "reg-event-ctx" "reg-sub" "reg-sub-raw"})
-
-(def ^:private event-effect-keys
-  "Effect keys whose value is an event vector, or a vector of them."
-  #{:dispatch :dispatch-sync :dispatch-later :dispatch-n})
-
-(defn- re-frame-vector?
-  "True when a vector is a re-frame event or subscription, though its id names an HTML element.
-
-  An argument of `dispatch`, `subscribe` or a `reg-event-*` or `reg-sub` call, `#(…)`
-  included, a vector after a `:dispatch`-like effect key, in an effect map or an fx tuple, or an
-  item of one after `:dispatch-n`, and every fx tuple, `[:track {…}]` in `{:fx [[:track {…}]]}`."
-  [loc]
-  (let [parent (z/up loc)
-        tag (some-> parent z/tag)
-        after-effect-key? #(contains? event-effect-keys (some-> % z/left literal))]
-    (case tag
-      (:list :fn) (contains? re-frame-calls (parser/sym-name (z/down parent)))
-      (:map :vector) (or (after-effect-key? loc)
-                         (and (= :vector tag)
-                              (or (after-effect-key? parent)
-                                  (= :fx (some-> parent z/left literal)))))
-      false)))
-
 (defn- forbidden-for?
   "True when an entry forbids its prop on `element`."
   [{:keys [allowed-for disallowed-for]} element]
@@ -95,7 +68,7 @@
 
 (defn- handle-vector [entries]
   (fn [loc ns-info file]
-    (when-not (or (hiccup/inside-non-hiccup-form? loc) (re-frame-vector? loc))
+    (when-not (or (hiccup/inside-non-hiccup-form? loc) (hiccup/re-frame-vector? loc ns-info))
       (when-let [element (element loc ns-info)]
         (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
           (when (and (= :map kind) (seq attrs))

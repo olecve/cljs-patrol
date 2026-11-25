@@ -132,14 +132,9 @@
   search has to carry on past the form rather than answer from its binding."
   #{"if-let" "if-some"})
 
-(def ^:private opaque-binding-heads
-  "Binding forms whose bound values we never read, but which still shadow.
-  Their binding vectors hold shapes a pairwise scan would misread — `for` clauses,
-  `letfn` fn specs, a `loop` name `recur` rebinds, the first element of a collection
-  `when-first` takes — so any mention of the symbol inside one ends the search
-  instead of letting an enclosing `let` answer for it."
-  #{"loop" "go-loop" "for" "doseq" "dotimes" "when-first" "letfn" "with-let"
-    "binding" "with-open" "with-redefs" "with-local-vars"})
+(def ^:private opaque-pair-binding-heads
+  "Forms with ordered binding pairs whose values are unknown to the props reader."
+  #{"loop" "loop*" "go-loop" "dotimes" "when-first" "with-let" "binding" "with-open" "with-local-vars"})
 
 (def ^:private parameter-binding-heads
   "Forms whose parameter vectors bind symbols for the body that follows.
@@ -176,21 +171,11 @@
     (when (and symbol-name (= symbol-name (parser/raw loc)))
       symbol-name)))
 
-(defn- mentions-symbol?
-  "True when symbol-name appears anywhere in the form loc holds.
-  symbol-name is known to be a bare symbol, and every other token prints with
-  something a symbol cannot start with — a colon, a quote, a digit — so comparing
-  raw source is the same test as reading the token, without building an sexpr for
-  every node of every binding vector we scan."
-  [loc symbol-name]
-  (loop [current (z/subzip loc)]
-    (cond
-      (z/end? current) false
-      (and (= :token (z/tag current)) (= symbol-name (parser/raw current))) true
-      :else (recur (z/next current)))))
-
 (defn- same-node? [a b]
   (boolean (and a b (identical? (z/node a) (z/node b)))))
+
+(defn- same-site? [a b]
+  (and a b (same-node? (heads/site a) (heads/site b))))
 
 (defn- skip-right [loc n]
   (reduce (fn [current _] (some-> current z/right)) loc (range n)))
@@ -203,13 +188,18 @@
                           (get parameter-list-offsets (some-> head parser/sym-name) 0))]
     (keep :params (heads/arities start))))
 
-(defn- binding-pairs [vector-loc]
-  (loop [form (z/down vector-loc)
-         pairs []]
-    (if (nil? form)
-      pairs
-      (let [init (z/right form)]
-        (recur (some-> init z/right) (conj pairs [form init]))))))
+(defn- cljs-binding-splice [loc]
+  (when (= "?@" (parser/reader-conditional-kind loc))
+    (parser/reader-conditional-branch loc #{":cljs"})))
+
+(defn- cljs-binding-names [loc]
+  (heads/binding-names (z/node loc) #(map z/node (parser/cljs-child-locs (z/of-node* %)))))
+
+(defn- binding-pairs [bindings]
+  (partition-all 2 (parser/cljs-child-locs bindings)))
+
+(defn- before-binding? [cut [form init]]
+  (not (or (same-site? form cut) (same-site? init cut))))
 
 (defn- bound-init
   "Return the init a let-style binding vector binds symbol-name to.
@@ -218,14 +208,43 @@
   here. Pairs from `cut` — the binding the usage itself sits in — on are not in scope
   yet, and the last binding left of it wins."
   [bindings-loc symbol-name cut]
-  (reduce (fn [found [form init]]
-            (cond
-              (= symbol-name (unqualified-symbol-name form)) init
-              (mentions-symbol? form symbol-name) ::shadowed
-              :else found))
-          nil
-          (cond->> (binding-pairs bindings-loc)
-            cut (take-while (fn [[form init]] (not (or (same-node? form cut) (same-node? init cut))))))))
+  (->> bindings-loc
+       binding-pairs
+       (take-while (partial before-binding? cut))
+       (reduce (fn [found [form init]]
+                 (cond
+                   (= symbol-name (unqualified-symbol-name form)) init
+                   (contains? (cljs-binding-names form) symbol-name) ::shadowed
+                   :else found))
+               nil)))
+
+(defn- enclosing-child [loc parent]
+  (loop [child loc]
+    (when child
+      (if (same-node? parent (z/up child))
+        child
+        (recur (z/up child))))))
+
+(defn- binding-cut [bindings usage]
+  (when-let [child (enclosing-child usage bindings)]
+    (if-let [branch (cljs-binding-splice child)]
+      (recur branch usage)
+      child)))
+
+(defn- comprehension-init [bindings symbol-name cut usage]
+  (let [[clauses [[modifier init]]] (split-with (partial before-binding? cut) (binding-pairs bindings))]
+    (or (when (and (same-node? init cut) (= ":let" (parser/raw modifier)))
+          (let [bindings (heads/unwrap-meta init)]
+            (bound-init bindings symbol-name (binding-cut bindings usage))))
+        (reduce (fn [found [form value]]
+                  (case (parser/raw form)
+                    ":let" (or (bound-init (heads/unwrap-meta value) symbol-name nil) found)
+                    (":when" ":while") found
+                    (if (contains? (cljs-binding-names form) symbol-name)
+                      ::shadowed
+                      found)))
+                nil
+                clauses))))
 
 (defn- fn-like-head?
   "True for a head that plausibly defines a function, and so binds a parameter list.
@@ -270,6 +289,13 @@
        (remove #(same-node? % child))
        (filter parameter-list?)))
 
+(defn- letfn-spec-holder? [holder]
+  (when (= :vector (some-> holder z/tag))
+    (let [site (heads/site holder)]
+      (if (= "?@" (parser/reader-conditional-kind site))
+        (recur (z/up site))
+        (= "letfn" (some-> site z/up z/down parser/sym-name))))))
+
 (defn- method-form?
   "True when list-loc is a `(name [params] …)` method inside a form that holds methods.
   Its head is the method name rather than anything we can recognize on its own, so
@@ -277,45 +303,86 @@
   [list-loc]
   (let [holder (z/up list-loc)]
     (and (some? (some-> list-loc z/down parser/sym-name))
-         (= :list (some-> holder z/tag))
-         (contains? method-holder-heads (some-> holder z/down parser/sym-name)))))
+         (or (and (= :list (some-> holder z/tag))
+                  (contains? method-holder-heads (some-> holder z/down parser/sym-name)))
+             (letfn-spec-holder? holder)))))
 
 (defn- in-scope-branch?
   "True when child is a branch the binding of a binding form reaches.
   Only `if-let` and `if-some` leave one out: their else branch runs with the symbol
   unbound, so a binding there is not the one the usage sees."
-  [head-name child bindings]
+  [head-name child binding-site then-branch]
   (or (not (contains? then-branch-binding-heads head-name))
-      (same-node? child bindings)
-      (same-node? child (z/right bindings))))
+      (same-node? child binding-site)
+      (same-node? child then-branch)))
+
+(defn- threaded-as-step? [loc]
+  (let [site (heads/site loc)
+        parent (z/up site)
+        [head _ & steps] (parser/written-child-locs parent)]
+    (and (contains? #{"->" "some->"} (some-> head parser/sym-name))
+         (some #(same-node? site %) steps))))
+
+(defn- parameters-bind? [params usage symbol-name]
+  (let [cut (binding-cut params usage)]
+    (->> (parser/cljs-child-locs params)
+         (take-while #(not (same-site? % cut)))
+         (some #(contains? (cljs-binding-names %) symbol-name)))))
 
 (defn- binder-lookup
   "Look up symbol-name in the bindings one enclosing form makes.
-  `child` is that form's own child the usage descends from and `inner` the one below
-  it: together they place a usage written inside the binding vector itself, where the
-  bindings to its right are not in scope yet."
-  [list-loc child inner symbol-name]
-  (let [head (z/down list-loc)
+  `child` is the form's own child the usage descends from. A usage inside the binding
+  vector sees only bindings to its left."
+  [list-loc child usage symbol-name]
+  (let [[head & args] (parser/written-child-locs list-loc)
         head-name (some-> head parser/sym-name)
-        bindings (some-> head z/right)
-        binding-vector? (= :vector (some-> bindings z/tag))]
+        [binding-site then-branch] args
+        bindings (heads/unwrap-meta binding-site)
+        binding-vector? (= :vector (some-> bindings z/tag))
+        cut (when (and binding-vector? (same-node? child binding-site))
+              (binding-cut bindings usage))]
     (cond
       (and binding-vector? (contains? map-binding-heads head-name))
-      (when (in-scope-branch? head-name child bindings)
-        (bound-init bindings symbol-name (when (same-node? child bindings) inner)))
+      (when (in-scope-branch? head-name child binding-site then-branch)
+        (bound-init bindings symbol-name cut))
 
-      (and binding-vector? (contains? opaque-binding-heads head-name))
-      (when (mentions-symbol? bindings symbol-name) ::shadowed)
+      (and binding-vector? (contains? #{"for" "doseq"} head-name))
+      (comprehension-init bindings symbol-name cut usage)
+
+      (and binding-vector? (contains? opaque-pair-binding-heads head-name))
+      (when (bound-init bindings symbol-name cut) ::shadowed)
+
+      (and binding-vector? (= "with-redefs" head-name))
+      (when (and (not (same-node? child binding-site)) (bound-init bindings symbol-name nil))
+        ::shadowed)
+
+      (and binding-vector? (= "letfn" head-name))
+      (when (some #(= symbol-name (some->> % heads/unwrap-meta parser/written-child-locs
+                                           first heads/unwrap-meta unqualified-symbol-name))
+                  (parser/cljs-child-locs bindings))
+        ::shadowed)
 
       (contains? symbol-binding-heads head-name)
-      (let [bound (skip-right bindings (get symbol-binding-heads head-name))]
-        (when (= symbol-name (unqualified-symbol-name bound)) ::shadowed))
+      (let [offset (if (and (= "as->" head-name) (threaded-as-step? list-loc))
+                     0
+                     (get symbol-binding-heads head-name))
+            [bound & body] (drop offset args)]
+        (when (and (= symbol-name (unqualified-symbol-name bound))
+                   (some #(same-node? child %) body))
+          ::shadowed))
 
       (or (contains? parameter-binding-heads head-name) (method-form? list-loc))
-      (when (some #(mentions-symbol? % symbol-name) (parameter-vectors list-loc)) ::shadowed)
+      (when (or (and (contains? #{"fn" "fn*"} head-name)
+                     (= symbol-name (unqualified-symbol-name bindings)))
+                (some (fn [params]
+                        (let [owner (z/up (heads/site params))]
+                          (and (or (same-node? owner list-loc) (same-node? owner child))
+                               (parameters-bind? params usage symbol-name))))
+                      (parameter-vectors list-loc)))
+        ::shadowed)
 
       (fn-like-head? head-name)
-      (when (some #(mentions-symbol? % symbol-name) (unknown-form-parameters list-loc child))
+      (when (some #(parameters-bind? % usage symbol-name) (unknown-form-parameters list-loc child))
         ::shadowed))))
 
 (defn lexically-bound-value
@@ -327,15 +394,14 @@
   through, since a closure really does see the binding around it; what stops the
   search is a form that binds the name itself."
   [loc symbol-name]
-  (loop [inner nil
-         child loc
+  (loop [child loc
          parent (z/up loc)]
     (when (some? parent)
       (let [found (when (= :list (z/tag parent))
-                    (binder-lookup parent child inner symbol-name))]
+                    (binder-lookup parent child loc symbol-name))]
         (if (some? found)
           found
-          (recur child parent (z/up parent)))))))
+          (recur parent (z/up parent)))))))
 
 (def ^:private top-level-def-heads #{"def" "defonce"})
 
@@ -383,6 +449,10 @@
     (z/down root)
     (z/leftmost root)))
 
+(defn- file-ns-info [loc]
+  @@(parser/file-state ::file-ns-info
+                       (delay (or (-> loc file-root first-top-level-form parser/find-ns-info) {}))))
+
 (def ^:private component-def-heads
   "Forms defining a component that renders the last form of its body."
   #{'cljs.core/defn 'cljs.core/defn- 'reagent.core/defc 'rum.core/defc})
@@ -404,7 +474,7 @@
   The last definition of a name wins, the way it does at load time: a re-`def` rebinds the
   var, and a function body called afterwards sees the value that rebinding left."
   [first-form]
-  (let [ns-info @@(parser/file-state ::file-ns-info (delay (or (parser/find-ns-info first-form) {})))]
+  (let [ns-info (file-ns-info first-form)]
     (loop [form first-form
            definitions {}]
       (if (nil? form)
@@ -470,7 +540,7 @@
 
 (def ^:private attr-construction-heads
   "Calls that build a map from a base plus literal keys we can still read."
-  #{"assoc" "merge" "assoc-in"})
+  #{'cljs.core/assoc 'cljs.core/merge 'cljs.core/assoc-in})
 
 (declare construction-attrs)
 
@@ -511,7 +581,7 @@
 
   Handles `(assoc base :k v …)`, `(merge base {:k v} …)` and `(assoc-in base [:k] v)`,
   nesting through each other and through a symbol naming a map literal. Returns nil
-  when the call is not one of those.
+  when the call does not resolve to one of those core functions.
 
   `:complete?` is the whole point of the distinction: with an opaque base or a
   computed key the attrs are a floor, enough to answer that a key is present and
@@ -522,68 +592,67 @@
   them. `(assoc base :k v)` makes `:k` final, `(merge {:k v} base)` does not."
   [list-loc]
   (when (= :list (z/tag list-loc))
-    (when-let [head (z/down list-loc)]
-      (let [head-str (parser/raw head)]
-        (when (contains? attr-construction-heads head-str)
-          (let [args (rest (parser/written-child-locs list-loc))]
-            (case head-str
-              "merge"
-              (reduce (fn [acc arg]
-                        (let [{:keys [attrs complete? final]} (contributed arg)]
-                          {:attrs (merge (:attrs acc) attrs)
-                           :complete? (and (:complete? acc) complete?)
-                           :final (if complete?
-                                    (into (:final acc) final)
-                                    final)}))
-                      {:attrs {}
-                       :complete? true
-                       :final #{}}
-                      args)
+    (when-let [head (heads/resolve-head list-loc (file-ns-info list-loc) attr-construction-heads
+                                        #(some? (lexically-bound-value list-loc %)))]
+      (let [args (rest (parser/written-child-locs list-loc))]
+        (case (name head)
+          "merge"
+          (reduce (fn [acc arg]
+                    (let [{:keys [attrs complete? final]} (contributed arg)]
+                      {:attrs (merge (:attrs acc) attrs)
+                       :complete? (and (:complete? acc) complete?)
+                       :final (if complete?
+                                (into (:final acc) final)
+                                final)}))
+                  {:attrs {}
+                   :complete? true
+                   :final #{}}
+                  args)
 
-              "assoc"
-              (->> args
-                   rest
-                   (partition-all 2)
-                   (reduce (fn [acc [key-loc value-loc]]
-                             (cond
-                               (or (nil? value-loc) (splice-form? value-loc))
-                               (reduced (assoc acc
-                                               :complete? false
-                                               :final #{}))
+          "assoc"
+          (->> args
+               rest
+               (partition-all 2)
+               (reduce (fn [acc [key-loc value-loc]]
+                         (cond
+                           (or (nil? value-loc) (splice-form? value-loc))
+                           (reduced (assoc acc
+                                           :complete? false
+                                           :final #{}))
 
-                               (parser/kw-node? key-loc)
-                               (-> acc
-                                   (assoc-in [:attrs (z/sexpr key-loc)] value-loc)
-                                   (update :final conj (z/sexpr key-loc)))
+                           (parser/kw-node? key-loc)
+                           (-> acc
+                               (assoc-in [:attrs (z/sexpr key-loc)] value-loc)
+                               (update :final conj (z/sexpr key-loc)))
 
-                               :else
-                               (assoc acc
-                                      :complete? false
-                                      :final #{})))
-                           (contributed (first args))))
+                           :else
+                           (assoc acc
+                                  :complete? false
+                                  :final #{})))
+                       (contributed (first args))))
 
-              "assoc-in"
-              (let [[base path-loc value-loc] args
-                    path-keys (when (= :vector (some-> path-loc z/tag))
-                                (vec (parser/written-child-locs path-loc)))
-                    outer-key (first path-keys)
-                    readable-key? (and outer-key (parser/kw-node? outer-key))]
-                (cond-> (contributed base)
-                  ;; Only a one-key path states a value. A deeper one leaves the outer
-                  ;; key holding a map that was not read, and an entry whose value is
-                  ;; not the value is worse than no entry: rules read those values.
-                  (and readable-key? (not (next path-keys)))
-                  (-> (assoc-in [:attrs (z/sexpr outer-key)] value-loc)
-                      (update :final conj (z/sexpr outer-key)))
+          "assoc-in"
+          (let [[base path-loc value-loc] args
+                path-keys (when (= :vector (some-> path-loc z/tag))
+                            (vec (parser/written-child-locs path-loc)))
+                outer-key (first path-keys)
+                readable-key? (and outer-key (parser/kw-node? outer-key))]
+            (cond-> (contributed base)
+              ;; Only a one-key path states a value. A deeper one leaves the outer
+              ;; key holding a map that was not read, and an entry whose value is
+              ;; not the value is worse than no entry: rules read those values.
+              (and readable-key? (not (next path-keys)))
+              (-> (assoc-in [:attrs (z/sexpr outer-key)] value-loc)
+                  (update :final conj (z/sexpr outer-key)))
 
-                  (or (not readable-key?) (next path-keys))
-                  (assoc :complete? false)
+              (or (not readable-key?) (next path-keys))
+              (assoc :complete? false)
 
-                  (and readable-key? (next path-keys))
-                  (update :final disj (z/sexpr outer-key))
+              (and readable-key? (next path-keys))
+              (update :final disj (z/sexpr outer-key))
 
-                  (not readable-key?)
-                  (assoc :final #{}))))))))))
+              (not readable-key?)
+              (assoc :final #{}))))))))
 
 (defn attrs-info
   "Classify the second child of a Hiccup vector.
@@ -683,20 +752,21 @@
   "Every form [[result-locs]] reads, by its bare name."
   (into {} (map (juxt name identity)) result-heads))
 
-(defn- result-locs*
-  [loc head-of]
+(defn- result-branches [loc head-of children-of]
   (let [head (when (= :list (z/tag loc)) (head-of loc))
-        args (when head (remove #(= :uneval (z/tag %)) (parser/right-siblings (z/down loc))))
-        branches (cond
-                   (contains? tail-result-heads head) (take-last 1 args)
-                   (contains? branch-result-heads head) (take 2 (rest args))
-                   (= 'cljs.core/cond head) (take-nth 2 (rest args))
-                   (= 'cljs.core/case head) (let [clauses (rest args)]
-                                              (concat (take-nth 2 (rest clauses))
-                                                      (when (odd? (count clauses)) (take-last 1 clauses)))))]
-    (if (seq branches)
-      (mapcat #(result-locs* % head-of) branches)
-      [loc])))
+        args (when head (rest (children-of loc)))]
+    (cond
+      (contains? tail-result-heads head) (take-last 1 args)
+      (contains? branch-result-heads head) (take 2 (rest args))
+      (= 'cljs.core/cond head) (take-nth 2 (rest args))
+      (= 'cljs.core/case head) (let [clauses (rest args)]
+                                 (concat (take-nth 2 (rest clauses))
+                                         (when (odd? (count clauses)) (take-last 1 clauses)))))))
+
+(defn- result-locs* [loc head-of]
+  (if-let [branches (seq (result-branches loc head-of parser/written-child-locs))]
+    (mapcat #(result-locs* % head-of) branches)
+    [loc]))
 
 (defn result-locs
   "Return the locs whose value can become the value of `loc`.
@@ -868,6 +938,83 @@
   "True when a quoting, discarding, style-declaration or `ns` form encloses loc, or loc is in the value of a data `def`."
   [loc]
   (boolean (seq (enclosing-forms loc))))
+
+(def ^:private re-frame-calls
+  "Calls whose vector arguments are event or subscription vectors."
+  #{'re-frame.core/dispatch 're-frame.core/dispatch-sync 're-frame.core/dispatch-n
+    're-frame.core/subscribe 're-frame.core/sub 're-frame.core/reg-event-db 're-frame.core/reg-event-fx
+    're-frame.core/reg-event-ctx 're-frame.core/reg-sub 're-frame.core/reg-sub-raw})
+
+(def ^:private event-effect-keys
+  "Effect keys whose value is an event vector, or a vector of them."
+  #{":dispatch" ":dispatch-sync" ":dispatch-later" ":dispatch-n"})
+
+(defn- re-frame-call? [loc ns-info]
+  (let [active-ns @@(parser/file-state ::cljs-ns-info
+                                       (delay (-> loc file-root first-top-level-form parser/cljs-ns-info)))]
+    (when (heads/resolve-head loc (or active-ns ns-info) re-frame-calls)
+      (let [bare-name (some-> loc z/down unqualified-symbol-name)]
+        (not (and bare-name (lexically-bound-value loc bare-name)))))))
+
+(defn- cljs-parent
+  "Find the parent a form sits in after the reader expands splices."
+  [loc]
+  (when-let [parent (z/up loc)]
+    (let [site (heads/site parent)]
+      (if (= "?@" (parser/reader-conditional-kind site))
+        (recur site)
+        parent))))
+
+(defn- result-context [loc ns-info]
+  (loop [site (heads/site loc)]
+    (let [parent (cljs-parent site)
+          branches (when (= :list (some-> parent z/tag))
+                     (result-branches parent #(heads/resolve-head % ns-info result-heads) parser/cljs-child-locs))]
+      (if (some #(same-node? site (heads/site %)) branches)
+        (recur (heads/site parent))
+        [site parent]))))
+
+(defn- effect-map-key [[site parent]]
+  (when (= :map (some-> parent z/tag))
+    (some (fn [[key value]]
+            (when (same-node? site (heads/site value)) (parser/raw key)))
+          (partition 2 (parser/cljs-child-locs parent)))))
+
+(defn- fx-entry? [[_ collection] ns-info]
+  (and (= :vector (some-> collection z/tag))
+       (= ":fx" (effect-map-key (result-context collection ns-info)))))
+
+(defn- effect-key [[site parent :as context] ns-info]
+  (or (effect-map-key context)
+      (when (and (= :vector (some-> parent z/tag))
+                 (fx-entry? (result-context parent ns-info) ns-info))
+        (let [[key value] (parser/cljs-child-locs parent)]
+          (when (and value (same-node? site (heads/site value))) (parser/raw key))))))
+
+(defn re-frame-vector?
+  "True when a vector supplies a re-frame call or occupies a recognized effect slot.
+
+  Follow result positions through conditions and reader forms. A vector inside an event
+  payload keeps its own meaning, even when a neighboring value names an effect."
+  [loc ns-info]
+  (let [[_ parent :as context] (result-context loc ns-info)
+        tag (some-> parent z/tag)]
+    (case tag
+      (:list :fn) (re-frame-call? parent ns-info)
+      :map (contains? event-effect-keys (effect-map-key context))
+      :vector (or (contains? event-effect-keys (effect-key context ns-info))
+                  (fx-entry? context ns-info)
+                  (contains? #{":dispatch-n" ":dispatch-later"}
+                             (effect-key (result-context parent ns-info) ns-info)))
+      false)))
+
+(defn explicitly-quoted?
+  "True when an explicit quote form encloses loc."
+  [loc]
+  (->> (iterate z/up (z/up loc))
+       (take-while some?)
+       (filter #(= :list (z/tag %)))
+       (some #(= "quote" (->> % parser/written-child-locs first parser/raw)))))
 
 (defn inside-unrendered-form?
   "True when a quoting or discarding form encloses loc at any depth.

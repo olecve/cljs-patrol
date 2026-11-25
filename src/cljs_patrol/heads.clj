@@ -52,34 +52,39 @@
   (let [value (token-value node)]
     (and (keyword? value) (contains? #{"keys" "syms" "strs"} (name value)))))
 
-(defn- symbol-names
+(defn binding-names
   "Return the names node binds when it sits on the binding side, at any depth.
 
   An unqualified symbol, and every symbol or keyword in the vector of a `:keys`, `:syms`
-  or `:strs` entry, `{:keys [:cond app/id]}` binding `cond` and `id`. A default under
-  `:or` reads as bound too, which only gives up a finding."
-  [node]
-  (letfn [(keyed-names [vector-node]
-            (keep #(let [value (token-value %)]
-                     (when (or (symbol? value) (keyword? value)) (name value)))
-                  (code-forms vector-node)))
-          (names [node]
-            (cond
-              (= :token (n/tag node))
-              (let [value (token-value node)]
-                (when (and (symbol? value) (nil? (namespace value))) [(name value)]))
+  or `:strs` entry, `{:keys [:cond app/id]}` binding `cond` and `id`."
+  ([node] (binding-names node code-forms))
+  ([node children]
+   (letfn [(keyed-names [vector-node]
+             (keep #(let [value (token-value %)]
+                      (when (or (symbol? value) (keyword? value)) (name value)))
+                   (children vector-node)))
+           (names [node]
+             (cond
+               (= :token (n/tag node))
+               (let [value (token-value node)]
+                 (when (and (symbol? value) (nil? (namespace value))) [(name value)]))
 
-              (= :map (n/tag node))
-              (->> (code-forms node)
-                   (partition-all 2)
-                   (mapcat (fn [[k v]]
-                             (if (and (keys-entry? k) (= :vector (some-> v n/tag)))
-                               (keyed-names v)
-                               (concat (names k) (some-> v names))))))
+               (= :map (n/tag node))
+               (->> (children node)
+                    (partition-all 2)
+                    (mapcat (fn [[k v]]
+                              (cond
+                                (= :or (token-value k)) nil
+                                (= :as (token-value k)) (some-> v names)
+                                (and (keys-entry? k) (= :vector (some-> v n/tag))) (keyed-names v)
+                                :else (names k)))))
 
-              (n/inner? node)
-              (mapcat names (n/children node))))]
-    (set (names node))))
+               (= :meta (n/tag node))
+               (some-> node children last names)
+
+               (n/inner? node)
+               (mapcat names (children node))))]
+     (set (names node)))))
 
 (defn- binding-sides
   "Return the binding-side nodes of a binding vector, `:let` modifiers included."
@@ -165,40 +170,40 @@
                     (some-> (try (n/sexpr head) (catch Exception _ nil)) name))]
     (cond
       (contains? let-like-heads head-name)
-      (some->> arguments first binding-sides (mapcat symbol-names) set)
+      (some->> arguments first binding-sides (mapcat binding-names) set)
 
       (= "letfn" head-name)
       (some->> arguments first code-forms
                (mapcat #(let [[fn-name & fn-arguments] (code-forms %)]
-                          (concat (some-> fn-name symbol-names)
-                                  (mapcat symbol-names (parameter-vectors "fn" fn-arguments)))))
+                          (concat (some-> fn-name binding-names)
+                                  (mapcat binding-names (parameter-vectors "fn" fn-arguments)))))
                set)
 
       (or (contains? fn-like-heads head-name) (some-> head-name (str/starts-with? "def")))
       (cond-> (->> (parameter-vectors head-name arguments)
-                   (mapcat symbol-names)
+                   (mapcat binding-names)
                    set)
         (and (= "fn" head-name) (= :token (some-> arguments first n/tag)))
-        (into (symbol-names (first arguments))))
+        (into (binding-names (first arguments))))
 
       (= "catch" head-name)
-      (some-> (nth arguments 1 nil) symbol-names)
+      (some-> (nth arguments 1 nil) binding-names)
 
       (= "as->" head-name)
       (->> (take 2 arguments)
            (filter #(= :token (n/tag %)))
-           (mapcat symbol-names)
+           (mapcat binding-names)
            set)
 
       (= "this-as" head-name)
-      (some-> (first arguments) symbol-names)
+      (some-> (first arguments) binding-names)
 
       (= "are" head-name)
-      (some-> (first arguments) symbol-names)
+      (some-> (first arguments) binding-names)
 
       (contains? #{"amap" "areduce"} head-name)
       (->> (take 2 (rest arguments))
-           (mapcat symbol-names)
+           (mapcat binding-names)
            set))))
 
 (def ^:private method-defining-heads
@@ -218,7 +223,7 @@
   (->> (code-forms (z/node loc))
        rest
        (parameter-vectors "fn")
-       (mapcat symbol-names)
+       (mapcat binding-names)
        set))
 
 (defn- binds-name?
@@ -302,10 +307,13 @@
   Given `candidates`, a set of fully qualified symbols, the symbol is returned only when it is
   one of them, and nil otherwise. The bindings around the form are then read only for a name
   whose core var is a candidate, which is what makes this arity the cheap one for a caller
-  matching a few forms."
+  matching a few forms. Pass `bound?` when the caller already knows how to test whether a
+  bare name is in scope at this call."
   ([loc ns-info]
    (resolve-head-with loc ns-info #(not (locally-bound? loc %))))
   ([loc ns-info candidates]
+   (resolve-head loc ns-info candidates (partial locally-bound? loc)))
+  ([loc ns-info candidates bound?]
    (let [resolved (resolve-head-with loc ns-info #(and (contains? candidates (symbol "cljs.core" %))
-                                                       (not (locally-bound? loc %))))]
+                                                       (not (bound? %))))]
      (when (contains? candidates resolved) resolved))))
