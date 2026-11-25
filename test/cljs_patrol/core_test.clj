@@ -574,7 +574,7 @@
         (is (= 2 (count (:issues (edn/read-string (slurp baseline-path))))))
         (is (= 0 (:exit (run-main "--only" "colors" "--baseline" src))))
         (disk/write! (disk/path src "app/core.cljs")
-                     "(ns app.core)\n\n(def canvas-color\n  \"#fff\")\n(def chart-options {:color \"rgba(0, 38, 255, 0.4)\"})")
+                     "(ns app.core)\n\n(def canvas-color\n  \"#fff\")\n(def chart-options {:color \"rgba(51, 102, 153, 0.4)\"})")
         (is (= 0 (:exit (run-main "--only" "colors" "--baseline" src))))
         (disk/write! (disk/path src "app/added.cljs") "(ns app.added) (def border \"#ddd\")")
         (is (= 1 (:exit (run-main "--only" "colors" "--baseline" src))))

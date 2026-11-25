@@ -6,12 +6,14 @@ Proposed, 2026-11-25
 
 ## Context
 
-Some apps keep all their colors in design-token namespaces, such as `(def primary-500 "#0026ff")`. The rule of such an
-app is that other code never writes a color literal. It uses a token instead.
+The examples in this record are invented; the survey counts describe a real codebase.
 
-The tokens are about to become CSS custom properties, such as `"var(--x-primary-500)"`, so that the app can change its
-theme at runtime. A token then follows the theme. A literal does not. It stays the same in every theme, and it breaks a
-theme such as dark mode.
+Some apps keep all their colors in design-token namespaces, such as `(def accent "#336699")`. The rule of such an app is
+that other code never writes a color literal. It uses a token instead.
+
+Tokens can become CSS custom properties, such as `"var(--example-accent)"`, so that the app can change its theme at
+runtime. A token then follows the theme. A literal does not. It stays the same in every theme, and it breaks a theme
+such as dark mode.
 
 cljs-patrol is a static analysis tool for ClojureScript. It has these parts that this record uses:
 
@@ -29,8 +31,8 @@ cljs-patrol is a static analysis tool for ClojureScript. It has these parts that
 Today, the only check that such apps have is a clj-kondo hook. It reads the first style map of a Spade `defclass` or
 `defattrs`. It does not see:
 
-- a plain `def`, such as `(def warning-color "#f5a623")`
-- a Hiccup attribute, such as `[:circle {:fill "#d7dffe"}]`
+- a plain `def`, such as `(def warning-color "#336699")`
+- a Hiccup attribute, such as `[:circle {:fill "#669933"}]`
 - interop, such as `(set! (.-fillStyle ctx) "#fff")`
 - a data map, such as the options of a chart
 - a nested selector block of a Spade style
@@ -68,9 +70,9 @@ compared the values in lower case, with a 3-digit hex expanded to 6 digits, such
 Add an opt-in rule group, `colors`, with one rule, `color-literal`, in the `cleanup` tier. The rule reports a color
 literal in a string outside the namespaces that the config allows.
 
-- **One config key.** `{:colors {:allowed-namespaces #{app.styles.tokens}}}`. The group does nothing until it is set.
-  Any literal in an allowed namespace is accepted. There is no list of allowed colors. A config of another shape, such
-  as a string where a symbol belongs, stops the run with a message that names it.
+- **One config key.** `{:colors {:allowed-namespaces #{app.tokens}}}`. The group does nothing until it is set. Any
+  literal in an allowed namespace is accepted. There is no list of allowed colors. A config of another shape, such as a
+  string where a symbol belongs, stops the run with a message that names it.
 - **The hex shape.** A `#` and 3, 4, 6 or 8 hex digits, in any case. The character before the `#` is the start of the
   string, a space, `(` or `,`. The character after the digits is the end of the string, a space, `)`, `,` or `;`. So the
   rule reports `"#fff"` and also the `#ddd` of `"1px solid #ddd"` and each color of a gradient.
@@ -135,16 +137,16 @@ measured it. It read the non-test source directories, 1,524 Clojure files, and l
 bounded pattern of the Decision found 20 hex colors that are not an exact string:
 
 - 11 in code strings. 8 of them are in 7 lines of Garden `.clj` files, such as `"1px solid #ddd"` and
-  `"linear-gradient(to right, #0072e4, #3cc4e9)"`. 3 are in `.cljs` files: 2 in one gradient and 1 in a `box-shadow`.
+  `"linear-gradient(to right, #336699, #669933)"`. 3 are in `.cljs` files: 2 in one gradient and 1 in a `box-shadow`.
 - 9 in `;` comments, which the rule skips.
 
 The token namespaces hold 85 more, in composite borders, gradients and shadows. So a composite value is a usual way to
 write a color in that codebase.
 
-The bounded pattern gave no false positive. The strings of the codebase hold 4 anchors, `#home`, `#main-content`,
-`#navbar-…` and `#view`. None is only hex digits, so none matches. All 22 exact strings that are only the letters `a` to
-`f` after the `#` are colors, such as `"#ddd"` and `"#FFFFFF"`. No inline SVG with an escaped hex color was found
-outside docstrings.
+The bounded pattern gave no false positive. The strings of the codebase hold 4 anchors. Invented equivalents are
+`#example-top`, `#example-content`, `#example-nav` and `#example-view`. None is only hex digits, so none matches. All 22
+exact strings that are only the letters `a` to `f` after the `#` are colors, such as `"#ddd"` and `"#FFFFFF"`. No inline
+SVG with an escaped hex color was found outside docstrings.
 
 A pattern with no boundaries also matches the HTML entity `&#160;`, because `160` is three hex digits. It found 5 such
 lines: 4 in code and 1 in a docstring.
@@ -233,8 +235,8 @@ Rejected because the author must then search the token namespaces by value. The 
   each flagged example is reported and each fix and left-alone example is not.
 - A test for each shape: an exact hex of 3, 4, 6 and 8 digits, a hex in a border, in a gradient and in a shadow, and
   each of `rgb(`, `rgba(`, `hsl(` and `hsla(`, in lower and upper case.
-- A test for each boundary that is not a color: `&#160;`, `#main-content`, a hex of 5 or 7 digits, and a hex followed by
-  a letter.
+- A test for each boundary that is not a color: `&#160;`, `#/settings`, a hex of 5 or 7 digits, and a hex followed by a
+  letter.
 - A test for each skipped place: a test file found by `:tests :paths`, a test file found by a `-test` namespace, a
   docstring, a `(comment …)` form, a `#_` form, the `ns` form and an allowed namespace.
 - A test for each position: a plain `def`, a Hiccup attribute, interop, a data map, a first style map and a nested
@@ -278,49 +280,49 @@ Rejected because the author must then search the token namespaces by value. The 
 design-token namespaces.
 
 ```clojure
-;; config {:colors {:allowed-namespaces #{app.styles.tokens}}}
+;; config {:colors {:allowed-namespaces #{app.tokens}}}
 
 ;; flagged
-(def warning-color "#f5a623")
+(def warning-color "#336699")
 
 ;; a Hiccup attribute
-[:circle {:fill "#d7dffe" :r 4}]
+[:circle {:fill "#669933" :r 4}]
 
 ;; interop
 (set! (.-fillStyle ctx) "#fff")
 
 ;; a data map
-(def chart-options {:series [{:color "rgba(0, 38, 255, 0.4)"}]})
+(def chart-options {:series [{:color "rgba(51, 102, 153, 0.4)"}]})
 
 ;; a nested selector
 (defclass row-style []
-  [:&:hover {:background "#f3f3f3"}])
+  [:&:hover {:background "#cccccc"}])
 
 ;; a color inside a larger value
 (defclass card-style []
   {:border "1px solid #ddd"})
 
 ;; fix
-(def warning-color tokens/warning-500)
+(def warning-color tokens/accent)
 ```
 
 **Left alone:**
 
 ```clojure
-;; config {:colors {:allowed-namespaces #{app.styles.tokens}}}
+;; config {:colors {:allowed-namespaces #{app.tokens}}}
 
 ;; left alone: an allowed namespace
-(ns app.styles.tokens)
-(def primary-500 "#0026ff")
+(ns app.tokens)
+(def accent "#336699")
 
 ;; a docstring
 (defn tint
-  "Mixes a color such as #0026ff with white."
+  "Mixes a color such as #336699 with white."
   [color amount]
-  (mix color tokens/global-white amount))
+  (mix color tokens/paper amount))
 
 ;; an anchor that is not only hex digits
-[:a {:href "#main-content"} "Skip to content"]
+[:a {:href "#/settings"} "Settings"]
 
 ;; an HTML entity
 (str/replace markup "&nbsp;" "&#160;")
@@ -331,8 +333,8 @@ design-token namespaces.
 
 ;; code in a comment form
 (comment
-  (draw! ctx "#ff0000"))
+  (draw! ctx "#993366"))
 ```
 
-A finding names the token when one has the same value, such as "Use app.styles.tokens/global-white." for `"#FFF"`. When
-no token has the value, it says "Use a token from app.styles.tokens."
+A finding names the token when one has the same value, such as "Use app.tokens/paper." for `"#FFF"`. When no token has
+the value, it says "Use a token from app.tokens."
