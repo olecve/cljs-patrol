@@ -1,5 +1,6 @@
 (ns cljs-patrol.groups.a11y-test
   (:require
+   [cljs-patrol.baseline :as baseline]
    [cljs-patrol.disk :as disk]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
@@ -174,7 +175,7 @@
                                     :nested-interactive-element []
                                     :label-not-associated []
                                     :aria-label-beside-visible-label []})]
-    (is (= 12 (count lines)))
+    (is (= 13 (count lines)))
     (is (= 2 (second (first lines))))
     (is (= 1 (second (second lines))))
     (is (= ["Button missing type:" 3] (nth lines 2)))
@@ -182,6 +183,100 @@
     (is (= 1 (second (nth lines 4))))
     (is (= 1 (second (nth lines 6))))
     (is (= 1 (second (nth lines 7))))))
+
+(defn- tooltip-findings [config source]
+  (get-in (temp-project/run-group (a11y/make-group config)
+                                  {"app/view.cljs"
+                                   (str "(ns app.view (:require [example.ui :as ui :refer [tooltip]] "
+                                        "[\"@radix-ui/react-tooltip\" :as Tooltip] "
+                                        "[\"example-tooltip\" :as Other]))\n" source)})
+          [:results :non-focusable-tooltip-trigger]))
+
+(def ^:private tooltip-config {:tooltip-components #{'example.ui/tooltip}})
+
+(deftest plain-tooltip-wrappers-are-reported-at-the-child
+  (let [findings (tooltip-findings tooltip-config
+                                   (str "[tooltip {:content \"Details\"}\n"
+                                        " [:span {:role \"button\"} [:button {:type \"button\"} \"More\"]]]\n"
+                                        "[ui/tooltip nil [:div.panel \"Info\"]]\n"
+                                        "[:> ui/tooltip props [:span \"Details\"]]"))
+        identities (map #(baseline/issue->identity :non-focusable-tooltip-trigger %) findings)]
+    (is (= [[:span 3 2] [:div 4 17] [:span 5 22]]
+           (mapv (juxt :kw :row :col) findings)))
+    (is (= 3 (count (set identities))))
+    (is (every? :inner-form identities))
+    (is (group/failed? a11y/group {:non-focusable-tooltip-trigger findings}))))
+
+(deftest tooltip-wrappers-require-an-unshadowed-configured-component
+  (is (empty? (tooltip-findings nil "[tooltip {} [:span \"Details\"]]")))
+  (is (empty? (tooltip-findings tooltip-config
+                                (str "(let [tooltip render] [tooltip {} [:span \"Local\"]]) "
+                                     "'[tooltip {} [:span \"Data\"]] "
+                                     "[other/tooltip {} [:span \"Unknown\"]] "
+                                     "[tooltip {} [:span \"One\"] [:span \"Two\"]] "
+                                     "[tooltip {}]")))))
+
+(deftest explicit-radix-as-child
+  (let [findings (tooltip-findings nil
+                                   (str "[:> Tooltip/Trigger {:as-child true} [:div \"Details\"]]\n"
+                                        "[:> Tooltip/Trigger {:asChild true} [:span \"Details\"]]\n"
+                                        "[:> Tooltip/Trigger {} [:span \"Default button\"]]\n"
+                                        "[:> Tooltip/Trigger {:asChild false} [:span \"Default button\"]]\n"
+                                        "[:> Tooltip/Trigger {:asChild enabled?} [:span \"Dynamic\"]]\n"
+                                        "[:> Tooltip/Trigger {:asChild false :as-child true} [:span \"Ambiguous\"]]\n"
+                                        "[:> Tooltip/Trigger (props) [:span \"Dynamic\"]]\n"
+                                        "[:> Other/Trigger {:asChild true} [:span \"Other package\"]]\n"
+                                        "[:> Tooltip/TooltipTrigger {:asChild true} [:div \"Details\"]]"))]
+    (is (= [[:div 2] [:span 3] [:div 10]] (mapv (juxt :kw :row) findings)))))
+
+(deftest radix-forwards-focus-props-to-the-trigger-child
+  (doseq [props ["{:asChild true :tabIndex 0}"
+                 "{:as-child true :tab-index -1}"
+                 "{:asChild true :tabindex 0}"
+                 "{:asChild true :tabIndex focus-order}"
+                 "{:asChild true :contentEditable true}"
+                 "{:asChild true :contenteditable \"plaintext-only\"}"]]
+    (is (empty? (tooltip-findings nil (str "[:> Tooltip/Trigger " props " [:span \"More\"]]")))
+        props)))
+
+(deftest radix-trigger-child-props-override-forwarded-props
+  (doseq [source ["[:> Tooltip/Trigger {:asChild true :tabIndex 0} [:span {:tab-index nil} \"More\"]]"
+                  "[:> Tooltip/Trigger {:as-child true :tab-index 0} [:span {:tabIndex nil} \"More\"]]"
+                  "[:> Tooltip/Trigger {:asChild true :contentEditable true} [:div {:content-editable false} \"Edit\"]]"]]
+    (is (= 1 (count (tooltip-findings nil source))) source)))
+
+(deftest tooltip-triggers-respect-reader-discard-and-quote
+  (let [findings (tooltip-findings tooltip-config
+                                   (str "(quote [tooltip {} [:span \"Quoted\"]])\n"
+                                        "[#_old :> Tooltip/Trigger {:asChild true} [#_old :div \"Trigger\"]]\n"
+                                        "[#_old tooltip {} [#_old :span \"Trigger\"]]"))]
+    (is (= [[:div 3] [:span 4]] (mapv (juxt :kw :row) findings)))))
+
+(deftest tooltip-children-with-focus-or-uncertain-props-pass
+  (doseq [child ["[:button {:type \"button\"} \"More\"]"
+                 "[:a {:href \"/help\"} \"Help\"]"
+                 "[:span {:tab-index 0} \"More\"]"
+                 "[:span {:tabindex 0} \"Browser attribute\"]"
+                 "[:span {:tab-index nil :tabIndex 0} \"One spelling sets tabindex\"]"
+                 "[:div {:tabIndex -1} \"Moved by code\"]"
+                 "[:span {:tab-index (if active? 0 -1)} \"Roving focus\"]"
+                 "[:div {:content-editable true} \"Edit\"]"
+                 "[:div {:contentEditable \"plaintext-only\"} \"Edit\"]"
+                 "[:span {:contenteditable editable?} \"Editable sometimes\"]"
+                 "[:span {:is \"custom-trigger\"} \"Custom\"]"
+                 "[:span (merge props {:class \"trigger\"}) \"Unknown props\"]"
+                 "[:div props \"Unknown props\"]"
+                 "[:span {unknown-key true} \"Unknown key\"]"
+                 "[:> ui/button-trigger {:ref trigger} \"Wrapped React button\"]"
+                 "[ui/trigger {}]"
+                 "(trigger)"]]
+    (is (empty? (tooltip-findings tooltip-config (str "[ui/tooltip {} " child "]")))
+        child)))
+
+(deftest tooltip-components-must-be-qualified
+  (doseq [value ['tooltip #{'tooltip} "ui/tooltip"]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #":a11y :tooltip-components"
+                          (a11y/make-group {:tooltip-components value})))))
 
 (deftest rule->tier-test
   (let [tiers (group/rule->tier a11y/group)]
