@@ -89,6 +89,18 @@
                     "(#?(:a def :default comment) tint \"#fff\" #?@(:b [] :default [1]) #?(:c 2))")]
     (is (= ["#fff"] (mapv :literal (run config nil {"app.cljc" source}))))))
 
+(deftest nested-head-features-can-change-documentation-roles
+  (doseq [source ["(#?(:a #?(:b def :default comment) :default comment) tint \"#fff\" #?@(:c [] :default [1]))"
+                  "(^:example #?(:a def :default comment) tint \"#fff\" #?@(:b [] :default [1]))"]]
+    (is (= ["#fff"] (mapv :literal (run config nil {"app.cljc" source}))) source)))
+
+(deftest body-features-do-not-change-definite-documentation
+  (doseq [source ["(defn tint \"#fff\" [] [#?(:a 1) #?(:b 2) #?(:c 3)])"
+                  "(defn tint {:doc \"#fff\"} [] [#?(:a 1) #?(:b 2) #?(:c 3)])"
+                  "(def ^{:doc \"#fff\"} tint [#?(:a 1) #?(:b 2) #?(:c 3)])"
+                  "(defn tint ([x] [#?(:a 1) #?(:b 2) #?(:c 3)]) {:doc \"#fff\"})"]]
+    (is (empty? (run config nil {"app.cljc" source})) source)))
+
 (deftest reader-conditional-baseline-identities
   (let [findings (run config nil
                       {"app.cljc" (str "(ns app) #?(:cljs (def first-color \"#fff\")) "
