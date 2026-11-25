@@ -56,8 +56,7 @@
   "Return the names node binds when it sits on the binding side, at any depth.
 
   An unqualified symbol, and every symbol or keyword in the vector of a `:keys`, `:syms`
-  or `:strs` entry, `{:keys [:cond app/id]}` binding `cond` and `id`. A default under
-  `:or` reads as bound too, which only gives up a finding."
+  or `:strs` entry, `{:keys [:cond app/id]}` binding `cond` and `id`."
   [node]
   (letfn [(keyed-names [vector-node]
             (keep #(let [value (token-value %)]
@@ -73,12 +72,16 @@
               (->> (code-forms node)
                    (partition-all 2)
                    (mapcat (fn [[k v]]
-                             (if (and (keys-entry? k) (= :vector (some-> v n/tag)))
-                               (keyed-names v)
-                               (concat (names k) (some-> v names))))))
+                             (cond
+                               (= :or (token-value k)) nil
+                               (and (keys-entry? k) (= :vector (some-> v n/tag))) (keyed-names v)
+                               :else (concat (names k) (some-> v names))))))
+
+              (= :meta (n/tag node))
+              (some-> node code-forms last names)
 
               (n/inner? node)
-              (mapcat names (n/children node))))]
+              (mapcat names (code-forms node))))]
     (set (names node))))
 
 (defn- binding-sides

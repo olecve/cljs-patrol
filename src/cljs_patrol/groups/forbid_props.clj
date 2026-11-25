@@ -68,7 +68,7 @@
 
 (defn- handle-vector [entries]
   (fn [loc ns-info file]
-    (when-not (or (hiccup/inside-non-hiccup-form? loc) (hiccup/re-frame-vector? loc))
+    (when-not (or (hiccup/inside-non-hiccup-form? loc) (hiccup/re-frame-vector? loc ns-info))
       (when-let [element (element loc ns-info)]
         (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
           (when (and (= :map kind) (seq attrs))

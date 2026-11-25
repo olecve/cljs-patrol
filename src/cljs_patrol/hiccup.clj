@@ -186,8 +186,19 @@
                           (get parameter-list-offsets (some-> head parser/sym-name) 0))]
     (keep :params (heads/arities start))))
 
+(defn- cljs-binding-splice [loc]
+  (when (= "?@" (parser/reader-conditional-kind loc))
+    (parser/reader-conditional-branch loc #{":cljs"})))
+
+(defn- binding-forms [bindings]
+  (mapcat (fn [form]
+            (if (= "?@" (parser/reader-conditional-kind form))
+              (binding-forms (cljs-binding-splice form))
+              [form]))
+          (parser/written-child-locs bindings)))
+
 (defn- binding-pairs [bindings]
-  (partition-all 2 (parser/written-child-locs bindings)))
+  (partition-all 2 (binding-forms bindings)))
 
 (defn- before-binding? [cut [form init]]
   (not (or (same-node? form cut) (same-node? init cut))))
@@ -216,13 +227,20 @@
         child
         (recur (z/up child))))))
 
+(defn- binding-cut [bindings usage]
+  (when-let [child (enclosing-child usage bindings)]
+    (if-let [branch (cljs-binding-splice child)]
+      (recur branch usage)
+      child)))
+
 (defn- comprehension-init [bindings symbol-name cut usage]
   (let [[clauses [[modifier init]]] (split-with (partial before-binding? cut) (binding-pairs bindings))]
     (or (when (and (same-node? init cut) (= ":let" (parser/raw modifier)))
-          (bound-init init symbol-name (enclosing-child usage init)))
+          (let [bindings (heads/unwrap-meta init)]
+            (bound-init bindings symbol-name (binding-cut bindings usage))))
         (reduce (fn [found [form value]]
                   (case (parser/raw form)
-                    ":let" (or (bound-init value symbol-name nil) found)
+                    ":let" (or (bound-init (heads/unwrap-meta value) symbol-name nil) found)
                     (":when" ":while") found
                     (if (contains? (heads/binding-names (z/node form)) symbol-name)
                       ::shadowed
@@ -289,25 +307,26 @@
   "True when child is a branch the binding of a binding form reaches.
   Only `if-let` and `if-some` leave one out: their else branch runs with the symbol
   unbound, so a binding there is not the one the usage sees."
-  [head-name child bindings]
+  [head-name child binding-site then-branch]
   (or (not (contains? then-branch-binding-heads head-name))
-      (same-node? child bindings)
-      (same-node? child (z/right bindings))))
+      (same-node? child binding-site)
+      (same-node? child then-branch)))
 
 (defn- binder-lookup
   "Look up symbol-name in the bindings one enclosing form makes.
-  `child` is that form's own child the usage descends from and `inner` the one below
-  it: together they place a usage written inside the binding vector itself, where the
-  bindings to its right are not in scope yet."
-  [list-loc child inner usage symbol-name]
-  (let [head (z/down list-loc)
+  `child` is the form's own child the usage descends from. A usage inside the binding
+  vector sees only bindings to its left."
+  [list-loc child usage symbol-name]
+  (let [[head & args] (parser/written-child-locs list-loc)
         head-name (some-> head parser/sym-name)
-        bindings (some-> head z/right)
+        [binding-site then-branch] args
+        bindings (heads/unwrap-meta binding-site)
         binding-vector? (= :vector (some-> bindings z/tag))
-        cut (when (same-node? child bindings) inner)]
+        cut (when (and binding-vector? (same-node? child binding-site))
+              (binding-cut bindings usage))]
     (cond
       (and binding-vector? (contains? map-binding-heads head-name))
-      (when (in-scope-branch? head-name child bindings)
+      (when (in-scope-branch? head-name child binding-site then-branch)
         (bound-init bindings symbol-name cut))
 
       (and binding-vector? (contains? #{"for" "doseq"} head-name))
@@ -322,8 +341,10 @@
         ::shadowed)
 
       (contains? symbol-binding-heads head-name)
-      (let [bound (skip-right bindings (get symbol-binding-heads head-name))]
-        (when (= symbol-name (unqualified-symbol-name bound)) ::shadowed))
+      (let [[bound & body] (drop (get symbol-binding-heads head-name) args)]
+        (when (and (= symbol-name (unqualified-symbol-name bound))
+                   (some #(same-node? child %) body))
+          ::shadowed))
 
       (or (contains? parameter-binding-heads head-name) (method-form? list-loc))
       (when (or (and (contains? #{"fn" "fn*"} head-name)
@@ -349,15 +370,14 @@
   through, since a closure really does see the binding around it; what stops the
   search is a form that binds the name itself."
   [loc symbol-name]
-  (loop [inner nil
-         child loc
+  (loop [child loc
          parent (z/up loc)]
     (when (some? parent)
       (let [found (when (= :list (z/tag parent))
-                    (binder-lookup parent child inner loc symbol-name))]
+                    (binder-lookup parent child loc symbol-name))]
         (if (some? found)
           found
-          (recur child parent (z/up parent)))))))
+          (recur parent (z/up parent)))))))
 
 (def ^:private top-level-def-heads #{"def" "defonce"})
 
@@ -708,20 +728,21 @@
   "Every form [[result-locs]] reads, by its bare name."
   (into {} (map (juxt name identity)) result-heads))
 
-(defn- result-locs*
-  [loc head-of]
+(defn- result-branches [loc head-of]
   (let [head (when (= :list (z/tag loc)) (head-of loc))
-        args (when head (remove #(= :uneval (z/tag %)) (parser/right-siblings (z/down loc))))
-        branches (cond
-                   (contains? tail-result-heads head) (take-last 1 args)
-                   (contains? branch-result-heads head) (take 2 (rest args))
-                   (= 'cljs.core/cond head) (take-nth 2 (rest args))
-                   (= 'cljs.core/case head) (let [clauses (rest args)]
-                                              (concat (take-nth 2 (rest clauses))
-                                                      (when (odd? (count clauses)) (take-last 1 clauses)))))]
-    (if (seq branches)
-      (mapcat #(result-locs* % head-of) branches)
-      [loc])))
+        args (when head (rest (parser/written-child-locs loc)))]
+    (cond
+      (contains? tail-result-heads head) (take-last 1 args)
+      (contains? branch-result-heads head) (take 2 (rest args))
+      (= 'cljs.core/cond head) (take-nth 2 (rest args))
+      (= 'cljs.core/case head) (let [clauses (rest args)]
+                                 (concat (take-nth 2 (rest clauses))
+                                         (when (odd? (count clauses)) (take-last 1 clauses)))))))
+
+(defn- result-locs* [loc head-of]
+  (if-let [branches (seq (result-branches loc head-of))]
+    (mapcat #(result-locs* % head-of) branches)
+    [loc]))
 
 (defn result-locs
   "Return the locs whose value can become the value of `loc`.
@@ -895,32 +916,50 @@
   (boolean (seq (enclosing-forms loc))))
 
 (def ^:private re-frame-calls
-  "Calls whose vector arguments are event or subscription vectors, not Hiccup."
-  #{"dispatch" "dispatch-sync" "dispatch-n" "subscribe" "sub"
-    "reg-event-db" "reg-event-fx" "reg-event-ctx" "reg-sub" "reg-sub-raw"})
+  "Calls whose vector arguments are event or subscription vectors."
+  #{'re-frame.core/dispatch 're-frame.core/dispatch-sync 're-frame.core/dispatch-n
+    're-frame.core/subscribe 're-frame.core/sub 're-frame.core/reg-event-db 're-frame.core/reg-event-fx
+    're-frame.core/reg-event-ctx 're-frame.core/reg-sub 're-frame.core/reg-sub-raw})
 
 (def ^:private event-effect-keys
   "Effect keys whose value is an event vector, or a vector of them."
   #{":dispatch" ":dispatch-sync" ":dispatch-later" ":dispatch-n"})
 
+(defn- preceding-written [loc]
+  (loop [previous (z/left loc)]
+    (if (= :uneval (some-> previous z/tag))
+      (recur (z/left previous))
+      previous)))
+
+(defn- re-frame-call? [loc ns-info]
+  (when (heads/resolve-head loc ns-info re-frame-calls)
+    (let [bare-name (some-> loc z/down unqualified-symbol-name)]
+      (not (and bare-name (lexically-bound-value loc bare-name))))))
+
 (defn re-frame-vector?
   "True when a vector is a re-frame event or subscription, though its id names an HTML element.
 
-  An argument of `dispatch`, `subscribe` or a `reg-event-*` or `reg-sub` call, `#(…)`
-  included, a vector after a `:dispatch`-like effect key, in an effect map or an fx tuple, or an
-  item of one after `:dispatch-n`, and every fx tuple, `[:track {…}]` in `{:fx [[:track {…}]]}`."
-  [loc]
-  (let [site (heads/site loc)
-        parent (z/up site)
-        tag (some-> parent z/tag)
-        after-effect-key? #(contains? event-effect-keys (some-> % z/left parser/raw))]
-    (case tag
-      (:list :fn) (contains? re-frame-calls (parser/sym-name (z/down parent)))
-      (:map :vector) (or (after-effect-key? site)
-                         (and (= :vector tag)
-                              (or (after-effect-key? parent)
-                                  (= ":fx" (some-> parent z/left parser/raw)))))
-      false)))
+  Follow the result of a conditional or a body to the argument or effect value it supplies.
+  Stop at other forms, including the event vector itself, so a Hiccup value in its payload
+  keeps its own meaning."
+  [loc ns-info]
+  (let [effect-key #(some-> % heads/site preceding-written parser/raw)]
+    (loop [site (heads/site loc)]
+      (let [parent (z/up site)
+            tag (some-> parent z/tag)]
+        (cond
+          (and (= :list tag)
+               (some #(same-node? site %)
+                     (result-branches parent #(heads/resolve-head % ns-info result-heads))))
+          (recur (heads/site parent))
+
+          (contains? #{:list :fn} tag)
+          (re-frame-call? parent ns-info)
+
+          (contains? #{:map :vector} tag)
+          (or (contains? event-effect-keys (effect-key site))
+              (and (= :vector tag)
+                   (contains? (conj event-effect-keys ":fx") (effect-key parent)))))))))
 
 (defn explicitly-quoted?
   "True when an explicit quote form encloses loc."

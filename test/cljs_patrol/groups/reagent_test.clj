@@ -7,9 +7,11 @@
    [clojure.test :refer [deftest is testing]]
    [rewrite-clj.zip :as z]))
 
-(def ^:private library-aliases {:aliases {"r" "reagent.core"
+(def ^:private library-aliases {:aliases {"rf" "re-frame.core"
+                                          "r" "reagent.core"
                                           "rum" "rum.core"
-                                          "s" "schema.core"}})
+                                          "s" "schema.core"}
+                                :refers {"dispatch" "re-frame.core"}})
 
 (def ^:private defclass-sole {:kw :webapp.styles/sole-style
                               :type :defclass
@@ -149,6 +151,18 @@
                                 "[:button> {:tabIndex 0}]"
                                 "[:div>>button {:tabIndex 0}]"
                                 "[:r> Component {:tabIndex 0}]"]))))
+
+(deftest native-tabindex-event-results
+  (is (empty? (vector-findings :prefer-tab-index
+                               ["(rf/dispatch (if ready? [:input {:tabIndex 0}] [:select {:tabIndex 0}]))"
+                                "(dispatch (let [x 0] (if ready? ^:event [:input {:tabIndex x}] nil)))"
+                                "{:dispatch #_[] [:input {:tabIndex 0}]}"
+                                "{:fx #_[] [[:dispatch-n #_[] [[:input {:tabIndex 0}]]]]}"])))
+  (is (= ["[:button {:tabIndex 0}]" "[:input {:tabIndex 0}]" "[:select {:tabIndex 0}]"]
+         (vector-findings :prefer-tab-index
+                          ["(app.ui/sub [:button {:tabIndex 0}])"
+                           "(let [dispatch draw] (dispatch [:input {:tabIndex 0}]))"
+                           "(rf/dispatch [:save {:content [:select {:tabIndex 0}]}])"]))))
 
 (defn- empty-fragment-props [lines] (vector-findings :empty-fragment-props lines))
 

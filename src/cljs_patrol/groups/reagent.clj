@@ -628,12 +628,12 @@
        (some #(and (= :vector (z/tag %)) (= :svg (native-props-tag %)))
              (take-while some? (iterate z/up (z/up loc))))))
 
-(defn- tabindex-spelling-finding [loc file]
+(defn- tabindex-spelling-finding [loc ns-info file]
   (let [tag (native-props-tag loc)]
     (when (or (hiccup/html-tag? tag) (svg-child-tag? loc tag))
       (let [{:keys [attrs]} (hiccup/attrs-info loc)]
         (when (and (some #(contains? attrs %) [:tabIndex :tabindex])
-                   (not (hiccup/re-frame-vector? loc))
+                   (not (hiccup/re-frame-vector? loc ns-info))
                    (not (hiccup/explicitly-quoted? loc))
                    (not (inside-comment-form? loc)))
           (let [[row col] (parser/position loc)]
@@ -650,7 +650,7 @@
     (when-let [finding (cond
                          (empty-fragment-props? loc) (empty-fragment-props-finding loc file)
                          (redundant-fragment? loc ns-info) (redundant-fragment-finding loc file)
-                         :else (tabindex-spelling-finding loc file))]
+                         :else (tabindex-spelling-finding loc ns-info file))]
       {:decls [(hiccup/add-note finding (hiccup/mixed-schema-note loc))]
        :usages []
        :dynamics []})))
