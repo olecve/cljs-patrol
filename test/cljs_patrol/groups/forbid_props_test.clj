@@ -92,6 +92,12 @@
   (is (= finding (flagged "(rf/reg-sub :x (fn [db] [:button {:aria-disabled true}]))"))
       "element returned from subscription body"))
 
+(deftest conditional-re-frame-requires
+  (let [source (str "(ns app.core (:require #?(:clj [app.ui :as rf] :cljs [re-frame.core :as rf])))\n"
+                    "(defn view [] (rf/dispatch [:button {:aria-disabled true}]))")
+        {:keys [results]} (temp-project/run-group (forbid-props/make-group [aria-disabled]) {"app/core.cljc" source})]
+    (is (empty? (:forbidden-prop results)))))
+
 (deftest local-shadowing-referred-component-is-left-alone
   (let [entries [(assoc aria-disabled :disallowed-for #{'app.ui.button/icon-button})]]
     (doseq [source ["(defn v [icon-button] [icon-button {:aria-disabled true}])"

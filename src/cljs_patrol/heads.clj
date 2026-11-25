@@ -57,32 +57,34 @@
 
   An unqualified symbol, and every symbol or keyword in the vector of a `:keys`, `:syms`
   or `:strs` entry, `{:keys [:cond app/id]}` binding `cond` and `id`."
-  [node]
-  (letfn [(keyed-names [vector-node]
-            (keep #(let [value (token-value %)]
-                     (when (or (symbol? value) (keyword? value)) (name value)))
-                  (code-forms vector-node)))
-          (names [node]
-            (cond
-              (= :token (n/tag node))
-              (let [value (token-value node)]
-                (when (and (symbol? value) (nil? (namespace value))) [(name value)]))
+  ([node] (binding-names node code-forms))
+  ([node children]
+   (letfn [(keyed-names [vector-node]
+             (keep #(let [value (token-value %)]
+                      (when (or (symbol? value) (keyword? value)) (name value)))
+                   (children vector-node)))
+           (names [node]
+             (cond
+               (= :token (n/tag node))
+               (let [value (token-value node)]
+                 (when (and (symbol? value) (nil? (namespace value))) [(name value)]))
 
-              (= :map (n/tag node))
-              (->> (code-forms node)
-                   (partition-all 2)
-                   (mapcat (fn [[k v]]
-                             (cond
-                               (= :or (token-value k)) nil
-                               (and (keys-entry? k) (= :vector (some-> v n/tag))) (keyed-names v)
-                               :else (concat (names k) (some-> v names))))))
+               (= :map (n/tag node))
+               (->> (children node)
+                    (partition-all 2)
+                    (mapcat (fn [[k v]]
+                              (cond
+                                (= :or (token-value k)) nil
+                                (= :as (token-value k)) (some-> v names)
+                                (and (keys-entry? k) (= :vector (some-> v n/tag))) (keyed-names v)
+                                :else (names k)))))
 
-              (= :meta (n/tag node))
-              (some-> node code-forms last names)
+               (= :meta (n/tag node))
+               (some-> node children last names)
 
-              (n/inner? node)
-              (mapcat names (code-forms node))))]
-    (set (names node))))
+               (n/inner? node)
+               (mapcat names (children node))))]
+     (set (names node)))))
 
 (defn- binding-sides
   "Return the binding-side nodes of a binding vector, `:let` modifiers included."

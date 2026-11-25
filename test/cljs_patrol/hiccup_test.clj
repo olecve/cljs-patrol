@@ -271,6 +271,31 @@
       (is (= :map (:kind info)))
       (is (= #{:alt} (-> info :attrs keys set))))))
 
+(deftest active-map-builder-bindings
+  (testing "letfn specs and a threaded as-> shadow outer props"
+    (doseq [source ["(let [props {:tabIndex 1}] (letfn [(^:private props [] {})] [:img props]))"
+                    "(let [props {:tabIndex 1}] (letfn [#?@(:cljs [(props [] {})])] [:img props]))"
+                    "(let [props {:tabIndex 1}] (-> other (as-> props [:img props])))"]]
+      (is (= :non-map (:kind (img-attrs-info source))) source)))
+
+  (testing "a spliced local function's parameters shadow core within that function"
+    (let [source "(letfn [#?@(:cljs [(helper [merge] [:img (merge {:tabIndex 1})])])] (helper f))"]
+      (is (= :dynamic (:kind (img-attrs-info source))))))
+
+  (testing "irrelevant or not-yet-bound locals leave a core map builder readable"
+    (doseq [source ["(defn view [#?@(:clj [merge] :cljs [x])] [:img (merge {:tabIndex 1})])"
+                    "(let [{x (identity merge)} opts] [:img (merge {:tabIndex 1})])"
+                    "(defn view [{:keys [merge] :or {merge [:img (merge {:tabIndex 1})]}}] merge)"
+                    "(with-redefs [merge custom view [:img (merge {:tabIndex 1})]] view)"
+                    "(let [merge #?(:cljs (merge {:tabIndex 1}))] [:img merge])"]]
+      (let [info (img-attrs-info source)]
+        (is (= :map (:kind info)) source)
+        (is (= #{:tabIndex} (-> info :attrs keys set))))))
+
+  (testing "active parameter splices can shadow map builders"
+    (let [source "(defn view [#?@(:clj [x] :cljs [merge])] [:img (merge {:tabIndex 1})])"]
+      (is (= :dynamic (:kind (img-attrs-info source)))))))
+
 (deftest attrs-info-construction-completeness-test
   (testing "a construction whose every part is readable states the whole map"
     (is (= :map (:kind (img-attrs-info "[:img (assoc {:class \"c\"} :alt \"cat\")]")))

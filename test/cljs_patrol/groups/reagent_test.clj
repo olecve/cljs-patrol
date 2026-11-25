@@ -164,6 +164,17 @@
                            "(let [dispatch draw] (dispatch [:input {:tabIndex 0}]))"
                            "(rf/dispatch [:save {:content [:select {:tabIndex 0}]}])"]))))
 
+(deftest native-tabindex-re-frame-effect-positions
+  (is (empty? (vector-findings :prefer-tab-index
+                               ["(rf/dispatch (cond #?@(:cljs [p [:input {:tabIndex 1}]])"
+                                "                   :else [:button {:tabIndex 1}]))"
+                                "{:dispatch-n (if more? [[:input {:tabIndex 1}]] [])}"
+                                "{:fx (if ready? [[:dispatch-n (if more? [[:input {:tabIndex 1}]] [])]] [])}"])))
+  (is (= ["[:button {:tabIndex 1}]" "[:select {:tabIndex 1}]"]
+         (vector-findings :prefer-tab-index
+                          ["(rf/dispatch [:save :dispatch [:button {:tabIndex 1}]])"
+                           "{:color :dispatch [:select {:tabIndex 1}] :selected}"]))))
+
 (defn- empty-fragment-props [lines] (vector-findings :empty-fragment-props lines))
 
 (defn- redundant-fragments

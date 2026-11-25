@@ -152,6 +152,16 @@
             (when (or (contains? features name) (= name ":default")) branch)))
         (reader-conditional-branches loc)))
 
+(defn cljs-child-locs
+  "Read the written children in the ClojureScript reader branch, expanding splices."
+  [loc]
+  (mapcat (fn [form]
+            (case (reader-conditional-kind form)
+              "?@" (cljs-child-locs (reader-conditional-branch form #{":cljs"}))
+              "?" (when-let [branch (reader-conditional-branch form #{":cljs"})] [branch])
+              [form]))
+          (written-child-locs loc)))
+
 (defn right-siblings
   "Return the locs to the right of loc, loc itself excluded."
   [loc]
@@ -385,6 +395,20 @@
     (if (or (= :all by-ns) (= :all by-others))
       :all
       (into by-ns by-others))))
+
+(defn- cljs-ns-form [loc]
+  (case (z/tag loc)
+    :list (apply list (map cljs-ns-form (cljs-child-locs loc)))
+    :vector (mapv cljs-ns-form (cljs-child-locs loc))
+    (z/sexpr loc)))
+
+(defn cljs-ns-info
+  "Read the aliases and refers in the active CLJS branch of a written ns form."
+  [first-form]
+  (when-let [ns-loc (some #(when (and (= :list (z/tag %)) (= "ns" (sym-name (z/down %)))) %)
+                          (take-while some? (iterate z/right first-form)))]
+    (try (parse-ns-form (cljs-ns-form ns-loc))
+         (catch Exception _ nil))))
 
 (defn find-ns-info
   "Find and parse the ns form from a rewrite-clj zip.
