@@ -1,11 +1,11 @@
 ---
 id: CP-95
 title: "Prefer :tab-index in Reagent DOM Hiccup"
-status: Idea
+status: Done
 labels: ["reagent", "a11y"]
 created_date: "2026-11-25"
-updated_date: ""
-references: []
+updated_date: "2026-11-25"
+references: ["https://github.com/olecve/cljs-patrol/pull/189"]
 ---
 
 ## Description
@@ -52,6 +52,9 @@ finding and the check for an invalid value remain independent.
 
 ### Links
 
+- [Implementation in PR #189](https://github.com/olecve/cljs-patrol/pull/189)
+- [Rule documentation](../../docs/rules/reagent.md#prefer-tab-index)
+- [CP-96 SVG coverage](cp-96%20-%20Recognize-SVG-tags-in-the-tab-index-rule.md)
 - [CP-21](cp-21%20-%20Flag-a-tooltip-trigger-that-cannot-take-focus.md)
 - [Invalid tabindex rule](../../docs/rules/a11y.md#invalid-tabindex)
 
