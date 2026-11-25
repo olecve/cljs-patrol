@@ -25,8 +25,8 @@
 (defn- docstring-loc [loc]
   (when (= :list (z/tag loc))
     (if (contains? doc-heads (some-> loc z/down parser/sym-name))
-      (let [candidate (some-> loc z/down z/right z/right)]
-        (when (and candidate (string-value candidate) (z/right candidate)) candidate))
+      (let [[candidate & following] (drop 2 (parser/written-child-locs loc))]
+        (when (and candidate (string-value candidate) (seq following)) candidate))
       (when (= "defprotocol" (some-> loc z/up z/down parser/sym-name))
         (let [candidate (last (parser/written-child-locs loc))]
           (when (string-value candidate) candidate))))))
@@ -38,9 +38,12 @@
     (or (and (= :meta (some-> parent z/tag)) (= loc (z/down parent)))
         (when (and (= :list (some-> parent z/tag))
                    (contains? attr-heads (some-> parent z/down parser/sym-name)))
-          (let [candidate (some-> parent z/down z/right z/right)
-                attrs (if (and candidate (string-value candidate)) (z/right candidate) candidate)]
-            (= loc attrs))))))
+          (let [children (drop 2 (parser/written-child-locs parent))
+                [attrs & body] (if (some-> children first string-value) (rest children) children)]
+            (or (= loc attrs)
+                (and (contains? #{"defn" "defn-" "defmacro"} (some-> parent z/down parser/sym-name))
+                     (= :list (some-> (if (= :map (z/tag attrs)) (first body) attrs) z/tag))
+                     (= loc (last body)))))))))
 
 (defn- doc-map-value? [loc]
   (let [parent (z/up loc)]
@@ -57,6 +60,16 @@
               (->> (parser/written-child-locs loc)
                    (remove #(= % doc))
                    (mapcat strings))))))
+
+(defn- top-level-name [loc]
+  (let [top (parser/top-level-loc loc)]
+    (if (= :reader-macro (z/tag top))
+      (some->> (take-while #(not= % top) (iterate z/up loc))
+               (filter #(and (= :list (z/tag %)) (some-> % z/down parser/sym-name)))
+               last
+               z/subzip
+               parser/top-level-name)
+      (parser/top-level-name loc))))
 
 (defn- handle-file [allowed paths loc ns-info file]
   (when-not (tests/test-file? paths ns-info file)
@@ -82,7 +95,7 @@
                            :let [[row col] (parser/position string-loc)]]
                        {:type :color-literal
                         :kw :color-literal
-                        :top-level (parser/top-level-name string-loc)
+                        :top-level (top-level-name string-loc)
                         :literal literal
                         :form (pr-str text)
                         :file file

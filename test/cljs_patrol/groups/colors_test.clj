@@ -28,6 +28,27 @@
                 "x#fff" "#fff!" "\t#fff" "#fff\n" "white" "transparent" "var(--primary)"]]
     (is (empty? (run (pr-str text))) text)))
 
+(deftest discarded-forms-do-not-set-docstring-positions
+  (is (= ["#fff"] (mapv :literal (run "(def color \"#fff\" #_unused)"))))
+  (is (empty? (run "(defn tint #_\"old docs\" \"#abc\" [] nil)"))))
+
+(deftest trailing-attribute-map-documentation
+  (doseq [source ["(defn tint ([x] x) {:doc \"#fff\"})"
+                  "(defn tint {:private true} ([x] x) {:doc \"#fff\"})"
+                  "(defn tint \"Color.\" {:private true} ([x] x) ([x y] y) {:doc \"#fff\"})"]]
+    (is (empty? (run source)) source)))
+
+(deftest reader-conditional-baseline-identities
+  (let [findings (run config nil
+                      {"app.cljc" (str "(ns app) #?(:cljs (def first-color \"#fff\")) "
+                                       "#?(:cljs (def second-color \"#fff\"))")})
+        identities (mapv #(baseline/issue->identity :color-literal %) findings)]
+    (is (= ["first-color" "second-color"] (mapv :name identities)))
+    (is (= 2 (count (set identities)))))
+  (is (= ["nested-color"]
+         (mapv :top-level
+               (run config nil {"app.cljc" "(ns app) #?(:cljs (def nested-color (identity \"#fff\")))"})))))
+
 (deftest all-expression-positions
   (doseq [source ["(def warning \"#fff\")" "[:circle {:fill \"#fff\"}]"
                   "(set! (.-fillStyle ctx) \"#fff\")" "{:series [{:color \"#fff\"}]}"
