@@ -309,6 +309,29 @@ var — "Wraps `severity/count-by-fail-on`" tells the reader to go and read some
 The first three are machine-checked: CI runs the tool on its own sources under `--experimental-clj`, in the "Patrol our
 own sources" step of `.github/workflows/test.yml`. Copy the command from there to run it locally.
 
+## Backlog
+
+Tasks live in `backlog/tasks/`, one markdown file per task, in the layout of Backlog.md 1.55.3:
+`cp-<number> - <Title>.md`. The number stays the same for the life of a task.
+
+- Edit the files directly. A new task takes the next free number and the same front matter: `id`, `title`, `status`
+  (Idea, Next, Review or Done), `labels`, and `priority` only when it is high.
+- Put the body inside the Description markers (`<!-- SECTION:DESCRIPTION:BEGIN -->` and `END`), with the sections
+  Problem, Why, Flagged, Fix, Left alone, Notes and Links, so `backlog task view` and `backlog search` show it.
+- Backlog.md is a viewer only: `backlog task list`, `backlog board`, `backlog search` and the read-only pages of
+  `backlog browser`. Do not use `task create`, `task edit`, a save or a drag in the browser, `board export`, or `init`:
+  they rewrite files.
+- Do not create Backlog.md decisions or docs. Decisions are ADRs in `docs/adr/`. A task links its ADR in a Links
+  section.
+- `backlog/` is public. A task in it is about cljs-patrol only. It names no project that uses cljs-patrol, and it gives
+  no detail that points to one: no product, screen, component, ticket, pull request, person, path, link, token name or
+  exact count from that project. Write such a fact in neutral words, for example "a real codebase" or "a button with an
+  icon".
+- Clean-ups and priorities of a private project stay in `backlog-private/`, a separate git repository that this one
+  ignores. They are never committed to this public repository.
+- CI fails when a file in `backlog/` holds a name from a private list. The list catches names, not clues, so a clue is
+  the author's and the reviewer's job.
+
 ## Adding a New Rule Group
 
 Each group is a record implementing the `RuleGroup` protocol in `group.clj`: `group-id`, `group-name`, `parse-handlers`,
