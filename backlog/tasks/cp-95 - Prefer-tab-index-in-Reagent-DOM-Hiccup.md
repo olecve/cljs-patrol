@@ -1,0 +1,58 @@
+---
+id: CP-95
+title: "Prefer :tab-index in Reagent DOM Hiccup"
+status: Idea
+labels: ["reagent", "a11y"]
+created_date: "2026-11-25"
+updated_date: ""
+references: []
+---
+
+## Description
+
+<!-- SECTION:DESCRIPTION:BEGIN -->
+
+### Problem
+
+Reagent DOM attribute maps use `:tab-index`, `:tabIndex`, and `:tabindex` for the same DOM attribute. Prefer the
+kebab-case spelling in literal Hiccup that renders a native element.
+
+### Why
+
+One spelling makes props easier to search and avoids the React warning for lowercase `tabindex`.
+
+### Flagged
+
+```clojure
+[:button {:type "button" :tabIndex -1} "More"]
+[:a {:href "/help" :tabindex 0} "Help"]
+```
+
+### Fix
+
+```clojure
+[:button {:type "button" :tab-index -1} "More"]
+[:a {:href "/help" :tab-index 0} "Help"]
+```
+
+### Left alone
+
+```clojure
+(react/createElement "button" #js {:type "button" :tabIndex 0} "More")
+[:> MenuItem {:tabIndex -1} "More"]
+```
+
+### Notes
+
+Make this a cleanup rule. Check readable props on native Hiccup tags. Leave raw JavaScript objects, component props, and
+maps outside Hiccup alone. If a map supplies two spellings, ask the author to keep one key and choose its value.
+
+Accessibility rules still read all supported spellings when deciding whether an element can take focus. The spelling
+finding and the check for an invalid value remain independent.
+
+### Links
+
+- [CP-21](cp-21%20-%20Flag-a-tooltip-trigger-that-cannot-take-focus.md)
+- [Invalid tabindex rule](../../docs/rules/a11y.md#invalid-tabindex)
+
+<!-- SECTION:DESCRIPTION:END -->
