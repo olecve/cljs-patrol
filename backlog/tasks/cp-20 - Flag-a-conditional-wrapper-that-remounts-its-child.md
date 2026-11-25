@@ -26,8 +26,9 @@ Changing the wrapper changes the React tree and remounts the child, losing its f
 ### Flagged
 
 ```clojure
-(let [child [:button {:type "button"} "Save"]]
-  (if highlighted? [example-container child] child))
+(defn view [highlighted?]
+  (let [child [:button {:type "button"} "Save"]]
+    (if highlighted? [example-container child] child)))
 ```
 
 ### Fix

@@ -608,12 +608,33 @@
      :usages []
      :dynamics []}))
 
-(defn- tabindex-spelling-finding [loc file]
-  (let [tag (some-> loc z/down parser/raw hiccup/parse-tag)]
-    (when (and (hiccup/html-tag? tag)
-               (not= :<> tag))
+(defn- native-props-tag
+  "Read the tag that receives the props, which is the last tag in a Reagent tag chain."
+  [loc]
+  (let [head (first (parser/written-child-locs loc))
+        text (some-> head parser/raw)
+        raw (if (and text (str/starts-with? text "\""))
+              (str ":" (z/sexpr head))
+              text)]
+    (when-let [tag (hiccup/parse-tag raw)]
+      (if (str/includes? raw ">")
+        (let [tags (str/split (subs raw 1) #">" -1)]
+          (when (every? seq tags)
+            (hiccup/parse-tag (str ":" (last tags)))))
+        tag))))
+
+(defn- svg-child-tag? [loc tag]
+  (and (contains? #{:desc :filter :image :set} tag)
+       (some #(and (= :vector (z/tag %)) (= :svg (native-props-tag %)))
+             (take-while some? (iterate z/up (z/up loc))))))
+
+(defn- tabindex-spelling-finding [loc ns-info file]
+  (let [tag (native-props-tag loc)]
+    (when (or (hiccup/html-tag? tag) (svg-child-tag? loc tag))
       (let [{:keys [attrs]} (hiccup/attrs-info loc)]
         (when (and (some #(contains? attrs %) [:tabIndex :tabindex])
+                   (not (hiccup/re-frame-vector? loc ns-info))
+                   (not (hiccup/explicitly-quoted? loc))
                    (not (inside-comment-form? loc)))
           (let [[row col] (parser/position loc)]
             {:kw tag
@@ -629,7 +650,7 @@
     (when-let [finding (cond
                          (empty-fragment-props? loc) (empty-fragment-props-finding loc file)
                          (redundant-fragment? loc ns-info) (redundant-fragment-finding loc file)
-                         :else (tabindex-spelling-finding loc file))]
+                         :else (tabindex-spelling-finding loc ns-info file))]
       {:decls [(hiccup/add-note finding (hiccup/mixed-schema-note loc))]
        :usages []
        :dynamics []})))

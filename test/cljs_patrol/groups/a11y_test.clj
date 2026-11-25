@@ -273,6 +273,21 @@
     (is (empty? (tooltip-findings tooltip-config (str "[ui/tooltip {} " child "]")))
         child)))
 
+(deftest tooltip-content-editable-values
+  (doseq [key [:content-editable :contentEditable :contenteditable]
+          [value findings] [["\"false\"" 1] ["false" 1] ["\"true\"" 0] ["true" 0]
+                            ["\"\"" 0] ["\"plaintext-only\"" 0] ["editable?" 0]
+                            ["(editable?)" 0] ["nil" 1] ["\"invalid\"" 1]]]
+    (let [prop (str key " " value)
+          child (str "[:span {" prop "} \"More\"]")]
+      (is (= findings (count (tooltip-findings tooltip-config (str "[tooltip {} " child "]")))) prop)
+      (is (= findings (count (tooltip-findings nil
+                                               (str "[:> Tooltip/Trigger {:asChild true " prop "} [:span \"More\"]]"))))
+          prop)
+      (is (= findings (count (tooltip-findings nil
+                                               (str "[:> Tooltip/Trigger {:asChild true " key " true} " child "]"))))
+          prop))))
+
 (deftest tooltip-components-must-be-qualified
   (doseq [value ['tooltip #{'tooltip} "ui/tooltip"]]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #":a11y :tooltip-components"

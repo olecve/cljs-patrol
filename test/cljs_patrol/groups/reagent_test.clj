@@ -7,9 +7,11 @@
    [clojure.test :refer [deftest is testing]]
    [rewrite-clj.zip :as z]))
 
-(def ^:private library-aliases {:aliases {"r" "reagent.core"
+(def ^:private library-aliases {:aliases {"rf" "re-frame.core"
+                                          "r" "reagent.core"
                                           "rum" "rum.core"
-                                          "s" "schema.core"}})
+                                          "s" "schema.core"}
+                                :refers {"dispatch" "re-frame.core"}})
 
 (def ^:private defclass-sole {:kw :webapp.styles/sole-style
                               :type :defclass
@@ -117,6 +119,7 @@
   (is (empty? (vector-findings :prefer-tab-index
                                ["[:button {:tab-index -1} \"More\"]"
                                 "[:div opaque-props]"
+                                "(let [merge other] [:button (merge {:tabIndex 0})])"
                                 "[:<> {:tabIndex 0}]"
                                 "[menu-item {:tabIndex 0}]"
                                 "[:> MenuItem {:tabIndex 0}]"
@@ -125,6 +128,41 @@
                                 "'[:button {:tabIndex 0}]"
                                 "(comment [:button {:tabIndex 0}])"
                                 "(defclass selector [] [:button {:tabIndex 0}])"]))))
+
+(deftest native-tabindex-tag-shapes
+  (let [markup ["[#_:span :button {:tabIndex 0}]"
+                "[:div>button {:tabIndex 0}]"
+                "[:div.wrapper>span>button.action {:tabindex 0}]"
+                "[\"button\" {:tabindex 0}]"]]
+    (is (= ["[:image {:tabindex 0}]"]
+           (vector-findings :prefer-tab-index ["[:svg [:g [:image {:tabindex 0}]]]"])))
+    (is (= markup (vector-findings :prefer-tab-index markup))))
+  (is (empty? (vector-findings :prefer-tab-index
+                               ["(rf/dispatch [:input {:tabIndex 0}])"
+                                "(rf/dispatch #?(:cljs [:input {:tabIndex 0}]))"
+                                "(rf/dispatch ^:example [:input {:tabIndex 0}])"
+                                "[:image {:tabindex 0}]"
+                                "[:div [:image {:tabindex 0}]]"
+                                "[:div>custom-tag {:tabIndex 0}]"
+                                "{:fx [[:dispatch [:input {:tabIndex 0}]]]}"
+                                "(quote [:button {:tabIndex 0}])"
+                                "[::x>button {:tabIndex 0}]"
+                                "[:>button {:tabIndex 0}]"
+                                "[:button> {:tabIndex 0}]"
+                                "[:div>>button {:tabIndex 0}]"
+                                "[:r> Component {:tabIndex 0}]"]))))
+
+(deftest native-tabindex-event-results
+  (is (empty? (vector-findings :prefer-tab-index
+                               ["(rf/dispatch (if ready? [:input {:tabIndex 0}] [:select {:tabIndex 0}]))"
+                                "(dispatch (let [x 0] (if ready? ^:event [:input {:tabIndex x}] nil)))"
+                                "{:dispatch #_[] [:input {:tabIndex 0}]}"
+                                "{:fx #_[] [[:dispatch-n #_[] [[:input {:tabIndex 0}]]]]}"])))
+  (is (= ["[:button {:tabIndex 0}]" "[:input {:tabIndex 0}]" "[:select {:tabIndex 0}]"]
+         (vector-findings :prefer-tab-index
+                          ["(app.ui/sub [:button {:tabIndex 0}])"
+                           "(let [dispatch draw] (dispatch [:input {:tabIndex 0}]))"
+                           "(rf/dispatch [:save {:content [:select {:tabIndex 0}]}])"]))))
 
 (defn- empty-fragment-props [lines] (vector-findings :empty-fragment-props lines))
 

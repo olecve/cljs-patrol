@@ -222,6 +222,55 @@
       (is (= :map (:kind info)))
       (is (nil? (:attrs info))))))
 
+(deftest attrs-info-resolves-map-builder
+  (testing "shadowed map builders leave the props opaque"
+    (doseq [source ["(let [merge other] [:img (merge {:alt \"cat\"})])"
+                    "(let ^:private [merge other] [:img (merge {:alt \"cat\"})])"
+                    "(let #_ignored [merge other] [:img (merge {:alt \"cat\"})])"
+                    "(let [#?@(:cljs [x xs]) merge other] [:img (merge {:alt \"cat\"})])"
+                    "(for [#?@(:cljs [x xs]) merge fns] [:img (merge {:alt \"cat\"})])"
+                    "(for [x xs :let ^:private [#?@(:cljs [y x]) merge other]] [:img (merge {:alt \"cat\"})])"
+                    "(as-> x merge [:img (merge {:alt \"cat\"})])"
+                    "(defn view [assoc] [:img (assoc {} :alt \"cat\")])"
+                    "(fn merge [] [:img (merge {:alt \"cat\"})])"
+                    "(for [{:keys [:merge]} options] [:img (merge {:alt \"cat\"})])"
+                    "(for [item items :let [merge (:combine item) props [:img (merge {:alt \"cat\"})]]] props)"
+                    "(doseq [item items :let [merge (:combine item)]] [:img (merge {:alt \"cat\"})])"
+                    "(letfn [(merge [& _] {})] [:img (merge {:alt \"cat\"})])"
+                    "(let [{:keys [:merge]} options] [:img (merge {:alt \"cat\"})])"
+                    "(defn view [{:keys [ops/merge]}] [:img (merge {:alt \"cat\"})])"
+                    "(ns app.view (:require [app.props :refer [assoc-in]])) [:img (assoc-in {} [:alt] \"cat\")]"
+                    "(ns app.view) (defn merge [& _] {}) (defn view [] [:img (merge {:alt \"cat\"})])"
+                    "(ns app.view (:refer-clojure :exclude [merge])) [:img (merge {:alt \"cat\"})]"]]
+      (is (= :dynamic (:kind (img-attrs-info source))) source)))
+
+  (testing "a global core call stays readable where the local does not reach it"
+    (doseq [source ["(def photo [:img (assoc {} :alt \"cat\")])"
+                    "(let [merge (merge {:alt \"cat\"})] [:img merge])"
+                    "(let [#?@(:cljs [merge (merge {:alt \"cat\"})])] [:img merge])"
+                    "(let [{:keys [a] :or {a (merge {} x)}} x] [:img (merge {:alt \"cat\"})])"
+                    "(as-> [:img (merge {:alt \"cat\"})] merge (identity merge))"
+                    "(let [props (merge {:alt \"cat\"}) merge other] [:img props])"
+                    "(defn view ([merge] nil) ([] [:img (merge {:alt \"cat\"})]))"
+                    "(for [entry (merge {} entries)] [:img (merge {:alt \"cat\"})])"
+                    "(for [entry entries :when (merge {} entry)] [:img (merge {:alt \"cat\"})])"
+                    "(for [entry entries :let [merge (merge {:alt \"cat\"})]] [:img merge])"
+                    "(loop [item (merge {} options)] [:img (merge {:alt \"cat\"})])"
+                    "(letfn [(helper [merge] merge)] [:img (merge {:alt \"cat\"})])"]]
+      (let [info (img-attrs-info source)]
+        (is (= :map (:kind info)) source)
+        (is (= #{:alt} (-> info :attrs keys set))))))
+
+  (testing "a shadowed nested call contributes no keys"
+    (let [info (img-attrs-info "(let [merge other] [:img (assoc (merge {:tabIndex 0}) :alt \"cat\")])")]
+      (is (= :dynamic-map (:kind info)))
+      (is (= #{:alt} (-> info :attrs keys set)))))
+
+  (testing "a qualified core call still reads when the bare name is shadowed"
+    (let [info (img-attrs-info "(let [merge other] [:img (cljs.core/merge {:alt \"cat\"})])")]
+      (is (= :map (:kind info)))
+      (is (= #{:alt} (-> info :attrs keys set))))))
+
 (deftest attrs-info-construction-completeness-test
   (testing "a construction whose every part is readable states the whole map"
     (is (= :map (:kind (img-attrs-info "[:img (assoc {:class \"c\"} :alt \"cat\")]")))

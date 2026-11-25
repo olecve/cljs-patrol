@@ -2197,12 +2197,6 @@
   (let [[attr & extra] (select-keys attrs [:as-child :asChild])]
     (and (nil? extra) (some-> attr val literal-sexpr true?))))
 
-(defn- quoted-tooltip? [loc]
-  (->> (iterate z/up (z/up loc))
-       (take-while some?)
-       (filter #(= :list (z/tag %)))
-       (some #(= "quote" (->> % parser/written-child-locs first parser/raw)))))
-
 (defn- tooltip-trigger [loc ns-info tooltip-components]
   (let [children (parser/written-child-locs loc)
         head (first children)
@@ -2219,7 +2213,7 @@
                    (or (contains? tooltip-components resolved) (literal-as-child? forwarded))
                    (not (and (= name written) (heads/locally-bound? loc name)))
                    (not (hiccup/inside-non-hiccup-form? loc))
-                   (not (quoted-tooltip? loc)))
+                   (not (hiccup/explicitly-quoted? loc)))
           {:child child
            :forwarded forwarded})))))
 
@@ -2233,9 +2227,16 @@
   "Ask the child first, since Radix Slot lets a written child prop override a forwarded one.
   Lowercase keys stay separate: React may still emit them as DOM attributes."
   [attrs forwarded keys]
-  (if-let [child-keys (seq (filter #(contains? attrs %) keys))]
-    (some #(attr-written? attrs %) child-keys)
-    (some #(attr-written? forwarded %) keys)))
+  (let [[props prop-keys] (if-let [child-keys (seq (filter #(contains? attrs %) keys))]
+                            [attrs child-keys]
+                            [forwarded keys])]
+    (some (fn [key]
+            (if (contains? #{:content-editable :contentEditable :contenteditable} key)
+              (let [value (literal-sexpr (get props key))]
+                (or (contains? #{true "true" "" "plaintext-only" ::non-literal} value)
+                    (symbol? value)))
+              (attr-written? props key)))
+          prop-keys)))
 
 (defn- non-focusable-tooltip-child [loc forwarded]
   (let [tag (some->> (parser/written-child-locs loc) first parser/raw hiccup/parse-tag)]
