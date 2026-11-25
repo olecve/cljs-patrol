@@ -76,6 +76,19 @@
                   "(defn tint #?(:cljs {:doc \"#abc\" :example \"#fff\"}) [x] x)"]]
     (is (= ["#fff"] (mapv :literal (run config nil {"app.cljc" source}))) source)))
 
+(deftest combined-custom-features-can-make-a-docstring-executable
+  (let [source "(#?(:a def :default comment) tint \"#fff\" #?@(:b [] :default [1]))"]
+    (is (= ["#fff"] (mapv :literal (run config nil {"app.cljc" source}))))))
+
+(deftest combined-custom-features-can-preserve-a-docstring
+  (let [source "(#?(:a def :default comment) tint \"#fff\" #?(:b 2 :default 1))"]
+    (is (empty? (run config nil {"app.cljc" source})))))
+
+(deftest forms-with-more-custom-features-retain-uncertain-findings
+  (let [source (str "(defn mix \"Mix #abc with white.\" [x] x) "
+                    "(#?(:a def :default comment) tint \"#fff\" #?@(:b [] :default [1]) #?(:c 2))")]
+    (is (= ["#fff"] (mapv :literal (run config nil {"app.cljc" source}))))))
+
 (deftest reader-conditional-baseline-identities
   (let [findings (run config nil
                       {"app.cljc" (str "(ns app) #?(:cljs (def first-color \"#fff\")) "
