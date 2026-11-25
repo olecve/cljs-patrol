@@ -199,13 +199,15 @@
   here. Pairs from `cut` — the binding the usage itself sits in — on are not in scope
   yet, and the last binding left of it wins."
   [bindings-loc symbol-name cut]
-  (reduce (fn [found [form init]]
-            (cond
-              (= symbol-name (unqualified-symbol-name form)) init
-              (contains? (heads/binding-names (z/node form)) symbol-name) ::shadowed
-              :else found))
-          nil
-          (take-while (partial before-binding? cut) (binding-pairs bindings-loc))))
+  (->> bindings-loc
+       binding-pairs
+       (take-while (partial before-binding? cut))
+       (reduce (fn [found [form init]]
+                 (cond
+                   (= symbol-name (unqualified-symbol-name form)) init
+                   (contains? (heads/binding-names (z/node form)) symbol-name) ::shadowed
+                   :else found))
+               nil)))
 
 (defn- enclosing-child [loc parent]
   (loop [child loc]
