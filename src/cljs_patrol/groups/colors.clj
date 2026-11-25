@@ -142,18 +142,19 @@
     (string-value loc) [loc]
     :else (mapcat strings (parser/written-child-locs loc))))
 
-(defn- feature-sets [forms]
+(defn- form-features [form]
   (let [custom (into #{}
-                     (comp (mapcat #(tree-seq some? parser/written-child-locs %))
-                           (filter parser/reader-conditional-kind)
-                           (mapcat parser/reader-conditional-branches)
+                     (comp (mapcat parser/reader-conditional-branches)
                            (map (comp parser/raw first))
                            (remove #{":clj" ":cljs" ":default"}))
-                     forms)]
-    (for [language [":cljs" ":clj"]
-          feature (cons nil (sort custom))]
-      (cond-> #{language}
-        feature (conj feature)))))
+                     (tree-seq some? parser/written-child-locs form))
+        feature-count (count custom)
+        combinations (cond-> (into [#{}] (map hash-set) (sort custom))
+                       (= 2 feature-count) (conj custom))]
+    {:complete? (<= feature-count 2)
+     :sets (for [language [":cljs" ":clj"]
+                 features combinations]
+             (conj features language))}))
 
 (defn- top-level-name [loc features]
   (let [top (parser/top-level-loc loc)
@@ -208,15 +209,19 @@
                       :value (normalize-hex value)
                       :token (symbol (:ns-name ns-info) token-name)}))
           literals (when-not allowed?
-                     (let [features (if (str/ends-with? file ".cljc") (feature-sets forms) [#{":cljs"}])]
+                     (let [cljc? (str/ends-with? file ".cljc")]
                        (for [form forms
+                             :let [{:keys [complete? sets]} (if cljc?
+                                                              (form-features form)
+                                                              {:complete? true
+                                                               :sets [#{":cljs"}]})]
                              string-loc (strings form)
                              :let [text (string-value string-loc)
                                    matches (concat (re-seq hex-pattern text)
                                                    (when (re-find function-pattern text) [text]))]
                              :when (seq matches)
-                             :let [active-features (active-feature-sets string-loc features)]
-                             :when (not (documentation? string-loc active-features))
+                             :let [active-features (active-feature-sets string-loc sets)]
+                             :when (not (and complete? (documentation? string-loc active-features)))
                              :let [[row col] (parser/position string-loc)]
                              literal matches]
                          {:type :color-literal
