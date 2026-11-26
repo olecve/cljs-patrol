@@ -66,6 +66,37 @@ element or component. The finding gives the entry's message.
   [:map [:button {:aria-disabled true} :boolean]])
 ```
 
+The native target can enforce the `:tab-index` spelling without changing component props:
+
+```clojure
+;; config {:forbid-props [{:prop :tabIndex :disallowed-for :native :message "Use :tab-index."} {:prop :tabindex :disallowed-for :native :message "Use :tab-index."}]}
+
+;; flagged: native HTML
+(defn help [] [:button {:tabIndex -1} "Help"])
+
+;; native SVG
+(defn icon [] [:svg [:circle {:tabindex 0 :r 4}]])
+
+;; fix
+(defn help [] [:button {:tab-index -1} "Help"])
+```
+
+**Left alone:**
+
+```clojure
+;; config {:forbid-props [{:prop :tabIndex :disallowed-for :native :message "Use :tab-index."} {:prop :tabindex :disallowed-for :native :message "Use :tab-index."}]}
+
+;; left alone: component props
+(defn help [] [button/button {:tabIndex -1} "Help"])
+
+;; adapted React component
+(def adapted (reagent.core/adapt-react-class MenuItem))
+(defn help [] [adapted {:tabIndex -1} "Help"])
+
+;; React interop
+(defn help [] [:> MenuItem {:tabindex 0} "Help"])
+```
+
 <details>
 <summary>Details</summary>
 
@@ -77,11 +108,12 @@ name one: an argument of `dispatch`, `subscribe`, `reg-event-*` or `reg-sub`, in
 An event vector built elsewhere and passed in by name, `(let [e [:select {…}]] (rf/dispatch e))`, is read as Hiccup, and
 such a rare case goes in the baseline. A vector in the value of a [data `def`](../rules.md#data-defs) is not an element
 either. A local component is unknown, one that shadows a referred component included, and so is a component rendered
-through `[:> Comp …]` interop, which no entry can name.
+through `[:> Comp …]` interop, which no entry can name. The `:native` target leaves every component alone.
 
 The tags the rule knows are the HTML and SVG elements, except `:map`, `:search`, `:filter`, `:image` and `:desc`. Each
 of those is also an everyday Malli schema, db path or event id, `[:search :query]`, so every group reads them as data,
-and a config naming one is refused rather than never matching.
+and a config naming one is refused rather than never matching. Within an SVG element, `:filter`, `:image`, `:desc` and
+`:set` are read as native tags. String tags and tag chains, such as `"button"` and `:div>button`, are also read.
 
 A prop counts when the element's props are a literal map, or a symbol bound to one, and the prop's value reaches the
 element. Reagent drops a prop whose value is `false` or `nil`, so `{:aria-disabled false}` is left alone, and so is a
@@ -111,11 +143,20 @@ The examples on this page run under this config:
    :message "Use :disabled. When the reason must stay reachable by keyboard, wrap the button in app.components/blocked-action."}]}
 ```
 
+For a native DOM spelling policy, use both entries:
+
+```clojure
+{:forbid-props
+ [{:prop :tabIndex :disallowed-for :native :message "Use :tab-index."}
+  {:prop :tabindex :disallowed-for :native :message "Use :tab-index."}]}
+```
+
 Each entry is a prop keyword, forbidden on every element and component, or a map:
 
 - `:prop` — the prop, a keyword as written in the props map.
 - `:disallowed-for` — the tags and components the prop is forbidden on: HTML and SVG tag keywords such as `:button`,
-  with no class or id, and fully qualified component symbols such as `app.ui.button/button`.
+  with no class or id, and fully qualified component symbols such as `app.ui.button/button`. Use `:native` instead of a
+  collection to forbid the prop on all recognized native HTML and SVG tags, and on no component or fragment.
 - `:allowed-for` — the tags and components the prop is allowed on; it is forbidden on every other. An entry takes one of
   the two at most, and with neither the prop is forbidden everywhere.
 - `:message` — what the finding says: why the prop is forbidden and what to use instead. Without it the finding names

@@ -17,6 +17,26 @@
   (when (= :token (z/tag loc))
     (try (z/sexpr loc) (catch Exception _ ::unreadable))))
 
+(defn- native-props-tag
+  "Read the tag that receives the props, which is the last tag in a Reagent tag chain."
+  [loc]
+  (let [head (first (parser/written-child-locs loc))
+        text (some-> head parser/raw)
+        raw (if (and text (str/starts-with? text "\""))
+              (str ":" (z/sexpr head))
+              text)]
+    (when-let [tag (hiccup/parse-tag raw)]
+      (if (str/includes? raw ">")
+        (let [tags (str/split (subs raw 1) #">" -1)]
+          (when (every? seq tags)
+            (hiccup/parse-tag (str ":" (last tags)))))
+        tag))))
+
+(defn- svg-child-tag? [loc tag]
+  (and (contains? #{:desc :filter :image :set} tag)
+       (some #(and (= :vector (z/tag %)) (= :svg (native-props-tag %)))
+             (take-while some? (iterate z/up (z/up loc))))))
+
 (defn- element
   "Return what a Hiccup vector renders: an HTML tag keyword, a component's fully qualified symbol, or nil.
 
@@ -29,8 +49,9 @@
       (let [raw (parser/raw head)
             value (literal head)]
         (cond
-          (keyword? value) (let [tag (hiccup/parse-tag raw)]
-                             (when (hiccup/html-tag? tag) tag))
+          (or (keyword? value) (string? value))
+          (let [tag (native-props-tag loc)]
+            (when (or (hiccup/html-tag? tag) (svg-child-tag? loc tag)) tag))
           (symbol? value) (when-not (and (nil? (namespace value)) (heads/locally-bound? loc (name value)))
                             (or (parser/resolve-full-symbol raw ns-info)
                                 (when (some-> (namespace value) (str/includes? ".")) value))))))))
@@ -39,6 +60,7 @@
   "True when an entry forbids its prop on `element`."
   [{:keys [allowed-for disallowed-for]} element]
   (cond
+    (= :native disallowed-for) (and (keyword? element) (not= :<> element))
     disallowed-for (contains? disallowed-for element)
     allowed-for (not (contains? allowed-for element))
     :else true))
@@ -118,9 +140,13 @@
 
 (defn- read-elements [entry k]
   (when-some [elements (get entry k)]
-    (when-not (and (coll? elements) (not (map? elements)) (every? element-name? elements))
-      (invalid-config (str k " must be a collection of HTML tag keywords and fully qualified component symbols") entry))
-    (set elements)))
+    (if (and (= :disallowed-for k) (= :native elements))
+      :native
+      (do
+        (when-not (and (coll? elements) (not (map? elements)) (every? element-name? elements))
+          (invalid-config (str k " must be " (when (= :disallowed-for k) ":native or ")
+                               "a collection of HTML tag keywords and fully qualified component symbols") entry))
+        (set elements)))))
 
 (defn- read-entry
   "Read one entry, a bare prop keyword or a map, refusing any other shape."
@@ -152,6 +178,7 @@
   Off until set. Each entry is a prop keyword, forbidden on every element, or a map:
     :prop :aria-disabled — the prop.
     :disallowed-for #{:button my.ui/button} — forbidden only on these tags and components.
+    :disallowed-for :native — forbidden on native HTML and SVG tags only.
     :allowed-for #{:div} — forbidden everywhere but on these; one of the two at most.
     :message \"Use :disabled.\" — what a finding says instead of naming the prop."
   ([] (make-group nil))

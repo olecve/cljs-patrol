@@ -74,18 +74,16 @@
                                     :redundant-fragment []
                                     :inline-component []
                                     :discarded-hiccup []
-                                    :remounting-branch []
-                                    :prefer-tab-index []})]
-    (is (= 8 (count lines)))
+                                    :remounting-branch []})]
+    (is (= 7 (count lines)))
     (is (= 1 (second (first lines))))
     (is (= 0 (second (second lines))))
     (is (= [["Empty fragment props:" 0]
             ["Redundant fragment:" 0]
             ["Inline component:" 0]
             ["Discarded hiccup:" 0]
-            ["Remounting branch:" 0]
-            ["Prefer :tab-index:" 0]]
-           (take-last 6 lines)))))
+            ["Remounting branch:" 0]]
+           (take-last 5 lines)))))
 
 (defn- vector-findings
   "Walk `lines` the way the parser walks a file, and return the forms `rule` reports."
@@ -103,86 +101,6 @@
                                        :usages []})
          rule
          (mapv :form))))
-
-(deftest native-tabindex-spelling
-  (is (= ["[:button {:tabIndex -1} \"More\"]"
-          "[:a.help {:tabindex 0} \"Help\"]"
-          "[:span props \"Status\"]"
-          "[:div (assoc other :tabIndex n)]"
-          "[:button {:tab-index 0 :tabIndex -1 :tabindex 0}]"]
-         (vector-findings :prefer-tab-index
-                          ["[:button {:tabIndex -1} \"More\"]"
-                           "[:a.help {:tabindex 0} \"Help\"]"
-                           "(let [props {:tabindex 0}] [:span props \"Status\"])"
-                           "[:div (assoc other :tabIndex n)]"
-                           "[:button {:tab-index 0 :tabIndex -1 :tabindex 0}]"])))
-  (is (empty? (vector-findings :prefer-tab-index
-                               ["[:button {:tab-index -1} \"More\"]"
-                                "[:div opaque-props]"
-                                "(let [merge other] [:button (merge {:tabIndex 0})])"
-                                "[:<> {:tabIndex 0}]"
-                                "[menu-item {:tabIndex 0}]"
-                                "[:> MenuItem {:tabIndex 0}]"
-                                "(react/createElement \"button\" #js {:tabIndex 0})"
-                                "{:tabIndex 0}"
-                                "'[:button {:tabIndex 0}]"
-                                "(comment [:button {:tabIndex 0}])"
-                                "(defclass selector [] [:button {:tabIndex 0}])"]))))
-
-(deftest native-tabindex-destructuring-default
-  (is (empty? (vector-findings :prefer-tab-index
-                               ["(def props {:tabIndex 1})"
-                                "(defn view [{:keys [props content] :or {content [:button props]}}] content)"]))))
-
-(deftest native-tabindex-tag-shapes
-  (let [markup ["[#_:span :button {:tabIndex 0}]"
-                "[:div>button {:tabIndex 0}]"
-                "[:div.wrapper>span>button.action {:tabindex 0}]"
-                "[\"button\" {:tabindex 0}]"]]
-    (is (= ["[:image {:tabindex 0}]"]
-           (vector-findings :prefer-tab-index ["[:svg [:g [:image {:tabindex 0}]]]"])))
-    (is (= markup (vector-findings :prefer-tab-index markup))))
-  (is (empty? (vector-findings :prefer-tab-index
-                               ["(rf/dispatch [:input {:tabIndex 0}])"
-                                "(rf/dispatch #?(:cljs [:input {:tabIndex 0}]))"
-                                "(rf/dispatch ^:example [:input {:tabIndex 0}])"
-                                "[:image {:tabindex 0}]"
-                                "[:div [:image {:tabindex 0}]]"
-                                "[:div>custom-tag {:tabIndex 0}]"
-                                "{:fx [[:dispatch [:input {:tabIndex 0}]]]}"
-                                "(quote [:button {:tabIndex 0}])"
-                                "[::x>button {:tabIndex 0}]"
-                                "[:>button {:tabIndex 0}]"
-                                "[:button> {:tabIndex 0}]"
-                                "[:div>>button {:tabIndex 0}]"
-                                "[:r> Component {:tabIndex 0}]"]))))
-
-(deftest native-tabindex-event-results
-  (is (empty? (vector-findings :prefer-tab-index
-                               ["(rf/dispatch (if ready? [:input {:tabIndex 0}] [:select {:tabIndex 0}]))"
-                                "(rf/dispatch (or pending [:input {:tabIndex 0}]))"
-                                "(rf/dispatch (or [:input {:tabIndex 0}] pending))"
-                                "(rf/dispatch (and ready? [:input {:tabIndex 0}]))"
-                                "(rf/dispatch (and [:input {:tabIndex 0}] pending))"
-                                "(dispatch (let [x 0] (if ready? ^:event [:input {:tabIndex x}] nil)))"
-                                "{:dispatch #_[] [:input {:tabIndex 0}]}"
-                                "{:fx #_[] [[:dispatch-n #_[] [[:input {:tabIndex 0}]]]]}"])))
-  (is (= ["[:button {:tabIndex 0}]" "[:input {:tabIndex 0}]" "[:select {:tabIndex 0}]"]
-         (vector-findings :prefer-tab-index
-                          ["(app.ui/sub [:button {:tabIndex 0}])"
-                           "(let [dispatch draw] (dispatch [:input {:tabIndex 0}]))"
-                           "(rf/dispatch [:save {:content [:select {:tabIndex 0}]}])"]))))
-
-(deftest native-tabindex-re-frame-effect-positions
-  (is (empty? (vector-findings :prefer-tab-index
-                               ["(rf/dispatch (cond #?@(:cljs [p [:input {:tabIndex 1}]])"
-                                "                   :else [:button {:tabIndex 1}]))"
-                                "{:dispatch-n (if more? [[:input {:tabIndex 1}]] [])}"
-                                "{:fx (if ready? [[:dispatch-n (if more? [[:input {:tabIndex 1}]] [])]] [])}"])))
-  (is (= ["[:button {:tabIndex 1}]" "[:select {:tabIndex 1}]"]
-         (vector-findings :prefer-tab-index
-                          ["(rf/dispatch [:save :dispatch [:button {:tabIndex 1}]])"
-                           "{:color :dispatch [:select {:tabIndex 1}] :selected}"]))))
 
 (defn- empty-fragment-props [lines] (vector-findings :empty-fragment-props lines))
 
