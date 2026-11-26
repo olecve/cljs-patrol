@@ -129,6 +129,11 @@
                                 "(comment [:button {:tabIndex 0}])"
                                 "(defclass selector [] [:button {:tabIndex 0}])"]))))
 
+(deftest native-tabindex-destructuring-default
+  (is (empty? (vector-findings :prefer-tab-index
+                               ["(def props {:tabIndex 1})"
+                                "(defn view [{:keys [props content] :or {content [:button props]}}] content)"]))))
+
 (deftest native-tabindex-tag-shapes
   (let [markup ["[#_:span :button {:tabIndex 0}]"
                 "[:div>button {:tabIndex 0}]"
@@ -155,6 +160,10 @@
 (deftest native-tabindex-event-results
   (is (empty? (vector-findings :prefer-tab-index
                                ["(rf/dispatch (if ready? [:input {:tabIndex 0}] [:select {:tabIndex 0}]))"
+                                "(rf/dispatch (or pending [:input {:tabIndex 0}]))"
+                                "(rf/dispatch (or [:input {:tabIndex 0}] pending))"
+                                "(rf/dispatch (and ready? [:input {:tabIndex 0}]))"
+                                "(rf/dispatch (and [:input {:tabIndex 0}] pending))"
                                 "(dispatch (let [x 0] (if ready? ^:event [:input {:tabIndex x}] nil)))"
                                 "{:dispatch #_[] [:input {:tabIndex 0}]}"
                                 "{:fx #_[] [[:dispatch-n #_[] [[:input {:tabIndex 0}]]]]}"])))

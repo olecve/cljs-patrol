@@ -275,7 +275,10 @@
   (testing "letfn specs and a threaded as-> shadow outer props"
     (doseq [source ["(let [props {:tabIndex 1}] (letfn [(^:private props [] {})] [:img props]))"
                     "(let [props {:tabIndex 1}] (letfn [#?@(:cljs [(props [] {})])] [:img props]))"
-                    "(let [props {:tabIndex 1}] (-> other (as-> props [:img props])))"]]
+                    "(let [props {:tabIndex 1}] (-> other (as-> props [:img props])))"
+                    "(let [props {:tabIndex 1}] (letfn [(helper [] nil) (props [] {})] [:img props]))"
+                    "(let [props {:tabIndex 1}] (-> other identity (as-> props [:img props]) identity))"
+                    "(let [props {:tabIndex 1}] (as-> other props (identity props) [:img props] (identity props)))"]]
       (is (= :non-map (:kind (img-attrs-info source))) source)))
 
   (testing "a spliced local function's parameters shadow core within that function"
@@ -295,6 +298,24 @@
   (testing "active parameter splices can shadow map builders"
     (let [source "(defn view [#?@(:clj [x] :cljs [merge])] [:img (merge {:tabIndex 1})])"]
       (is (= :dynamic (:kind (img-attrs-info source)))))))
+
+(deftest destructuring-default-local-scope
+  (let [source "(defn view [{:keys [merge content] :or {content (merge {})}}] content)"
+        call (->> (z/of-string source)
+                  (iterate z/next)
+                  (take-while #(not (z/end? %)))
+                  (some #(when (= "(merge {})" (z/string %)) %)))]
+    (is (= :cljs-patrol.hiccup/shadowed (hiccup/lexically-bound-value call "merge"))))
+  (doseq [source ["(def props {:tabIndex 1}) (defn view [{:keys [props content] :or {content [:img props]}}] content)"
+                  "(def props {:tabIndex 1}) (let [{:keys [props content] :or {content [:img props]}} opts] content)"
+                  "(def props {:tabIndex 1}) (defn view [{props :props content :content :or {content [:img props]}}] content)"
+                  (str "(def props {:tabIndex 1}) (defn view [{other :other props :props content :content "
+                       ":or {content [:img props]}}] content)")
+                  "(def props {:tabIndex 1}) (defn view [{:as props :keys [content] :or {content [:img props]}}] content)"]]
+    (is (= :non-map (:kind (img-attrs-info source))) source))
+  (doseq [source ["(def props {:tabIndex 1}) (defn view [{:keys [content props] :or {content [:img props]}}] content)"
+                  "(def props {:tabIndex 1}) (defn view [{:keys [props] :or {props [:img props]}}] props)"]]
+    (is (= :map (:kind (img-attrs-info source))) source)))
 
 (deftest attrs-info-construction-completeness-test
   (testing "a construction whose every part is readable states the whole map"

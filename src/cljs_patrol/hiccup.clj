@@ -323,11 +323,40 @@
     (and (contains? #{"->" "some->"} (some-> head parser/sym-name))
          (some #(same-node? site %) steps))))
 
+(defn- ordered-binding-names [loc]
+  (let [loc (heads/unwrap-meta loc)
+        children (parser/cljs-child-locs loc)]
+    (case (z/tag loc)
+      :map (mapcat (fn [[key value]]
+                     (let [kw (when (parser/kw-node? key) (z/sexpr key))]
+                       (cond
+                         (= :or kw) nil
+                         (= :as kw) (ordered-binding-names value)
+                         (and kw (contains? #{"keys" "syms" "strs"} (name kw)))
+                         (map #(name (z/sexpr %)) (parser/cljs-child-locs value))
+                         :else (ordered-binding-names key))))
+                   (partition 2 children))
+      :vector (mapcat ordered-binding-names children)
+      (when-let [name (unqualified-symbol-name loc)] [name]))))
+
+(defn- default-binds? [form usage symbol-name]
+  (when (= :map (some-> form heads/unwrap-meta z/tag))
+    (let [form (heads/unwrap-meta form)
+          defaults (some (fn [[key value]] (when (= ":or" (parser/raw key)) value))
+                         (binding-pairs form))
+          default-name (some (fn [[key value]]
+                               (when (or (same-node? usage value) (enclosing-child usage value))
+                                 (unqualified-symbol-name key)))
+                             (when defaults (binding-pairs defaults)))]
+      (and default-name
+           (some #{symbol-name} (take-while #(not= default-name %) (ordered-binding-names form)))))))
+
 (defn- parameters-bind? [params usage symbol-name]
   (let [cut (binding-cut params usage)]
-    (->> (parser/cljs-child-locs params)
-         (take-while #(not (same-site? % cut)))
-         (some #(contains? (cljs-binding-names %) symbol-name)))))
+    (or (default-binds? cut usage symbol-name)
+        (->> (parser/cljs-child-locs params)
+             (take-while #(not (same-site? % cut)))
+             (some #(contains? (cljs-binding-names %) symbol-name))))))
 
 (defn- binder-lookup
   "Look up symbol-name in the bindings one enclosing form makes.
@@ -344,7 +373,9 @@
     (cond
       (and binding-vector? (contains? map-binding-heads head-name))
       (when (in-scope-branch? head-name child binding-site then-branch)
-        (bound-init bindings symbol-name cut))
+        (if (default-binds? cut usage symbol-name)
+          ::shadowed
+          (bound-init bindings symbol-name cut)))
 
       (and binding-vector? (contains? #{"for" "doseq"} head-name))
       (comprehension-init bindings symbol-name cut usage)
@@ -746,7 +777,7 @@
 
 (def ^:private result-heads
   "Every form [[result-locs]] reads."
-  (into tail-result-heads (conj branch-result-heads 'cljs.core/case 'cljs.core/cond)))
+  (into tail-result-heads (conj branch-result-heads 'cljs.core/case 'cljs.core/cond 'cljs.core/or 'cljs.core/and)))
 
 (def ^:private result-head-by-name
   "Every form [[result-locs]] reads, by its bare name."
@@ -758,6 +789,7 @@
     (cond
       (contains? tail-result-heads head) (take-last 1 args)
       (contains? branch-result-heads head) (take 2 (rest args))
+      (contains? #{'cljs.core/or 'cljs.core/and} head) args
       (= 'cljs.core/cond head) (take-nth 2 (rest args))
       (= 'cljs.core/case head) (let [clauses (rest args)]
                                  (concat (take-nth 2 (rest clauses))
