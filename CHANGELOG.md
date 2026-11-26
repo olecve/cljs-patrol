@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.0.64] - 2026-11-26
+
+* Prefer :tab-index in native Reagent Hiccup by @olecve in https://github.com/olecve/cljs-patrol/pull/189
+* Replace prefer-tab-index with forbid-props config for native tags by @olecve in https://github.com/olecve/cljs-patrol/pull/190
+
+**Full Changelog**: https://github.com/olecve/cljs-patrol/compare/v0.0.63...v0.0.64
+
 ## [v0.0.63] - 2026-11-24
 
 * Read and write files through NIO paths in the callers of fs by @olecve in https://github.com/olecve/cljs-patrol/pull/180
