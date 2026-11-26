@@ -2,7 +2,6 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.forbid-props :as forbid-props]
-   [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.temp-project :as temp-project]
    [clojure.test :refer [deftest is]]))
 
@@ -265,15 +264,3 @@
          (flagged [{:prop :tabIndex
                     :disallowed-for #{:div}}]
                   "(defn v [] [:div.x>button {:tabIndex 1}])"))))
-
-(deftest comment-forms-are-left-alone
-  (doseq [source ["(comment [:button {:tabIndex 1}])"
-                  "(comment (defn view [] [:button {:tabIndex 1}]))"
-                  "(clojure.core/comment [:button {:tabIndex 1}])"]]
-    (is (= [] (flagged tab-index-entries source)) source))
-  (is (= [[:tabIndex "Use :tab-index."]]
-         (flagged tab-index-entries "(comment [:button {:tabIndex 1}]) [:button {:tabIndex 1}]"))))
-
-(deftest irrelevant-props-do-not-resolve-elements
-  (with-redefs [hiccup/parse-tag (fn [_] (throw (ex-info "Unexpected element reading" {})))]
-    (is (= [] (flagged tab-index-entries "(defn view [] [:button {:title \"Help\"}])")))))

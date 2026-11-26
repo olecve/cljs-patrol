@@ -112,10 +112,12 @@ value of a [data `def`](../rules.md#data-defs) is not an element either. A local
 a referred component included, and so is a component rendered through `[:> Comp …]` interop, which no entry can name.
 The `:native` target leaves every component alone.
 
-The rule recognizes keyword heads for HTML and SVG tags, except `:map`, `:search`, `:filter`, `:image`, `:desc` and
-`:set`. These names can also identify data, so the rule leaves them alone, including inside SVG elements. A config that
-names one is refused. String heads are left alone. The shared tag reader stops at the first class or id marker. Thus
-`:div.x>button` matches `:div`, while `:div>button` is not a recognized tag.
+The `:native` target covers keyword heads in the group's HTML and SVG tag list, except `:map`, `:search`, `:filter`,
+`:image`, `:desc` and `:set`. These names can also identify data, so the rule leaves them alone, including inside SVG
+elements. SVG tags that the group's tag list does not know are not native for this group. Examples include
+`feTurbulence`, `feImage`, `switch`, `view` and `mpath`. The group refuses a config that names an excluded or unknown
+tag. String heads are left alone. The shared tag reader stops at the first class or id marker. Thus `:div.x>button`
+matches `:div`, while `:div>button` is not a recognized tag.
 
 A prop counts when the element's props are a literal map, or a symbol bound to one, and the prop's value reaches the
 element. Reagent drops a prop whose value is `false` or `nil`, so `{:aria-disabled false}` is left alone, and so is a

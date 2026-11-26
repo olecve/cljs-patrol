@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed, 2026-11-26
+Accepted, 2026-11-26 (proposed 2026-11-26)
 
 ## Context
 
@@ -66,6 +66,9 @@ rule's `cleanup` tier. Findings use the existing prop identity and configured me
 Components, adapted React components and `[:> Comp ...]` interop remain outside the native target. The target also
 excludes fragments. The shared tag recognition limits still apply.
 
+A `:native` entry also reports props inside a `(comment …)` form, as every `forbid-props` entry does. Add these findings
+to the baseline or remove the forbidden props.
+
 The `invalid-tabindex` accessibility rule continues to check values. It reads `:tab-index` and `:tabIndex`. The
 configuration changes spelling policy only. It does not replace value checks.
 
@@ -92,3 +95,4 @@ Before acceptance, confirm these results:
 - Current configuration and limits: [Forbid props options](../rules/forbid-props.md#forbid-props-options).
 - Target implementation: [`forbid_props.clj`](../../src/cljs_patrol/groups/forbid_props.clj).
 - Independent value checks: [Invalid tabindex](../rules/a11y.md#invalid-tabindex).
+- The pull request: [olecve/cljs-patrol#190](https://github.com/olecve/cljs-patrol/pull/190)

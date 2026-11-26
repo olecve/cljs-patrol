@@ -68,18 +68,12 @@
      :col col
      :hint (or message (str prop " is forbidden on " element "."))}))
 
-(defn- inside-comment-form? [loc]
-  (boolean (some #(and (= :list (z/tag %)) (= "comment" (some-> % z/down parser/sym-name)))
-                 (take-while some? (rest (iterate z/up loc))))))
-
 (defn- handle-vector [entries]
   (fn [loc ns-info file]
-    (when-not (or (hiccup/inside-non-hiccup-form? loc)
-                  (inside-comment-form? loc)
-                  (hiccup/re-frame-vector? loc ns-info))
-      (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
-        (when (and (= :map kind) (some #(contains? attrs (:prop %)) entries))
-          (when-let [element (element loc ns-info)]
+    (when-not (or (hiccup/inside-non-hiccup-form? loc) (hiccup/re-frame-vector? loc ns-info))
+      (when-let [element (element loc ns-info)]
+        (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
+          (when (and (= :map kind) (seq attrs))
             (let [findings (for [{:keys [prop message]
                                   :as entry} entries
                                  :let [value-loc (get attrs prop)]
