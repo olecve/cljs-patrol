@@ -26,7 +26,8 @@ selection and reporting code.
 ## Decision
 
 Replace `prefer-tab-index` with `forbid-props` configuration. Add `:disallowed-for :native` to select native HTML and
-SVG tags without selecting components.
+SVG tags without selecting components. Keep the element matching of existing entries unchanged. The new target uses the
+same element reader.
 
 Configure separate entries for `:tabIndex` and `:tabindex`, each with the message `Use :tab-index.`. Remove the
 dedicated rule, its registration, tier entry, baseline identity, tests and rule documentation. Keep helpers that other
@@ -65,8 +66,8 @@ rule's `cleanup` tier. Findings use the existing prop identity and configured me
 Components, adapted React components and `[:> Comp ...]` interop remain outside the native target. The target also
 excludes fragments. The shared tag recognition limits still apply.
 
-The `invalid-tabindex` accessibility rule continues to check values. Its readers still accept all supported spellings.
-The configuration changes spelling policy only. It does not replace value checks.
+The `invalid-tabindex` accessibility rule continues to check values. It reads `:tab-index` and `:tabIndex`. The
+configuration changes spelling policy only. It does not replace value checks.
 
 ## Confirmation
 
@@ -78,7 +79,6 @@ Before acceptance, confirm these results:
 - Rule documentation examples execute as tests, as [ADR 0004](0004-rule-docs-examples-are-tests.md) requires.
 - The full test suite, formatting checks, CI lint checks, file access check and own-source patrol pass.
 - The scoped mutation run for `forbid-props` catches each scored mutant in the changed code.
-- The uncommitted review has no unresolved defect.
 
 ## Revisit when
 

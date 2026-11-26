@@ -17,41 +17,21 @@
   (when (= :token (z/tag loc))
     (try (z/sexpr loc) (catch Exception _ ::unreadable))))
 
-(defn- native-props-tag
-  "Read the tag that receives the props, which is the last tag in a Reagent tag chain."
-  [loc]
-  (let [head (first (parser/written-child-locs loc))
-        text (some-> head parser/raw)
-        raw (if (and text (str/starts-with? text "\""))
-              (str ":" (z/sexpr head))
-              text)]
-    (when-let [tag (hiccup/parse-tag raw)]
-      (if (str/includes? raw ">")
-        (let [tags (str/split (subs raw 1) #">" -1)]
-          (when (every? seq tags)
-            (hiccup/parse-tag (str ":" (last tags)))))
-        tag))))
-
-(defn- svg-child-tag? [loc tag]
-  (and (contains? #{:desc :filter :image :set} tag)
-       (some #(and (= :vector (z/tag %)) (= :svg (native-props-tag %)))
-             (take-while some? (iterate z/up (z/up loc))))))
-
 (defn- element
-  "Return what a Hiccup vector renders: an HTML tag keyword, a component's fully qualified symbol, or nil.
+  "Return a recognized tag keyword, a resolved component symbol, or nil.
 
-  A keyword counts only when HTML has the element, so a Malli schema is never read as one. A
-  symbol counts when the file's aliases or refers resolve it, or when it is written fully
-  qualified. A local stays unknown, one that shadows a referred component included."
+  Only keyword heads use the shared HTML and SVG tag reader. It reads up to the first
+  class or id marker, including in tag chains. String heads and unknown tags stay unknown.
+  A symbol must resolve through aliases or refers, or have a fully qualified namespace.
+  A local that shadows a referred component stays unknown."
   [loc ns-info]
   (let [head (z/down loc)]
     (when (= :token (some-> head z/tag))
       (let [raw (parser/raw head)
             value (literal head)]
         (cond
-          (or (keyword? value) (string? value))
-          (let [tag (native-props-tag loc)]
-            (when (or (hiccup/html-tag? tag) (svg-child-tag? loc tag)) tag))
+          (keyword? value) (let [tag (hiccup/parse-tag raw)]
+                             (when (hiccup/html-tag? tag) tag))
           (symbol? value) (when-not (and (nil? (namespace value)) (heads/locally-bound? loc (name value)))
                             (or (parser/resolve-full-symbol raw ns-info)
                                 (when (some-> (namespace value) (str/includes? ".")) value))))))))
@@ -88,12 +68,18 @@
      :col col
      :hint (or message (str prop " is forbidden on " element "."))}))
 
+(defn- inside-comment-form? [loc]
+  (boolean (some #(and (= :list (z/tag %)) (= "comment" (some-> % z/down parser/sym-name)))
+                 (take-while some? (rest (iterate z/up loc))))))
+
 (defn- handle-vector [entries]
   (fn [loc ns-info file]
-    (when-not (or (hiccup/inside-non-hiccup-form? loc) (hiccup/re-frame-vector? loc ns-info))
-      (when-let [element (element loc ns-info)]
-        (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
-          (when (and (= :map kind) (seq attrs))
+    (when-not (or (hiccup/inside-non-hiccup-form? loc)
+                  (inside-comment-form? loc)
+                  (hiccup/re-frame-vector? loc ns-info))
+      (let [{:keys [kind attrs]} (hiccup/attrs-info loc)]
+        (when (and (= :map kind) (some #(contains? attrs (:prop %)) entries))
+          (when-let [element (element loc ns-info)]
             (let [findings (for [{:keys [prop message]
                                   :as entry} entries
                                  :let [value-loc (get attrs prop)]

@@ -2,6 +2,7 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.forbid-props :as forbid-props]
+   [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.temp-project :as temp-project]
    [clojure.test :refer [deftest is]]))
 
@@ -205,13 +206,11 @@
 
 (deftest native-target-flags-html-and-svg
   (doseq [tag [":button" ":a.help" ":.panel" ":svg" ":circle" ":textPath" ":feGaussianBlur"
-               "\"button\"" ":div>button"]
+               ":div.x>button"]
           prop [":tabIndex" ":tabindex"]]
     (is (= [[(keyword (subs prop 1)) "Use :tab-index."]]
            (flagged tab-index-entries (str "(defn v [] [" tag " {" prop " 0}])")))
-        (str tag " " prop)))
-  (is (= [[:tabindex "Use :tab-index."]]
-         (flagged tab-index-entries "(defn v [] [:svg [:g [:image {:tabindex 0}]]])"))))
+        (str tag " " prop))))
 
 (deftest native-target-leaves-components-alone
   (doseq [source ["(defn v [] [button/button {:tabIndex 0}])"
@@ -249,3 +248,32 @@
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #":forbid-props :disallowed-for must be :native or a collection"
                         (forbid-props/make-group [{:prop :tabIndex
                                                    :disallowed-for [:button :native]}]))))
+
+(deftest released-element-reading-is-preserved
+  (doseq [entries [[:tabIndex] tab-index-entries
+                   [{:prop :tabIndex
+                     :allowed-for #{:button}}]
+                   [{:prop :tabIndex
+                     :disallowed-for #{:div}}]]]
+    (doseq [source ["(def rows [[\"data\" {:tabIndex 1}]])"
+                    "(defn v [] [\"button\" {:tabIndex 1}])"
+                    "(defn v [] [:div>button {:tabIndex 1}])"]]
+      (is (= [] (flagged entries source)) source))
+    (doseq [tag [":image" ":filter" ":desc" ":set"]]
+      (is (= [] (flagged entries (str "(defn v [] [:svg [" tag " {:tabIndex 1}]])"))) tag)))
+  (is (= [[:tabIndex ":tabIndex is forbidden on :div."]]
+         (flagged [{:prop :tabIndex
+                    :disallowed-for #{:div}}]
+                  "(defn v [] [:div.x>button {:tabIndex 1}])"))))
+
+(deftest comment-forms-are-left-alone
+  (doseq [source ["(comment [:button {:tabIndex 1}])"
+                  "(comment (defn view [] [:button {:tabIndex 1}]))"
+                  "(clojure.core/comment [:button {:tabIndex 1}])"]]
+    (is (= [] (flagged tab-index-entries source)) source))
+  (is (= [[:tabIndex "Use :tab-index."]]
+         (flagged tab-index-entries "(comment [:button {:tabIndex 1}]) [:button {:tabIndex 1}]"))))
+
+(deftest irrelevant-props-do-not-resolve-elements
+  (with-redefs [hiccup/parse-tag (fn [_] (throw (ex-info "Unexpected element reading" {})))]
+    (is (= [] (flagged tab-index-entries "(defn view [] [:button {:title \"Help\"}])")))))

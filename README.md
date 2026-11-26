@@ -212,6 +212,9 @@ Every setting can live in `.cljs-patrol/config.edn`, where it persists for the p
  :forbid-props [{:prop :tabIndex
                  :disallowed-for :native
                  :message "Use :tab-index."}
+                {:prop :tabindex
+                 :disallowed-for :native
+                 :message "Use :tab-index."}
                 {:prop :aria-disabled
                  :disallowed-for #{:button my.ui/button}
                  :message "Use :disabled."}]

@@ -91,6 +91,7 @@ The native target can enforce the `:tab-index` spelling without changing compone
 
 ;; adapted React component
 (def adapted (reagent.core/adapt-react-class MenuItem))
+
 (defn help [] [adapted {:tabIndex -1} "Help"])
 
 ;; React interop
@@ -100,20 +101,21 @@ The native target can enforce the `:tab-index` spelling without changing compone
 <details>
 <summary>Details</summary>
 
-The rule reads every Hiccup vector whose head is an HTML tag, such as `:button` or `:button.primary`, or a component the
-file's aliases and refers resolve, such as `button/button` for `app.ui.button/button`. A keyword that names no HTML
-element, as in a Malli schema, is not an element. Neither is a re-frame event or subscription vector whose id happens to
-name one: an argument of `dispatch`, `subscribe`, `reg-event-*` or `reg-sub`, in a `(…)` or a `#(…)`, a vector after a
-`:dispatch`-like key in an effect map or an fx tuple, and an fx tuple itself, `[:track {…}]` in `{:fx [[:track {…}]]}`.
-An event vector built elsewhere and passed in by name, `(let [e [:select {…}]] (rf/dispatch e))`, is read as Hiccup, and
-such a rare case goes in the baseline. A vector in the value of a [data `def`](../rules.md#data-defs) is not an element
-either. A local component is unknown, one that shadows a referred component included, and so is a component rendered
-through `[:> Comp …]` interop, which no entry can name. The `:native` target leaves every component alone.
+The rule reads every Hiccup vector whose head is a recognized HTML or SVG tag, such as `:button` or `:button.primary`,
+or a component the file's aliases and refers resolve, such as `button/button` for `app.ui.button/button`. A keyword that
+names no recognized tag, as in a Malli schema, is not an element. Neither is a re-frame event or subscription vector
+whose id happens to name one: an argument of `dispatch`, `subscribe`, `reg-event-*` or `reg-sub`, in a `(…)` or a
+`#(…)`, a vector after a `:dispatch`-like key in an effect map or an fx tuple, and an fx tuple itself, `[:track {…}]` in
+`{:fx [[:track {…}]]}`. An event vector built elsewhere and passed in by name,
+`(let [e [:select {…}]] (rf/dispatch e))`, is read as Hiccup, and such a rare case goes in the baseline. A vector in the
+value of a [data `def`](../rules.md#data-defs) is not an element either. A local component is unknown, one that shadows
+a referred component included, and so is a component rendered through `[:> Comp …]` interop, which no entry can name.
+The `:native` target leaves every component alone.
 
-The tags the rule knows are the HTML and SVG elements, except `:map`, `:search`, `:filter`, `:image` and `:desc`. Each
-of those is also an everyday Malli schema, db path or event id, `[:search :query]`, so every group reads them as data,
-and a config naming one is refused rather than never matching. Within an SVG element, `:filter`, `:image`, `:desc` and
-`:set` are read as native tags. String tags and tag chains, such as `"button"` and `:div>button`, are also read.
+The rule recognizes keyword heads for HTML and SVG tags, except `:map`, `:search`, `:filter`, `:image`, `:desc` and
+`:set`. These names can also identify data, so the rule leaves them alone, including inside SVG elements. A config that
+names one is refused. String heads are left alone. The shared tag reader stops at the first class or id marker. Thus
+`:div.x>button` matches `:div`, while `:div>button` is not a recognized tag.
 
 A prop counts when the element's props are a literal map, or a symbol bound to one, and the prop's value reaches the
 element. Reagent drops a prop whose value is `false` or `nil`, so `{:aria-disabled false}` is left alone, and so is a
@@ -150,6 +152,8 @@ For a native DOM spelling policy, use both entries:
  [{:prop :tabIndex :disallowed-for :native :message "Use :tab-index."}
   {:prop :tabindex :disallowed-for :native :message "Use :tab-index."}]}
 ```
+
+If an element has several spellings, keep one `:tab-index` with the intended value. Remove the other spellings.
 
 Each entry is a prop keyword, forbidden on every element and component, or a map:
 
