@@ -14,8 +14,8 @@ references: []
 
 ### Problem
 
-A design-token namespace can change the type of a token and keep its name. For example, a border token that held a
-whole CSS border shorthand now holds only a color, and a helper adds the width and the style:
+A design-token namespace can change the type of a token and keep its name. For example, a border token that held a whole
+CSS border shorthand now holds only a color, and a helper adds the width and the style:
 
 ```clojure
 ;; before
@@ -46,8 +46,8 @@ and draws no border:
 ### Why
 
 Branches written before the change, and old docs, keep the old form, so new uses keep appearing. The same token is
-correct in one property and wrong in another, so a check on the token name alone does not work. Other token families
-can change type the same way later, for example radius, shadow and typography composites.
+correct in one property and wrong in another, so a check on the token name alone does not work. Other token families can
+change type the same way later, for example radius, shadow and typography composites.
 
 ### Ideas
 
@@ -63,8 +63,8 @@ can change type the same way later, for example radius, shadow and typography co
                      :fix "Wrap it: (app.tokens/border token), or use :border-color."}]}}
   ```
 
-- A built-in table gives the properties that need more than a value of each type. For `:color`: `:border`, the four
-  side properties, `:border-block*`, `:border-inline*`, `:outline` and `:column-rule`.
+- A built-in table gives the properties that need more than a value of each type. For `:color`: `:border`, the four side
+  properties, `:border-block*`, `:border-inline*`, `:outline` and `:column-rule`.
 - A finding names the token, the property and the configured fix.
 - The rule reports only a bare token as the whole value. A token inside a call, such as `(tokens/border token)`, is left
   alone. The project does not need to name its helper; the helper goes only in the fix message.
@@ -72,8 +72,8 @@ can change type the same way later, for example radius, shadow and typography co
   - `defclass` and `defattrs`, plain `def` style maps, and inline Hiccup `:style` maps;
   - a value that is a branch result of `when`, `if`, `case`, `or` or `cond->`;
   - any alias of the token namespace, resolved from the `ns` requires.
-- Reuse the style-map reader of the `focus-ring` group (nested selectors, `at-media` and `at-supports`, branches). Do not
-  reuse its token-value table: the type comes from config.
+- Reuse the style-map reader of the `focus-ring` group (nested selectors, `at-media` and `at-supports`, branches). Do
+  not reuse its token-value table: the type comes from config.
 - Later versions:
   - a config list of custom property names whose value is a border, such as `#{"--app-card-border"}`, checked the same
     way;
