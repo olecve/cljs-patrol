@@ -129,7 +129,7 @@
            :phantom-subs :phantom-events
            :reg-sub-=>-1-arity :reg-event-fx-db-only :reg-fx-public-fn
            :redundant-into-hiccup :empty-fragment-props :redundant-fragment
-           :inline-component :prefer-tab-index
+           :inline-component
            :docstring-summary :docstring-indentation
            :docstring-leading-trailing-whitespace :docstring-repeats-name
            :css-property-order-outside-in
@@ -235,7 +235,7 @@
                :phantom-subs :phantom-events
                :reg-sub-=>-1-arity :reg-event-fx-db-only :reg-fx-public-fn
                :redundant-into-hiccup :empty-fragment-props :redundant-fragment
-               :inline-component :prefer-tab-index
+               :inline-component
                :docstring-summary :docstring-indentation
                :docstring-leading-trailing-whitespace :docstring-repeats-name
                :css-property-order-outside-in

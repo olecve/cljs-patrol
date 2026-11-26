@@ -66,22 +66,58 @@ element or component. The finding gives the entry's message.
   [:map [:button {:aria-disabled true} :boolean]])
 ```
 
+The native target can enforce the `:tab-index` spelling without changing component props:
+
+```clojure
+;; config {:forbid-props [{:prop :tabIndex :disallowed-for :native :message "Use :tab-index."} {:prop :tabindex :disallowed-for :native :message "Use :tab-index."}]}
+
+;; flagged: native HTML
+(defn help [] [:button {:tabIndex -1} "Help"])
+
+;; native SVG
+(defn icon [] [:svg [:circle {:tabindex 0 :r 4}]])
+
+;; fix
+(defn help [] [:button {:tab-index -1} "Help"])
+```
+
+**Left alone:**
+
+```clojure
+;; config {:forbid-props [{:prop :tabIndex :disallowed-for :native :message "Use :tab-index."} {:prop :tabindex :disallowed-for :native :message "Use :tab-index."}]}
+
+;; left alone: component props
+(defn help [] [button/button {:tabIndex -1} "Help"])
+
+;; adapted React component
+(def adapted (reagent.core/adapt-react-class MenuItem))
+
+(defn help [] [adapted {:tabIndex -1} "Help"])
+
+;; React interop
+(defn help [] [:> MenuItem {:tabindex 0} "Help"])
+```
+
 <details>
 <summary>Details</summary>
 
-The rule reads every Hiccup vector whose head is an HTML tag, such as `:button` or `:button.primary`, or a component the
-file's aliases and refers resolve, such as `button/button` for `app.ui.button/button`. A keyword that names no HTML
-element, as in a Malli schema, is not an element. Neither is a re-frame event or subscription vector whose id happens to
-name one: an argument of `dispatch`, `subscribe`, `reg-event-*` or `reg-sub`, in a `(…)` or a `#(…)`, a vector after a
-`:dispatch`-like key in an effect map or an fx tuple, and an fx tuple itself, `[:track {…}]` in `{:fx [[:track {…}]]}`.
-An event vector built elsewhere and passed in by name, `(let [e [:select {…}]] (rf/dispatch e))`, is read as Hiccup, and
-such a rare case goes in the baseline. A vector in the value of a [data `def`](../rules.md#data-defs) is not an element
-either. A local component is unknown, one that shadows a referred component included, and so is a component rendered
-through `[:> Comp …]` interop, which no entry can name.
+The rule reads every Hiccup vector whose head is a recognized HTML or SVG tag, such as `:button` or `:button.primary`,
+or a component the file's aliases and refers resolve, such as `button/button` for `app.ui.button/button`. A keyword that
+names no recognized tag, as in a Malli schema, is not an element. Neither is a re-frame event or subscription vector
+whose id happens to name one: an argument of `dispatch`, `subscribe`, `reg-event-*` or `reg-sub`, in a `(…)` or a
+`#(…)`, a vector after a `:dispatch`-like key in an effect map or an fx tuple, and an fx tuple itself, `[:track {…}]` in
+`{:fx [[:track {…}]]}`. An event vector built elsewhere and passed in by name,
+`(let [e [:select {…}]] (rf/dispatch e))`, is read as Hiccup, and such a rare case goes in the baseline. A vector in the
+value of a [data `def`](../rules.md#data-defs) is not an element either. A local component is unknown, one that shadows
+a referred component included, and so is a component rendered through `[:> Comp …]` interop, which no entry can name.
+The `:native` target leaves every component alone.
 
-The tags the rule knows are the HTML and SVG elements, except `:map`, `:search`, `:filter`, `:image` and `:desc`. Each
-of those is also an everyday Malli schema, db path or event id, `[:search :query]`, so every group reads them as data,
-and a config naming one is refused rather than never matching.
+The `:native` target covers keyword heads in the group's HTML and SVG tag list, except `:map`, `:search`, `:filter`,
+`:image`, `:desc` and `:set`. These names can also identify data, so the rule leaves them alone, including inside SVG
+elements. SVG tags that the group's tag list does not know are not native for this group. Examples include
+`feTurbulence`, `feImage`, `switch`, `view` and `mpath`. The group refuses a config that names an excluded or unknown
+tag. String heads are left alone. The shared tag reader stops at the first class or id marker. Thus `:div.x>button`
+matches `:div`, while `:div>button` is not a recognized tag.
 
 A prop counts when the element's props are a literal map, or a symbol bound to one, and the prop's value reaches the
 element. Reagent drops a prop whose value is `false` or `nil`, so `{:aria-disabled false}` is left alone, and so is a
@@ -111,11 +147,22 @@ The examples on this page run under this config:
    :message "Use :disabled. When the reason must stay reachable by keyboard, wrap the button in app.components/blocked-action."}]}
 ```
 
+For a native DOM spelling policy, use both entries:
+
+```clojure
+{:forbid-props
+ [{:prop :tabIndex :disallowed-for :native :message "Use :tab-index."}
+  {:prop :tabindex :disallowed-for :native :message "Use :tab-index."}]}
+```
+
+If an element has several spellings, keep one `:tab-index` with the intended value. Remove the other spellings.
+
 Each entry is a prop keyword, forbidden on every element and component, or a map:
 
 - `:prop` — the prop, a keyword as written in the props map.
 - `:disallowed-for` — the tags and components the prop is forbidden on: HTML and SVG tag keywords such as `:button`,
-  with no class or id, and fully qualified component symbols such as `app.ui.button/button`.
+  with no class or id, and fully qualified component symbols such as `app.ui.button/button`. Use `:native` instead of a
+  collection to forbid the prop on all recognized native HTML and SVG tags, and on no component or fragment.
 - `:allowed-for` — the tags and components the prop is allowed on; it is forbidden on every other. An entry takes one of
   the two at most, and with neither the prop is forbidden everywhere.
 - `:message` — what the finding says: why the prop is forbidden and what to use instead. Without it the finding names

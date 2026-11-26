@@ -592,3 +592,15 @@
                                 (core/-main "--only" "colors" src)))))
       (finally
         (temp-dir/delete-dir! dir)))))
+
+(deftest bad-native-target-stops-run
+  (temp-dir/with-dir "cljs-patrol-forbid-props"
+    (fn [dir]
+      (let [src (str dir "/src")
+            config-path (str dir "/.cljs-patrol/config.edn")]
+        (disk/write! (disk/path src "app/core.cljs") "(ns app.core) (defn v [] [:button {:tabIndex 0}])")
+        (disk/write! (disk/path config-path) "{:forbid-props [{:prop :tabIndex :disallowed-for :natives}]}")
+        (with-redefs [baseline/default-config-path config-path]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                #":forbid-props :disallowed-for must be :native or a collection"
+                                (core/-main "--only" "forbid-props" src))))))))

@@ -18,11 +18,12 @@
     (try (z/sexpr loc) (catch Exception _ ::unreadable))))
 
 (defn- element
-  "Return what a Hiccup vector renders: an HTML tag keyword, a component's fully qualified symbol, or nil.
+  "Return a recognized tag keyword, a resolved component symbol, or nil.
 
-  A keyword counts only when HTML has the element, so a Malli schema is never read as one. A
-  symbol counts when the file's aliases or refers resolve it, or when it is written fully
-  qualified. A local stays unknown, one that shadows a referred component included."
+  Only keyword heads use the shared HTML and SVG tag reader. It reads up to the first
+  class or id marker, including in tag chains. String heads and unknown tags stay unknown.
+  A symbol must resolve through aliases or refers, or have a fully qualified namespace.
+  A local that shadows a referred component stays unknown."
   [loc ns-info]
   (let [head (z/down loc)]
     (when (= :token (some-> head z/tag))
@@ -39,6 +40,7 @@
   "True when an entry forbids its prop on `element`."
   [{:keys [allowed-for disallowed-for]} element]
   (cond
+    (= :native disallowed-for) (and (keyword? element) (not= :<> element))
     disallowed-for (contains? disallowed-for element)
     allowed-for (not (contains? allowed-for element))
     :else true))
@@ -118,9 +120,13 @@
 
 (defn- read-elements [entry k]
   (when-some [elements (get entry k)]
-    (when-not (and (coll? elements) (not (map? elements)) (every? element-name? elements))
-      (invalid-config (str k " must be a collection of HTML tag keywords and fully qualified component symbols") entry))
-    (set elements)))
+    (if (and (= :disallowed-for k) (= :native elements))
+      :native
+      (do
+        (when-not (and (coll? elements) (not (map? elements)) (every? element-name? elements))
+          (invalid-config (str k " must be " (when (= :disallowed-for k) ":native or ")
+                               "a collection of HTML tag keywords and fully qualified component symbols") entry))
+        (set elements)))))
 
 (defn- read-entry
   "Read one entry, a bare prop keyword or a map, refusing any other shape."
@@ -152,6 +158,7 @@
   Off until set. Each entry is a prop keyword, forbidden on every element, or a map:
     :prop :aria-disabled — the prop.
     :disallowed-for #{:button my.ui/button} — forbidden only on these tags and components.
+    :disallowed-for :native — forbidden on native HTML and SVG tags only.
     :allowed-for #{:div} — forbidden everywhere but on these; one of the two at most.
     :message \"Use :disabled.\" — what a finding says instead of naming the prop."
   ([] (make-group nil))

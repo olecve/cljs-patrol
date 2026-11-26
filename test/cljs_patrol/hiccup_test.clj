@@ -1236,3 +1236,43 @@
       "alone")
   (is (= {:hint "Fix it."} (hiccup/add-note {:hint "Fix it."} nil))
       "no note"))
+
+(defn- event-vector-results [source]
+  (let [ns-info {:aliases {"rf" "re-frame.core"}
+                 :refers {"dispatch" "re-frame.core"}}]
+    (loop [loc (z/of-string source) results []]
+      (if (z/end? loc)
+        results
+        (recur (z/next loc)
+               (if (and (= :vector (z/tag loc))
+                        (contains? #{":input" ":select" ":button"} (some-> loc z/down parser/raw)))
+                 (conj results (boolean (hiccup/re-frame-vector? loc ns-info)))
+                 results))))))
+
+(deftest re-frame-vector-result-and-effect-contexts
+  (doseq [source ["(rf/dispatch [:input {:tabIndex 0}])"
+                  "(rf/dispatch #?(:cljs [:input {:tabIndex 0}]))"
+                  "(rf/dispatch ^:example [:input {:tabIndex 0}])"
+                  "{:fx [[:input {:tabIndex 0}]]}"
+                  "{:fx [[:dispatch [:input {:tabIndex 0}]]]}"
+                  "(rf/dispatch (if ready? [:input {:tabIndex 0}] [:select {:tabIndex 0}]))"
+                  "(rf/dispatch (or pending [:input {:tabIndex 0}]))"
+                  "(rf/dispatch (or [:input {:tabIndex 0}] pending))"
+                  "(rf/dispatch (and ready? [:input {:tabIndex 0}]))"
+                  "(rf/dispatch (and [:input {:tabIndex 0}] pending))"
+                  "(dispatch (let [x 0] (if ready? ^:event [:input {:tabIndex x}] nil)))"
+                  "{:dispatch #_[] [:input {:tabIndex 0}]}"
+                  "{:fx #_[] [[:dispatch-n #_[] [[:input {:tabIndex 0}]]]]}"
+                  "(rf/dispatch (cond #?@(:cljs [p [:input {:tabIndex 1}]]) :else [:button {:tabIndex 1}]))"
+                  "{:dispatch-n (if more? [[:input {:tabIndex 1}]] [])}"
+                  "{:fx (if ready? [[:dispatch-n (if more? [[:input {:tabIndex 1}]] [])]] [])}"]]
+    (is (= [true] (distinct (event-vector-results source))) source))
+  (doseq [source ["[:button {:tabIndex 0}]"
+                  "{:fx [[:custom [:dispatch [:button {:tabIndex 0}]]]]}"
+                  "{:fx [[:dispatch [:save] [:button {:tabIndex 0}]]]}"
+                  "(app.ui/sub [:button {:tabIndex 0}])"
+                  "(let [dispatch draw] (dispatch [:input {:tabIndex 0}]))"
+                  "(rf/dispatch [:save {:content [:select {:tabIndex 0}]}])"
+                  "(rf/dispatch [:save :dispatch [:button {:tabIndex 1}]])"
+                  "{:color :dispatch [:select {:tabIndex 1}] :selected}"]]
+    (is (= [false] (event-vector-results source)) source)))

@@ -194,3 +194,73 @@
 (deftest re-frame-alpha-sub-vector-is-left-alone
   (is (= [] (flagged "(defn v [] @(rf/sub [:button {:aria-disabled true}]))"))
       "sub"))
+
+(def ^:private tab-index-entries
+  [{:prop :tabIndex
+    :disallowed-for :native
+    :message "Use :tab-index."}
+   {:prop :tabindex
+    :disallowed-for :native
+    :message "Use :tab-index."}])
+
+(deftest native-target-flags-html-and-svg
+  (doseq [tag [":button" ":a.help" ":.panel" ":svg" ":circle" ":textPath" ":feGaussianBlur"
+               ":div.x>button"]
+          prop [":tabIndex" ":tabindex"]]
+    (is (= [[(keyword (subs prop 1)) "Use :tab-index."]]
+           (flagged tab-index-entries (str "(defn v [] [" tag " {" prop " 0}])")))
+        (str tag " " prop))))
+
+(deftest native-target-leaves-components-alone
+  (doseq [source ["(defn v [] [button/button {:tabIndex 0}])"
+                  "(defn v [] [app.ui.button/button {:tabindex 0}])"
+                  "(defn v [] [icon-button {:tabIndex 0}])"
+                  "(defn v [Comp] [:> Comp {:tabIndex 0}])"
+                  "(def adapted (reagent.core/adapt-react-class Comp)) (defn v [] [adapted {:tabIndex 0}])"
+                  "(defn v [] [app.core/adapted {:tabIndex 0}])"
+                  "(defn v [] [:<> {:tabIndex 0}])"
+                  "(defn v [] [:button {:tab-index 0}])"]]
+    (is (= [] (flagged tab-index-entries source)) source)))
+
+(deftest malformed-native-target-is-refused
+  (doseq [target [:natives [:native] #{:native} "native" true {:native true}]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #":forbid-props :disallowed-for must be :native or a collection"
+                          (forbid-props/make-group [{:prop :tabIndex
+                                                     :disallowed-for target}]))
+        (pr-str target)))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":forbid-props :allowed-for must be a collection"
+                        (forbid-props/make-group [{:prop :tabIndex
+                                                   :allowed-for :native}]))))
+
+(deftest native-target-tag-boundaries
+  (doseq [source ["(defn v [] [:>button {:tabIndex 0}])"
+                  "(defn v [] [:button> {:tabIndex 0}])"
+                  "(defn v [] [:div>>button {:tabIndex 0}])"
+                  "(defn v [] [:div>custom-tag {:tabIndex 0}])"
+                  "(defn v [] [:image {:tabIndex 0}])"
+                  "(defn v [] [:div [:image {:tabIndex 0}]])"
+                  "(defn v [] [:svg [:not-a-tag {:tabIndex 0}]])"]]
+    (is (= [] (flagged tab-index-entries source)) source)))
+
+(deftest mixed-valid-and-invalid-elements-are-refused
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":forbid-props :disallowed-for must be :native or a collection"
+                        (forbid-props/make-group [{:prop :tabIndex
+                                                   :disallowed-for [:button :native]}]))))
+
+(deftest released-element-reading-is-preserved
+  (doseq [entries [[:tabIndex] tab-index-entries
+                   [{:prop :tabIndex
+                     :allowed-for #{:button}}]
+                   [{:prop :tabIndex
+                     :disallowed-for #{:div}}]]]
+    (doseq [source ["(def rows [[\"data\" {:tabIndex 1}]])"
+                    "(defn v [] [\"button\" {:tabIndex 1}])"
+                    "(defn v [] [:div>button {:tabIndex 1}])"]]
+      (is (= [] (flagged entries source)) source))
+    (doseq [tag [":image" ":filter" ":desc" ":set"]]
+      (is (= [] (flagged entries (str "(defn v [] [:svg [" tag " {:tabIndex 1}]])"))) tag)))
+  (is (= [[:tabIndex ":tabIndex is forbidden on :div."]]
+         (flagged [{:prop :tabIndex
+                    :disallowed-for #{:div}}]
+                  "(defn v [] [:div.x>button {:tabIndex 1}])"))))
