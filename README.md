@@ -59,7 +59,7 @@ Analysis is split into independent rule groups. By default all groups run.
 - **[`forbid-props`](docs/rules/forbid-props.md)** — props a codebase forbids on some elements or components, each with
   the reason, like ESLint's `react/forbid-dom-props`; off until configured
 - **[`a11y`](docs/rules/a11y.md)** — accessibility in Hiccup: missing alt text and accessible names, controls a keyboard
-  cannot reach, nested controls, labels that label nothing
+  cannot reach, nested controls, labels that label nothing, invalid or abstract roles
 - **[`tests`](docs/rules/tests.md)** — conventions on test code: test names, assertion messages, conditional assertions,
   var derefs, `^js` hints
 - **[`react-testing-library-cljs`](docs/rules/react-testing-library-cljs.md)** — react-testing-library-cljs queries used

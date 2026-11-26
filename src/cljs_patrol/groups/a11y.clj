@@ -6,6 +6,7 @@
   skipped to keep the false-positive rate low."
   (:require
    [cljs-patrol.group :as group]
+   [cljs-patrol.groups.a11y.roles :as roles]
    [cljs-patrol.heads :as heads]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
@@ -1667,6 +1668,16 @@
                      (some #(not (or (= :uneval (z/tag %)) (hiccup/malli-schema-vector? %))) (body-locs loc)))
                 (renders-something? loc))))))
 
+(defn- invalid-role-hint [info loc]
+  (when (and (native-vector? loc)
+             (not (data-vector? loc))
+             (not (selector-block? loc)))
+    (let [value (written-value (settled-attrs info) :role)]
+      (when-not (or (contains? #{::absent ::non-literal} value) (symbol? value))
+        (let [tokens (re-seq #"[^\t\n\f\r ]+" (if (keyword? value) (name value) (str value)))]
+          (when-not (and (seq tokens) (every? roles/valid-roles tokens))
+            (str ":role " (pr-str value) " is invalid; use non-abstract ARIA role tokens in lowercase.")))))))
+
 (defn- label-props
   "Return the label's props when `for` can be answered for, or `::unknown`.
 
@@ -2107,6 +2118,7 @@
               inside-label (delay (inside-label? loc {:label-components label-components
                                                       :ns-info ns-info}))
               aria-live-conflict (contradicting-aria-live info)
+              role-hint (invalid-role-hint info loc)
               repeated-name (repeated-accessible-name info tag loc ns-info component-aliases)
               nested-control (nested-interactive-loc info loc tag ns-info component-aliases)
               unreferenced-id (unreferenced-id-candidate info tag loc inside-label)
@@ -2126,6 +2138,9 @@
 
                        (invalid-tabindex? info)
                        (conj (assoc base :type :invalid-tabindex))
+
+                       role-hint
+                       (conj (assoc base :type :invalid-role :hint role-hint))
 
                        (button-missing-type? info loc tag ns-info)
                        (conj (let [label (button-label-snippet loc)]
@@ -2292,6 +2307,7 @@
                                             (dissoc :schema-note)
                                             (dissoc :unnamed?)))))]
     {:img-alt-missing (vec (:img-alt-missing by-type))
+     :invalid-role (vec (:invalid-role by-type))
      :invalid-tabindex (vec (:invalid-tabindex by-type))
      :button-missing-type (vec (:button-missing-type by-type))
      :on-click-on-non-interactive (vec (:on-click-on-non-interactive by-type))
@@ -2311,7 +2327,7 @@
                                empty-interactive-element missing-accessible-name
                                repeated-accessible-name aria-live-contradicts-role
                                aria-hidden-focusable nested-interactive-element
-                               label-not-associated aria-label-beside-visible-label non-focusable-tooltip-trigger]}]
+                               label-not-associated aria-label-beside-visible-label non-focusable-tooltip-trigger invalid-role]}]
   [["Img missing alt:" (count img-alt-missing)]
    ["Invalid tabindex:" (count invalid-tabindex)]
    ["Button missing type:" (count button-missing-type)]
@@ -2324,13 +2340,14 @@
    ["Nested interactive element:" (count nested-interactive-element)]
    ["Label not associated:" (count label-not-associated)]
    ["Aria-label beside visible label:" (count aria-label-beside-visible-label)]
-   ["Non-focusable tooltip trigger:" (count non-focusable-tooltip-trigger)]])
+   ["Non-focusable tooltip trigger:" (count non-focusable-tooltip-trigger)]
+   ["Invalid role:" (count invalid-role)]])
 
 (defn- failed?* [{:keys [img-alt-missing invalid-tabindex button-missing-type on-click-on-non-interactive
                          empty-interactive-element missing-accessible-name
                          repeated-accessible-name aria-live-contradicts-role
                          aria-hidden-focusable nested-interactive-element
-                         label-not-associated aria-label-beside-visible-label non-focusable-tooltip-trigger]}]
+                         label-not-associated aria-label-beside-visible-label non-focusable-tooltip-trigger invalid-role]}]
   (or (seq img-alt-missing)
       (seq invalid-tabindex)
       (seq button-missing-type)
@@ -2343,7 +2360,8 @@
       (seq nested-interactive-element)
       (seq label-not-associated)
       (seq aria-label-beside-visible-label)
-      (seq non-focusable-tooltip-trigger)))
+      (seq non-focusable-tooltip-trigger)
+      (seq invalid-role)))
 
 (defrecord A11yGroup [component-aliases label-components label-styles tooltip-components]
   group/RuleGroup
@@ -2363,7 +2381,8 @@
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ result] (failed?* result))
   (suggestions [_]
-    {:img-alt-missing
+    {:invalid-role "Use lowercase, non-abstract WAI-ARIA, DPUB-ARIA or Graphics-ARIA role tokens, or remove :role."
+     :img-alt-missing
      (str "Every :img needs :alt (WCAG 1.1.1). Use :alt \"\" for a decorative image, otherwise "
           "text that says what the image shows.")
      :invalid-tabindex
@@ -2419,6 +2438,7 @@
      :empty-interactive-element "empty-interactive-element"
      :img-alt-missing "img-missing-alt"
      :invalid-tabindex "invalid-tabindex"
+     :invalid-role "invalid-role"
      :label-not-associated "label-not-associated"
      :missing-accessible-name "missing-accessible-name"
      :nested-interactive-element "nested-interactive-element"
@@ -2427,6 +2447,7 @@
      :repeated-accessible-name "repeated-accessible-name"})
   (rule->tier [_]
     {:img-alt-missing :bugs
+     :invalid-role :bugs
      :invalid-tabindex :bugs
      :button-missing-type :bugs
      :on-click-on-non-interactive :bugs

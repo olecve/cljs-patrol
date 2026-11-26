@@ -110,7 +110,7 @@
   (is (= #{:duplicate-subs :duplicate-events
            :reg-event-fx-empty :reg-event-db-empty
            :reg-event-db-returning-effects
-           :img-alt-missing :invalid-tabindex :on-click-on-non-interactive
+           :img-alt-missing :invalid-tabindex :invalid-role :on-click-on-non-interactive
            :empty-interactive-element
            :pseudo-in-main-map
            :consecutive-self-selectors
@@ -148,7 +148,7 @@
     (is (= {:ok #{:duplicate-subs :duplicate-events
                   :reg-event-fx-empty :reg-event-db-empty
                   :reg-event-db-returning-effects
-                  :img-alt-missing :invalid-tabindex :on-click-on-non-interactive
+                  :img-alt-missing :invalid-tabindex :invalid-role :on-click-on-non-interactive
                   :empty-interactive-element
                   :pseudo-in-main-map
                   :consecutive-self-selectors
@@ -216,7 +216,7 @@
       (is (= #{:duplicate-subs :duplicate-events
                :reg-event-fx-empty :reg-event-db-empty
                :reg-event-db-returning-effects
-               :img-alt-missing :invalid-tabindex :on-click-on-non-interactive
+               :img-alt-missing :invalid-tabindex :invalid-role :on-click-on-non-interactive
                :empty-interactive-element
                :pseudo-in-main-map
                :consecutive-self-selectors
