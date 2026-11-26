@@ -31,4 +31,16 @@ target and explicit `:disallowed-for` collections. Update the rule documentation
 
 Check ambiguous tag names that can also identify data. Keep the element reader and configuration validation consistent.
 
+Let an earlier SVG segment of a tag chain, or an SVG parent, give SVG context to the tags after it. Examples that the
+`:native` target should match:
+
+```clojure
+[:svg>image {:href "/chart.svg" :tabIndex 0}]
+["svg>g" [:image {:tabindex 0}]]
+[:svg [:switch {:tabIndex 0}]]
+[:svg [:filter [:feComponentTransfer {:tabindex 0}]]]
+```
+
+Outside SVG markup, the same vectors can be data, for example an event ID such as `:image`.
+
 <!-- SECTION:DESCRIPTION:END -->
