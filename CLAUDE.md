@@ -312,10 +312,11 @@ own sources" step of `.github/workflows/test.yml`. Copy the command from there t
 ## Backlog
 
 Tasks live in `backlog/tasks/`, one markdown file per task, in the layout of Backlog.md 1.55.3:
-`cp-<number> - <Title>.md`. The number stays the same for the life of a task.
+`cp-<NNNN> - <Title>.md`, with four-digit, zero-padded IDs such as `CP-0001`. The number stays the same for the life of
+a task.
 
-- Edit the files directly. A new task takes the next free number and the same front matter: `id`, `title`, `status`
-  (Idea, Next, Review or Done), `labels`, and `priority` only when it is high.
+- Edit the files directly. A new task takes the next free number, padded to four digits, and the same front matter:
+  `id`, `title`, `status` (Idea, Next, Review or Done), `labels`, and `priority` only when it is high.
 - Put the body inside the Description markers (`<!-- SECTION:DESCRIPTION:BEGIN -->` and `END`), with the sections
   Problem, Why, Flagged, Fix, Left alone, Notes and Links, so `backlog task view` and `backlog search` show it.
 - Backlog.md is a viewer only: `backlog task list`, `backlog board`, `backlog search` and the read-only pages of

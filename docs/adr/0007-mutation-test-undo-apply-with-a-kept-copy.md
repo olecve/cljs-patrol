@@ -7,8 +7,8 @@ Accepted, 2026-11-21
 ## Context
 
 A gap is a mutant that survived. A test that closes a gap must fail with that mutant in place. To see that, the author
-must write the mutant into the source file, run the test, and put the code back. Patrol Backlog #80 asked for a command
-that does this.
+must write the mutant into the source file, run the test, and put the code back. backlog task CP-0055 asked for a
+command that does this.
 
 The first version of `--apply` (commit 790343a, pull request 168) used git to undo the change. It refused a file with
 uncommitted changes, and printed a `git restore` command. The first review of the pull request found these problems:
@@ -78,7 +78,7 @@ second review of pull request 168 found this.
 
 ## Revisit when
 
-- The runner moves to a project of its own (Patrol Backlog #85). Then the place of the kept copy must follow that
+- The runner moves to a project of its own (backlog task CP-0060). Then the place of the kept copy must follow that
   project's working directory and ignore rules.
 - A cljs-patrol editor plugin can apply and undo a mutant. Then the editor's undo can replace the kept copy.
 

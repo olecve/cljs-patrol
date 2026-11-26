@@ -13,7 +13,7 @@ so that a mutant proves something.
 
 These facts started the decisions:
 
-- **Boundaries need numbers.** Patrol Backlog #77 asked for number mutants, because the first survivors sat on
+- **Boundaries need numbers.** backlog task CP-0052 asked for number mutants, because the first survivors sat on
   boundaries: `>=` against `>`, and `inc` against `dec`, in `without-negations` of `cljs-patrol.groups.focus-ring`.
   Operator swaps never change a number that sets a boundary, such as the `0` in `(subs text 0 start)`.
 - **Some survivors are equivalent.** An equivalent mutant behaves the same as the original in every case, so no test can
@@ -87,7 +87,7 @@ pull request 170 found this.
 - Good, because each changed number is in code that runs when a test calls it.
 - Good, because data stays out, so a run does not run every test for numbers that no test checks on purpose.
 - Bad, because a number in function code that sets a delay, such as `(Thread/sleep 100)`, still gives a harmless
-  survivor. Patrol Backlog #86 plans to leave such calls out.
+  survivor. backlog task CP-0061 plans to leave such calls out.
 
 ### Leave harmless survivors in the report (rejected)
 
@@ -122,7 +122,7 @@ on `cljs-patrol.groups.reagent` shows two survivors on line 490, `remove` and `=
 
 ## Revisit when
 
-- Patrol Backlog #86 leaves calls such as `Thread/sleep` out. Then the bad item of the chosen option no longer holds.
+- backlog task CP-0061 leaves calls such as `Thread/sleep` out. Then the bad item of the chosen option no longer holds.
 - A run on `cljs-patrol.groups.focus-ring` or `cljs-patrol.groups.reagent` shows that more than half of the number
   survivors are equivalent. Then numbers cost more than they find.
 - Clojure starts to read a `^:const` value at each call, or to remove a method when a `defmethod` is evaluated again.

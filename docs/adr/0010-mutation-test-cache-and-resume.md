@@ -19,8 +19,8 @@ from that:
   mutant that a test already caught, though the author changed only tests.
 - **Progress does not show.** A run cannot say which gaps the author closed since the last run, or which gap is new.
 
-Patrol Backlog #79 asked for a cache of results and a resume of a stopped run. With `--iterate`, cargo-mutants runs only
-the mutants that the last run did not catch. Stryker reuses the results of the last run in its incremental mode.
+backlog task CP-0054 asked for a cache of results and a resume of a stopped run. With `--iterate`, cargo-mutants runs
+only the mutants that the last run did not catch. Stryker reuses the results of the last run in its incremental mode.
 
 ## Decision
 
@@ -156,8 +156,8 @@ Rejected because `clojure -T:build uber` deletes `target/`, as
 
 ## Revisit when
 
-- The runner moves to a project of its own (Patrol Backlog #85). Then the place of the cache must follow that project's
-  working directory and ignore rules.
+- The runner moves to a project of its own (backlog task CP-0060). Then the place of the cache must follow that
+  project's working directory and ignore rules.
 - A cached run reports a caught or survived mutant that a `--fresh` run on the same sources reports differently. Then
   the key misses something that decides an outcome.
 - Hashing the sources takes more than 1 s on this repository. Then the key needs a cheaper form, such as file times.

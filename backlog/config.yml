@@ -13,3 +13,4 @@ auto_commit: false
 filesystem_only: true
 check_active_branches: false
 task_prefix: "cp"
+zero_padded_ids: 4

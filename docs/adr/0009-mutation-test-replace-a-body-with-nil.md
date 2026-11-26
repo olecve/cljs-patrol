@@ -10,7 +10,7 @@ Accepted, 2026-11-21 (proposed 2026-11-21)
 [ADR 0006](0006-mutation-test-which-code-the-runner-changes.md) adds the integer literals of function code. A swap needs
 an operator or a number. A function that has none, or whose result no test checks, gives no survivor, so its gap does
 not show. ADR 0005 named this case in Revisit when: "Many survivors are functions that no test calls. Then add a mutant
-that replaces a whole function body with `nil`, as cargo-mutants does for Rust." Patrol Backlog #82 asked for it.
+that replaces a whole function body with `nil`, as cargo-mutants does for Rust." backlog task CP-0057 asked for it.
 
 ## Decision
 

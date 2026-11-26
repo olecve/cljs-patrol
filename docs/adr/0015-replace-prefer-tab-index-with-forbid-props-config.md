@@ -10,12 +10,12 @@ cljs-patrol checks ClojureScript source without executing it. Reagent writes nat
 vectors. Their prop names can follow different conventions. Native DOM props can use `:tab-index`, while a React
 component can require `:tabIndex`.
 
-[CP-95](../../backlog/tasks/cp-95%20-%20Prefer-tab-index-in-Reagent-DOM-Hiccup.md) added the dedicated
+[CP-0070](../../backlog/tasks/cp-0070%20-%20Prefer-tab-index-in-Reagent-DOM-Hiccup.md) added the dedicated
 `prefer-tab-index` rule. It reports `:tabIndex` and `:tabindex` on native elements by default. It reads props through
 `assoc`, `merge` and bindings. Review rounds kept finding bugs in its handling of tags and expression positions.
 
 The last release is `v0.0.63`. The dedicated rule was never released. Its removal therefore breaks no released rule
-contract. This record replaces the CP-95 implementation decision.
+contract. This record replaces the CP-0070 implementation decision.
 
 The existing `forbid-props` group reports configured prop names and gives a configured message. It does nothing until
 configured. Its entries can name individual tags and components, but cannot select all native tags without a list.
