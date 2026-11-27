@@ -550,6 +550,26 @@
     (let [source (format source attribute)]
       (is (= 1 (count (hidden-focus-findings source))) source))))
 
+(deftest inert-and-hidden-do-nothing-on-svg
+  (doseq [attribute [:inert :hidden]
+          source ["[:svg {:aria-hidden true %s \"\" :tab-index 0}]"
+                  "[:div {:aria-hidden true} [:svg {%s true} [:a {:href \"/help\"} \"Help\"]]]"]]
+    (let [source (format source attribute)]
+      (is (= 1 (count (hidden-focus-findings source))) source)))
+  (is (empty? (hidden-focus-findings "[:div {:inert true} [:svg {:aria-hidden true :tab-index 0}]]"))))
+
+(deftest inert-ancestors-count-only-where-they-render
+  (doseq [source ["[:div {:inert true} (when open? [:button {:aria-hidden true} \"x\"])]"
+                  "[:div {:inert true} (let [label \"x\"] (if open? [:button {:aria-hidden true} label] nil))]"
+                  "[:div {:inert true} [:span \"a\" [:button {:aria-hidden true} \"x\"]]]"
+                  "[:div {:inert true} [:span (when open? [:button {:aria-hidden true} \"x\"])]]"]]
+    (is (empty? (hidden-focus-findings source)) source))
+  (doseq [source [(str "[:div {:inert true"
+                       " :ref (fn [element] (render [:button {:aria-hidden true} \"x\"] mount))}]")
+                  "[:div {:inert true} (render-into mount [:button {:aria-hidden true} \"x\"])]"
+                  "[:div {:inert true} (for [item items] [:button {:aria-hidden true} item])]"]]
+    (is (= 1 (count (hidden-focus-findings source))) source)))
+
 (deftest focus-search-continues-after-inert-and-hidden-branches
   (doseq [attribute [:inert :hidden]]
     (let [source (str "[:div {:aria-hidden true} [:section {" attribute " true} [:button \"x\"]]"

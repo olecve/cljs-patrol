@@ -654,8 +654,10 @@
   [attrs tag]
   (and (= :input tag) (= "hidden" (literal-sexpr (get attrs :type)))))
 
-(defn- focus-blocked-by-attrs? [info]
-  (let [attrs (settled-attrs info)
+(defn- focus-blocked-by-attrs?
+  "True when `:inert` or `:hidden` takes an HTML element out of focus. Neither attribute does anything on SVG."
+  [info tag]
+  (let [attrs (when-not (contains? hiccup/svg-tags tag) (settled-attrs info))
         inert (written-value attrs :inert)
         hidden (written-value attrs :hidden)]
     (or (true? inert)
@@ -672,10 +674,29 @@
     (boolean (and tag
                   (not (contains? #{:<> :>} tag))
                   (markup-vector? info loc)
-                  (focus-blocked-by-attrs? info)))))
+                  (focus-blocked-by-attrs? info tag)))))
 
-(defn- focus-blocked-by-ancestor? [loc]
-  (some focus-blocked-subtree? (take-while some? (iterate z/up (z/up loc)))))
+(defn- rendered-in-place?
+  "True when every value `current` can yield is a value its parent form yields, as in `(when open? [:button …])`."
+  [current parent]
+  (every? (set (hiccup/result-locs parent)) (hiccup/result-locs current)))
+
+(defn- focus-blocked-by-ancestor?
+  "True when an inert or hidden HTML element renders loc inside itself.
+
+  The walk follows only what renders in place: an element's children, and the result positions of forms such as `let`,
+  `when` and `if`. It stops at a props map, at a callback, and at any other call, which may render loc somewhere else."
+  [loc]
+  (loop [current loc]
+    (let [parent (z/up current)]
+      (case (some-> parent z/tag)
+        :vector (if (focus-blocked-subtree? parent)
+                  true
+                  (recur parent))
+        :list (if (rendered-in-place? current parent)
+                (recur parent)
+                false)
+        false))))
 
 (defn- focusable?
   "True when the element can take focus.
@@ -691,7 +712,7 @@
     (boolean
      (when (some? readable)
        (let [tabindex (tabindex-reading readable)]
-         (and (not (focus-blocked-by-attrs? info))
+         (and (not (focus-blocked-by-attrs? info tag))
               (not (out-of-tab-order-when-disabled? readable tag))
               (not (hidden-input? readable tag))
               (contains? #{:none :tab-stop} tabindex)
@@ -1080,7 +1101,7 @@
   defect as on the wrapper itself, and the more common way to write it."
   [info loc ns-info component-aliases]
   (when (and (hidden-by-attrs? info)
-             (not (focus-blocked-by-attrs? info))
+             (not (focus-blocked-by-attrs? info (some-> loc z/down parser/raw hiccup/parse-tag)))
              (not (focus-blocked-by-ancestor? loc)))
     (first-matching-descendant {:match? #(focusable-loc? % ns-info component-aliases)
                                 :prune? #(or (hidden-subtree? %) (disabled-fieldset? %) (focus-blocked-subtree? %))}
@@ -1609,7 +1630,7 @@
 (def ^:private dom-attr-prefixes ["aria-" "data-" "on-" "on"])
 
 (def ^:private dom-attr-keys
-  #{:class :className :id :style :for :html-for :htmlFor :title :role :hidden :key :ref :tab-index :tabIndex})
+  #{:class :className :id :style :for :html-for :htmlFor :title :role :hidden :inert :key :ref :tab-index :tabIndex})
 
 (def ^:private path-taking-heads
   "Functions whose argument after the collection is a path or a key, never markup."
