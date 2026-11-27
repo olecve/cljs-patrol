@@ -654,16 +654,30 @@
   [attrs tag]
   (and (= :input tag) (= "hidden" (literal-sexpr (get attrs :type)))))
 
+(defn- vector-tag-keyword [loc]
+  (when (= :vector (some-> loc z/tag))
+    (some-> loc z/down parser/raw hiccup/parse-tag)))
+
+(defn- svg-element?
+  "True when `tag` names an SVG element, or loc sits inside an `:svg` with no `:foreignObject` between them."
+  [tag loc]
+  (or (contains? hiccup/svg-tags tag)
+      (= :svg (some #{:foreignObject :svg}
+                    (map vector-tag-keyword (take-while some? (iterate z/up (some-> loc z/up))))))))
+
+(defn- set-boolean-attribute? [value]
+  (or (true? value) (and (string? value) (not= "" value))))
+
 (defn- focus-blocked-by-attrs?
-  "True when `:inert` or `:hidden` takes an HTML element out of focus. Neither attribute does anything on SVG."
-  [info tag]
-  (let [attrs (when-not (contains? hiccup/svg-tags tag) (settled-attrs info))
-        inert (written-value attrs :inert)
+  "True when `:inert` or `:hidden` takes an HTML element out of focus.
+
+  Neither attribute does anything on SVG, and React drops either one when its value is `\"\"`."
+  [info tag loc]
+  (let [attrs (when-not (svg-element? tag loc) (settled-attrs info))
         hidden (written-value attrs :hidden)]
-    (or (true? inert)
-        (string? inert)
-        (true? hidden)
-        (and (string? hidden) (not= "until-found" (str/lower-case hidden))))))
+    (or (set-boolean-attribute? (written-value attrs :inert))
+        (and (set-boolean-attribute? hidden)
+             (not (and (string? hidden) (= "until-found" (str/lower-case hidden))))))))
 
 (defn- focus-blocked-subtree?
   "True when loc is a rendered native element that `:inert` or `:hidden` takes out of focus, with its subtree."
@@ -674,7 +688,7 @@
     (boolean (and tag
                   (not (contains? #{:<> :>} tag))
                   (markup-vector? info loc)
-                  (focus-blocked-by-attrs? info tag)))))
+                  (focus-blocked-by-attrs? info tag loc)))))
 
 (defn- rendered-in-place?
   "True when every value `current` can yield is a value its parent form yields, as in `(when open? [:button …])`."
@@ -685,14 +699,16 @@
   "True when an inert or hidden HTML element renders loc inside itself.
 
   The walk follows only what renders in place: an element's children, and the result positions of forms such as `let`,
-  `when` and `if`. It stops at a props map, at a callback, and at any other call, which may render loc somewhere else."
+  `when` and `if`. It stops at a props map, at a callback, at a component, and at any other call, which may render
+  loc somewhere else, as a portal does."
   [loc]
   (loop [current loc]
     (let [parent (z/up current)]
       (case (some-> parent z/tag)
-        :vector (if (focus-blocked-subtree? parent)
-                  true
-                  (recur parent))
+        :vector (cond
+                  (focus-blocked-subtree? parent) true
+                  (contains? #{nil :>} (vector-tag-keyword parent)) false
+                  :else (recur parent))
         :list (if (rendered-in-place? current parent)
                 (recur parent)
                 false)
@@ -702,9 +718,9 @@
   "True when the element can take focus.
   Answered only from attrs that are absent or readable whole: a partial or computed map
   may hold the negative tabindex or the `disabled` that is the way out, and calling one
-  missing from a partial view is what produces false reports."
+  missing from a partial view is what produces false reports. `loc` places the element: inside an `:svg` it is SVG."
   [{:keys [kind attrs]
-    :as info} tag]
+    :as info} tag loc]
   (let [readable (case kind
                    :map attrs
                    (:absent :non-map) {}
@@ -712,7 +728,7 @@
     (boolean
      (when (some? readable)
        (let [tabindex (tabindex-reading readable)]
-         (and (not (focus-blocked-by-attrs? info tag))
+         (and (not (focus-blocked-by-attrs? info tag loc))
               (not (out-of-tab-order-when-disabled? readable tag))
               (not (hidden-input? readable tag))
               (contains? #{:none :tab-stop} tabindex)
@@ -724,8 +740,8 @@
 (defn- aria-hidden-focusable?
   "True when an element hidden from assistive tech can still take focus itself."
   [{:keys [kind attrs]
-    :as info} tag]
-  (and (= :map kind) (some? attrs) (aria-hidden? attrs) (focusable? info tag)))
+    :as info} tag loc]
+  (and (= :map kind) (some? attrs) (aria-hidden? attrs) (focusable? info tag loc)))
 
 (def widget-role-tags
   "Widget roles taken as tags, for a wrapper that sets its role inside itself.
@@ -1048,7 +1064,7 @@
   [loc ns-info component-aliases]
   (boolean (when-let [tag (vector-tag loc ns-info component-aliases)]
              (and (not (names-unreadable-props? loc))
-                  (focusable? (hiccup/attrs-info loc) tag)))))
+                  (focusable? (hiccup/attrs-info loc) tag loc)))))
 
 (defn- descend-locs
   "Return what to search inside `loc`.
@@ -1101,7 +1117,7 @@
   defect as on the wrapper itself, and the more common way to write it."
   [info loc ns-info component-aliases]
   (when (and (hidden-by-attrs? info)
-             (not (focus-blocked-by-attrs? info (some-> loc z/down parser/raw hiccup/parse-tag)))
+             (not (focus-blocked-by-attrs? info (vector-tag-keyword loc) loc))
              (not (focus-blocked-by-ancestor? loc)))
     (first-matching-descendant {:match? #(focusable-loc? % ns-info component-aliases)
                                 :prune? #(or (hidden-subtree? %) (disabled-fieldset? %) (focus-blocked-subtree? %))}
@@ -2207,7 +2223,7 @@
               unreferenced-id (unreferenced-id-candidate info tag loc inside-label)
               separator (focusable-separator info tag loc)
               button-style-kw (button-style-props info loc ns-info file)
-              hidden-self? (and (aria-hidden-focusable? info tag) (not (focus-blocked-by-ancestor? loc)))
+              hidden-self? (and (aria-hidden-focusable? info tag loc) (not (focus-blocked-by-ancestor? loc)))
               hidden-descendant (when-not hidden-self?
                                   (hidden-focusable-descendant info loc ns-info component-aliases))
               [row col] (parser/position loc)

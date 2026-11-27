@@ -491,7 +491,7 @@
 
 (deftest inert-and-hidden-prevent-focus-throughout-the-subtree
   (doseq [attribute [:inert :hidden]
-          value [true "" "true" "false" "hidden" "other" "UNTIL-FOUND"]
+          value [true "true" "false" "hidden" "other" "UNTIL-FOUND"]
           :when (not= [attribute value] [:hidden "UNTIL-FOUND"])
           template ["[:button {:aria-hidden true %s} \"x\"]"
                     "[:div {:aria-hidden true %s} [:a {:href u} \"x\"]]"
@@ -504,7 +504,7 @@
 
 (deftest absent-and-unknown-inert-and-hidden-keep-focus-reports
   (doseq [attribute [:inert :hidden]
-          value [false nil 'flag '(hidden?) 42]
+          value [false nil "" 'flag '(hidden?) 42]
           template ["[:button {:aria-hidden true %s} \"x\"]"
                     "[:div {:aria-hidden true %s} [:button \"x\"]]"
                     "[:div {:aria-hidden true} [:section {%s} [:button \"x\"]]]"
@@ -556,6 +556,11 @@
                   "[:div {:aria-hidden true} [:svg {%s true} [:a {:href \"/help\"} \"Help\"]]]"]]
     (let [source (format source attribute)]
       (is (= 1 (count (hidden-focus-findings source))) source)))
+  (is (= 1 (count (hidden-focus-findings "[:svg {:aria-hidden true} [:a {:href \"/help\" :inert true} \"Help\"]]")))
+      "an :a inside :svg is an SVG element")
+  (is (empty? (hidden-focus-findings
+               "[:svg {:aria-hidden true} [:foreignObject [:a {:href \"/help\" :inert true} \"Help\"]]]"))
+      "an :a inside :foreignObject is HTML again")
   (is (empty? (hidden-focus-findings "[:div {:inert true} [:svg {:aria-hidden true :tab-index 0}]]"))))
 
 (deftest inert-ancestors-count-only-where-they-render
@@ -567,7 +572,9 @@
   (doseq [source [(str "[:div {:inert true"
                        " :ref (fn [element] (render [:button {:aria-hidden true} \"x\"] mount))}]")
                   "[:div {:inert true} (render-into mount [:button {:aria-hidden true} \"x\"])]"
-                  "[:div {:inert true} (for [item items] [:button {:aria-hidden true} item])]"]]
+                  "[:div {:inert true} (for [item items] [:button {:aria-hidden true} item])]"
+                  "[:div {:inert true} [portal [:button {:aria-hidden true} \"x\"]]]"
+                  "[:div {:inert true} [:> Portal [:button {:aria-hidden true} \"x\"]]]"]]
     (is (= 1 (count (hidden-focus-findings source))) source)))
 
 (deftest focus-search-continues-after-inert-and-hidden-branches
