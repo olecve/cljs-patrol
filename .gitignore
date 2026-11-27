@@ -10,6 +10,3 @@ node_modules/
 .mutate-applied.edn
 .mutate-cache/
 .DS_Store
-
-# Private tasks: a separate git repository, never part of this one.
-backlog-private/

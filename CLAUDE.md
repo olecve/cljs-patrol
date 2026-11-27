@@ -328,8 +328,8 @@ a task.
   no detail that points to one: no product, screen, component, ticket, pull request, person, path, link, token name or
   exact count from that project. Write such a fact in neutral words, for example "a real codebase" or "a button with an
   icon".
-- Clean-ups and priorities of a private project stay in `backlog-private/`, a separate git repository that this one
-  ignores. They are never committed to this public repository.
+- Private work never goes into this repository, not even as an ignored folder. That includes the clean-ups and
+  priorities of a project that uses cljs-patrol: they are tracked elsewhere.
 - CI fails when a file in `backlog/` holds a name from a private list. The list catches names, not clues, so a clue is
   the author's and the reviewer's job.
 
