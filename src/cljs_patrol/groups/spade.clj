@@ -114,6 +114,13 @@
 (defn- inside-discard? [loc]
   (some #(= :uneval (z/tag %)) (take-while some? (iterate z/up loc))))
 
+(defn- inactive-declaration?
+  "True when a declaration never runs: under `#_`, inside a `(comment …)` form, or quoted."
+  [loc]
+  (boolean (some #(or (contains? #{:quote :uneval} (z/tag %))
+                      (and (= :list (z/tag %)) (= "comment" (some-> % z/down parser/sym-name))))
+                 (take-while some? (rest (iterate z/up loc))))))
+
 (defn- threaded-step?
   "True when list `loc` is a step of a thread-first form, so its own first argument is the second one."
   [loc]
@@ -267,10 +274,11 @@
         (when (and name-loc (= :token (z/tag name-loc)))
           (when-let [style-name (parser/sym-name name-loc)]
             (let [style-kw (keyword ns-name style-name)]
-              {:decls (-> [{:kw style-kw
-                            :type (keyword operator)
-                            :file file
-                            :row (parser/position-row name-loc)}]
+              {:decls (-> [(cond-> {:kw style-kw
+                                    :type (keyword operator)
+                                    :file file
+                                    :row (parser/position-row name-loc)}
+                             (inactive-declaration? loc) (assoc :inactive true))]
                           (into (pseudo-findings loc style-kw file))
                           (into (consecutive-self-selector-findings loc style-kw file))
                           (into (selectors/findings loc style-kw file)))

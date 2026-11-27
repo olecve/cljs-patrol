@@ -5,6 +5,7 @@
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
    [cljs-patrol.groups.a11y.roles :as roles]
+   [cljs-patrol.memory-fs :as memory-fs]
    [cljs-patrol.parser :as parser]
    [cljs-patrol.temp-dir :as temp-dir]
    [cljs-patrol.temp-project :as temp-project]
@@ -195,6 +196,95 @@
    (get-in (temp-project/run-group (a11y/make-group config)
                                    {"app/view.cljs" (str "(ns app.view (:require [example.ui :as ui]))\n" source)})
            [:results :invalid-role])))
+
+(deftest button-type-defattrs-props
+  (doseq [[label source]
+          [["same file, declared after the call"
+            "[:button (example-style) \"Save\"]\n(defattrs example-style [] {:color :gray})"]
+           ["alias" "[:button (styles/button-style) \"Save\"]"]
+           ["refer" "[:button (button-style) \"Save\"]"]
+           ["arguments and tag shorthand" "[:button.primary (styles/button-style :gray) \"Save\"]"]
+           ["no body" "[:button (styles/button-style)]"]
+           ["discarded form before props" "[:button #_ignored (styles/button-style) \"Save\"]"]
+           ["local declaration wins over refer"
+            "(defattrs class-style [] {:color :gray})\n[:button (class-style) \"Save\"]"]]]
+    (testing label
+      (let [findings (get-in (temp-project/run-group
+                              a11y/group
+                              {"app/styles.cljs" (str "(ns app.styles)\n"
+                                                      "(defattrs button-style [color] {:color color})\n"
+                                                      "(defclass class-style [] {:color :gray})")
+                               "app/view.cljs" (str "(ns app.view (:require [app.styles :as styles"
+                                                    " :refer [button-style class-style]]))\n" source)})
+                             [:results :button-missing-type])
+            finding (first findings)]
+        (is (= 1 (count findings)))
+        (is (= :button-missing-type (:type finding)))
+        (is (= :button (:kw finding)))
+        (is (str/ends-with? (:file finding) "app/view.cljs"))
+        (is (pos-int? (:row finding)))
+        (is (pos-int? (:col finding)))
+        (is (str/starts-with? (:form finding) "[:button"))
+        (is (not (contains? finding :style-kw)))
+        (is (not (contains? finding :hint)))))))
+
+(deftest button-type-unknown-style-props
+  (doseq [body ["[:button (class-style) \"Save\"]"
+                "[:button (button-props) \"Save\"]"
+                "[:button (unknown-style) \"Save\"]"
+                "[:button (missing/button-style) \"Save\"]"
+                "[:button (merge (example-style) props) \"Save\"]"
+                "[:button (assoc (example-style) :type :button) \"Save\"]"
+                "[:button (-> (example-style) (assoc :type :button)) \"Save\"]"
+                "[:button (let [props (button-props)] props) \"Save\"]"
+                "(let [props (example-style)] [:button props \"Save\"])"
+                "(let [example-style button-props] [:button (example-style) \"Save\"])"
+                "(fn [example-style] [:button (example-style) \"Save\"])"
+                "[ui/button (example-style) \"Save\"]"
+                "[:div (example-style) \"Save\"]"]]
+    (let [result (temp-project/run-group
+                  (a11y/make-group {:component-aliases {'example.ui/button :button}})
+                  {"app/view.cljs" (str "(ns app.view (:require [example.ui :as ui]))\n"
+                                        "(defattrs example-style [] {:color :gray})\n"
+                                        "(defclass class-style [] {:color :gray})\n"
+                                        "(defn button-props [] {:class \"primary\"})\n"
+                                        "(defn view [props] " body ")")})]
+      (is (empty? (get-in result [:results :button-missing-type])) body))))
+
+(deftest button-type-skips-inactive-defattrs
+  (doseq [declaration ["#_(defattrs button-props [] {:color :gray})"
+                       "(comment (defattrs button-props [] {:color :gray}))"
+                       "'(defattrs button-props [] {:color :gray})"]]
+    (let [result (temp-project/run-group
+                  a11y/group
+                  {"app/view.cljs" (str "(ns app.view)\n"
+                                        declaration "\n"
+                                        "(defn button-props [] {:type :button})\n"
+                                        "(defn view [] [:button (button-props) \"Save\"])")})]
+      (is (empty? (get-in result [:results :button-missing-type]))
+          declaration))))
+
+(deftest button-type-defattrs-without-run-context
+  (with-open [file-system (memory-fs/unix)]
+    (memory-fs/write! (memory-fs/path file-system "/work/view.cljs")
+                      (str "(ns app.view)\n(defattrs example-style [] {:color :gray})\n"
+                           "[:button (example-style) \"Styled\"]\n"
+                           "[:button {} \"Plain\"]"))
+    (let [data (binding [*err* (java.io.StringWriter.)]
+                 (parser/analyze-project (memory-fs/typed (memory-fs/path file-system "/work")) [a11y/group]))
+          findings (:button-missing-type (group/analyze a11y/group data))]
+      (is (= [3 4] (mapv :row findings)))
+      (is (= ["\"Styled\"" "\"Plain\""] (mapv :inner-form findings))))))
+
+(deftest defattrs-props-name-rules-unchanged
+  (let [result (:results (temp-project/run-group
+                          a11y/group
+                          {"app/view.cljs" (str "(ns app.view)\n(defattrs example-style [] {:color :gray})\n"
+                                                "[:button (example-style) [:svg]]\n"
+                                                "[:textarea (example-style)]")}))]
+    (is (= 1 (count (:button-missing-type result))))
+    (is (empty? (:empty-interactive-element result)))
+    (is (empty? (:missing-accessible-name result)))))
 
 (deftest invalid-role-rejects-unknown-abstract-and-empty-literals
   (doseq [value (concat ["buton" "button buton" "buton button" "button widget" "Button" "BUTTON"

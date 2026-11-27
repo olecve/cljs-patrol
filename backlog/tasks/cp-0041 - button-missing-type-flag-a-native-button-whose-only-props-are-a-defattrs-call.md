@@ -1,10 +1,10 @@
 ---
 id: CP-0041
 title: "button-missing-type: flag a native button whose only props are a defattrs call"
-status: Next
+status: Done
 labels: ["a11y"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-27"
 references: []
 ---
 

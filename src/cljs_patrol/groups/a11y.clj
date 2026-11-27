@@ -7,6 +7,7 @@
   (:require
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y.roles :as roles]
+   [cljs-patrol.groups.spade :as spade]
    [cljs-patrol.heads :as heads]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
@@ -159,6 +160,20 @@
   (let [children (rest (parser/written-child-locs loc))]
     (when (< 1 (count children))
       (source-snippet (last children)))))
+
+(def ^:private spade-handle-list
+  (get (group/parse-handlers spade/group) :handle-list))
+
+(defn- button-style-props [info loc ns-info file]
+  (let [slot (second (parser/written-child-locs loc))]
+    (when (and (= :dynamic (:kind info))
+               (= :button (some-> loc z/down parser/raw hiccup/parse-tag))
+               (= :list (some-> slot z/tag))
+               (not (heads/locally-bound? slot (some-> slot z/down parser/raw)))
+               (button-missing-type? {:kind :map
+                                      :attrs {:class nil}}
+                                     loc :button ns-info))
+      (-> (spade-handle-list slot ns-info file) :usages first :kw))))
 
 (def ^:private non-interactive-tags
   "HTML tags that carry no built-in click / keyboard semantics.
@@ -2143,6 +2158,7 @@
               nested-control (nested-interactive-loc info loc tag ns-info component-aliases)
               unreferenced-id (unreferenced-id-candidate info tag loc inside-label)
               separator (focusable-separator info tag loc)
+              button-style-kw (button-style-props info loc ns-info file)
               hidden-self? (aria-hidden-focusable? info tag)
               hidden-descendant (when-not hidden-self?
                                   (hidden-focusable-descendant info loc ns-info component-aliases))
@@ -2165,10 +2181,11 @@
                        spelling-hint
                        (conj (assoc base :type :role-value-spelling :hint spelling-hint))
 
-                       (button-missing-type? info loc tag ns-info)
+                       (or (button-missing-type? info loc tag ns-info) button-style-kw)
                        (conj (let [label (button-label-snippet loc)]
                                (cond-> (assoc base :type :button-missing-type)
-                                 label (assoc :inner-form label))))
+                                 label (assoc :inner-form label)
+                                 button-style-kw (assoc :type ::button-style-props :style-kw button-style-kw))))
 
                        (on-click-on-non-interactive? info tag)
                        (conj (assoc base :type :on-click-on-non-interactive))
@@ -2302,12 +2319,20 @@
          :row row
          :col col}))))
 
-(defn- analyze* [{:keys [usages usages-in-run]}]
+(defn- analyze* [{:keys [declarations declarations-in-run usages usages-in-run]}]
   ;; The parser pools :usages across ALL enabled groups into one seq before
   ;; each group's `analyze` is called (see parser/analyze-project + core/run).
   ;; This filter is REQUIRED to keep other groups' usages (:sub, :event,
   ;; :style-call, ...) out of the a11y result — not defensive code.
   (let [by-type (group-by :type usages)
+        defattrs (->> (or declarations-in-run declarations)
+                      (filter #(= :defattrs (:type %)))
+                      (remove :inactive)
+                      (map :kw)
+                      set)
+        button-style-props (->> (::button-style-props by-type)
+                                (filter #(contains? defattrs (:style-kw %)))
+                                (map #(-> % (assoc :type :button-missing-type) (dissoc :style-kw))))
         run-files (filter #(= ::file-literals (:type %)) (or usages-in-run usages))
         literals (apply merge-with + (map :literals run-files))
         computed-reference? (some :computed-reference? run-files)
@@ -2333,7 +2358,9 @@
      :invalid-role (vec (:invalid-role by-type))
      :role-value-spelling (vec (:role-value-spelling by-type))
      :invalid-tabindex (vec (:invalid-tabindex by-type))
-     :button-missing-type (vec (:button-missing-type by-type))
+     :button-missing-type (->> (concat (:button-missing-type by-type) button-style-props)
+                               (sort-by (juxt :file :row :col))
+                               vec)
      :on-click-on-non-interactive (vec (:on-click-on-non-interactive by-type))
      :empty-interactive-element (vec (:empty-interactive-element by-type))
      :missing-accessible-name (->> (concat (:missing-accessible-name by-type) unreferenced-ids unnamed-separators)
@@ -2402,8 +2429,9 @@
                         (if-let [finding (tooltip-trigger-finding loc ns-info file tooltip-components)]
                           (update result :usages (fnil conj []) finding)
                           result)))
-     :handle-list (fn [loc _ns-info _file]
-                    (file-literals loc))})
+     :handle-list [spade-handle-list
+                   (fn [loc _ns-info _file]
+                     (file-literals loc))]})
   (analyze [_ data] (analyze* data))
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ result] (failed?* result))
