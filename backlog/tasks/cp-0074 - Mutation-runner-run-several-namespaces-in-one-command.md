@@ -3,8 +3,9 @@ id: CP-0074
 title: "Mutation runner: run several namespaces in one command"
 status: Idea
 labels: ["mutation-runner"]
+milestone: m-0
 created_date: "2026-11-25"
-updated_date: "2026-11-25"
+updated_date: "2026-11-27"
 references: []
 ---
 

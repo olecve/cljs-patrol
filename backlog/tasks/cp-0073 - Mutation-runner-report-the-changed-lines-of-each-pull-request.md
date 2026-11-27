@@ -3,6 +3,7 @@ id: CP-0073
 title: "Mutation runner: report the changed lines of each pull request"
 status: Idea
 labels: ["mutation-runner"]
+milestone: m-0
 created_date: "2026-11-25"
 updated_date: "2026-11-27"
 references: []

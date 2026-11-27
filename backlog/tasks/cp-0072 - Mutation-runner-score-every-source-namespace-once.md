@@ -3,6 +3,7 @@ id: CP-0072
 title: "Mutation runner: score every source namespace once"
 status: Next
 labels: ["mutation-runner"]
+milestone: m-0
 created_date: "2026-11-25"
 updated_date: "2026-11-27"
 references: []

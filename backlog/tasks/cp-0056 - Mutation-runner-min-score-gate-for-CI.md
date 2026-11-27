@@ -3,8 +3,9 @@ id: CP-0056
 title: "Mutation runner: --min-score gate for CI"
 status: Idea
 labels: ["mutation-runner"]
+milestone: m-0
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-27"
 references: []
 ---
 
