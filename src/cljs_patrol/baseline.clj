@@ -78,6 +78,8 @@
     :repeated-accessible-name
     :img-alt-missing
     :invalid-tabindex
+    :invalid-role
+    :role-value-spelling
     :button-missing-type
     :missing-accessible-name
     :on-click-on-non-interactive

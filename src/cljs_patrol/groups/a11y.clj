@@ -6,6 +6,7 @@
   skipped to keep the false-positive rate low."
   (:require
    [cljs-patrol.group :as group]
+   [cljs-patrol.groups.a11y.roles :as roles]
    [cljs-patrol.heads :as heads]
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
@@ -182,7 +183,7 @@
   #{:on-key-down :on-key-press :on-key-up
     :onKeyDown :onKeyPress :onKeyUp})
 
-(def ^:private no-op-role-values
+(def no-op-role-values
   "Role values that don't confer interactive semantics.
   Either effectively absent (nil, empty string) or explicitly remove
   semantics (\"presentation\", \"none\")."
@@ -240,7 +241,7 @@
 
 (def ^:private empty-interactive-tags #{:a :button})
 
-(def ^:private empty-interactive-roles
+(def empty-interactive-roles
   "ARIA role values that make an element behave as a button or link.
   Both string and keyword literals are accepted — Reagent stringifies
   keyword attribute values, so `:role :button` is equivalent to
@@ -544,7 +545,7 @@
   it may still lack is a different finding from an unlabelled icon button."
   #{:aria-pressed :aria-checked})
 
-(def ^:private checkbox-role-values #{"checkbox" :checkbox})
+(def checkbox-role-values #{"checkbox" :checkbox})
 
 (defn- stateful-widget? [attrs]
   (or (some (fn [k] (not= ::absent (literal-sexpr (get attrs k)))) widget-state-attrs)
@@ -577,7 +578,7 @@
   renders, which is the focusable part of a disclosure."
   #{:button :input :textarea :select :details :summary})
 
-(def ^:private focusable-roles
+(def focusable-roles
   "Widget roles claiming an element the user can reach and operate.
 
   A role does not by itself put an element in the tab order, but claiming one and then
@@ -665,7 +666,7 @@
     :as info} tag]
   (and (= :map kind) (some? attrs) (aria-hidden? attrs) (focusable? info tag)))
 
-(def ^:private widget-role-tags
+(def widget-role-tags
   "Widget roles taken as tags, for a wrapper that sets its role inside itself.
 
   No HTML element is called `<switch>`, so these count only when `:component-aliases`
@@ -701,7 +702,7 @@
   is a hint that disappears on typing and does not."
   #{:aria-label :aria-labelledby :title})
 
-(def ^:private name-required-roles
+(def name-required-roles
   "Roles this rule requires to carry an accessible name of their own.
   Most are what WAI-ARIA marks \"Accessible Name Required: True\": `img` opts an element
   into the accessibility tree with nothing to announce; `dialog` and `alertdialog` need a
@@ -770,7 +771,7 @@
                                (announces-something? value))))
                       (body-locs loc)))))
 
-(def ^:private role->implicit-aria-live
+(def role->implicit-aria-live
   "Live-region roles mapped to the `aria-live` politeness each implies.
 
   Both spellings count, since Reagent stringifies keyword values. `timer` and
@@ -1297,7 +1298,7 @@
         (and shorthand (not id-written?)) shorthand
         (and (not shorthand) (string? literal) (re-matches #"\S+" literal)) literal))))
 
-(def ^:private separator-roles
+(def separator-roles
   "The `:role` spellings of a separator."
   #{"separator" :separator})
 
@@ -1667,6 +1668,33 @@
                      (some #(not (or (= :uneval (z/tag %)) (hiccup/malli-schema-vector? %))) (body-locs loc)))
                 (renders-something? loc))))))
 
+(defn- literal-role-value [info loc]
+  (when (and (native-vector? loc)
+             (not (data-vector? loc))
+             (not (selector-block? loc)))
+    (let [value (written-value (settled-attrs info) :role)]
+      (when-not (or (contains? #{::absent ::non-literal} value) (symbol? value))
+        value))))
+
+(defn- role-tokens [value]
+  (re-seq #"[^\t\n\f\r ]+" (if (keyword? value) (name value) (str value))))
+
+(defn- invalid-role-hint [value]
+  (when value
+    (let [tokens (role-tokens value)]
+      (when-not (and (seq tokens) (every? roles/valid-roles tokens))
+        (str ":role " (pr-str value) " is invalid; use non-abstract ARIA role tokens in lowercase.")))))
+
+(defn- role-value-spelling-hint [value preference]
+  (cond
+    (and (keyword? value) (or (= :string preference) (namespace value)))
+    (str "Write :role " (pr-str (if (= :string preference) (name value) (keyword (name value)))) ".")
+
+    (and (= :keyword preference) (string? value))
+    (let [tokens (role-tokens value)]
+      (when (= 1 (count tokens))
+        (str "Write :role " (pr-str (keyword (first tokens))) ".")))))
+
 (defn- label-props
   "Return the label's props when `for` can be answered for, or `::unknown`.
 
@@ -1733,7 +1761,7 @@
   "Input types named by their own value, rendered with their label after them, or not shown."
   #{"button" "checkbox" "hidden" "image" "radio" "reset" "submit"})
 
-(def ^:private field-roles
+(def field-roles
   "Roles of the fields a visible label written before them is taken to name."
   #{"combobox" "listbox" "searchbox" "slider" "spinbutton" "textbox"})
 
@@ -2096,7 +2124,7 @@
   "Usage types that become findings only once the whole run is read, and get their hint there."
   #{::focusable-separator ::unreferenced-id-candidate})
 
-(defn- handle-vector* [written-loc ns-info file {:keys [component-aliases label-components label-styles]}]
+(defn- handle-vector* [written-loc ns-info file {:keys [component-aliases label-components label-styles role-value]}]
   (let [loc (unwrapped-loc written-loc ns-info component-aliases)
         first-child (z/down loc)]
     (when (and first-child
@@ -2107,6 +2135,10 @@
               inside-label (delay (inside-label? loc {:label-components label-components
                                                       :ns-info ns-info}))
               aria-live-conflict (contradicting-aria-live info)
+              literal-role (literal-role-value info loc)
+              role-hint (invalid-role-hint literal-role)
+              spelling-hint (when (and role-value (not role-hint))
+                              (role-value-spelling-hint literal-role role-value))
               repeated-name (repeated-accessible-name info tag loc ns-info component-aliases)
               nested-control (nested-interactive-loc info loc tag ns-info component-aliases)
               unreferenced-id (unreferenced-id-candidate info tag loc inside-label)
@@ -2126,6 +2158,12 @@
 
                        (invalid-tabindex? info)
                        (conj (assoc base :type :invalid-tabindex))
+
+                       role-hint
+                       (conj (assoc base :type :invalid-role :hint role-hint))
+
+                       spelling-hint
+                       (conj (assoc base :type :role-value-spelling :hint spelling-hint))
 
                        (button-missing-type? info loc tag ns-info)
                        (conj (let [label (button-label-snippet loc)]
@@ -2292,6 +2330,8 @@
                                             (dissoc :schema-note)
                                             (dissoc :unnamed?)))))]
     {:img-alt-missing (vec (:img-alt-missing by-type))
+     :invalid-role (vec (:invalid-role by-type))
+     :role-value-spelling (vec (:role-value-spelling by-type))
      :invalid-tabindex (vec (:invalid-tabindex by-type))
      :button-missing-type (vec (:button-missing-type by-type))
      :on-click-on-non-interactive (vec (:on-click-on-non-interactive by-type))
@@ -2311,7 +2351,8 @@
                                empty-interactive-element missing-accessible-name
                                repeated-accessible-name aria-live-contradicts-role
                                aria-hidden-focusable nested-interactive-element
-                               label-not-associated aria-label-beside-visible-label non-focusable-tooltip-trigger]}]
+                               label-not-associated aria-label-beside-visible-label non-focusable-tooltip-trigger invalid-role
+                               role-value-spelling]}]
   [["Img missing alt:" (count img-alt-missing)]
    ["Invalid tabindex:" (count invalid-tabindex)]
    ["Button missing type:" (count button-missing-type)]
@@ -2324,13 +2365,15 @@
    ["Nested interactive element:" (count nested-interactive-element)]
    ["Label not associated:" (count label-not-associated)]
    ["Aria-label beside visible label:" (count aria-label-beside-visible-label)]
-   ["Non-focusable tooltip trigger:" (count non-focusable-tooltip-trigger)]])
+   ["Non-focusable tooltip trigger:" (count non-focusable-tooltip-trigger)]
+   ["Invalid role:" (count invalid-role)]
+   ["Role value spelling:" (count role-value-spelling)]])
 
 (defn- failed?* [{:keys [img-alt-missing invalid-tabindex button-missing-type on-click-on-non-interactive
                          empty-interactive-element missing-accessible-name
                          repeated-accessible-name aria-live-contradicts-role
                          aria-hidden-focusable nested-interactive-element
-                         label-not-associated aria-label-beside-visible-label non-focusable-tooltip-trigger]}]
+                         label-not-associated aria-label-beside-visible-label non-focusable-tooltip-trigger invalid-role]}]
   (or (seq img-alt-missing)
       (seq invalid-tabindex)
       (seq button-missing-type)
@@ -2343,9 +2386,10 @@
       (seq nested-interactive-element)
       (seq label-not-associated)
       (seq aria-label-beside-visible-label)
-      (seq non-focusable-tooltip-trigger)))
+      (seq non-focusable-tooltip-trigger)
+      (seq invalid-role)))
 
-(defrecord A11yGroup [component-aliases label-components label-styles tooltip-components]
+(defrecord A11yGroup [component-aliases label-components label-styles tooltip-components role-value]
   group/RuleGroup
   (group-id [_] :a11y)
   (group-name [_] "A11y")
@@ -2353,7 +2397,8 @@
     {:handle-vector (fn [loc ns-info file]
                       (let [result (handle-vector* loc ns-info file {:component-aliases component-aliases
                                                                      :label-components label-components
-                                                                     :label-styles label-styles})]
+                                                                     :label-styles label-styles
+                                                                     :role-value role-value})]
                         (if-let [finding (tooltip-trigger-finding loc ns-info file tooltip-components)]
                           (update result :usages (fnil conj []) finding)
                           result)))
@@ -2363,7 +2408,9 @@
   (summary-lines [_ result] (summary-lines* result))
   (failed? [_ result] (failed?* result))
   (suggestions [_]
-    {:img-alt-missing
+    {:invalid-role "Use lowercase, non-abstract WAI-ARIA, DPUB-ARIA or Graphics-ARIA role tokens, or remove :role."
+     :role-value-spelling "Use the configured :a11y :role-value spelling, without a keyword namespace."
+     :img-alt-missing
      (str "Every :img needs :alt (WCAG 1.1.1). Use :alt \"\" for a decorative image, otherwise "
           "text that says what the image shows.")
      :invalid-tabindex
@@ -2419,6 +2466,8 @@
      :empty-interactive-element "empty-interactive-element"
      :img-alt-missing "img-missing-alt"
      :invalid-tabindex "invalid-tabindex"
+     :invalid-role "invalid-role"
+     :role-value-spelling "role-value-spelling"
      :label-not-associated "label-not-associated"
      :missing-accessible-name "missing-accessible-name"
      :nested-interactive-element "nested-interactive-element"
@@ -2427,6 +2476,8 @@
      :repeated-accessible-name "repeated-accessible-name"})
   (rule->tier [_]
     {:img-alt-missing :bugs
+     :invalid-role :bugs
+     :role-value-spelling :cleanup
      :invalid-tabindex :bugs
      :button-missing-type :bugs
      :on-click-on-non-interactive :bugs
@@ -2515,6 +2566,14 @@
                {}
                label-components)))
 
+(defn- normalize-role-value [options]
+  (when (contains? options :role-value)
+    (let [value (:role-value options)]
+      (if (contains? #{:string :keyword :mixed} value)
+        value
+        (throw (ex-info (str ":a11y :role-value must be :string, :keyword or :mixed, got " (pr-str value))
+                        {:role-value value}))))))
+
 (defn make-group
   "Return an a11y RuleGroup configured with the given map (see `A11yGroup`).
   Supported keys:
@@ -2531,12 +2590,16 @@
     :label-styles #{full-qualified-symbol …} — style functions that mark
       text as a field's visible label. Off until set.
     :tooltip-components #{full-qualified-symbol …} — wrappers that take props
-      and use their single child as a tooltip trigger."
+      and use their single child as a tooltip trigger.
+    :role-value :string, :keyword or :mixed — literal role spelling, with no
+      keyword namespace. Off until set."
   ([] (make-group nil))
-  ([{:keys [component-aliases label-components label-styles tooltip-components]}]
+  ([{:keys [component-aliases label-components label-styles tooltip-components]
+     :as options}]
    (->A11yGroup (normalize-aliases component-aliases)
                 (normalize-label-components label-components)
                 (normalize-symbol-set :label-styles label-styles)
-                (normalize-symbol-set :tooltip-components tooltip-components))))
+                (normalize-symbol-set :tooltip-components tooltip-components)
+                (normalize-role-value options))))
 
 (def group (make-group))

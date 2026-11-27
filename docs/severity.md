@@ -20,7 +20,7 @@ screen-reader user cannot reach, name or tell apart, and a Spade selector that m
 - `img-alt-missing`, `invalid-tabindex`, `on-click-on-non-interactive`, `empty-interactive-element`,
   `missing-accessible-name`, `repeated-accessible-name`, `aria-live-contradicts-role`, `aria-hidden-focusable`,
   `nested-interactive-element`, `label-not-associated`, `aria-label-beside-visible-label`, `button-missing-type`,
-  `non-focusable-tooltip-trigger`
+  `non-focusable-tooltip-trigger`, `invalid-role`
 - `discarded-hiccup`, `remounting-branch`
 - `pseudo-in-main-map`, `consecutive-self-selectors`, `spade-ampersand-not-at-start`,
   `spade-keyword-combinator-selector`
@@ -35,6 +35,7 @@ screen-reader user cannot reach, name or tell apart, and a Spade selector that m
 **`cleanup`** — dead code, style noise, and suspicious references with no runtime impact.
 
 - `unused-subs`, `unused-events`, `unused-styles`, `phantom-subs`, `phantom-events`
+- `role-value-spelling`
 - `reg-sub-=>-1-arity`, `reg-event-fx-db-only`, `reg-fx-public-fn`, `redundant-into-hiccup`, `empty-fragment-props`,
   `redundant-fragment`, `inline-component`
 - `docstring-summary`, `docstring-indentation`, `docstring-leading-trailing-whitespace`, `docstring-repeats-name`

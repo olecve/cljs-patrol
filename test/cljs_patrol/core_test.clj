@@ -604,3 +604,20 @@
           (is (thrown-with-msg? clojure.lang.ExceptionInfo
                                 #":forbid-props :disallowed-for must be :native or a collection"
                                 (core/-main "--only" "forbid-props" src))))))))
+
+(deftest role-value-config-reaches-a11y-and-rejects-a-bad-value
+  (temp-dir/with-dir "cljs-patrol-role-value"
+    (fn [dir]
+      (let [src (str dir "/src")
+            config-path (str dir "/.cljs-patrol/config.edn")]
+        (disk/write! (disk/path src "app/core.cljs") "(ns app.core) (defn view [] [:div {:role :group}])")
+        (with-redefs [baseline/default-config-path config-path]
+          (disk/write! (disk/path config-path) "{:a11y {:role-value :string}}")
+          (let [result (run-main "--only" "a11y" "--fail-on" "cleanup" src)]
+            (is (= 1 (:exit result)))
+            (is (str/includes? (:out result) "role-value-spelling"))
+            (is (str/includes? (:out result) "Write :role \"group\".")))
+          (disk/write! (disk/path config-path) "{:a11y {:role-value :strings}}")
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                #":a11y :role-value must be :string, :keyword or :mixed"
+                                (core/-main "--only" "a11y" src))))))))

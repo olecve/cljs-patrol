@@ -4,6 +4,7 @@
    [cljs-patrol.disk :as disk]
    [cljs-patrol.group :as group]
    [cljs-patrol.groups.a11y :as a11y]
+   [cljs-patrol.groups.a11y.roles :as roles]
    [cljs-patrol.parser :as parser]
    [cljs-patrol.temp-dir :as temp-dir]
    [cljs-patrol.temp-project :as temp-project]
@@ -151,6 +152,10 @@
                                    :missing-accessible-name []
                                    :aria-live-contradicts-role [(contradicting-aria-live-finding 5)]})))
 
+  (testing "fails when any invalid-role is found"
+    (is (group/failed? a11y/group {:invalid-role [{:file "app/view.cljs"
+                                                   :line 5}]})))
+
   (testing "does not fail when clean"
     (is (not (group/failed? a11y/group {:img-alt-missing []
                                         :invalid-tabindex []
@@ -175,7 +180,7 @@
                                     :nested-interactive-element []
                                     :label-not-associated []
                                     :aria-label-beside-visible-label []})]
-    (is (= 13 (count lines)))
+    (is (= 15 (count lines)))
     (is (= 2 (second (first lines))))
     (is (= 1 (second (second lines))))
     (is (= ["Button missing type:" 3] (nth lines 2)))
@@ -183,6 +188,186 @@
     (is (= 1 (second (nth lines 4))))
     (is (= 1 (second (nth lines 6))))
     (is (= 1 (second (nth lines 7))))))
+
+(defn- role-findings
+  ([source] (role-findings nil source))
+  ([config source]
+   (get-in (temp-project/run-group (a11y/make-group config)
+                                   {"app/view.cljs" (str "(ns app.view (:require [example.ui :as ui]))\n" source)})
+           [:results :invalid-role])))
+
+(deftest invalid-role-rejects-unknown-abstract-and-empty-literals
+  (doseq [value (concat ["buton" "button buton" "buton button" "button widget" "Button" "BUTTON"
+                         "" " \t\n\f\r " "doc-madeup" "graphics-madeup" "button\u000bcheckbox"
+                         "button\u00a0checkbox" :buton 42 true \b]
+                        (str/split "command composite input landmark range roletype section sectionhead select structure widget window"
+                                   #" "))]
+    (testing (pr-str value)
+      (let [form (str "[:div {:role " (pr-str value) "}]")
+            findings (role-findings (str "(defn view [] " form ")"))]
+        (is (= 1 (count findings)))
+        (is (= (str ":role " (pr-str value) " is invalid; use non-abstract ARIA role tokens in lowercase.")
+               (:hint (first findings))))))))
+
+(deftest invalid-role-accepts-the-complete-role-vocabulary
+  (let [expected (str/split
+                  (str "alert alertdialog application article banner blockquote button caption cell checkbox code columnheader "
+                       "combobox complementary contentinfo definition deletion dialog directory document emphasis feed figure form "
+                       "generic grid gridcell group heading img insertion link list listbox listitem log main marquee math menu "
+                       "menubar menuitem menuitemcheckbox menuitemradio meter navigation none note option paragraph presentation "
+                       "progressbar radio radiogroup region row rowgroup rowheader scrollbar search searchbox separator slider "
+                       "spinbutton status strong subscript superscript switch tab table tablist tabpanel term textbox time timer "
+                       "toolbar tooltip tree treegrid treeitem "
+                       "doc-abstract doc-acknowledgments doc-afterword doc-appendix doc-backlink doc-biblioentry doc-bibliography "
+                       "doc-biblioref doc-chapter doc-colophon doc-conclusion doc-cover doc-credit doc-credits doc-dedication "
+                       "doc-endnote doc-endnotes doc-epigraph doc-epilogue doc-errata doc-example doc-footnote doc-foreword "
+                       "doc-glossary doc-glossref doc-index doc-introduction doc-noteref doc-notice doc-pagebreak doc-pagelist "
+                       "doc-part doc-preface doc-prologue doc-pullquote doc-qna doc-subtitle doc-tip doc-toc "
+                       "graphics-document graphics-object graphics-symbol")
+                  #" ")]
+    (is (= (set expected) roles/valid-roles))
+    (is (= 124 (count roles/valid-roles)))
+    (is (empty? (role-findings
+                 (str "(defn view [] [:div "
+                      (str/join " " (for [role expected
+                                          value [role (keyword role)]]
+                                      (str "[:div {:role " (pr-str value) "}]")))
+                      "])")))))
+  (is (empty? (role-findings "(defn view [] [:div {:role \" \tbutton\n\f\r checkbox  \"}])"))))
+
+(deftest role-vocabulary-includes-the-groups-existing-role-sets
+  (doseq [values [a11y/empty-interactive-roles a11y/focusable-roles a11y/name-required-roles
+                  a11y/widget-role-tags a11y/field-roles a11y/checkbox-role-values
+                  a11y/separator-roles (keys a11y/role->implicit-aria-live)
+                  (disj a11y/no-op-role-values nil "")]
+          role values]
+    (is (contains? roles/valid-roles (name role)) (pr-str role))))
+
+(deftest invalid-role-leaves-dynamic-values-components-and-data-alone
+  (doseq [value ["role" "(choose-role)" "(if active? \"button\" \"group\")"
+                 "#?(:cljs \"buton\")" "^{:dynamic true} \"buton\"" "[\"buton\"]"
+                 "{:name \"buton\"}" "#{\"buton\"}" "nil" "false"]]
+    (is (empty? (role-findings (str "(defn view [role active?] [:div {:role " value "}])"))) value))
+  (doseq [source ["(defn view [] [ui/panel {:role \"buton\"}])"
+                  "(defn view [] [:> ui/panel {:role \"buton\"}])"
+                  "(defn view [] '[ :div {:role \"buton\"}])"
+                  "(def schema [:map [:div {:role \"buton\"} :string]])"
+                  "(defn style [] [:div {:role \"buton\"} [:&:hover {:color \"red\"}]])"
+                  "(defn view [] (get-in props [:div {:role \"buton\"}]))"
+                  "(s/defclass panel [] [:div [:span {:role \"buton\"}]])"
+                  "(defn view [props] [:div (merge {:role \"buton\"} props)])"
+                  "(defn view [props] [:div props])"
+                  "(defn view [] [:div {}])"
+                  "(defn view [] [:div])"]]
+    (is (empty? (role-findings {:component-aliases {'example.ui/panel :div}}
+                               source)) source)))
+
+(deftest invalid-role-reports-native-tags-and-settled-attrs
+  (let [findings (role-findings
+                  (str "(defn view [props] [:main\n"
+                       " [:span.panel#notice {:role :widget}]\n"
+                       " [:div (assoc props :role \"buton\")]])"))
+        result {:invalid-role findings}]
+    (is (= [[:span 3 2] [:div 4 2]] (mapv (juxt :kw :row :col) findings)))
+    (is (= [:bugs :bugs] (mapv :tier findings)))
+    (is (= ["[:span.panel#notice {:role :widget}]" "[:div (assoc props :role \"buton\")]"]
+           (mapv :form findings)))
+    (is (= :invalid-role (:rule (baseline/issue->identity :invalid-role (first findings)))))
+    (is (group/failed? a11y/group result))
+    (is (some #{["Invalid role:" 2]} (group/summary-lines a11y/group result)))))
+
+(defn- spelling-results [config source]
+  (:results (temp-project/run-group (a11y/make-group config)
+                                    {"app/view.cljs" (str "(ns app.view (:require [example.ui :as ui]))\n" source)})))
+
+(deftest role-value-spelling-modes
+  (doseq [[mode value expected] [[:string :group ["Write :role \"group\"."]]
+                                 [:string :x/group ["Write :role \"group\"."]]
+                                 [:keyword "group" ["Write :role :group."]]
+                                 [:keyword " \tgroup\n\f\r " ["Write :role :group."]]
+                                 [:keyword :x/group ["Write :role :group."]]
+                                 [:mixed :x/group ["Write :role :group."]]
+                                 [:string "group" []]
+                                 [:string "switch checkbox" []]
+                                 [:keyword :group []]
+                                 [:keyword "switch checkbox" []]
+                                 [:keyword "switch\tcheckbox" []]
+                                 [:mixed :group []]
+                                 [:mixed "group" []]
+                                 [:mixed "switch checkbox" []]]]
+    (testing (pr-str [mode value])
+      (let [result (spelling-results {:role-value mode} (str "(defn view [] [:div {:role " (pr-str value) "}])"))
+            findings (:role-value-spelling result)]
+        (is (= expected (mapv :hint findings)))
+        (is (empty? (:invalid-role result)))))))
+
+(deftest role-value-spelling-is-off-until-configured
+  (let [result (spelling-results {}
+                                 (str "(defn view [] [:main [:div {:role :group}] "
+                                      "[:div {:role \"group\"}] [:div {:role :x/group}]])"))]
+    (is (empty? (:role-value-spelling result)))
+    (is (empty? (:invalid-role result)))))
+
+(deftest role-value-spelling-defers-to-invalid-role
+  (doseq [mode [:string :keyword :mixed]
+          value [:buton :x/buton :x/widget "buton" "group buton" "" " \t\n\f\r " "Group" 42 true \g]]
+    (testing (pr-str [mode value])
+      (let [result (spelling-results {:role-value mode} (str "(defn view [] [:div {:role " (pr-str value) "}])"))]
+        (is (empty? (:role-value-spelling result)))
+        (is (= 1 (count (:invalid-role result))))))))
+
+(deftest role-value-spelling-leaves-dynamic-values-components-and-data-alone
+  (doseq [mode [:string :keyword :mixed]
+          source ["(defn view [role] [:div {:role role}])"
+                  "(defn view [] [:div {:role (choose-role)}])"
+                  "(defn view [] [:div {:role #?(:cljs :x/group)}])"
+                  "(defn view [] [:div {:role ^:dynamic :x/group}])"
+                  "(defn view [] [:div {:role [:x/group]}])"
+                  "(defn view [] [:div {:role nil}])"
+                  "(defn view [] [:div {:role false}])"
+                  "(defn view [] [ui/panel {:role :x/group}])"
+                  "(defn view [] [:> ui/panel {:role :x/group}])"
+                  "(defn view [] '[:div {:role :x/group}])"
+                  "(def schema [:map [:div {:role :x/group} :string]])"
+                  "(defn style [] [:div {:role :x/group} [:&:hover {:color \"red\"}]])"
+                  "(defn view [] (get-in props [:div {:role :x/group}]))"
+                  "(s/defclass panel [] [:div [:span {:role :x/group}]])"
+                  "(defn view [props] [:div (merge {:role :x/group} props)])"
+                  "(defn view [props] [:div props])"
+                  "(defn view [] [:div {}])"
+                  "(defn view [] [:div])"]]
+    (is (empty? (:role-value-spelling (spelling-results {:role-value mode
+                                                         :component-aliases {'example.ui/panel :div}}
+                                                        source)))
+        (pr-str [mode source]))))
+
+(deftest role-value-spelling-reports-native-tags-and-settled-attrs
+  (let [result (spelling-results {:role-value :string}
+                                 (str "(defn view [props] [:main\n"
+                                      " [:span.panel#notice {:role :group}]\n"
+                                      " [:div (assoc props :role :group)]\n"
+                                      " [:div (merge props {:role :group})]\n"
+                                      " (let [attrs {:role :group}] [:div attrs])])"))
+        findings (:role-value-spelling result)
+        first-finding (first findings)
+        identity (baseline/issue->identity :role-value-spelling first-finding)]
+    (is (= [[:span 3 2] [:div 4 2] [:div 5 2] [:div 6 30]] (mapv (juxt :kw :row :col) findings)))
+    (is (= [:cleanup :cleanup :cleanup :cleanup] (mapv :tier findings)))
+    (is (= "[:span.panel#notice {:role :group}]" (:form first-finding)))
+    (is (= {:rule :role-value-spelling
+            :tag :span
+            :file (:file first-finding)
+            :form (:form first-finding)}
+           identity))
+    (is (= identity (baseline/issue->identity :role-value-spelling (assoc first-finding :row 100 :col 50))))
+    (is (not (group/failed? a11y/group result)))
+    (is (= ["Role value spelling:" 4] (last (group/summary-lines a11y/group result))))))
+
+(deftest role-value-option-rejects-malformed-values
+  (doseq [value [nil false true :strings :app/string "string" 'string [:string] #{:keyword} {:value :mixed} 1]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #":a11y :role-value must be :string, :keyword or :mixed"
+                          (a11y/make-group {:role-value value}))
+        (pr-str value))))
 
 (defn- tooltip-findings [config source]
   (get-in (temp-project/run-group (a11y/make-group config)
