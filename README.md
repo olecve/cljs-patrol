@@ -59,7 +59,7 @@ Analysis is split into independent rule groups. By default all groups run.
 - **[`forbid-props`](docs/rules/forbid-props.md)** — props a codebase forbids on some elements or components, each with
   the reason, like ESLint's `react/forbid-dom-props`; off until configured
 - **[`a11y`](docs/rules/a11y.md)** — accessibility in Hiccup: missing alt text and accessible names, controls a keyboard
-  cannot reach, nested controls, labels that label nothing, invalid or abstract roles
+  cannot reach, nested controls, labels that label nothing, invalid or abstract roles, opt-in role value spelling
 - **[`tests`](docs/rules/tests.md)** — conventions on test code: test names, assertion messages, conditional assertions,
   var derefs, `^js` hints
 - **[`react-testing-library-cljs`](docs/rules/react-testing-library-cljs.md)** — react-testing-library-cljs queries used
@@ -202,7 +202,8 @@ Every setting can live in `.cljs-patrol/config.edn`, where it persists for the p
  :a11y {:component-aliases {my.ui/drawer :dialog}
         :label-components {my.ui/field :label}
         :label-styles #{my.ui.styles/field-label}
-        :tooltip-components #{my.ui/tooltip}}
+        :tooltip-components #{my.ui/tooltip}
+        :role-value :string}
  :react-testing-library-cljs {:test-id-elements {my.ui/button :button}}
  :tests {:paths ["test"]}
  :layout {:split-map-after-symbol true}
@@ -224,11 +225,12 @@ Every setting can live in `.cljs-patrol/config.edn`, where it persists for the p
 A CLI flag overrides the matching setting. See [Severity tiers](docs/severity.md) for `:fail-on`,
 [Baseline](docs/baseline.md) for `:baseline`, [Property-order tables](docs/rules/css-order.md#property-order-tables) for
 `:css-order`, [A11y component aliases](docs/rules/a11y.md#a11y-component-aliases),
-[Label components](docs/rules/a11y.md#label-components), [Label styles](docs/rules/a11y.md#label-styles) and
-[Tooltip components](docs/rules/a11y.md#tooltip-components) for `:a11y`,
-[Test id elements](docs/rules/react-testing-library-cljs.md#test-id-elements) for `:react-testing-library-cljs`,
-[Test paths](docs/rules/tests.md#test-paths) for `:tests`, [Layout options](docs/rules/layout.md#layout-options) for
-`:layout`, [Colors options](docs/rules/colors.md#colors-options) for `:colors`,
+[Role values](docs/rules/a11y.md#role-values), [Label components](docs/rules/a11y.md#label-components),
+[Label styles](docs/rules/a11y.md#label-styles) and [Tooltip components](docs/rules/a11y.md#tooltip-components) for
+`:a11y`, [Test id elements](docs/rules/react-testing-library-cljs.md#test-id-elements) for
+`:react-testing-library-cljs`, [Test paths](docs/rules/tests.md#test-paths) for `:tests`,
+[Layout options](docs/rules/layout.md#layout-options) for `:layout`,
+[Colors options](docs/rules/colors.md#colors-options) for `:colors`,
 [Focus ring options](docs/rules/focus-ring.md#focus-ring-options) for `:focus-ring`,
 [Forbid props options](docs/rules/forbid-props.md#forbid-props-options) for `:forbid-props`,
 [Idioms options](docs/rules/idioms.md#idioms-options) for `:idioms`, and

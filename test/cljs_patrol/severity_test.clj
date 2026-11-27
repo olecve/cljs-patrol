@@ -126,7 +126,7 @@
            :defattrs-as-data :mixed-token-groups}
          (severity/tier->rules rule->tier :deprecations)))
   (is (= #{:unused-subs :unused-events :unused-styles
-           :phantom-subs :phantom-events
+           :phantom-subs :phantom-events :role-value-spelling
            :reg-sub-=>-1-arity :reg-event-fx-db-only :reg-fx-public-fn
            :redundant-into-hiccup :empty-fragment-props :redundant-fragment
            :inline-component
@@ -232,7 +232,7 @@
                :defattrs-as-data :mixed-token-groups}
              (->> tiered :deprecations (map :rule) set)))
       (is (= #{:unused-subs :unused-events :unused-styles
-               :phantom-subs :phantom-events
+               :phantom-subs :phantom-events :role-value-spelling
                :reg-sub-=>-1-arity :reg-event-fx-db-only :reg-fx-public-fn
                :redundant-into-hiccup :empty-fragment-props :redundant-fragment
                :inline-component
