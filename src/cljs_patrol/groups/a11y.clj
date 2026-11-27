@@ -654,12 +654,36 @@
   [attrs tag]
   (and (= :input tag) (= "hidden" (literal-sexpr (get attrs :type)))))
 
+(defn- focus-blocked-by-attrs? [info]
+  (let [attrs (settled-attrs info)
+        inert (written-value attrs :inert)
+        hidden (written-value attrs :hidden)]
+    (or (true? inert)
+        (string? inert)
+        (true? hidden)
+        (and (string? hidden) (not= "until-found" (str/lower-case hidden))))))
+
+(defn- focus-blocked-subtree?
+  "True when loc is a rendered native element that `:inert` or `:hidden` takes out of focus, with its subtree."
+  [loc]
+  (let [tag (and (= :vector (z/tag loc))
+                 (some-> loc z/down parser/raw hiccup/parse-tag))
+        info (when tag (hiccup/attrs-info loc))]
+    (boolean (and tag
+                  (not (contains? #{:<> :>} tag))
+                  (markup-vector? info loc)
+                  (focus-blocked-by-attrs? info)))))
+
+(defn- focus-blocked-by-ancestor? [loc]
+  (some focus-blocked-subtree? (take-while some? (iterate z/up (z/up loc)))))
+
 (defn- focusable?
   "True when the element can take focus.
   Answered only from attrs that are absent or readable whole: a partial or computed map
   may hold the negative tabindex or the `disabled` that is the way out, and calling one
   missing from a partial view is what produces false reports."
-  [{:keys [kind attrs]} tag]
+  [{:keys [kind attrs]
+    :as info} tag]
   (let [readable (case kind
                    :map attrs
                    (:absent :non-map) {}
@@ -667,7 +691,8 @@
     (boolean
      (when (some? readable)
        (let [tabindex (tabindex-reading readable)]
-         (and (not (out-of-tab-order-when-disabled? readable tag))
+         (and (not (focus-blocked-by-attrs? info))
+              (not (out-of-tab-order-when-disabled? readable tag))
               (not (hidden-input? readable tag))
               (contains? #{:none :tab-stop} tabindex)
               (or (contains? focusable-tags tag)
@@ -1054,9 +1079,11 @@
   hidden from assistive technology while keeping its place in the tab order — the same
   defect as on the wrapper itself, and the more common way to write it."
   [info loc ns-info component-aliases]
-  (when (hidden-by-attrs? info)
+  (when (and (hidden-by-attrs? info)
+             (not (focus-blocked-by-attrs? info))
+             (not (focus-blocked-by-ancestor? loc)))
     (first-matching-descendant {:match? #(focusable-loc? % ns-info component-aliases)
-                                :prune? #(or (hidden-subtree? %) (disabled-fieldset? %))}
+                                :prune? #(or (hidden-subtree? %) (disabled-fieldset? %) (focus-blocked-subtree? %))}
                                (body-locs loc))))
 
 (def ^:private aria-label-reference-key
@@ -2159,7 +2186,7 @@
               unreferenced-id (unreferenced-id-candidate info tag loc inside-label)
               separator (focusable-separator info tag loc)
               button-style-kw (button-style-props info loc ns-info file)
-              hidden-self? (aria-hidden-focusable? info tag)
+              hidden-self? (and (aria-hidden-focusable? info tag) (not (focus-blocked-by-ancestor? loc)))
               hidden-descendant (when-not hidden-self?
                                   (hidden-focusable-descendant info loc ns-info component-aliases))
               [row col] (parser/position loc)

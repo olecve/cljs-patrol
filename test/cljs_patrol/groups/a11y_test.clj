@@ -484,6 +484,84 @@
                                         "[\"example-tooltip\" :as Other]))\n" source)})
           [:results :non-focusable-tooltip-trigger]))
 
+(defn- hidden-focus-findings [source]
+  (get-in (temp-project/run-group a11y/group
+                                  {"app/view.cljs" (str "(ns app.view)\n" source)})
+          [:results :aria-hidden-focusable]))
+
+(deftest inert-and-hidden-prevent-focus-throughout-the-subtree
+  (doseq [attribute [:inert :hidden]
+          value [true "" "true" "false" "hidden" "other" "UNTIL-FOUND"]
+          :when (not= [attribute value] [:hidden "UNTIL-FOUND"])
+          template ["[:button {:aria-hidden true %s} \"x\"]"
+                    "[:div {:aria-hidden true %s} [:a {:href u} \"x\"]]"
+                    "[:div {:aria-hidden true} [:section {%s} [:button \"x\"]]]"
+                    "[:div {:aria-hidden true} [:button {%s} \"x\"]]"
+                    "[:div {%s} [:button {:aria-hidden true} \"x\"]]"
+                    "[:div {%s} [:span {:aria-hidden true} [:button \"x\"]]]"]]
+    (let [source (format template (str attribute " " (pr-str value)))]
+      (is (empty? (hidden-focus-findings source)) source))))
+
+(deftest absent-and-unknown-inert-and-hidden-keep-focus-reports
+  (doseq [attribute [:inert :hidden]
+          value [false nil 'flag '(hidden?) 42]
+          template ["[:button {:aria-hidden true %s} \"x\"]"
+                    "[:div {:aria-hidden true %s} [:button \"x\"]]"
+                    "[:div {:aria-hidden true} [:section {%s} [:button \"x\"]]]"
+                    "[:div {:aria-hidden true} [:button {%s} \"x\"]]"
+                    "[:div {%s} [:button {:aria-hidden true} \"x\"]]"]]
+    (let [source (format template (str attribute " " (pr-str value)))]
+      (is (= 1 (count (hidden-focus-findings source))) source))))
+
+(deftest hidden-until-found-keeps-focus-reports
+  (doseq [value ["until-found" "UNTIL-FOUND" "Until-Found"]
+          template ["[:button {:aria-hidden true :hidden %s} \"x\"]"
+                    "[:div {:aria-hidden true :hidden %s} [:button \"x\"]]"
+                    "[:div {:aria-hidden true} [:section {:hidden %s} [:button \"x\"]]]"]]
+    (let [source (format template (pr-str value))]
+      (is (= 1 (count (hidden-focus-findings source))) source)))
+  (is (empty? (hidden-focus-findings
+               "[:div {:aria-hidden true :hidden \"until-found\" :inert true} [:button \"x\"]]"))))
+
+(deftest inert-and-hidden-use-settled-built-attrs
+  (doseq [attribute [:inert :hidden]
+          attrs [(str "(assoc props " attribute " true)")
+                 (str "(merge props {" attribute " true})")
+                 (str "(merge {} {" attribute " true})")]
+          template ["[:div (assoc %s :aria-hidden true) [:button \"x\"]]"
+                    "[:div {:aria-hidden true} [:section %s [:button \"x\"]]]"
+                    "[:div {:aria-hidden true} [:button %s \"x\"]]"]]
+    (let [source (str "(defn view [props] " (format template attrs) ")")]
+      (is (empty? (hidden-focus-findings source)) source)))
+  (doseq [attribute [:inert :hidden]
+          attrs [(str "(merge {" attribute " true} props)")
+                 (str "(assoc {" attribute " true} " attribute " false)")
+                 (str "(merge {" attribute " true} {" attribute " nil})")]]
+    (let [source (str "(defn view [props] [:div (assoc " attrs " :aria-hidden true) [:button \"x\"]])")]
+      (is (= 1 (count (hidden-focus-findings source))) source))))
+
+(deftest only-rendered-elements-block-focus
+  (doseq [attribute [:inert :hidden]
+          source ["(let [options {%s true} content [:button {:aria-hidden true} \"x\"]] content)"
+                  "[:<> {%s true} [:button {:aria-hidden true} \"x\"]]"
+                  "[ui/panel {%s true} [:button {:aria-hidden true} \"x\"]]"
+                  "[:div {:aria-hidden true} [:<> {%s true} [:button \"x\"]]]"
+                  "[:div {:aria-hidden true} [ui/panel {%s true} [:button \"x\"]]]"]]
+    (let [source (format source attribute)]
+      (is (= 1 (count (hidden-focus-findings source))) source))))
+
+(deftest focus-search-continues-after-inert-and-hidden-branches
+  (doseq [attribute [:inert :hidden]]
+    (let [source (str "[:div {:aria-hidden true} [:section {" attribute " true} [:button \"x\"]]"
+                      " [:a {:href \"/help\"} \"Help\"]]")
+          findings (hidden-focus-findings source)]
+      (is (= 1 (count findings)))
+      (is (= "[:a {:href \"/help\"} \"Help\"]" (:inner-form (first findings)))))))
+
+(deftest hidden-focus-does-not-read-css-display
+  (is (= 1 (count (hidden-focus-findings
+                   "[:div {:aria-hidden true :style {:display \"none\"}} [:button \"x\"]]")))))
+
 (def ^:private tooltip-config {:tooltip-components #{'example.ui/tooltip}})
 
 (deftest plain-tooltip-wrappers-are-reported-at-the-child
