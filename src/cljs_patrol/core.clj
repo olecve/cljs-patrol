@@ -205,18 +205,20 @@
   "Analyze each of sources with enabled-groups, return one {:source-dir … :source-text … :group-results [...]} per source.
 
   A source is {:path its `Path`, :text the folder as typed}. The text is what the progress line and the HTML report print.
-  Each directory is judged on its own findings, while `:usages-in-run` hands every group the
-  usages of all of them, for a rule whose evidence may sit in another directory of the run.
+  Each directory is judged on its own findings, while `:usages-in-run` and `:declarations-in-run`
+  hand every group the evidence from all directories of the run.
   With a `recorder`, the time each step took is added to it. Up to `jobs` files are read at
   once, one by default."
   ([sources enabled-groups] (run-all sources enabled-groups nil))
   ([sources enabled-groups recorder] (run-all sources enabled-groups recorder 1))
   ([sources enabled-groups recorder jobs]
    (let [parsed (mapv #(parser/analyze-project % enabled-groups recorder jobs) sources)
-         usages-in-run (vec (mapcat :usages parsed))]
+         usages-in-run (vec (mapcat :usages parsed))
+         declarations-in-run (vec (mapcat :declarations parsed))]
      (mapv (fn [source {:keys [declarations dynamic-sites usages]}]
              (analyze-groups source
                              {:declarations declarations
+                              :declarations-in-run declarations-in-run
                               :dynamic-sites dynamic-sites
                               :usages usages
                               :usages-in-run usages-in-run}

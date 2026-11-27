@@ -558,6 +558,25 @@
     (is (not-any? #(identical? caller %) (threads-with 4))
         "four jobs read on workers")))
 
+(deftest run-all-shares-style-declarations-across-directories
+  (with-open [file-system (memory-fs/unix)]
+    (doseq [[path source]
+            [["/work/styles/style.cljs" "(ns app.styles) (defattrs button-style [] {:color :gray})"]
+             ["/work/views/view.cljs"
+              "(ns app.view (:require [app.styles :as styles])) [:button (styles/button-style) \"Save\"]"]
+             ["/work/other/other.cljs" "(ns app.other) [:button {} \"Other\"]"]]]
+      (memory-fs/write! (memory-fs/path file-system path) source))
+    (doseq [[directories expected-counts] [[["styles" "views" "other"] [0 1 1]]
+                                           [["other" "views" "styles"] [1 1 0]]]]
+      (let [sources (mapv #(memory-fs/typed (memory-fs/path file-system (str "/work/" %))) directories)
+            results (binding [*err* (java.io.StringWriter.)]
+                      (core/run-all sources [a11y/group]))
+            findings (mapv #(get-in % [:group-results 0 :button-missing-type]) results)]
+        (is (= expected-counts (mapv count findings)))
+        (is (= ["[:button (styles/button-style) \"Save\"]"] (mapv :form (second findings))))
+        (is (= (mapv :text sources) (mapv :source-text results)))
+        (is (= (mapv :path sources) (mapv :source-dir results)))))))
+
 (deftest colors-baseline-flow
   (let [dir (temp-dir/create-dir "cljs-patrol-colors")
         src (str dir "/src")
