@@ -14,3 +14,4 @@ filesystem_only: true
 check_active_branches: false
 task_prefix: "cp"
 zero_padded_ids: 4
+definition_of_done: ["After merge, delete the branch locally and on GitHub, and remove its worktree when the work used one"]
