@@ -1,10 +1,10 @@
 ---
 id: CP-0042
 title: "test-id-query-on-role: recognize render! through a file's own helper"
-status: Idea
+status: Next
 labels: ["react-testing-library-cljs"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-27"
 references: []
 ---
 

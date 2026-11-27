@@ -4,7 +4,7 @@ title: "Resolve :refer :all, :rename and .cljc reader-conditional refers for sty
 status: Idea
 labels: ["spade"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-27"
 references: []
 ---
 
@@ -28,4 +28,10 @@ it shows as an unused-styles false positive.
 ### Notes
 
 Follow-up from cljs-patrol PR 148 review round 2; older than 148.
+
+### Order
+
+The `.cljc` reader-conditional part uses the shared reader from CP-0045. This task keeps the `:refer :all` and `:rename`
+resolution.
+
 <!-- SECTION:DESCRIPTION:END -->

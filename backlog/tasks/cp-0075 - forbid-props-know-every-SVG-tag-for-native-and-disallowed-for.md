@@ -1,10 +1,10 @@
 ---
 id: CP-0075
 title: "forbid-props: know every SVG tag for :native and :disallowed-for"
-status: Idea
+status: Next
 labels: ["forbid-props"]
 created_date: "2026-11-26"
-updated_date: ""
+updated_date: "2026-11-27"
 references: []
 ---
 

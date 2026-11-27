@@ -4,7 +4,7 @@ title: "Fast and deep modes: a --deep flag for analyses too slow for every PR"
 status: Idea
 labels: ["core"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-27"
 references: []
 ---
 
@@ -33,4 +33,9 @@ project-wide index per run (namespaces, defs, components and the props they pass
 rule docs and the docs-example tests cover both modes. Start with an ADR (flag, gating, baseline policy, options,
 revisit trigger), then pilot one analysis: cross-file props resolution, the most common miss and useful to several
 rules. Related: backlog CP-0021 (^js hints), CP-0033 (cond->).
+
+### Order
+
+Share the cross-file index with CP-0041 and CP-0047, but do not make those smaller fixes wait for a deep mode.
+
 <!-- SECTION:DESCRIPTION:END -->

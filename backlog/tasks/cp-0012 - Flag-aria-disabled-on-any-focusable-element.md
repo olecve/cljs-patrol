@@ -2,9 +2,9 @@
 id: CP-0012
 title: "Flag aria-disabled on any focusable element"
 status: Idea
-labels: ["forbid-props"]
+labels: ["forbid-props", "a11y"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-27"
 references: []
 ---
 

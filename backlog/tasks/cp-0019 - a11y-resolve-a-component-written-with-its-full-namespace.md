@@ -1,10 +1,10 @@
 ---
 id: CP-0019
 title: "a11y: resolve a component written with its full namespace"
-status: Idea
+status: Next
 labels: ["a11y"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-27"
 references: []
 ---
 

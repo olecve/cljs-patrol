@@ -2,9 +2,9 @@
 id: CP-0058
 title: "Mutation runner: triage the 13 focus-ring survivors"
 status: Idea
-labels: ["mutation-runner"]
+labels: ["mutation-runner", "tests", "focus-ring"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-27"
 references: []
 ---
 

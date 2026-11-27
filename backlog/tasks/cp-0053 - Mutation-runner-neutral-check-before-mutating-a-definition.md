@@ -4,7 +4,7 @@ title: "Mutation runner: neutral check before mutating a definition"
 status: Idea
 labels: ["mutation-runner"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-27"
 references: []
 ---
 
@@ -30,4 +30,10 @@ evaluate-and-restore path.
 ### Notes
 
 One extra run per definition; could reuse the test-plan check from PR 165.
+
+### Order
+
+Needs a new design before work starts. The runner already runs the selected tests once without a mutation, and replaying
+unchanged code cannot show a caller that kept the original function value; ADR 0005 records that limit.
+
 <!-- SECTION:DESCRIPTION:END -->

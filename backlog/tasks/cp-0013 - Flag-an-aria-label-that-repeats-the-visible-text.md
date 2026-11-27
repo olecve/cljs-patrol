@@ -4,7 +4,7 @@ title: "Flag an aria-label that repeats the visible text"
 status: Next
 labels: ["a11y"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-27"
 references: []
 ---
 
@@ -47,4 +47,9 @@ way.
 Also detect aria-label values that duplicate a configured field component's label, as in [field {:label "Notes"}
 [textarea {:aria-label "Notes"}]]. With :label-components the rule can see the field label, so it could flag this case
 too.
+
+### Order
+
+Do after CP-0015. Read the accessible text through the shared reader that CP-0015 adds, not a reader of its own.
+
 <!-- SECTION:DESCRIPTION:END -->

@@ -2,9 +2,9 @@
 id: CP-0033
 title: "Read cond-> built props maps in the shared attrs reader"
 status: Next
-labels: ["a11y"]
+labels: ["a11y", "core"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-27"
 references: []
 ---
 

@@ -2,9 +2,9 @@
 id: CP-0045
 title: "Share one reader of top-level forms and reader-conditional branches across groups"
 status: Idea
-labels: ["spade", "tests", "focus-ring"]
+labels: ["spade", "tests", "focus-ring", "core"]
 created_date: ""
-updated_date: "2026-11-25"
+updated_date: "2026-11-27"
 references: []
 ---
 
@@ -49,5 +49,10 @@ traversal and updating the tests and spade groups are still open.
 
 - [Shared branch selector](https://github.com/olecve/cljs-patrol/pull/185)
 - [Reader-conditional follow-up](https://github.com/olecve/cljs-patrol/pull/186)
+
+### Order
+
+Partly shipped: `parser/reader-conditional-branch` exists, and the colors group reads branches through it. What is left:
+move the spade, tests and focus-ring groups onto the same reader. CP-0001 uses it for `.cljc` refers.
 
 <!-- SECTION:DESCRIPTION:END -->

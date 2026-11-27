@@ -1,10 +1,10 @@
 ---
 id: CP-0002
 title: "Treat :inert and :hidden as ways out on an aria-hidden wrapper"
-status: Idea
+status: Next
 labels: ["a11y"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-27"
 references: []
 ---
 
