@@ -73,6 +73,13 @@
     :textPath :animate :animateMotion :animateTransform :feBlend :feColorMatrix :feComposite
     :feDropShadow :feFlood :feGaussianBlur :feMerge :feMergeNode :feOffset})
 
+(def svg-tags
+  "The SVG element names in [[html-tags]], `:svg` included. HTML-only attributes such as `inert` do nothing on them."
+  #{:svg :g :path :circle :ellipse :rect :line :polyline :polygon :defs :use :text :tspan
+    :mask :pattern :clipPath :linearGradient :radialGradient :stop :marker :symbol :foreignObject
+    :textPath :animate :animateMotion :animateTransform :feBlend :feColorMatrix :feComposite
+    :feDropShadow :feFlood :feGaussianBlur :feMerge :feMergeNode :feOffset})
+
 (defn html-tag?
   "True when `tag` names an HTML/SVG element or the fragment."
   [tag]
