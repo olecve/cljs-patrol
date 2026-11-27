@@ -152,6 +152,23 @@
             (when (or (contains? features name) (= name ":default")) branch)))
         (reader-conditional-branches loc)))
 
+(defn branch-reader
+  "Return the reader conditional whose branch loc is, or nil."
+  [loc]
+  (let [reader (some-> loc z/up z/up)]
+    (when (some #(= loc (second %)) (reader-conditional-branches reader))
+      reader)))
+
+(defn active-branch?
+  "True when every reader conditional around loc picks the branch that holds it for the features."
+  [features loc]
+  (loop [current loc]
+    (if-let [parent (z/up current)]
+      (if-let [reader (branch-reader current)]
+        (and (= current (reader-conditional-branch reader features)) (recur reader))
+        (recur parent))
+      true)))
+
 (defn cljs-child-locs
   "Read the written children in the ClojureScript reader branch, expanding splices."
   [loc]

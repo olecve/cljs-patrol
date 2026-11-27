@@ -254,7 +254,9 @@
 (deftest button-type-skips-inactive-defattrs
   (doseq [declaration ["#_(defattrs button-props [] {:color :gray})"
                        "(comment (defattrs button-props [] {:color :gray}))"
-                       "'(defattrs button-props [] {:color :gray})"]]
+                       "'(defattrs button-props [] {:color :gray})"
+                       "(quote (defattrs button-props [] {:color :gray}))"
+                       "`(defattrs button-props [] {:color :gray})"]]
     (let [result (temp-project/run-group
                   a11y/group
                   {"app/view.cljs" (str "(ns app.view)\n"
@@ -263,6 +265,21 @@
                                         "(defn view [] [:button (button-props) \"Save\"])")})]
       (is (empty? (get-in result [:results :button-missing-type]))
           declaration))))
+
+(deftest button-type-reads-the-clojurescript-branch-of-a-reader-conditional
+  (doseq [[source expected] [[(str "#?(:clj (defattrs button-props [] {:color :gray})\n"
+                                   "   :cljs (defn button-props [] {:type :button}))")
+                              0]
+                             [(str "#?(:clj (defn button-props [] {:type :button})\n"
+                                   "   :cljs (defattrs button-props [] {:color :gray}))")
+                              1]]]
+    (let [result (temp-project/run-group
+                  a11y/group
+                  {"app/view.cljc" (str "(ns app.view)\n"
+                                        source "\n"
+                                        "(defn view [] [:button (button-props) \"Save\"])")})]
+      (is (= expected (count (get-in result [:results :button-missing-type])))
+          source))))
 
 (deftest button-type-defattrs-without-run-context
   (with-open [file-system (memory-fs/unix)]

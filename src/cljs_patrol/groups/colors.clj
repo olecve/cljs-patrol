@@ -19,22 +19,17 @@
 (defn- effective-children [loc]
   (map unwrap-meta (parser/written-child-locs loc)))
 
-(defn- branch-reader [loc]
-  (let [reader (some-> loc z/up z/up)]
-    (when (some #(= loc (second %)) (parser/reader-conditional-branches reader))
-      reader)))
-
 (defn- splice-reader [loc]
   (let [parent (z/up loc)]
     (cond
       (and (= :meta (z/tag parent)) (= loc (last (parser/written-child-locs parent)))) (recur parent)
-      :else (when-let [reader (branch-reader loc)]
+      :else (when-let [reader (parser/branch-reader loc)]
               (if (= "?@" (parser/reader-conditional-kind reader))
                 reader
                 (recur reader))))))
 
 (defn- reader-site [loc]
-  (if-let [wrapper (or (branch-reader loc) (splice-reader (z/up loc)))]
+  (if-let [wrapper (or (parser/branch-reader loc) (splice-reader (z/up loc)))]
     (recur wrapper)
     loc))
 
@@ -43,14 +38,6 @@
     (if (= :meta (z/tag parent))
       (recur parent)
       parent)))
-
-(defn- active-branch? [feature loc]
-  (loop [current loc]
-    (if-let [parent (z/up current)]
-      (if-let [reader (branch-reader current)]
-        (and (= current (parser/reader-conditional-branch reader feature)) (recur reader))
-        (recur parent))
-      true)))
 
 (defn- projected-forms [feature loc]
   (let [form (unwrap-meta loc)]
@@ -123,8 +110,8 @@
        (some #(contains? #{"ns" "comment"} (projected-list-head features %)))))
 
 (defn- active-feature-sets [loc feature-sets]
-  (or (seq (filter #(active-branch? % loc) feature-sets))
-      (when (active-branch? #{} loc) [#{}])))
+  (or (seq (filter #(parser/active-branch? % loc) feature-sets))
+      (when (parser/active-branch? #{} loc) [#{}])))
 
 (defn- documentation? [loc active-features]
   (let [parent (enclosing-form loc)]
@@ -207,7 +194,7 @@
                                value (string-value value-loc)]
                          :when (and (= "def" (projected-list-head #{":cljs"} definition))
                                     (re-matches exact-hex value)
-                                    (active-branch? #{":cljs"} value-loc))
+                                    (parser/active-branch? #{":cljs"} value-loc))
                          :let [[_ id & values] (projected-children #{":cljs"} definition)
                                token-name (parser/sym-name id)]
                          :when (and token-name
