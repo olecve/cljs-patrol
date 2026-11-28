@@ -1,11 +1,13 @@
 ---
 id: CP-0060
 title: "Mutation runner: extract into its own project"
-status: Idea
+status: Done
 labels: ["mutation-runner"]
 created_date: ""
-updated_date: ""
-references: []
+updated_date: "2026-11-28"
+references:
+  - https://github.com/olecve/mutacio-clj
+  - docs/adr/0016-extract-the-mutation-runner.md
 ---
 
 ## Description

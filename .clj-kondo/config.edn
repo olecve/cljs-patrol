@@ -1,5 +1,5 @@
 ;; Linters clj-kondo ships off or at :info.
-{;; Code that must keep java.io, by namespace name: the mutation runner and its tests need git and the real disk, and
+{;; Code that must keep java.io, by namespace name: the dev tools and their tests need the real disk, and
  ;; the tests and their helpers make fixture files on the real disk.
  :ns-groups [{:pattern "^cljs-patrol\\.dev\\." :name java-io-allowed}
              {:pattern "^cljs-patrol\\..*-test$" :name java-io-allowed}

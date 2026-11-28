@@ -238,8 +238,10 @@ mode it warns that it changes your files. mutmut copies the sources to `mutants/
 
 ## More Information
 
-- The code: [`dev/cljs_patrol/dev/mutate/guard.clj`](../../dev/cljs_patrol/dev/mutate/guard.clj), and the stop in the
-  mutant loop `run-all` of [`dev/cljs_patrol/dev/mutate/run.clj`](../../dev/cljs_patrol/dev/mutate/run.clj).
+- The code:
+  [`dev/cljs_patrol/dev/mutate/guard.clj`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/dev/cljs_patrol/dev/mutate/guard.clj),
+  and the stop in the mutant loop `run-all` of
+  [`dev/cljs_patrol/dev/mutate/run.clj`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/dev/cljs_patrol/dev/mutate/run.clj).
 - The test helper: [`test/cljs_patrol/temp_dir.clj`](../../test/cljs_patrol/temp_dir.clj).
 - JDK. [`jdk.jfr.Recording`](https://docs.oracle.com/en/java/javase/22/docs/api/jdk.jfr/jdk/jfr/Recording.html), JDK 22.
 - JDK-8194154. [System property user.dir should not be changed](https://bugs.openjdk.org/browse/JDK-8194154).

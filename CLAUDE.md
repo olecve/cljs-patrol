@@ -81,139 +81,16 @@ Tests live in `test/`, mirroring the `src/` structure. Fixture projects for the 
 
 ### Mutation testing
 
-Every branch a change adds needs a test that fails when the branch breaks. The dev-only runner checks that in one JVM.
-[`docs/mutation-testing.md`](docs/mutation-testing.md) is the guide for people: why, how to run it, and how to read the
-report. The details for running it follow:
+Every branch a change adds needs a test that fails when the branch breaks. The mutation runner
+[mutacio-clj](https://github.com/olecve/mutacio-clj) checks that: it plants one small bug at a time in the code under
+test and runs the tests that call that code. The `:mutate` alias in `deps.edn` gets it as a git dependency.
 
 ```bash
 clojure -M:test:mutate cljs-patrol.groups.reagent -t cljs-patrol.groups.reagent-test -s main
 ```
 
-It changes the code under test, never the tests: it swaps one operator at a time in a `def`, `defn`, `defn-` or
-`defmethod` of the target namespace, such as `when` for `when-not`, `<` for `<=`, `some` for `every?` or `true` for
-`false`. An integer literal written in decimal changes too, in function code (a `defn`, `defn-` or `defmethod` body, or
-a `def` whose value is a `fn` or `#(…)`): `0` and `1` swap, and any other goes up by one, such as `-1` to `0`. A
-definition's name, a `defmethod` dispatch value and a `^:const` def, whose value callers copy, get no mutant at all, and
-the report lists `^:const` defs apart. A skip marker names a changed number by its text, such as
-`; mutate: skip 0: REASON`. Each arity of that function code, but a `#(…)`, also gets a body mutant (`:swap :body`), as
-cargo-mutants does for Rust: its whole body becomes `nil`, so a function with no operator, or one whose result no test
-checks, still shows up. Its operator is `body`, and it sits at the body's first form, so `--apply 'ROW:COL:body'` and
-`; mutate: skip body: REASON` on that line name it; `--apply` picks it by column and operator, since a token there, such
-as `80` in `(defn width [] 80)`, has its own mutant. A leading `{:pre … :post …}` map with forms after it stays, and
-only the forms after it become `nil`. An empty body or a lone `nil` gets none, since it already gives nil. A first run
-of the tests records which tests call each function of the target. Then, for each mutant, it evaluates the mutated form
-over the namespace, runs the tests that call that function until the first failure, and evaluates the original back.
-Pass every test namespace that exercises the target with `-t`: the run knows only those. Every test runs instead when
-the function cannot be recorded (a `defmethod`, a `def` that holds data, or a function with a primitive type hint), when
-it is called from a fixture, when a test namespace has a `test-ns-hook`, when the selected tests fail on their own, and
-with `-a` (`--all-tests`). A test that only reads what another test wrote is not selected for the function that wrote
-it, and a call that a background thread makes after its test ended counts for the test running then, so use `-a` for
-such a namespace. If recording the calls makes the tests fail, or run past a timeout given with `--timeout`, every
-mutant runs every test, and the report says so. Each mutant ends as one of:
-
-- **killed**: a test failed, or the mutated form threw while it loaded. A failure is recorded before the run is cut
-  short, so an assertion that catches exceptions, such as `thrown?`, cannot hide it.
-- **no coverage**: the first run saw no call of the function, in a test or in a fixture, and every test passes with the
-  mutant. The report names these functions once, under "No coverage", instead of a survivor for each operator. A
-  function the tests call only through a value stored when the namespace loaded, such as a `partial`, shows here too.
-  When another mutant of the same function is killed or times out, the tests do reach it, so its passing mutants count
-  as survivors.
-- **survived**: every test passed, so no test pins that branch. It may also be an equivalent mutant, such as `first` for
-  `last` on a one-element list.
-- **unviable**: the mutated form could not be read or compiled. Not scored.
-- **timed out**: the tests ran longer than 1.5 times their own unmutated run plus 2 s, which is the first run for every
-  test and the plan check for a function's selected tests (`--timeout` overrides both). Not scored. If its tests still
-  run half a second after that, the run stops, since a looping thread would disturb every later run, and the report
-  names the definitions whose mutants it did not reach, with how many. Run those with `-d` to get past it.
-
-A definition under metadata or in the `#?` branch Clojure reads counts like any other. Metadata, attribute maps,
-`comment` blocks, `#_`, quoted code and `#?` branches Clojure does not read are not mutated. Neither are `defmacro`,
-`defmulti`, `defonce`, `defprotocol`, `defrecord` and `deftype`, which Clojure keeps from the first load or other code
-captures then, nor top-level forms that are no definition, whose effects would run again with every mutant. The report
-has a row per definition with its counts, two scores (killed over all scored mutants, and over the mutants the tests
-reach), names what was not mutated or has no coverage and why, and lists every survivor, unviable and timed-out mutant
-with its source line. Survivors are grouped by line. On the first 10 lines, the line shows once before the swaps as a
-`- ` line, and each survivor shows the line after its swap as a `+ ` line, both without the indent. A line longer than
-100 characters is cut to 100, from 40 before the swap, or earlier so the cut ends at the line end; the `- ` line shows
-again when a swap needs another part of the line. The survivors on later lines show only their position and swap, and a
-line points to `--html` and `-r` for them, or to the files the run writes. A `; mutate: skip OPERATOR: REASON` comment
-after a line, or on the line above it in the same form, leaves that operator's mutant out, and `:mutate/skip "REASON"`
-on a definition's name or in a `defn`'s attribute map leaves out all of its mutants: they do not run, are not scored,
-and are listed as ignored with the reason. Only real comments count. The run stops on a comment that starts like a
-marker but is not one, on a `:mutate/skip` that is no reason string, and on one on a form the runner does not mutate; a
-marker that matches no mutant or has no code after it in its form prints a warning. `-d` limits the run to named
-top-level definitions, `-s REF` to the lines the branch changed since it left a git ref (a body mutant counts when any
-of its lines changed), `-r FILE` writes every mutant and its outcome to EDN, and `--html FILE` writes a page that leads
-with the test gaps: each one's line before and after the change, a likely reason no test caught it, and the tests that
-run for it, then tables by function and by test, and the source. The page needs no network. Its plain words, such as
-"planted bug" for a mutant, map to the usual ones in [`docs/mutation-testing.md`](docs/mutation-testing.md).
-`--apply 'ROW:COL:OPERATOR'` writes that one mutant into the file and runs nothing, keeping the replaced text in
-`.mutate-applied.edn`, and `--restore` puts it back. Neither takes the options of a run, and a second `--apply` or a run
-waits for `--restore`. A run writes `.mutate-cache/<target-ns>.edn` in the directory it runs from again after each
-mutant's outcome, with the safe write of `--apply`, so a stopped or killed run keeps what it finished; a run that
-reports no outcome, such as one whose baseline fails, leaves the cache as it was. A cache that cannot be read prints one
-warning: the run does not use it, and its first outcome replaces it. A key that cannot be made, or a cache that cannot
-be written, prints one warning, and the run goes on without the cache. Each mutant has an `:id` in the cache and the EDN
-report, such as `holds-focus?/490:43/remove->filter`: its definition, line, column and swap, and a place: the hash of
-its top-level definition's text, its line and column inside that definition, and its swap. The cache's key is a hash of
-every file under `src/`, `test/`, `dev/`, `resources/`, `test-projects/` and `docs/`, of `deps.edn` and `README.md`, and
-of the classpath directories under the working directory, counting only the files git sees in a git work tree (outside
-git, or where git lists no file, every file but `.git/` and `.mutate-cache/`), each by its path, length and bytes, the
-sorted `-t` namespaces, a hash of the runner's own sources (`mutate.clj`, `mutate/*.clj`, and the parser with the src
-namespaces it requires), and `-a` and `--timeout`. A run with the same key reuses each cached outcome, a plain timeout
-included, and runs only the other mutants, and `-d` and `-s` runs share one cache. A mutant whose tests kept running
-after the timeout is never reused: the next run runs it again after every other mutant. When a run with the same key
-finds every mutant in scope cached, no test runs, the baseline included. Another key makes the run start over.
-`--iterate` needs only the same `-t` namespaces, runner and options: it reuses the caught and unviable outcomes by
-place, so an edit runs again only the definitions it touches; after a change it runs the baseline, and a definition
-whose outcomes are all reused shows the tests the baseline saw call it. The cache keeps the test lists the report used,
-so a later run with no baseline still shows them. On unchanged sources, `--iterate` resumes: it keeps reusing the
-outcomes it trusts and runs no baseline when nothing is left. It marks those outcomes `:trusted?`, drops the name of the
-test that caught them, and a run without `--iterate` runs them again. `--fresh` runs every mutant again. Run one runner
-at a time on a target: the last write wins. At the end of a run that prints its report, in every mode, the cache keeps
-what that run reported, by place, as the last run: each gap whose place the last run reported is tagged new or still
-open, on the console and the page, the others count as "not run then", and the report counts the gaps closed since.
-Before and after the baseline, a run takes a snapshot of every file and folder under the directory it runs from: the
-path of each, and the size and time of change of each file, but not of a folder, whose time changes with its files. The
-snapshot skips the root `.git/`, the run's cache folder, what git ignores, and `editor-files` in `guard.clj`: the
-folders `.lsp/`, `.clj-kondo/.cache/`, `.clj-kondo/imports/`, `.clj-kondo/inline-configs/`, `.idea/` and `.calva/`, and
-the names `*.swp`, `*.swo`, `4913`, `.#*`, `#*#`, `*~`, `.DS_Store` and `.nrepl-port` at any depth. The snapshot before
-the baseline skips only `.git/`, the cache folder and those folders and names. After the baseline, the run asks git once
-which paths under the directory it ignores (`git status --ignored=matching`), and every later snapshot skips them, a
-folder that git ignores as a whole with all its files. When a snapshot finds added paths, the run asks git about them
-(`git check-ignore --stdin`): a new path that git ignores, and a new folder that holds one, are no change, and later
-snapshots skip them too. Outside a git work tree, when an ignore rule matches the directory itself or a folder above it
-(`git check-ignore -q --no-index .`), or when git fails, the run asks git nothing about new paths, prints a note and
-skips the hand list instead: the folders above, `.cpcache/` and `.shadow-cljs/`. A folder that holds a skipped path,
-such as `.clj-kondo/`, is not in the snapshot itself, but its other files, such as `config.edn`, are. A file deleted
-during the walk is left out, and a folder it cannot read counts as one `:unreadable` entry. After each mutant that
-loaded, also one that failed while it loaded, it takes another snapshot and compares it with the reference: the last
-snapshot with no change, which is the one after the baseline at first. An unviable mutant gets none, so the next
-snapshot finds a file that a macro writes while it expands there, and blames the mutant it follows; with no snapshot
-after it, the file stays unseen. A file the baseline added or changed counts as changed only when its bytes change, and
-the message says so; a file whose bytes cannot be read counts as changed. A new, changed or deleted file or folder stops
-the run: it names the `:id` of the mutant that just ran, or its loading when it failed while it loaded (loading the
-mutated definition, or putting the original back, changed the files, so look at that definition's top-level code), and
-up to 10 paths, files first, says when that mutant's tests still run after the timeout or its restore failed, and does
-not undo them. That mutant is not listed as unreached, and the cache drops its outcome: from the store, and from the
-cache file when the file holds one with the mutant's id or place, which `--iterate` matches. The file is then written
-again without that outcome, the rest as it was, also in a `--fresh` or start-over run; it is not written when it holds
-none. [ADR 0011](docs/adr/0011-mutation-test-stop-when-a-test-changes-a-file.md) and
-[ADR 0012](docs/adr/0012-mutation-test-guard-skips-what-git-ignores.md) record why. Tests take a temporary folder from
-`cljs-patrol.temp-dir`, which asks the JDK for a new one each call, never from `cljs-patrol.fs`, which a mutant can
-change: `create-dir` with `delete-dir!`, `with-dir`, or `file-path` with the fixture `delete-created`. A run exits 0
-when nothing survives, 1 when something survives or has no coverage, and 2 when it cannot start or stops early. A value
-a `def` computes when the namespace loads keeps the original, so a mutant only it reaches survives.
-
-The runner's command line is `dev/cljs_patrol/dev/mutate.clj`. Each job has its namespace under
-`dev/cljs_patrol/dev/mutate/`, and its tests under `test/cljs_patrol/dev/mutate/`: `forms` reads the target into
-mutants, skip markers and scope, `run` loads each mutant and runs the tests, `report` summarizes and prints, `apply`
-does `--apply` and `--restore`, `guard` finds the files a mutant's tests changed, `git` reads the lines `-s` changed and
-runs git for the cache key's file list and for the paths git ignores, `cache` keeps each outcome for the next run and
-compares the gaps with the last one, and `error` holds the error that stops a run. The end-to-end tests in
-`test/cljs_patrol/dev/mutate_test.clj` and `mutate_html_test.clj` also exercise every job, so to mutate a runner
-namespace, pass all of its test namespaces with `-t`: `cljs-patrol.dev.mutate-test`, `cljs-patrol.dev.mutate-html-test`
-and the `cljs-patrol.dev.mutate.*-test` ones. `fixtures.clj` holds the helpers they share.
+Pass every test namespace that tests the target with `-t`. [`docs/mutation-testing.md`](docs/mutation-testing.md) links
+to the runner's guide and reference.
 
 ## Linting
 
