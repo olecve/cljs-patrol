@@ -5,7 +5,8 @@ status: Done
 labels: ["reagent"]
 created_date: ""
 updated_date: "2026-11-27"
-references: []
+references:
+  - https://github.com/olecve/cljs-patrol/pull/194
 ---
 
 ## Description
