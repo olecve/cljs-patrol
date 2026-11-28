@@ -236,3 +236,9 @@ A CLI flag overrides the matching setting. See [Severity tiers](docs/severity.md
 [Idioms options](docs/rules/idioms.md#idioms-options) for `:idioms`, and
 [Reading .clj files](docs/rules.md#experimental-reading-clj-files) for `:experimental-clj`. A flag written
 `--no-experimental-clj` turns that last one off for one run.
+
+## License
+
+Copyright © 2026 Oleg Tsvetkov
+
+Distributed under the [Eclipse Public License 2.0](LICENSE).
