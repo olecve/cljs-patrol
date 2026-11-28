@@ -75,15 +75,16 @@
                                     :inline-component []
                                     :discarded-hiccup []
                                     :remounting-branch []})]
-    (is (= 7 (count lines)))
+    (is (= 8 (count lines)))
     (is (= 1 (second (first lines))))
     (is (= 0 (second (second lines))))
     (is (= [["Empty fragment props:" 0]
             ["Redundant fragment:" 0]
             ["Inline component:" 0]
             ["Discarded hiccup:" 0]
-            ["Remounting branch:" 0]]
-           (take-last 5 lines)))))
+            ["Remounting branch:" 0]
+            ["Controlled input dispatch:" 0]]
+           (take-last 6 lines)))))
 
 (defn- vector-findings
   "Walk `lines` the way the parser walks a file, and return the forms `rule` reports."
@@ -583,3 +584,170 @@
                                     "(comment (defn a [x] (if x [:span [:input]] [:input])))"
                                     "(defclass panel [] (if x [:span [:input]] [:input]))"]))
       "unrendered code"))
+
+(defn- controlled-inputs [source]
+  (let [{:keys [results errors]}
+        (temp-project/run-group reagent/group
+                                {"views.cljs" (if (str/starts-with? source "(ns ")
+                                                source
+                                                (str "(ns demo.views (:require [re-frame.core :as events :refer [dispatch]]"
+                                                     " [reagent.core :as r] [other.events :as other]))\n" source))})]
+    (is (not (re-find #"(?i)warn|error" errors)))
+    (:controlled-input-dispatch results)))
+
+(deftest controlled-input-dispatches-are-flagged
+  (doseq [form ["[:input {:value text :on-change #(events/dispatch [::text %])}]"
+                "[:textarea {:value text :on-change (fn [e] (dispatch [::text e]))}]"
+                "[:input.query#q {:value text :on-change (fn changed [e] (events/dispatch [::text e]))}]"
+                "[:textarea {:value text :on-change (fn ([e] (events/dispatch [::text e])))}]"
+                "[:input {:value text :on-change (fn [e] (events/dispatch [::text e]) (log e))}]"
+                "[:input {:value text :on-change (fn ([e] (events/dispatch [::text e])) ([e v] (log e v)))}]"
+                "[:input (assoc {} :value text :on-change #(events/dispatch [::text %]))]"
+                "[:input (merge {:value text} {:on-change #(events/dispatch [::text %])})]"
+                "[:input (assoc-in {:value text} [:on-change] #(events/dispatch [::text %]))]"
+                "(let [props {:value text :on-change #(events/dispatch [::text %])}] [:input props])"
+                "[:input {:value text :on-change #(do (log %) (when % (events/dispatch [::text %])))}]"
+                "[:input {:value text :on-change #(events/dispatch event)}]"
+                "[:input {:value text :on-change #(re-frame.core/dispatch [::text %])}]"
+                "[:input {:value text :on-change #(let [draft (other/atom text)] (events/dispatch [::text @draft]))}]"
+                "(let [draft (other/atom text)] [:input {:value @draft :on-change #(events/dispatch [::text %])}])"
+                "(def draft (r/atom text))\n[:input {:value @draft :on-change #(events/dispatch [::text %])}]"
+                "(defn view [draft] [:input {:value @draft :on-change #(events/dispatch [::text %])}])"
+                "[:input {:value (deref state) :on-change #(events/dispatch [::text %])}]"
+                "[:input {:value (format-text text) :on-change #(events/dispatch [::text %])}]"]]
+    (testing form
+      (let [findings (controlled-inputs form)]
+        (is (= 1 (count findings)))
+        (is (= :controlled-input-dispatch (:type (first findings))))
+        (is (contains? #{:input :textarea} (:kw (first findings))))
+        (is (string? (:form (first findings))))
+        (is (str/ends-with? (:file (first findings)) "views.cljs"))
+        (is (pos? (:row (first findings))))
+        (is (pos? (:col (first findings)))))))
+  (doseq [input-type ["text" "search" "email" "url" "tel" "password" "TEXT" :text]]
+    (is (= 1 (count (controlled-inputs
+                     (str "[:input {:type " (pr-str input-type)
+                          " :value text :on-change #(events/dispatch [::text %])}]")))))))
+
+(deftest controlled-input-helper-calls-are-followed
+  (doseq [source ["(defn save! [e] (events/dispatch [::text e]))\n[:input {:value text :on-change save!}]"
+                  (str "(defn save! [e] (events/dispatch [::text e]))\n"
+                       "[:input {:value text :on-change #(save! %)}]")
+                  (str "(defn save! [e] (events/dispatch [::text e]) (log e))\n"
+                       "(defn changed! [e] (save! e))\n"
+                       "[:input {:value text :on-change (fn [e] (changed! e))}]")
+                  (str "(defn save! ([e] (events/dispatch [::text e])) ([e v] (log e v)))\n"
+                       "[:input {:value text :on-change save!}]")
+                  "(def save! #(events/dispatch [::text %]))\n[:input {:value text :on-change save!}]"
+                  "(let [save! (fn [e] (events/dispatch [::text e]))] [:input {:value text :on-change save!}])"
+                  "(let [save! #(events/dispatch [::text %])] [:input {:value text :on-change #(save! %)}])"
+                  "(let [a b b a] [:input {:value text :on-change #(do (a %) (events/dispatch [::text %]))}])"
+                  (str "(defn a [e] (b e))\n(defn b [e] (a e) (events/dispatch [::text e]))\n"
+                       "[:input {:value text :on-change a}]")]]
+    (testing source
+      (is (= 1 (count (controlled-inputs source)))))))
+
+(deftest controlled-input-safe-and-unreadable-cases-are-left-alone
+  (doseq [source ["[:input {:default-value text :on-change #(events/dispatch [::text %])}]"
+                  "[:input {:on-change #(events/dispatch [::text %])}]"
+                  "[:input {:value text}]"
+                  "[:input {:value text :on-change nil}]"
+                  "[:input {:value text :on-change 42}]"
+                  "[:input {:value text :on-change #(reset! draft (.. % -target -value))}]"
+                  "[:input {:value text :on-change #(events/dispatch-sync [::text %])}]"
+                  "[:input {:value text :on-change (fn [e] (other/dispatch [::text e]))}]"
+                  "[:input {:value text :on-change #(dispatch-sync [::text %])}]"
+                  "[text-field {:value text :on-change #(events/dispatch [::text %])}]"
+                  "[:div {:value text :on-change #(events/dispatch [::text %])}]"
+                  "[:ui/input {:value text :on-change #(events/dispatch [::text %])}]"
+                  "[:input (build-props text)]"
+                  "[:input props]"
+                  "[:input (assoc props :value text :on-change #(events/dispatch [::text %]))]"
+                  "[:input (merge {:value text :on-change #(events/dispatch [::text %])} props)]"
+                  "[:input {:value text k v :on-change #(events/dispatch [::text %])}]"
+                  "[:input {:type input-type :value text :on-change #(events/dispatch [::text %])}]"
+                  "[:input {:type (input-type) :value text :on-change #(events/dispatch [::text %])}]"
+                  "[:input {:type #js {} :value text :on-change #(events/dispatch [::text %])}]"
+                  "[:input {:type nil :value text :on-change #(events/dispatch [::text %])}]"
+                  "[:input {:value text :on-change [events/dispatch]}]"
+                  "[:input {:value text :on-change #(log events/dispatch)}]"
+                  "[:input {:value text :on-change #(fn [] (events/dispatch [::text]))}]"
+                  "[:input {:value text :on-change #(log (fn [] (events/dispatch [::text])))}]"
+                  "[:input {:value text :on-change #(log '(events/dispatch [::text]))}]"
+                  "[:input {:value text :on-change #(log (quote (events/dispatch [::text])))}]"
+                  "[:input {:value text :on-change #(comment (events/dispatch [::text]))}]"
+                  "[:input {:value text :on-change #(var (events/dispatch [::text]))}]"
+                  "[:input {:value text :on-change #(do #_(events/dispatch [::text]) (log %))}]"
+                  "(let [dispatch log] [:input {:value text :on-change #(dispatch [::text %])}])"
+                  "[:input {:value text :on-change (fn [dispatch] (dispatch [::text]))}]"
+                  "(defn save! [e] (events/dispatch-sync [::text e]))\n[:input {:value text :on-change save!}]"
+                  "(defn save! [e] (log e))\n[:input {:value text :on-change #(save! %)}]"
+                  "(defn a [e] (b e))\n(defn b [e] (a e))\n[:input {:value text :on-change a}]"
+                  "(def a b)\n(def b a)\n[:input {:value text :on-change a}]"
+                  (str "(defn save! [e] (events/dispatch [::text e]))\n"
+                       "(defn view [save!] [:input {:value text :on-change #(save! %)}])")
+                  (str "(defn save! [e] (events/dispatch [::text e]))\n(defn save! [e] (log e))\n"
+                       "[:input {:value text :on-change save!}]")
+                  (str "(let [draft (r/atom text)] (fn [] [:input {:value @draft :on-change "
+                       "#(do (reset! draft (.. % -target -value)) (events/dispatch [::text @draft]))}]))")
+                  (str "(let [draft (r/atom text)] [:input {:value (deref draft)"
+                       " :on-change #(events/dispatch [::text %])}])")
+                  "'[:input {:value text :on-change #(events/dispatch [::text %])}]"
+                  "#_[:input {:value text :on-change #(events/dispatch [::text %])}]"
+                  "(comment [:input {:value text :on-change #(events/dispatch [::text %])}])"
+                  (str "(defn save! [e] (events/dispatch [::text e]))\n"
+                       "(def schema [:map [:input {:value text :on-change save!} :string]])")]]
+    (testing source
+      (is (empty? (controlled-inputs source)))))
+  (doseq [input-type ["checkbox" "radio" "range" "file" "number" "date" "hidden" "color" "button" "submit"]]
+    (is (empty? (controlled-inputs
+                 (str "[:input {:type " (pr-str input-type)
+                      " :value text :on-change #(events/dispatch [::text %])}]"))))))
+
+(deftest controlled-input-empty-handler-calls-are-left-alone
+  (doseq [handler ["(fn [_] ())" "#()" "(fn [_] (do ()))" "(fn [_] (#_ignored))"]]
+    (testing handler
+      (is (empty? (controlled-inputs (str "[:input {:value text :on-change " handler "}]")))))))
+
+(deftest controlled-input-with-let-atoms-are-local-state
+  (doseq [source ["(r/with-let [draft (r/atom \"\")] [:input {:value @draft :on-change #(events/dispatch [::text %])}])"
+                  (str "(reagent.core/with-let [draft (reagent.core/atom \"\")]"
+                       " [:input {:value (deref draft) :on-change #(events/dispatch [::text %])}])")
+                  (str "(ns demo.views (:require [reagent.core :refer [with-let atom]] [re-frame.core :as events]))\n"
+                       "(with-let [draft (atom \"\")] [:input {:value @draft :on-change #(events/dispatch [::text %])}])")
+                  (str "(ns demo.views (:require [reagent.core :as r] [re-frame.core :as events])"
+                       " (:require-macros [reagent.core :refer [with-let]]))\n"
+                       "(with-let [draft (r/atom \"\")] [:input {:value @draft :on-change #(events/dispatch [::text %])}])")
+                  (str "(r/with-let [draft (r/atom \"\")] (let [other 1]"
+                       " [:input {:value @draft :on-change #(events/dispatch [::text %])}]))")]]
+    (testing source
+      (is (empty? (controlled-inputs source))))))
+
+(deftest controlled-input-with-let-exemption-respects-binding-and-initializer
+  (doseq [source ["(x/with-let [draft (r/atom \"\")] [:input {:value @draft :on-change #(events/dispatch [::text %])}])"
+                  (str "(ns demo.views (:require [other.state :as x] [reagent.core :as r] [re-frame.core :as events]))\n"
+                       "(x/with-let [draft (r/atom \"\")] [:input {:value @draft :on-change #(events/dispatch [::text %])}])")
+                  "(r/with-let [draft (other/atom \"\")] [:input {:value @draft :on-change #(events/dispatch [::text %])}])"
+                  "(r/with-let [draft state] [:input {:value @draft :on-change #(events/dispatch [::text %])}])"
+                  (str "(r/with-let [draft (r/atom \"\")] (let [draft state]"
+                       " [:input {:value @draft :on-change #(events/dispatch [::text %])}]))")
+                  (str "(r/with-let [draft (r/atom \"\")] (fn [draft]"
+                       " [:input {:value @draft :on-change #(events/dispatch [::text %])}]))")
+                  (str "(let [draft (r/atom \"\")] (x/with-let [draft state]"
+                       " [:input {:value @draft :on-change #(events/dispatch [::text %])}]))")]]
+    (testing source
+      (is (= 1 (count (controlled-inputs source)))))))
+
+(deftest controlled-input-rule-is-registered
+  (let [finding {:kw :input
+                 :type :controlled-input-dispatch
+                 :form "[:input]"}
+        result (group/analyze reagent/group {:declarations [finding {:type :other}]})]
+    (is (= [finding] (:controlled-input-dispatch result)))
+    (is (= ["Controlled input dispatch:" 1] (last (group/summary-lines reagent/group result))))
+    (is (= :bugs (get (group/rule->tier reagent/group) :controlled-input-dispatch)))
+    (is (= "controlled-input-dispatch" (get (group/docs-anchors reagent/group) :controlled-input-dispatch)))
+    (is (= (str "This controlled text input dispatches a re-frame event on change. The queued update can reset its value "
+                "during CJK IME composition and lose characters. Keep the text in local state and commit on blur, "
+                "or use an uncontrolled input with :default-value.")
+           (get (group/suggestions reagent/group) :controlled-input-dispatch)))))

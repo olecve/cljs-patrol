@@ -443,3 +443,117 @@ changes between the branches; the same child under two different wrappers; a `[:
 quoted code, `#_` forms, `(comment …)` blocks and Spade declarations.
 
 </details>
+
+### Controlled input dispatch
+
+`controlled-input-dispatch` · bugs — A controlled text input that dispatches an asynchronous re-frame event on change
+can lose characters during CJK IME composition.
+
+```clojure
+;; flagged
+(defn notes [text]
+  [:textarea {:value text
+              :on-change #(rf/dispatch [::set-text (.. % -target -value)])}])
+
+;; through a same-file helper
+(defn save-text! [event]
+  (rf/dispatch [::set-text (.. event -target -value)]))
+
+(defn notes [text]
+  [:input {:value text :on-change (fn [event] (save-text! event))}])
+
+;; fix
+(ns demo.notes
+  (:require [reagent.core :as r]
+            [re-frame.core :as rf]))
+(defn notes [initial-text]
+  (let [draft (r/atom initial-text)]
+    (fn []
+      [:textarea {:value @draft
+                  :on-change #(reset! draft (.. % -target -value))
+                  :on-blur #(rf/dispatch [::set-text @draft])}])))
+
+;; fix: let the browser hold the text
+(defn notes [initial-text]
+  [:textarea {:default-value initial-text
+              :on-blur #(rf/dispatch [::set-text (.. % -target -value)])}])
+```
+
+**Left alone:**
+
+```clojure
+;; synchronous dispatch avoids the event queue
+[:input {:value text :on-change #(rf/dispatch-sync [::set-text (.. % -target -value)])}]
+
+;; local state supplies the value even when a separate event is dispatched
+(ns demo.search
+  (:require [reagent.core :as r]
+            [re-frame.core :as rf]))
+(defn search-box []
+  (let [draft (r/atom "")]
+    (fn []
+      [:input {:value @draft
+               :on-change (fn [event]
+                            (reset! draft (.. event -target -value))
+                            (rf/dispatch [::search @draft]))}])))
+
+;; with-let keeps the local atom across renders
+(ns demo.filter
+  (:require [reagent.core :as r]
+            [re-frame.core :as rf]))
+(defn filter-box []
+  (r/with-let [draft (r/atom "")]
+    [:input {:value @draft
+             :on-change (fn [event]
+                          (reset! draft (.. event -target -value))
+                          (rf/dispatch [::filter @draft]))}]))
+
+;; no text composition
+[:input {:type "checkbox" :value "enabled" :on-change #(rf/dispatch [::toggle])}]
+
+;; a component owns its input behavior
+[text-field {:value text :on-change #(rf/dispatch [::set-text %])}]
+
+;; unreadable props
+[:input (input-props text)]
+```
+
+<details>
+<summary>Details</summary>
+
+Reagent 1.2.0 wraps native inputs with both `value` and `onChange`. It passes `defaultValue` to React and manages the
+DOM value itself. Its change handler records the browser's value and schedules an after-render check. If the rendered
+value still differs, that check writes it back to the DOM. The wrapper has cursor preservation logic, but no composition
+guard.
+
+An asynchronous re-frame `dispatch` queues the event. A render before that event runs can restore the previous text.
+This is a documented dropped-character race in re-frame. React documents that change events can occur during IME
+composition, when the text is still being assembled. Combining those behaviors can interrupt Chinese, Japanese or Korean
+input; this rule reports that risk, rather than proving that a particular keystroke will be lost.
+
+`dispatch-sync` processes the event immediately and avoids this queue race when the event updates the backing value
+synchronously. The rule leaves it alone. A component-local `r/atom`, reset immediately to the event's text, also avoids
+the queued round trip even though Reagent batches rendering. The rule exempts a `:value` written as `@draft` or
+`(deref draft)` when `draft` is locally bound to a resolved `reagent.core/atom` call. It does not prove that every
+handler updates that atom correctly. Committing on blur also keeps application work out of the composition session.
+
+The rule reads native `:textarea` and `:input`, including class/id shorthand. An input needs no `:type`, or a literal
+string or keyword type of `text`, `search`, `email`, `url`, `tel` or `password` (case does not matter). Other or
+computed types are left alone. It requires readable props with `:value` and an `:on-change` that calls
+`re-frame.core/dispatch`, resolved through requires. It follows inline `fn` and `#(...)` handlers, named handlers and
+same-file function calls, with cycles stopped. Quoted calls and functions merely stored inside a handler are left alone.
+Props can be literal maps, named maps, or complete `assoc`, `assoc-in` and `merge` builds read by the shared props
+reader. Unreadable or partially dynamic props, uncontrolled inputs with only `:default-value`, local-only handlers,
+look-alike dispatch functions and components are left alone. The rule does not trace the `:value` back through
+subscriptions or analyze event registrations.
+
+Links:
+
+- [Reagent 1.2.0 input wrapper](https://github.com/reagent-project/reagent/blob/v1.2.0/src/reagent/impl/input.cljs)
+- [Reagent 1.2.0 prop conversion](https://github.com/reagent-project/reagent/blob/v1.2.0/src/reagent/impl/template.cljs)
+- [React: controlled inputs and synchronous updates](https://react.dev/reference/react-dom/components/input#my-input-caret-jumps-to-the-beginning-on-every-keystroke)
+- [React: composition events](https://react.dev/reference/react-dom/components/common#compositionevent-handler)
+- [React: IME composition and controlled inputs](https://github.com/react/react/issues/8683)
+- [re-frame: dropped characters, dispatch-sync and local state](https://day8.github.io/re-frame/FAQs/laggy-input/)
+
+</details>

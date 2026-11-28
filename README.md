@@ -51,7 +51,7 @@ Analysis is split into independent rule groups. By default all groups run.
   selectors that compile to CSS matching nothing
 - **[`reagent`](docs/rules/reagent.md)** — a `defclass` that should be a `defattrs`, a redundant `into` around keyed
   Hiccup, a fragment's `{}` that keeps nothing from being read as props, a fragment around a single element, and a `let`
-  binding holding a component written inline
+  binding holding a component written inline, and a controlled text input that dispatches on change
 - **[`typography`](docs/rules/typography.md)** — mixed Figma typography token groups in a single style
 - **[`colors`](docs/rules/colors.md)**: color literals outside configured token namespaces; off until configured.
 - **[`focus-ring`](docs/rules/focus-ring.md)** — focus rings in Spade styles that lose the forced-colors outline or skip

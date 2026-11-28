@@ -21,7 +21,7 @@ screen-reader user cannot reach, name or tell apart, and a Spade selector that m
   `missing-accessible-name`, `repeated-accessible-name`, `aria-live-contradicts-role`, `aria-hidden-focusable`,
   `nested-interactive-element`, `label-not-associated`, `aria-label-beside-visible-label`, `button-missing-type`,
   `non-focusable-tooltip-trigger`, `invalid-role`
-- `discarded-hiccup`, `remounting-branch`
+- `discarded-hiccup`, `remounting-branch`, `controlled-input-dispatch`
 - `pseudo-in-main-map`, `consecutive-self-selectors`, `spade-ampersand-not-at-start`,
   `spade-keyword-combinator-selector`
 - `focus-ring-missing-outline`
