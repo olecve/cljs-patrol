@@ -2,7 +2,25 @@
 
 ## Status
 
-Proposed, 2026-11-28
+Accepted, 2026-11-28 (proposed 2026-11-28)
+
+## Outcome
+
+2026-11-28: the runner is in [olecve/mutacio-clj](https://github.com/olecve/mutacio-clj), tag `v0.1.0`, and the record
+is accepted. Its Confirmation holds:
+
+- Before the move, at cljs-patrol commit `c72792b`, the runner tests were 241 tests with 729 assertions. In
+  `mutacio-clj`, without cljs-patrol on the classpath, they are 244 tests with 734 assertions: the same tests, and the 3
+  tests with 5 assertions of the copied temp-dir helper.
+- The focus-ring run gave 225 mutants before the move: 208 killed, 15 survived and 2 timed out. Through the new
+  repository, it gives the same 225 mutants, each with the same outcome.
+- `git filter-repo` writes new commit SHAs. In `mutacio-clj`, `git log --follow src/mutacio/main.clj` reaches the first
+  runner commit, "Add a dev-only mutation testing runner that runs in one JVM", as `92fd724`. At acceptance, the
+  Confirmation names that commit by its message.
+- `mutacio-clj` has the EPL-2.0 license, and its CI runs prettier, cljfmt, clj-kondo and the tests.
+
+The runner's cache still hashes the folders that cljs-patrol has, such as `test-projects/` and `dev/`. A folder that is
+not there changes nothing.
 
 ## Context
 
@@ -128,7 +146,8 @@ Before acceptance, confirm these results:
   classpath.
 - In cljs-patrol, the same run through the git dependency, with no `.mutate-cache/`, gives the same mutants and the same
   outcomes.
-- `git log --follow` in `mutacio-clj` shows commit `adf8d79` for the main namespace.
+- `git log --follow` in `mutacio-clj` shows the first runner commit for the main namespace, "Add a dev-only mutation
+  testing runner that runs in one JVM".
 - `mutacio-clj` has a `LICENSE` file with the EPL-2.0 text. Its CI runs its tests, cljfmt and clj-kondo. The CI of both
   repositories passes.
 
@@ -149,7 +168,9 @@ Before acceptance, confirm these results:
 - The runner record: [ADR 0005](0005-mutation-testing-in-one-jvm.md), and its first Revisit when condition.
 - The guide: [Mutation testing](../mutation-testing.md).
 - The first runner commit: `adf8d79`, "Add a dev-only mutation testing runner that runs in one JVM".
-- The cache key: [`cache.clj`](../../dev/cljs_patrol/dev/mutate/cache.clj), `runner-src-files` and `runner-files`.
+- The cache key before the move:
+  [`cache.clj`](https://github.com/olecve/cljs-patrol/blob/c72792bf19b8b49c4ca1eb18bf2e69ce6f62a1d0/dev/cljs_patrol/dev/mutate/cache.clj),
+  `runner-src-files` and `runner-files`.
 - The task: [CP-0060](../../backlog/tasks/cp-0060%20-%20Mutation-runner-extract-into-its-own-project.md).
 - Heretic, the nearest other tool:
   [README at commit 45ed7c7](https://github.com/parenstech/heretic/blob/45ed7c7deffd5fee1b3050efa7396d0113b30a4f/README.md).

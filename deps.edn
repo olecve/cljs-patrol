@@ -29,8 +29,10 @@
   {:extra-paths ["dev"]
    :main-opts ["-m" "cljs-patrol.dev.java-io-check"]}
 
+  ;; The mutation runner, from its own repository: clojure -M:test:mutate TARGET-NS -t TEST-NS
   :mutate
-  {:main-opts ["-m" "cljs-patrol.dev.mutate"]}
+  {:extra-deps {io.github.olecve/mutacio-clj {:git/tag "v0.1.0" :git/sha "becc654"}}
+   :main-opts ["-m" "mutacio.main"]}
 
   :test
   {:extra-paths ["test" "dev"]

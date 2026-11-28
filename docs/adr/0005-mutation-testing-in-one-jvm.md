@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-11-21 (proposed 2026-11-20)
+Accepted, 2026-11-21 (proposed 2026-11-20); partially superseded by ADR 0016
 
 ## Outcome
 
