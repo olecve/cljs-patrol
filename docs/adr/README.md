@@ -19,6 +19,7 @@ Each record states one decision, the options that were considered, and the condi
 | [0013](0013-nio-paths-and-in-memory-test-file-system.md)          | Read And Write Files Through NIO Paths, And Test With An In-Memory File System | Accepted                               | 2026-11-23 |
 | [0014](0014-flag-color-literals-outside-token-namespaces.md)      | Flag Color Literals Outside The Token Namespaces                               | Accepted                               | 2026-11-25 |
 | [0015](0015-replace-prefer-tab-index-with-forbid-props-config.md) | Replace Prefer Tab Index With Forbid Props Config                              | Accepted                               | 2026-11-26 |
+| [0016](0016-extract-the-mutation-runner.md)                       | Move The Mutation Runner To A Project Of Its Own                               | Proposed                               | 2026-11-28 |
 
 ## Format
 
