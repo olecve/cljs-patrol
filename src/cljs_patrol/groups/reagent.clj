@@ -8,7 +8,12 @@
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
-   [rewrite-clj.zip :as z]))
+   [rewrite-clj.zip :as z])
+  (:import
+   (java.util
+    Collections
+    IdentityHashMap
+    Set)))
 
 (defn- hiccup-head-loc?
   "True when `loc` is a token that heads a Hiccup vector rather than a data one.
@@ -624,20 +629,20 @@
 
 (declare calls-dispatch? dispatch-in-call?)
 
-(defn- handler-dispatch? [loc ns-info seen]
-  (when (and loc (not (contains? seen (z/node loc))))
-    (let [seen (conj seen (z/node loc))]
-      (case (z/tag loc)
-        :fn (dispatch-in-call? loc ns-info seen)
-        :list (when (heads/resolve-head loc ns-info function-heads)
-                (some #(some (fn [body] (calls-dispatch? body ns-info seen)) (:body %))
-                      (heads/arities (z/right (z/down loc)))))
-        :token (if-let [value (hiccup/resolved-value loc)]
-                 (handler-dispatch? value ns-info seen)
-                 (when-let [function (hiccup/local-function loc)]
+(defn- handler-dispatch? [loc ns-info ^Set seen]
+  (when (and loc (.add seen (z/node loc)))
+    (case (z/tag loc)
+      :fn (dispatch-in-call? loc ns-info seen)
+      :list (when (heads/resolve-head loc ns-info function-heads)
+              (some #(some (fn [body] (calls-dispatch? body ns-info seen)) (:body %))
+                    (heads/arities (z/right (z/down loc)))))
+      :token (if-let [value (hiccup/resolved-value loc)]
+               (handler-dispatch? value ns-info seen)
+               (when-let [{:keys [def-loc arities]} (hiccup/local-function loc)]
+                 (when (.add seen (z/node def-loc))
                    (some #(some (fn [body] (calls-dispatch? body ns-info seen)) (:body %))
-                         (:arities function))))
-        nil))))
+                         arities))))
+      nil)))
 
 (defn- dispatch-in-call? [loc ns-info seen]
   (when-let [head (z/down loc)]
@@ -669,7 +674,7 @@
                             (contains? text-input-types (str/lower-case (name input-type)))))
                    (contains? attrs :value)
                    (not (local-input-value? (:value attrs) ns-info))
-                   (handler-dispatch? (:on-change attrs) ns-info #{}))
+                   (handler-dispatch? (:on-change attrs) ns-info (Collections/newSetFromMap (IdentityHashMap.))))
           (let [[row col] (parser/position loc)]
             {:kw tag
              :type :controlled-input-dispatch

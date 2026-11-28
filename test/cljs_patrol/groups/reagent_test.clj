@@ -647,6 +647,33 @@
     (testing source
       (is (= 1 (count (controlled-inputs source)))))))
 
+(deftest controlled-input-branching-helpers-finish-fast
+  (doseq [definition ["(defn helper-%d [e] %s)\n" "(def helper-%d (fn [e] %s))\n"]
+          [leaf expected] [["nil" 0] ["(events/dispatch [::text e])" 1] ["(helper-29 e)" 0]]]
+    (testing (str definition " ending in " leaf)
+      (let [source (str (apply str (for [i (range 30)]
+                                     (let [call (if (zero? i) leaf (str "(helper-" (dec i) " e)"))]
+                                       (format definition i (str "(if flag " call " " call ")")))))
+                        "[:input {:value text :on-change helper-29}]")
+            result (promise)]
+        (doto (Thread. #(deliver result (count (controlled-inputs source))))
+          (.setDaemon true)
+          (.start))
+        (is (= expected (deref result 10000 ::timed-out))
+            "a chain of helpers that branch is read once per helper, so it finishes")))))
+
+(deftest controlled-input-helper-tracking-is-per-handler
+  (is (= 2 (count (controlled-inputs
+                   (str "(defn save! [e] (events/dispatch [::text e]))\n"
+                        "[:div [:input {:value text :on-change save!}]"
+                        " [:textarea {:value text :on-change save!}]]"))))))
+
+(deftest controlled-input-helper-tracking-respects-bindings
+  (is (= 1 (count (controlled-inputs
+                   (str "[:input {:value text :on-change (fn [e]"
+                        " (let [emit! log change! (fn [e] (emit! e))] (change! e))"
+                        " (let [emit! #(events/dispatch [::text %]) change! (fn [e] (emit! e))] (change! e)))}]"))))))
+
 (deftest controlled-input-safe-and-unreadable-cases-are-left-alone
   (doseq [source ["[:input {:default-value text :on-change #(events/dispatch [::text %])}]"
                   "[:input {:on-change #(events/dispatch [::text %])}]"
