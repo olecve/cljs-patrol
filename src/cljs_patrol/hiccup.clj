@@ -369,7 +369,7 @@
   "Look up symbol-name in the bindings one enclosing form makes.
   `child` is the form's own child the usage descends from. A usage inside the binding
   vector sees only bindings to its left."
-  [list-loc child usage symbol-name]
+  [list-loc child usage symbol-name ns-info]
   (let [[head & args] (parser/written-child-locs list-loc)
         head-name (some-> head parser/sym-name)
         [binding-site then-branch] args
@@ -378,7 +378,9 @@
         cut (when (and binding-vector? (same-node? child binding-site))
               (binding-cut bindings usage))]
     (cond
-      (and binding-vector? (contains? map-binding-heads head-name))
+      (and binding-vector?
+           (or (contains? map-binding-heads head-name)
+               (and ns-info (heads/resolve-head list-loc ns-info #{'reagent.core/with-let}))))
       (when (in-scope-branch? head-name child binding-site then-branch)
         (if (default-binds? cut usage symbol-name)
           ::shadowed
@@ -430,16 +432,19 @@
   enclosing form binds it at all — callers need the difference, since only the second
   leaves a var of the same name free to answer. Innermost first. A fn is followed
   through, since a closure really does see the binding around it; what stops the
-  search is a form that binds the name itself."
-  [loc symbol-name]
-  (loop [child loc
-         parent (z/up loc)]
-    (when (some? parent)
-      (let [found (when (= :list (z/tag parent))
-                    (binder-lookup parent child loc symbol-name))]
-        (if (some? found)
-          found
-          (recur parent (z/up parent)))))))
+  search is a form that binds the name itself. Given ns-info, also read the initializers
+  of Reagent's resolved `with-let`, whose bindings persist across renders."
+  ([loc symbol-name]
+   (lexically-bound-value loc symbol-name nil))
+  ([loc symbol-name ns-info]
+   (loop [child loc
+          parent (z/up loc)]
+     (when (some? parent)
+       (let [found (when (= :list (z/tag parent))
+                     (binder-lookup parent child loc symbol-name ns-info))]
+         (if (some? found)
+           found
+           (recur parent (z/up parent))))))))
 
 (def ^:private top-level-def-heads #{"def" "defonce"})
 
@@ -825,6 +830,18 @@
   ([loc ns-info]
    (result-locs* loc #(heads/resolve-head % ns-info result-heads))))
 
+(defn local-function
+  "Return the same-file function named at `head`, with its parameter and body locs, or nil.
+  A binding around the name shadows the file's definition, and the last definition wins."
+  [head]
+  (let [head-name (unqualified-symbol-name head)
+        def-loc (when (and head-name (not (heads/locally-bound? head head-name)))
+                  (get (top-level-definitions head) head-name))]
+    (when (and def-loc (not (top-level-def? def-loc)))
+      {:name head-name
+       :def-loc def-loc
+       :arities (heads/arities (some-> def-loc z/down z/right))})))
+
 (defn local-component
   "Return `{:name … :def-loc … :arities […]}` for a Hiccup vector headed by a component its own file defines, or nil.
 
@@ -834,18 +851,12 @@
   [[result-locs]]. Nothing is read across a namespace: a component another file defines
   stays unknown."
   [vec-loc ns-info]
-  (let [head (some-> vec-loc z/down)
-        head-name (unqualified-symbol-name head)
-        def-loc (when (and head-name (not (heads/locally-bound? head head-name)))
-                  (get (top-level-definitions vec-loc) head-name))]
-    (when (and def-loc (not (top-level-def? def-loc)))
-      {:name head-name
-       :def-loc def-loc
-       :arities (map (fn [{:keys [params body]}]
-                       {:params params
-                        :results (some-> (last (remove #(= :uneval (z/tag %)) body))
-                                         (result-locs ns-info))})
-                     (heads/arities (some-> def-loc z/down z/right)))})))
+  (when-let [function (local-function (z/down vec-loc))]
+    (update function :arities
+            (partial map (fn [{:keys [params body]}]
+                           {:params params
+                            :results (some-> (last (remove #(= :uneval (z/tag %)) body))
+                                             (result-locs ns-info))})))))
 
 (defn- yields-hiccup?
   "True when the expression can yield a Hiccup vector rather than a value.

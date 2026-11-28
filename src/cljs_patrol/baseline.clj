@@ -92,7 +92,8 @@
     :empty-fragment-props
     :redundant-fragment
     :discarded-hiccup
-    :remounting-branch})
+    :remounting-branch
+    :controlled-input-dispatch})
 
 (def ^:private selector-keyed-rules
   "Spade rules identified by the declaration plus the one selector at fault.

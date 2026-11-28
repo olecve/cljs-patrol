@@ -1,10 +1,10 @@
 ---
 id: CP-0032
 title: "Controlled text input that dispatches on every change (breaks CJK IME)"
-status: Idea
+status: Done
 labels: ["reagent"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-27"
 references: []
 ---
 

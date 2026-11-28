@@ -299,6 +299,18 @@
     (let [source "(defn view [#?@(:clj [x] :cljs [merge])] [:img (merge {:tabIndex 1})])"]
       (is (= :dynamic (:kind (img-attrs-info source)))))))
 
+(deftest with-let-initializers-need-namespace-resolution
+  (doseq [head ["r/with-let" "reagent.core/with-let" "with-let"]]
+    (let [usage (-> (str "(" head " [draft (r/atom \"\")] @draft)") z/of-string z/down z/rightmost)
+          ns-info {:aliases {"r" "reagent.core"}
+                   :refers {"with-let" "reagent.core"}}]
+      (is (= ::hiccup/shadowed (hiccup/lexically-bound-value usage "draft")))
+      (is (= "(r/atom \"\")" (parser/raw (hiccup/lexically-bound-value usage "draft" ns-info))))))
+  (let [usage (-> "(x/with-let [draft (r/atom \"\")] @draft)" z/of-string z/down z/rightmost)]
+    (is (= ::hiccup/shadowed
+           (hiccup/lexically-bound-value usage "draft" {:aliases {"x" "other.state"
+                                                                  "r" "reagent.core"}})))))
+
 (deftest destructuring-default-local-scope
   (let [source "(defn view [{:keys [merge content] :or {content (merge {})}}] content)"
         call (->> (z/of-string source)

@@ -8,7 +8,12 @@
    [cljs-patrol.hiccup :as hiccup]
    [cljs-patrol.parser :as parser]
    [clojure.string :as str]
-   [rewrite-clj.zip :as z]))
+   [rewrite-clj.zip :as z])
+  (:import
+   (java.util
+    Collections
+    IdentityHashMap
+    Set)))
 
 (defn- hiccup-head-loc?
   "True when `loc` is a token that heads a Hiccup vector rather than a data one.
@@ -608,12 +613,83 @@
      :usages []
      :dynamics []}))
 
+(def ^:private text-input-types #{"text" "search" "email" "url" "tel" "password"})
+
+(defn- local-input-value? [loc ns-info]
+  (let [value (case (some-> loc z/tag)
+                :deref (z/down loc)
+                :list (when (heads/resolve-head loc ns-info #{'cljs.core/deref})
+                        (second (parser/written-child-locs loc)))
+                nil)
+        init (when-let [local (some-> value hiccup/unqualified-symbol-name)]
+               (hiccup/lexically-bound-value value local ns-info))]
+    (and (not= ::hiccup/shadowed init)
+         (= :list (some-> init z/tag))
+         (heads/resolve-head init ns-info #{'reagent.core/atom}))))
+
+(declare calls-dispatch? dispatch-in-call?)
+
+(defn- handler-dispatch? [loc ns-info ^Set seen]
+  (when (and loc (.add seen (z/node loc)))
+    (case (z/tag loc)
+      :fn (dispatch-in-call? loc ns-info seen)
+      :list (when (heads/resolve-head loc ns-info function-heads)
+              (some #(some (fn [body] (calls-dispatch? body ns-info seen)) (:body %))
+                    (heads/arities (z/right (z/down loc)))))
+      :token (if-let [value (hiccup/resolved-value loc)]
+               (handler-dispatch? value ns-info seen)
+               (when-let [{:keys [def-loc arities]} (hiccup/local-function loc)]
+                 (when (.add seen (z/node def-loc))
+                   (some #(some (fn [body] (calls-dispatch? body ns-info seen)) (:body %))
+                         arities))))
+      nil)))
+
+(defn- dispatch-in-call? [loc ns-info seen]
+  (when-let [head (z/down loc)]
+    (let [bare (hiccup/unqualified-symbol-name head)]
+      (when-not (or (heads/resolve-head loc ns-info function-heads)
+                    (contains? #{"comment" "quote" "var"} (parser/raw head)))
+        (or (and (not (and bare (heads/locally-bound? head bare)))
+                 (heads/resolve-head loc ns-info #{'re-frame.core/dispatch}))
+            (handler-dispatch? head ns-info seen)
+            (some #(calls-dispatch? % ns-info seen) (rest (parser/written-child-locs loc))))))))
+
+(defn- calls-dispatch? [loc ns-info seen]
+  (when-not (or (hiccup/unrendered-form? loc)
+                (= :fn (z/tag loc)))
+    (if (= :list (z/tag loc))
+      (dispatch-in-call? loc ns-info seen)
+      (some #(calls-dispatch? % ns-info seen) (parser/written-child-locs loc)))))
+
+(defn- controlled-input-dispatch-finding [loc ns-info file]
+  (let [tag (some-> loc z/down parser/raw hiccup/parse-tag)]
+    (when (and (contains? #{:input :textarea} tag) (not (inside-comment-form? loc)))
+      (let [{:keys [kind attrs]} (hiccup/attrs-info loc)
+            type-loc (:type attrs)
+            input-type (a11y/literal-sexpr type-loc)]
+        (when (and (= :map kind)
+                   (or (= :textarea tag)
+                       (not (contains? attrs :type))
+                       (and (or (string? input-type) (keyword? input-type))
+                            (contains? text-input-types (str/lower-case (name input-type)))))
+                   (contains? attrs :value)
+                   (not (local-input-value? (:value attrs) ns-info))
+                   (handler-dispatch? (:on-change attrs) ns-info (Collections/newSetFromMap (IdentityHashMap.))))
+          (let [[row col] (parser/position loc)]
+            {:kw tag
+             :type :controlled-input-dispatch
+             :form (parser/source-snippet loc)
+             :file file
+             :row row
+             :col col}))))))
+
 (defn- handle-vector
   [loc ns-info file]
   (when-not (hiccup/inside-non-hiccup-form? loc)
     (when-let [finding (cond
                          (empty-fragment-props? loc) (empty-fragment-props-finding loc file)
-                         (redundant-fragment? loc ns-info) (redundant-fragment-finding loc file))]
+                         (redundant-fragment? loc ns-info) (redundant-fragment-finding loc file)
+                         :else (controlled-input-dispatch-finding loc ns-info file))]
       {:decls [(hiccup/add-note finding (hiccup/mixed-schema-note loc))]
        :usages []
        :dynamics []})))
@@ -632,14 +708,16 @@
         redundant-fragment (filter #(= :redundant-fragment (:type %)) declarations)
         inline-component (filter #(= :inline-component (:type %)) declarations)
         discarded-hiccup (filter #(= :discarded-hiccup (:type %)) declarations)
-        remounting-branch (filter #(= :remounting-branch (:type %)) declarations)]
+        remounting-branch (filter #(= :remounting-branch (:type %)) declarations)
+        controlled-input-dispatch (filter #(= :controlled-input-dispatch (:type %)) declarations)]
     {:defclass-as-sole-attr (vec defclass-as-sole-attr)
      :redundant-into-hiccup (vec redundant-into)
      :empty-fragment-props (vec empty-fragment-props)
      :redundant-fragment (vec redundant-fragment)
      :inline-component (vec inline-component)
      :discarded-hiccup (vec discarded-hiccup)
-     :remounting-branch (vec remounting-branch)}))
+     :remounting-branch (vec remounting-branch)
+     :controlled-input-dispatch (vec controlled-input-dispatch)}))
 
 (defn- summary-lines* [{:keys [defclass-as-sole-attr
                                redundant-into-hiccup
@@ -647,14 +725,16 @@
                                redundant-fragment
                                inline-component
                                discarded-hiccup
-                               remounting-branch]}]
+                               remounting-branch
+                               controlled-input-dispatch]}]
   [["defclass as sole attr:" (count defclass-as-sole-attr)]
    ["Redundant into-hiccup:" (count redundant-into-hiccup)]
    ["Empty fragment props:" (count empty-fragment-props)]
    ["Redundant fragment:" (count redundant-fragment)]
    ["Inline component:" (count inline-component)]
    ["Discarded hiccup:" (count discarded-hiccup)]
-   ["Remounting branch:" (count remounting-branch)]])
+   ["Remounting branch:" (count remounting-branch)]
+   ["Controlled input dispatch:" (count controlled-input-dispatch)]])
 
 (defn- failed?* [{:keys [discarded-hiccup]}]
   (boolean (seq discarded-hiccup)))
@@ -687,7 +767,11 @@
           "[:<> ...] or a parent element, or remove the one that should not render.")
      :remounting-branch
      (str "The branches of a condition render the same child under different elements, so React mounts it again when "
-          "the condition flips, and keyboard focus inside it falls to the page. Keep the same elements around it.")})
+          "the condition flips, and keyboard focus inside it falls to the page. Keep the same elements around it.")
+     :controlled-input-dispatch
+     (str "This controlled text input dispatches a re-frame event on change. The queued update can reset its value "
+          "during CJK IME composition and lose characters. Keep the text in local state and commit on blur, "
+          "or use an uncontrolled input with :default-value.")})
   (docs-anchors [_]
     {:defclass-as-sole-attr "defclass-as-sole-attr"
      :redundant-into-hiccup "redundant-into-around-hiccup"
@@ -695,7 +779,8 @@
      :redundant-fragment "redundant-fragment"
      :inline-component "inline-component"
      :discarded-hiccup "discarded-hiccup"
-     :remounting-branch "remounting-branch"})
+     :remounting-branch "remounting-branch"
+     :controlled-input-dispatch "controlled-input-dispatch"})
   (rule->tier [_]
     {:defclass-as-sole-attr :deprecations
      :redundant-into-hiccup :cleanup
@@ -703,7 +788,8 @@
      :redundant-fragment :cleanup
      :inline-component :cleanup
      :discarded-hiccup :bugs
-     :remounting-branch :bugs})
+     :remounting-branch :bugs
+     :controlled-input-dispatch :bugs})
   (file-extensions [_] #{".cljs" ".cljc"}))
 
 (def group (->ReagentGroup))
