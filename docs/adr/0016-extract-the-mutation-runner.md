@@ -19,6 +19,10 @@ is accepted. `v0.1.1` is `v0.1.0` with corrected links in its docs. Its Confirma
   Confirmation names that commit by its message.
 - `mutacio-clj` has the EPL-2.0 license, and its CI runs prettier, cljfmt, clj-kondo and the tests.
 
+2026-11-28, later: mutacio-clj keeps copies of ADRs 0005 to 0012 as its ADRs 0001 to 0008, so that it is self-contained.
+This replaces the part of the Decision that lists them there as links to this repository. Its own records start at
+ADR 0009.
+
 The runner's cache still hashes the folders that cljs-patrol has, such as `test-projects/` and `dev/`. A folder that is
 not there changes nothing.
 
