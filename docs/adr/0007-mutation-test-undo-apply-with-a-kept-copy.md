@@ -85,8 +85,10 @@ second review of pull request 168 found this.
 ## More Information
 
 - The code: `apply-mutant`, `restore-mutant`, `applied-mutant`, `write-whole`, `run-cli`, `usage-errors` and
-  `applied-file` in [`dev/cljs_patrol/dev/mutate.clj`](../../dev/cljs_patrol/dev/mutate.clj)
-- How to use it: the "Watch a new test fail" section of [`docs/mutation-testing.md`](../mutation-testing.md)
+  `applied-file` in
+  [`dev/cljs_patrol/dev/mutate.clj`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/dev/cljs_patrol/dev/mutate.clj)
+- How to use it: the "Watch a new test fail" section of
+  [`docs/mutation-testing.md`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/docs/mutation-testing.md)
 - The pull request: [olecve/cljs-patrol#168](https://github.com/olecve/cljs-patrol/pull/168)
 - The first version, with git:
   [790343a](https://github.com/olecve/cljs-patrol/commit/790343ae47446609949e07ff4dc4cce672787e33)

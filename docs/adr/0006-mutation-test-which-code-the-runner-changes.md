@@ -129,9 +129,10 @@ on `cljs-patrol.groups.reagent` shows two survivors on line 490, `remove` and `=
 
 ## More Information
 
-- The runner: [`dev/cljs_patrol/dev/mutate.clj`](../../dev/cljs_patrol/dev/mutate.clj)
+- The runner:
+  [`dev/cljs_patrol/dev/mutate.clj`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/dev/cljs_patrol/dev/mutate.clj)
 - How to skip a mutant: the "Skip a harmless planted bug" section of
-  [`docs/mutation-testing.md`](../mutation-testing.md)
+  [`docs/mutation-testing.md`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/docs/mutation-testing.md)
 - Skip markers: [olecve/cljs-patrol#167](https://github.com/olecve/cljs-patrol/pull/167)
 - Number mutants, names, dispatch values and `^:const` defs:
   [olecve/cljs-patrol#170](https://github.com/olecve/cljs-patrol/pull/170)

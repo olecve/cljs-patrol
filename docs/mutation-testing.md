@@ -29,8 +29,8 @@ there is a test gap, and 2 when it cannot start or stops early.
 
 ## Read more
 
-- [The guide](https://github.com/olecve/mutacio-clj/blob/v0.1.0/docs/mutation-testing.md): why, how to run it, how to
+- [The guide](https://github.com/olecve/mutacio-clj/blob/v0.1.1/docs/mutation-testing.md): why, how to run it, how to
   read the report, and how to watch a new test fail with `--apply`.
-- [The reference](https://github.com/olecve/mutacio-clj/blob/v0.1.0/docs/reference.md): every option, outcome and file.
+- [The reference](https://github.com/olecve/mutacio-clj/blob/v0.1.1/docs/reference.md): every option, outcome and file.
 - The decisions behind it: ADRs [0005](adr/0005-mutation-testing-in-one-jvm.md) to
   [0012](adr/0012-mutation-test-guard-skips-what-git-ignores.md) in this repository.

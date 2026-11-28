@@ -6,8 +6,8 @@ Accepted, 2026-11-28 (proposed 2026-11-28)
 
 ## Outcome
 
-2026-11-28: the runner is in [olecve/mutacio-clj](https://github.com/olecve/mutacio-clj), tag `v0.1.0`, and the record
-is accepted. Its Confirmation holds:
+2026-11-28: the runner is in [olecve/mutacio-clj](https://github.com/olecve/mutacio-clj), tag `v0.1.1`, and the record
+is accepted. `v0.1.1` is `v0.1.0` with corrected links in its docs. Its Confirmation holds:
 
 - Before the move, at cljs-patrol commit `c72792b`, the runner tests were 241 tests with 729 assertions. In
   `mutacio-clj`, without cljs-patrol on the classpath, they are 244 tests with 734 assertions: the same tests, and the 3
@@ -169,7 +169,7 @@ Before acceptance, confirm these results:
 - The guide: [Mutation testing](../mutation-testing.md).
 - The first runner commit: `adf8d79`, "Add a dev-only mutation testing runner that runs in one JVM".
 - The cache key before the move:
-  [`cache.clj`](https://github.com/olecve/cljs-patrol/blob/c72792bf19b8b49c4ca1eb18bf2e69ce6f62a1d0/dev/cljs_patrol/dev/mutate/cache.clj),
+  [`cache.clj`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/dev/cljs_patrol/dev/mutate/cache.clj),
   `runner-src-files` and `runner-files`.
 - The task: [CP-0060](../../backlog/tasks/cp-0060%20-%20Mutation-runner-extract-into-its-own-project.md).
 - Heretic, the nearest other tool:

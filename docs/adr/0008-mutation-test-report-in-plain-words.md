@@ -79,8 +79,10 @@ Rejected because hiccup on the JVM escapes each value, needs no JSON writer, and
 
 ## More Information
 
-- The page: [`dev/cljs_patrol/dev/mutate_html.clj`](../../dev/cljs_patrol/dev/mutate_html.clj)
-- The words and the sources: [`docs/mutation-testing.md`](../mutation-testing.md)
+- The page:
+  [`dev/cljs_patrol/dev/mutate_html.clj`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/dev/cljs_patrol/dev/mutate_html.clj)
+- The words and the sources:
+  [`docs/mutation-testing.md`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/docs/mutation-testing.md)
 - The pull request: [olecve/cljs-patrol#166](https://github.com/olecve/cljs-patrol/pull/166)
 - The first version, with the Stryker viewer:
   [41a3ee4](https://github.com/olecve/cljs-patrol/commit/41a3ee47e0ae4e67f8c6e4e1344270656c4471fa)

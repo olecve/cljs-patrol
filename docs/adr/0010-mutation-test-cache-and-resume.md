@@ -164,8 +164,10 @@ Rejected because `clojure -T:build uber` deletes `target/`, as
 
 ## More Information
 
-- The code: `cljs-patrol.dev.mutate.cache` in [`dev/cljs_patrol/dev/mutate/`](../../dev/cljs_patrol/dev/mutate/)
-- How to use it: the "Run again" section of [`docs/mutation-testing.md`](../mutation-testing.md)
+- The code: `cljs-patrol.dev.mutate.cache` in
+  [`dev/cljs_patrol/dev/mutate/`](https://github.com/olecve/cljs-patrol/tree/c72792b2ccad935207813dbfaec48e953aab07cc/dev/cljs_patrol/dev/mutate/)
+- How to use it: the "Run again" section of
+  [`docs/mutation-testing.md`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/docs/mutation-testing.md)
 - The pull request: [olecve/cljs-patrol#175](https://github.com/olecve/cljs-patrol/pull/175)
 - cargo-mutants.
   [Iterating on missed mutants](https://github.com/sourcefrog/cargo-mutants/blob/v27.1.0/book/src/iterate.md), at

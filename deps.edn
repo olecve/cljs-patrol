@@ -31,7 +31,7 @@
 
   ;; The mutation runner, from its own repository: clojure -M:test:mutate TARGET-NS -t TEST-NS
   :mutate
-  {:extra-deps {io.github.olecve/mutacio-clj {:git/tag "v0.1.0" :git/sha "becc654"}}
+  {:extra-deps {io.github.olecve/mutacio-clj {:git/tag "v0.1.1" :git/sha "fac13ce"}}
    :main-opts ["-m" "mutacio.main"]}
 
   :test

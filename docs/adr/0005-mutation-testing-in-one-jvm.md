@@ -79,7 +79,8 @@ A dev-only runner in this repository mutates the code under test in one warm JVM
 - **A report of what was changed and what was not.** The report has one row for each definition, with its outcome
   counts. It names the definitions that were not changed, and the reason. It lists each survivor with its source line.
   `-r FILE` writes all of it to EDN, and `--html FILE` writes a page that leads with the survivors, in the plain words
-  of [`docs/mutation-testing.md`](../mutation-testing.md).
+  of
+  [`docs/mutation-testing.md`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/docs/mutation-testing.md).
 - **Only the changes of a branch.** `-s REF` limits the run to the lines that the branch changed since it left `REF`.
 - **A limit on time.** The timeout of a test run is 1.5 times the first run plus 2 s. When a timed-out run continues to
   loop, the runner stops, because that thread would disturb each later run.
@@ -156,13 +157,17 @@ mutant for each run.
 
 ## More Information
 
-- The runner: [`dev/cljs_patrol/dev/mutate.clj`](../../dev/cljs_patrol/dev/mutate.clj), and one namespace for each job
-  under [`dev/cljs_patrol/dev/mutate/`](../../dev/cljs_patrol/dev/mutate/)
-- Its tests: [`test/cljs_patrol/dev/mutate_test.clj`](../../test/cljs_patrol/dev/mutate_test.clj), and
-  [`test/cljs_patrol/dev/mutate/`](../../test/cljs_patrol/dev/mutate/)
+- The runner:
+  [`dev/cljs_patrol/dev/mutate.clj`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/dev/cljs_patrol/dev/mutate.clj),
+  and one namespace for each job under
+  [`dev/cljs_patrol/dev/mutate/`](https://github.com/olecve/cljs-patrol/tree/c72792b2ccad935207813dbfaec48e953aab07cc/dev/cljs_patrol/dev/mutate/)
+- Its tests:
+  [`test/cljs_patrol/dev/mutate_test.clj`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/test/cljs_patrol/dev/mutate_test.clj),
+  and
+  [`test/cljs_patrol/dev/mutate/`](https://github.com/olecve/cljs-patrol/tree/c72792b2ccad935207813dbfaec48e953aab07cc/test/cljs_patrol/dev/mutate/)
 - How to run it: the "Mutation testing" section of [`CLAUDE.md`](../../CLAUDE.md)
 - Its words, how they map to other tools, and the sources behind its HTML page:
-  [`docs/mutation-testing.md`](../mutation-testing.md)
+  [`docs/mutation-testing.md`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/docs/mutation-testing.md)
 - The pull request that adds it: [olecve/cljs-patrol#164](https://github.com/olecve/cljs-patrol/pull/164)
 - The pull request whose manual check missed three branches:
   [olecve/cljs-patrol#163](https://github.com/olecve/cljs-patrol/pull/163)

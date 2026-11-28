@@ -64,8 +64,10 @@ The runner adds one mutant for each arity of a function: it replaces the body of
 
 ## More Information
 
-- The code: `body-mutants` in [`dev/cljs_patrol/dev/mutate/forms.clj`](../../dev/cljs_patrol/dev/mutate/forms.clj)
-- How it shows: the words table of [`docs/mutation-testing.md`](../mutation-testing.md)
+- The code: `body-mutants` in
+  [`dev/cljs_patrol/dev/mutate/forms.clj`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/dev/cljs_patrol/dev/mutate/forms.clj)
+- How it shows: the words table of
+  [`docs/mutation-testing.md`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/docs/mutation-testing.md)
 - The pull request: [olecve/cljs-patrol#174](https://github.com/olecve/cljs-patrol/pull/174)
 - cargo-mutants. [Generated mutants](https://github.com/sourcefrog/cargo-mutants/blob/v27.1.0/book/src/mutants.md), at
   v27.1.0.

@@ -201,9 +201,12 @@ reasons:
 
 ## More Information
 
-- The code: [`dev/cljs_patrol/dev/mutate/guard.clj`](../../dev/cljs_patrol/dev/mutate/guard.clj), the git calls in
-  [`dev/cljs_patrol/dev/mutate/git.clj`](../../dev/cljs_patrol/dev/mutate/git.clj), and the start of the guard in
-  `mutate-source` of [`dev/cljs_patrol/dev/mutate.clj`](../../dev/cljs_patrol/dev/mutate.clj).
+- The code:
+  [`dev/cljs_patrol/dev/mutate/guard.clj`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/dev/cljs_patrol/dev/mutate/guard.clj),
+  the git calls in
+  [`dev/cljs_patrol/dev/mutate/git.clj`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/dev/cljs_patrol/dev/mutate/git.clj),
+  and the start of the guard in `mutate-source` of
+  [`dev/cljs_patrol/dev/mutate.clj`](https://github.com/olecve/cljs-patrol/blob/c72792b2ccad935207813dbfaec48e953aab07cc/dev/cljs_patrol/dev/mutate.clj).
 - The record of the guard: [ADR 0011](0011-mutation-test-stop-when-a-test-changes-a-file.md).
 - git. [`git status --ignored`](https://github.com/git/git/blob/v2.47.0/Documentation/git-status.txt), at v2.47.0.
 - git. [`git check-ignore`](https://github.com/git/git/blob/v2.47.0/Documentation/git-check-ignore.txt), at v2.47.0.
