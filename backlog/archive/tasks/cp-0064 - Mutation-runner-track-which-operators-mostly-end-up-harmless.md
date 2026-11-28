@@ -1,14 +1,17 @@
 ---
 id: CP-0064
-title: "Mutation runner: track which operators mostly end up harmless"
+title: "Mutation runner: track which operators mostly end up harmless (moved to mutacio-clj MC-0004)"
 status: Idea
 labels: ["mutation-runner"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-28"
 references: []
 ---
 
 ## Description
+
+Cancelled here: the runner moved to [mutacio-clj](https://github.com/olecve/mutacio-clj) (ADR 0016), and this task is
+MC-0004 there.
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
 

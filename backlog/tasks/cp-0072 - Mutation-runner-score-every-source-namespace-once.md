@@ -20,7 +20,7 @@ attempt at a full run stopped after a few namespaces, so nobody knows where the 
 
 ### Why
 
-A score per namespace shows where tests are weakest, and it gives a starting point for a CI gate (CP-0056).
+A score per namespace shows where tests are weakest, and it gives a starting point for a CI gate (mutacio-clj MC-0002).
 
 ### Fix
 
@@ -39,7 +39,7 @@ own. The cache of ADR 0010 makes a second pass cheap.
 
 ### Order
 
-CP-0074 (several namespaces in one command) would make this run simpler but does not block it. The results feed a fresh
-triage of CP-0058 and CP-0059, then CP-0073, then CP-0056.
+mutacio-clj MC-0006 (several namespaces in one command) would make this run simpler but does not block it. The results
+feed a fresh triage of CP-0058 and CP-0059, then CP-0073, then mutacio-clj MC-0002.
 
 <!-- SECTION:DESCRIPTION:END -->

@@ -33,11 +33,12 @@ Upload the HTML report as an artifact, and print the survivors in the job summar
 
 ### Notes
 
-Start as a report that never fails the build. Make it a gate later, with CP-0056. Check the job time on the CI runner
-first: a namespace with many changed lines can take minutes.
+Start as a report that never fails the build. Make it a gate later, with mutacio-clj MC-0002. Check the job time on the
+CI runner first: a namespace with many changed lines can take minutes.
 
 ### Order
 
-After CP-0072 and the fresh triage of CP-0058 and CP-0059. CP-0074 shares the work of running several namespaces.
+After CP-0072 and the fresh triage of CP-0058 and CP-0059. mutacio-clj MC-0006 shares the work of running several
+namespaces.
 
 <!-- SECTION:DESCRIPTION:END -->

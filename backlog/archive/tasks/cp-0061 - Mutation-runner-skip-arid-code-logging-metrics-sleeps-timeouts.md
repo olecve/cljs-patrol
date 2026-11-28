@@ -1,14 +1,17 @@
 ---
 id: CP-0061
-title: "Mutation runner: skip arid code (logging, metrics, sleeps, timeouts)"
+title: "Mutation runner: skip arid code (logging, metrics, sleeps, timeouts) (moved to mutacio-clj MC-0003)"
 status: Idea
 labels: ["mutation-runner"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-28"
 references: []
 ---
 
 ## Description
+
+Cancelled here: the runner moved to [mutacio-clj](https://github.com/olecve/mutacio-clj) (ADR 0016), and this task is
+MC-0003 there.
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
 

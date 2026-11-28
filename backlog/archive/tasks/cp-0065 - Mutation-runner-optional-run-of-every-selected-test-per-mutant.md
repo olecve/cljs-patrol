@@ -1,14 +1,17 @@
 ---
 id: CP-0065
-title: "Mutation runner: optional run of every selected test per mutant"
+title: "Mutation runner: optional run of every selected test per mutant (moved to mutacio-clj MC-0005)"
 status: Idea
 labels: ["mutation-runner"]
 created_date: ""
-updated_date: ""
+updated_date: "2026-11-28"
 references: []
 ---
 
 ## Description
+
+Cancelled here: the runner moved to [mutacio-clj](https://github.com/olecve/mutacio-clj) (ADR 0016), and this task is
+MC-0005 there.
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
 

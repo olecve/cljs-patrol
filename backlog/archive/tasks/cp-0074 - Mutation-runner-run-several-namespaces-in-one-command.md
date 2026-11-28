@@ -1,15 +1,18 @@
 ---
 id: CP-0074
-title: "Mutation runner: run several namespaces in one command"
+title: "Mutation runner: run several namespaces in one command (moved to mutacio-clj MC-0006)"
 status: Idea
 labels: ["mutation-runner"]
 milestone: m-0
 created_date: "2026-11-25"
-updated_date: "2026-11-27"
+updated_date: "2026-11-28"
 references: []
 ---
 
 ## Description
+
+Cancelled here: the runner moved to [mutacio-clj](https://github.com/olecve/mutacio-clj) (ADR 0016), and this task is
+MC-0006 there.
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
 

@@ -1,15 +1,18 @@
 ---
 id: CP-0053
-title: "Mutation runner: neutral check before mutating a definition"
+title: "Mutation runner: neutral check before mutating a definition (moved to mutacio-clj MC-0001)"
 status: Idea
 labels: ["mutation-runner"]
 milestone: m-0
 created_date: ""
-updated_date: "2026-11-27"
+updated_date: "2026-11-28"
 references: []
 ---
 
 ## Description
+
+Cancelled here: the runner moved to [mutacio-clj](https://github.com/olecve/mutacio-clj) (ADR 0016), and this task is
+MC-0001 there.
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
 
